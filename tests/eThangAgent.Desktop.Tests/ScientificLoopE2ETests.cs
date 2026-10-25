@@ -60,7 +60,8 @@ public class ScientificLoopE2ETests
     Assert.Contains("prediction 1 (hypothesis 1): A recorded verdict closes the prediction.",
         openContent, StringComparison.Ordinal);
 
-    string closedContent = E2E.GetLastToolMessage(host.Mock.RequestBodies[2]);
+    string closedContent = E2E.WithoutExecAnnotations(
+        E2E.GetLastToolMessage(host.Mock.RequestBodies[2]));
     // The exec program joins four results with '|'. Splitting pins WHICH segment satisfies
     // each assertion, so a passing check can never ride a neighbouring segment's text.
     string[] segments = closedContent.Split('|');

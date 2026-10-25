@@ -3,5 +3,6 @@
     <ProjectReference Include="../../src/eThangAgent.Roslyn.ACL/eThangAgent.Roslyn.ACL.csproj" />
     <ProjectReference Include="../../src/eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
     <ProjectReference Include="../../src/eThangAgent.Capability.Domain/eThangAgent.Capability.Domain.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
   </ItemGroup>
 </Project>

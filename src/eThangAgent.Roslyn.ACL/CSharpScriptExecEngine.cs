@@ -14,11 +14,17 @@ using Microsoft.CodeAnalysis.Scripting;
 namespace eThangAgent.Roslyn.ACL;
 
 public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
-    Func<string>? workspaceRoot = null, Func<IVerificationLedger>? verificationSink = null) : IExecEngine
+    Func<string>? workspaceRoot = null, Func<IVerificationLedger>? verificationSink = null,
+    IWorkspaceSnapshotAccess? snapshots = null) : IExecEngine
 {
   private readonly Func<ICapabilityRegistry> _registry = registry ?? throw new ArgumentNullException(nameof(registry));
   private readonly Func<string> _workspaceRoot = workspaceRoot ?? ThrowMissingWorkspace;
   private readonly Func<IVerificationLedger>? _verificationSink = verificationSink;
+
+  // The change report (issue #283). Optional: a host that supplies no snapshot seam
+  // produces byte-identical results to before, so every existing fake and test host
+  // keeps its exact contract.
+  private readonly IWorkspaceSnapshotAccess? _snapshots = snapshots;
 
   private static readonly ScriptOptions ScriptOpts = ScriptOptions.Default
       .AddImports("System", "System.IO", "System.Linq",
@@ -27,8 +33,9 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       .AddReferences(typeof(ScriptGlobals).Assembly);
 
   public CSharpScriptExecEngine(ICapabilityRegistry registry,
-      Func<string>? workspaceRoot = null, Func<IVerificationLedger>? verificationSink = null)
-      : this(() => registry, workspaceRoot, verificationSink) { }
+      Func<string>? workspaceRoot = null, Func<IVerificationLedger>? verificationSink = null,
+      IWorkspaceSnapshotAccess? snapshots = null)
+      : this(() => registry, workspaceRoot, verificationSink, snapshots) { }
 
   /// <summary>Executes against the ambient workspace identity when the host supplies
   ///     none. The scripts' globals must name the agent's own workspace root; without
@@ -89,6 +96,12 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     ScriptGlobals globals = BuildGlobals(program, cts);
     Script<object> script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));
 
+    // Pre-run snapshot (issue #283): the BEFORE half of the change report. Taken before
+    // BeginCapture so the report describes the program's effects only. A host with no
+    // snapshot seam, or a workspace that cannot be walked, yields null and the report is
+    // simply absent - never a fabricated 'changed nothing'.
+    WorkspaceSnapshot? before = await CaptureAsync(ct).ConfigureAwait(false);
+
     globals.BeginCapture();
     AssemblyLoadContext? alc = null;
     try
@@ -127,7 +140,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       // classify the outcome rather than trusting the completion shape.
       ct.ThrowIfCancellationRequested();
 
-      return CompletedResult(returnValue, globals, launchDirectory);
+      WorkspaceChangeSet? changes = await DiffAsync(before, ct).ConfigureAwait(false);
+      return CompletedResult(returnValue, globals, launchDirectory, changes);
     }
     catch (OperationCanceledException)
     {
@@ -270,7 +284,49 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     return await scheduled.ConfigureAwait(false);
   }
 
-  private ExecRunResult CompletedResult(object? returnValue, ScriptGlobals globals, string launchDirectory)
+  /// <summary>The BEFORE snapshot, or null when the host supplied no seam or the tree
+  ///     could not be read. Cancellation is honoured so a stopped run does not pay for a
+  ///     walk it will never report.</summary>
+  private async Task<WorkspaceSnapshot?> CaptureAsync(CancellationToken ct)
+  {
+    if (_snapshots is null)
+    {
+      return null;
+    }
+
+    try
+    {
+      return await _snapshots.CaptureAsync(_workspaceRoot(), ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+      throw;
+    }
+    // Named decision (CA1031): a snapshot fault must never fail the run that produced
+    // it - the program already ran, and its output is worth more than the report.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      return null;
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>The AFTER snapshot diffed against <paramref name="before"/>, or null when
+  ///     either half is unavailable.</summary>
+  private async Task<WorkspaceChangeSet?> DiffAsync(WorkspaceSnapshot? before, CancellationToken ct)
+  {
+    if (before is null)
+    {
+      return null;
+    }
+
+    WorkspaceSnapshot? after = await CaptureAsync(ct).ConfigureAwait(false);
+    return after is null ? null : before.DiffTo(after);
+  }
+
+  private ExecRunResult CompletedResult(object? returnValue, ScriptGlobals globals,
+      string launchDirectory, WorkspaceChangeSet? changes)
   {
     List<string> outputLines = [.. globals.OutputLines];
     if (returnValue is not null and not ScriptGlobals)
@@ -290,7 +346,7 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     string output = string.Join("\n", outputLines);
     return new ExecRunResult(ExecRunStatus.Completed, output, [],
         NestedDispatchCount: globals.NestedDispatchCount,
-        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory, Changes: changes);
   }
 
   private ExecRunResult FaultResult(Exception ex, ScriptGlobals globals, string launchDirectory)

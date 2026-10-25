@@ -290,6 +290,20 @@ internal static class E2E
     return last;
   }
 
+  /// <summary>Strips the exec change-report annotation (issue #283) from a tool result,
+  ///     leaving the program's own output. The annotation is harness METADATA appended to
+  ///     every exec result, so a test asserting on the program's output must not see it -
+  ///     exactly as it must not see the pre-existing workspace note. Tests that are ABOUT
+  ///     the annotation assert on it directly instead of using this.</summary>
+  public static string WithoutExecAnnotations(string toolResult)
+  {
+    ArgumentNullException.ThrowIfNull(toolResult);
+    string[] kept = [.. toolResult
+        .Split('\n')
+        .Where(line => !line.StartsWith("[exec: ", StringComparison.Ordinal))];
+    return string.Join("\n", kept);
+  }
+
   /// <summary>Decodes one function_call_output item's output text: a flat string output,
   ///     or the concatenated input_text parts when the result rode an input-part array.</summary>
   private static bool TryGetToolOutputText(JsonElement item, [NotNullWhen(true)] out string? text)

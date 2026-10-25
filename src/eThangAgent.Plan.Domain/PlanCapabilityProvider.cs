@@ -14,7 +14,8 @@ namespace eThangAgent.PlanDomain;
 ///     session id as a lazy Func (composition passes
 ///     <c>(() => sp.GetRequiredService&lt;RootSessionIdentity&gt;().Id?.ToString())</c>), so a
 ///     child's create/add stamps the owning ROOT session, never the child.</summary>
-public sealed class PlanCapabilityProvider(PlanService service, Func<string?> sessionId)
+public sealed class PlanCapabilityProvider(PlanService service, Func<string?> sessionId,
+    IPlanCompletionGate? completionGate = null)
     : ICapabilityProvider
 {
   public const string ProviderId = "plan";
@@ -31,10 +32,16 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   private const string VersionConflictCode = "VersionConflict";
   private const string InvalidTransitionCode = "InvalidTransition";
 
+  /// <summary>The typed code a completion refused for want of a fresh gate carries
+  ///     (issue #283). Distinct from InvalidTransition so a caller can tell 'your steps
+  ///     are unfinished' from 'your gate is not current'.</summary>
+  public const string CompletionGateCode = "CompletionGateNotFresh";
+
   private static readonly HashSet<string> StepAllowed = new(StringComparer.Ordinal) { Title, Detail, TodoId };
 
   private readonly PlanService _service = service ?? throw new ArgumentNullException(nameof(service));
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
+  private readonly IPlanCompletionGate? _completionGate = completionGate;
 
   public string Id => ProviderId;
 
@@ -242,6 +249,16 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       return Gutter(plan.Error);
     }
 
+    // The completion gate (issue #283) runs BEFORE the transition, so a refusal leaves
+    // the stored status untouched - the plan stays Active and the work stays open.
+    // Abandoned is deliberately never gated: it is the named exit every refusal points
+    // at, and gating it would trap a user in a plan they want to stop.
+    if (target == PlanStatus.Completed
+        && await CompletionGateRefusalAsync().ConfigureAwait(false) is { } refusal)
+    {
+      return refusal;
+    }
+
     Result<PlanSetStatusResult> saved = await _service.SetStatusAsync(
         id, target, plan.Value.Version, DateTimeOffset.UtcNow).ConfigureAwait(false);
     if (!saved.IsSuccess)
@@ -262,6 +279,20 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     }
 
     return CapabilityInvocationResult.Ok(line.ToString());
+  }
+
+  /// <summary>Asks the completion gate; null means 'proceed'. A plan provider with no
+  ///     gate wired behaves exactly as before, so every existing caller and test keeps
+  ///     its contract.</summary>
+  private async Task<CapabilityInvocationResult?> CompletionGateRefusalAsync()
+  {
+    if (_completionGate is null)
+    {
+      return null;
+    }
+
+    (bool allowed, string message) = await _completionGate.EvaluateAsync().ConfigureAwait(false);
+    return allowed ? null : Gutter(new DomainError(CompletionGateCode, message));
   }
 
   // ---- rendering -----------------------------------------------------------

@@ -156,7 +156,7 @@ public class DesktopAgentCapabilityE2ETests
 
     // (a) The spawn result reached the transcript as a running line — non-blocking:
     //     no report text, and none of the removed completed-gutter furniture.
-    string spawnResult = E2E.GetLastToolMessage(parentBodies[1]);
+    string spawnResult = E2E.WithoutExecAnnotations(E2E.GetLastToolMessage(parentBodies[1]));
     Assert.Matches("^id=[0-9a-fA-F-]{36} status=running$", spawnResult.Trim());
     Assert.DoesNotContain("child report done", spawnResult, StringComparison.Ordinal);
     Assert.DoesNotContain("--- report ---", spawnResult, StringComparison.Ordinal);

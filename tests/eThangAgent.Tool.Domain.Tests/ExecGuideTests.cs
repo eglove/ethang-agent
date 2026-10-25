@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.22", ExecGuide.Version);
+    Assert.Equal("2.23", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -20,10 +20,21 @@ public class ExecGuideTests
     int calling = ExecGuide.Text.IndexOf("### Calling tools", StringComparison.Ordinal);
     int shell = ExecGuide.Text.IndexOf("### Running external commands", StringComparison.Ordinal);
     Assert.True(calling >= 0 && shell > calling, "Calling tools section missing");
+    Assert.True(calling >= 0 && shell > calling, "Calling tools section missing");
     string section = ExecGuide.Text[calling..shell];
 
     Assert.Contains("plan.create", section, StringComparison.Ordinal);
     Assert.Contains("[plan] created #", section, StringComparison.Ordinal);
+  }
+
+  // Issue #283: a run reports what it CHANGED, and the zero case is the one that
+  // catches a no-op replace - so the guide must teach both shapes and say why zero matters.
+  [Fact]
+  public void Guide_TeachesTheChangeReport()
+  {
+    Assert.Contains("[exec: modified 0 workspace files", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("[exec: modified 1 workspace file", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("re-read the file and retry with the `edit` tool", ExecGuide.Text, StringComparison.Ordinal);
   }
 
   // search_files was deleted (grand plan: exec scripts search the workspace directly);

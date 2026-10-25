@@ -140,11 +140,16 @@ public class StateServiceTests
     Assert.Contains("Missing transition: tr-missing.", report.BlockingReasons.Single(), StringComparison.Ordinal);
   }
 
+  // goal/check holds SHELL COMMANDS, not C# expressions (issue #283), so this test now
+  // asserts the runner seam rather than the evidence runner. The full command semantics
+  // live in CheckGoalCommandTests; what matters here is that the run stays REPORT-ONLY -
+  // no events, no transitions, no certification side effects.
   [Fact]
   public async Task CheckGoal_RunsCommands_ReportOnly()
   {
     FakeStateStore store = new();
-    StateService service = Create(store, new FakeRunner(_ => new EvidenceResult("cmd", true, "")));
+    StateService service = new(store, new FakeRunner(_ => new EvidenceResult("cmd", true, "")),
+        new StubWorkspace(), goalRunner: new AlwaysPassGoalRunner());
     _ = await service.SetAsync("goal/check", "[\"Write-Output ok\"]", null, ct: TestContext.Current.CancellationToken);
 
     CertificationReport report = await service.CheckGoalAsync(TestContext.Current.CancellationToken);
@@ -152,6 +157,13 @@ public class StateServiceTests
     Assert.True(report.Certified);
     Assert.Empty(store.EventKinds);
     Assert.Empty(store.Transitions);
+  }
+
+  private sealed class AlwaysPassGoalRunner : IGoalCommandRunner
+  {
+    public Task<EvidenceResult> RunAsync(string workingDirectory, string command,
+        CancellationToken ct = default) =>
+        Task.FromResult(new EvidenceResult(command, true, string.Empty));
   }
 
   [Fact]

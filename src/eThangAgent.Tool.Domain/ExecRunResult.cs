@@ -7,7 +7,8 @@ public sealed record ExecRunResult(
     string? ErrorMessage = null,
     int NestedDispatchCount = 0,
     string? WorkspaceRoot = null,
-    string? LaunchDirectory = null)
+    string? LaunchDirectory = null,
+    WorkspaceChangeSet? Changes = null)
 {
   public static ExecRunResult Completed(string output, int nestedDispatchCount = 0)
       => new(ExecRunStatus.Completed, output, [], NestedDispatchCount: nestedDispatchCount);

@@ -301,7 +301,8 @@ public static class AgentComposition
           new GitCommitTool(sp.GetRequiredService<IPathResolver>(),
               sp.GetRequiredService<IGitCommitAccess>(),
               sp.GetRequiredService<ICommitStyleProvider>(),
-              sp.GetRequiredService<VerificationGate>()),
+              sp.GetRequiredService<VerificationGate>(),
+              sp.GetRequiredService<ICommitCompletionNotice>()),
           "Commit the current index with a validated conventional or gitmoji message."),
       new AgentToolBinding(
           new WorktreeTool(sp.GetRequiredService<IPathResolver>(),
@@ -397,6 +398,22 @@ public static class AgentComposition
                       .GetAsync(SessionHandoffPreferences.Key, ct: default).GetAwaiter().GetResult()));
         })
         .AddSingleton<ICommitStyleProvider, AppPreferenceCommitStyleProvider>()
+        // Content-true workspace snapshots (issue #283): the exec change report and the
+        // completion gate's freshness check both ask 'is the tree the same as it was'.
+        // Over the FILESYSTEM, never git - the harness does not assume the workspace is
+        // a repository, and build output is gitignored anyway.
+        .AddSingleton<IWorkspaceSnapshotAccess, DirectWorkspaceSnapshotAccess>()
+        .AddSingleton<CompletionGate>()
+        // The Plan Domain asks the completion question through its own port; the answer
+        // comes from the Tool Domain's gate over the State Domain's two keys. Only the
+        // composition root may know all three.
+        .AddSingleton<IPlanCompletionGate>(sp => new StateServicePlanCompletionGate(
+            sp.GetRequiredService<CompletionGate>(),
+            sp.GetRequiredService<IStateService>(),
+            () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
+                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<ICommitCompletionNotice>(sp => new PlanCompletionGateCommitNotice(
+            sp.GetRequiredService<IPlanCompletionGate>()))
         .AddSingleton<DirectShellAccess>()
         .AddSingleton<IShellCommandAccess>(sp => sp.GetRequiredService<DirectShellAccess>())
         .AddSingleton<ICommandRunStore>(sp => new SqliteCommandRunStore(
@@ -710,11 +727,21 @@ public static class AgentComposition
         })
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
+        // StateService's goal runner and snapshot seam are what make checkgoal run the
+        // project's COMMANDS and record a freshness-bearing outcome (issue #283).
+        .AddSingleton(_ => GoalRunnerOptions.Default)
+        .AddSingleton<IGoalCommandRunner>(sp => new ShellGoalCommandRunner(
+            sp.GetRequiredService<IShellCommandAccess>(),
+            sp.GetRequiredService<GoalRunnerOptions>()))
         .AddSingleton<IStateService, StateService>()
         .AddSingleton<StateCapabilityProvider>()
         .AddSingleton(sp => new PlanCapabilityProvider(
             sp.GetRequiredService<PlanService>(),
-            () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()))
+            () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
+            // The completion gate (issue #283): 'Completed' is a completion claim, so it
+            // requires a gate that passed since the newest workspace change. Abandoned is
+            // never gated - it is the named exit every refusal points at.
+            sp.GetRequiredService<IPlanCompletionGate>()))
         .AddSingleton<MemoryCapabilityProvider>();
   }
 
@@ -792,7 +819,11 @@ public static class AgentComposition
                 ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
             // Verification sink (spec #24): every completed Shell run lands in the
             // session's ledger; resolved per execution like the workspace.
-            () => sp.GetRequiredService<IVerificationLedger>()))
+            () => sp.GetRequiredService<IVerificationLedger>(),
+            // The change report (issue #283): the engine snapshots the workspace before
+            // and after every run and reports what actually changed. The ACL walks the
+            // filesystem, never git - the harness does not assume a repository exists.
+            sp.GetRequiredService<IWorkspaceSnapshotAccess>()))
         .AddSingleton<ITool>(sp => new ExecTool(
             sp.GetRequiredService<IExecEngine>(),
             sp.GetRequiredService<ExecOptions>(),

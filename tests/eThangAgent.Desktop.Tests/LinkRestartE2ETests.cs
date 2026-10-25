@@ -116,7 +116,7 @@ public class LinkRestartE2ETests
       }
 
       Assert.True(parentBodies.Count >= 4, "parent lost its spawn receipt");
-      string spawnReceipt = E2E.GetLastToolMessage(parentBodies[3]);
+      string spawnReceipt = E2E.WithoutExecAnnotations(E2E.GetLastToolMessage(parentBodies[3]));
       Assert.Matches("^id=[0-9a-fA-F-]{36} status=running$", spawnReceipt.Trim());
       Guid childId = Guid.Parse(spawnReceipt[3..39]);
 

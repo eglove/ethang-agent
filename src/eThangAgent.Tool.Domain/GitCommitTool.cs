@@ -4,16 +4,19 @@ using eThangAgent.ToolDomain.Verification;
 namespace eThangAgent.ToolDomain;
 
 public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commits,
-    ICommitStyleProvider styleProvider, VerificationGate? gate = null) : ITool, IWorkspaceScopedTool
+    ICommitStyleProvider styleProvider, VerificationGate? gate = null,
+    ICommitCompletionNotice? completionNotice = null) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IGitCommitAccess _commits = commits ?? throw new ArgumentNullException(nameof(commits));
   private readonly ICommitStyleProvider _styleProvider = styleProvider ?? throw new ArgumentNullException(nameof(styleProvider));
   private readonly VerificationGate? _gate = gate;
+  private readonly ICommitCompletionNotice? _completionNotice = completionNotice;
 
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
-      => new GitCommitTool(new WorkspacePathResolver(workspaceRoot), _commits, _styleProvider, _gate);
+      => new GitCommitTool(new WorkspacePathResolver(workspaceRoot), _commits, _styleProvider, _gate,
+          _completionNotice);
 
   public ToolDefinition Definition { get; } = new(
       "git_commit",
@@ -132,8 +135,25 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
 
     GitCommitOutcome o = committed.Value;
 
+    // The completion gate is ADVISORY here (issue #283): committing work in progress is
+    // legitimate, and a hard refusal at the commit would push toward --no-verify and
+    // other bypasses. The plan's set-status is where the same fact is strict.
+    string? gateNotice = _completionNotice is null
+        ? null
+        : await _completionNotice.NoticeAsync(ct).ConfigureAwait(false);
+
     string content = $"[git-commit {o.Hash}] committed on {o.Branch}\n{o.Message}";
-    return new ToolResult(gateWarning is null ? content : content + gateWarning + "\n", false);
+    if (gateWarning is not null)
+    {
+      content += gateWarning + "\n";
+    }
+
+    if (gateNotice is not null)
+    {
+      content += gateNotice + "\n";
+    }
+
+    return new ToolResult(content, false);
   }
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);

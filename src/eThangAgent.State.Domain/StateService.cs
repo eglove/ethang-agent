@@ -1,10 +1,12 @@
 using System.Text.Json;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.StateDomain;
 
 public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
-    IWorkspaceContext workspace, IStateChangeBus? changes = null) : IStateService
+    IWorkspaceContext workspace, IStateChangeBus? changes = null,
+    IGoalCommandRunner? goalRunner = null, IWorkspaceSnapshotAccess? snapshots = null) : IStateService
 {
   public const string HeadNs = "current";
   public const string HeadName = "head";
@@ -12,6 +14,12 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
   public const string CertificateName = "certificate";
   public const string GoalNs = "goal";
   public const string GoalName = "check";
+
+  /// <summary>Where the last goal/check run leaves its outcome (digest, pass/fail, time).
+  ///     Written here, read by the completion gate - see CompletionGate.LastCheckKey.</summary>
+  public const string LastGoalRunNs = "goal";
+  public const string LastGoalRunName = "lastcheck";
+
   private const string CurrentPrefix = "current";
   private const string VersionConflict = "VersionConflict";
 
@@ -19,6 +27,8 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
   private readonly IEvidenceRunner _evidence = evidence ?? throw new ArgumentNullException(nameof(evidence));
   private readonly IWorkspaceContext _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
   private readonly IStateChangeBus? _changes = changes;
+  private readonly IGoalCommandRunner? _goalRunner = goalRunner;
+  private readonly IWorkspaceSnapshotAccess? _snapshots = snapshots;
 
   public async Task<Result<string>> GetAsync(string key, CancellationToken ct = default)
   {
@@ -306,6 +316,15 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
               JsonSerializer.Serialize(new { reasons = blocking }), ct).ConfigureAwait(false);
   }
 
+  /// <summary>Runs the project's own check commands and reports pass/fail.
+  ///     <para>THESE ARE SHELL COMMAND LINES, not C# expressions (issue #283): a
+  ///     goal/check entry is <c>dotnet build</c> or <c>go test ./...</c>, and running one
+  ///     through the evidence runner compiled it as C# and failed every time. The
+  ///     harness still knows nothing about linters - it runs strings the PROJECT stored.</para>
+  ///     <para>Every run RECORDS its outcome at <c>goal/lastcheck</c>, together with the
+  ///     workspace digest at the moment it ran, which is what makes the completion gate's
+  ///     freshness question answerable. Recording is best-effort: a store fault never
+  ///     turns a passing gate into a failing one.</para></summary>
   public async Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)
   {
     StateKeyValue? goal = await _store.GetKeyAsync(_workspace.WorkspaceId, GoalNs, GoalName, ct).ConfigureAwait(false);
@@ -324,18 +343,64 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
       return new CertificationReport(false, true, [],
           ["goal/check is not a valid JSON array of commands."]);
     }
+
+    if (commands.Count == 0)
+    {
+      return new CertificationReport(false, true, [], ["goal/check holds no commands."]);
+    }
+
+    if (_goalRunner is null)
+    {
+      return new CertificationReport(false, true, [],
+          ["No goal command runner is wired; goal/check cannot be executed."]);
+    }
+
     List<EvidenceResult> results = [];
     List<string> blocking = [];
     foreach (string command in commands)
     {
-      EvidenceResult result = await _evidence.RunAsync(command, ct).ConfigureAwait(false);
+      EvidenceResult result = await _goalRunner.RunAsync(_workspace.WorkspaceId, command, ct).ConfigureAwait(false);
       results.Add(result);
       if (!result.Confirmed)
       {
         blocking.Add($"'{command}' — {result.Detail}");
       }
     }
-    return new CertificationReport(blocking.Count == 0, blocking.Count > 0, results, blocking);
+
+    bool passed = blocking.Count == 0;
+    await RecordGoalRunAsync(passed, ct).ConfigureAwait(false);
+    return new CertificationReport(passed, !passed, results, blocking);
+  }
+
+  /// <summary>Records the run's outcome for the completion gate. Best-effort by design:
+  ///     the gate's own result is already decided, and a store fault must not report a
+  ///     failing gate the project does not have. The digest is null when no snapshot seam
+  ///     is wired, which the gate reads as 'unverifiable' rather than 'fresh'.</summary>
+  private async Task RecordGoalRunAsync(bool passed, CancellationToken ct)
+  {
+    string? digest = _snapshots is null
+        ? null
+        : (await _snapshots.CaptureAsync(_workspace.WorkspaceId, ct).ConfigureAwait(false)).Digest;
+
+    string value = JsonSerializer.Serialize(new
+    {
+      digest,
+      passed,
+      ranAt = DateTimeOffset.UtcNow,
+    });
+
+    // Named decision (CA1031): a failed record write is not a failed gate run.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      _ = await _store.SetKeyCasAsync(_workspace.WorkspaceId, LastGoalRunNs, LastGoalRunName,
+          value, null, ct).ConfigureAwait(false);
+    }
+    catch (Exception)
+    {
+      // Best-effort: the report above already carries the outcome.
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
   }
 
   public async Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default)

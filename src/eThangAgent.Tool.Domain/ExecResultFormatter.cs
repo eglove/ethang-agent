@@ -34,6 +34,7 @@ public static class ExecResultFormatter
           $"[exec: empty output — {run.NestedDispatchCount} nested tool call(s) ran; if one was a bare statement, its result was discarded. Capture it: var r = Tools.Invoke(...); then use or return r.]");
     }
 
+    AppendChangeAnnotation(sb, run);
     AppendWorkspaceAnnotation(sb, run, program);
 
     foreach (string line in run.ErrorLines)
@@ -50,6 +51,27 @@ public static class ExecResultFormatter
     }
 
     return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0, title);
+  }
+
+  /// <summary>The change report (issue #283): what the program actually changed in the
+  ///     workspace, as a fact rather than advice. A run that changed nothing says so
+  ///     explicitly - that is the case the report exists for, because a read-modify-write
+  ///     whose anchor did not match writes the file back unchanged and used to report
+  ///     success. Absent entirely when the host supplied no snapshot seam, so a legacy
+  ///     host's output is byte-identical to before.</summary>
+  private static void AppendChangeAnnotation(StringBuilder sb, ExecRunResult run)
+  {
+    if (run.Changes is null)
+    {
+      return;
+    }
+
+    if (sb.Length > 0)
+    {
+      _ = sb.Append('\n');
+    }
+
+    _ = sb.Append(run.Changes.Render());
   }
 
   /// <summary>Surfaces the workspace-vs-launch-directory distinction when the program

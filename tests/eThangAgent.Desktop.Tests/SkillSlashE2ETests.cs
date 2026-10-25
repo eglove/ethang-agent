@@ -138,7 +138,8 @@ public class SkillSlashE2ETests
           TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
 
       // The tool result is the one-line confirmation — never the body.
-      string toolResult = E2E.FindToolMessageContaining(host.Mock.RequestBodies, "[skill invoked: " + SkillName + "]");
+      string toolResult = E2E.WithoutExecAnnotations(
+          E2E.FindToolMessageContaining(host.Mock.RequestBodies, "[skill invoked: " + SkillName + "]"));
       Assert.Equal($"[skill invoked: {SkillName}] (no args)", toolResult);
 
       // The final request carries the invocation System message after the user
