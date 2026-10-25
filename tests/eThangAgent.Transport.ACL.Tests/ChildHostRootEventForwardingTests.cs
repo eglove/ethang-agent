@@ -10,7 +10,13 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     on. That is why the list stayed stale until the user switched workbench views.
 ///     <para>The property under test is the SUBSCRIPTION, not the transport: a rig with no
 ///     app attached drops wire writes by contract, so the assertion is that the root
-///     container's stream has a subscriber at all.</para></summary>
+///     container's stream has a subscriber at all.</para>
+///     <para>Deliberately narrow, and the narrowness cost a real defect (issue #281): this
+///     rig attaches the runner through <c>AttachRootRun</c>, so it proves the seam tests
+///     drive is wired and says nothing about the PRODUCTION build path or about events
+///     arriving on the app's own stream. It stayed green while every real session forwarded
+///     nothing. <c>ChildHostRootChildEventForwardingTests</c> is the end-to-end complement
+///     and is the one to extend when forwarding behavior is questioned.</para></summary>
 public class ChildHostRootEventForwardingTests
 {
   [Fact]
