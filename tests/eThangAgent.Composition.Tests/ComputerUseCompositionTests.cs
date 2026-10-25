@@ -79,12 +79,25 @@ public class ComputerUseCompositionTests
     Assert.DoesNotContain(tools.Actions, a => a.Name == "computer");
   }
 
+  /// <summary>The gate (issue #288): computer use disabled means the tool is named NOWHERE
+  ///     the model reads — not in the system prompt, and (below) not on the capability
+  ///     surface exec dispatches against. It cannot become reachable merely because it
+  ///     moved inside exec.</summary>
   [Fact]
   public void Disabled_Computer_NotInExecGuide()
   {
     using ServiceProvider services = Build(computerUse: false);
     string guide = services.GetRequiredService<ISystemPromptProvider>().Build();
     Assert.DoesNotContain("computer", guide, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Disabled_Computer_NotOn_The_Capability_Surface()
+  {
+    using ServiceProvider services = Build(computerUse: false);
+    string reference = CapabilityReferenceRenderer.Render(
+        services.GetRequiredService<Func<ICapabilityRegistry>>()());
+    Assert.DoesNotContain("computer", reference, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -109,6 +122,9 @@ public class ComputerUseCompositionTests
     using ServiceProvider services = Build(computerUse: true);
     string guide = services.GetRequiredService<ISystemPromptProvider>().Build();
     Assert.Contains("computer", guide, StringComparison.Ordinal);
+    string reference = CapabilityReferenceRenderer.Render(
+        services.GetRequiredService<Func<ICapabilityRegistry>>()());
+    Assert.Contains("computer", reference, StringComparison.Ordinal);
   }
 
   [Fact]

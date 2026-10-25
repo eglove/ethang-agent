@@ -40,7 +40,24 @@ public sealed class FilteredCapabilityRegistry(
 
   public IReadOnlyList<ProviderCapabilities> Providers => _inner.Providers;
 
+  /// <summary>Dispatch is gated too (issue #288): with exec the only top-level tool, a
+  ///     child's EVERY capability dispatch resolves here, and Resolve alone cannot carry
+  ///     the grant policy — a script that names a granted action through
+  ///     <c>Tools.Invoke</c> reaches this method directly, and a resumed/anchored surface
+  ///     can hand out a resolved capability the filter never saw. Re-checking the action
+  ///     id here makes the filter the boundary it is documented to be, so the door being
+  ///     always present costs nothing: what the child may DO is still exactly its set.</summary>
   public Task<CapabilityInvocationResult> InvokeAsync(
       ResolvedCapability capability, string jsonArguments, CancellationToken ct = default)
-      => _inner.InvokeAsync(capability, jsonArguments, ct);
+  {
+    ArgumentNullException.ThrowIfNull(capability);
+    if (!_effective.Contains(capability.Action.Name))
+    {
+      _onDenial?.Invoke(capability.Action.Name);
+      return Task.FromResult(CapabilityInvocationResult.Fail(
+          "Error [GrantViolation]: action '" + capability.Action.Name + "' is not granted to this agent."));
+    }
+
+    return _inner.InvokeAsync(capability, jsonArguments, ct);
+  }
 }

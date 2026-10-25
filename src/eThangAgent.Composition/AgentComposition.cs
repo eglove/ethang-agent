@@ -94,7 +94,7 @@ public static class AgentComposition
     wired = AddSubAgentServices(wired, providerName);
     wired = AddCapabilityServices(wired);
     wired = AddCapabilityRegistry(wired);
-    wired = AddExecAndLoopRegistry(wired, settings);
+    wired = AddExecAndLoopRegistry(wired);
     wired = AddSystemPrompts(wired, host);
     wired = AddRootAgentServices(wired, settings, providerName, defaultModel, computerAccessProvider);
     wired = AddVerificationServices(wired, settings);
@@ -361,8 +361,8 @@ public static class AgentComposition
         .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
         .AddSingleton<ISqliteFileAccess, SqliteFileAccess>()
         // MCP dispatch (issue #104): the config store over the app database, the SDK
-        // pool, and the per-workspace access provider. The mcp loop tool below is the
-        // model's single door; the definition budget stays flat (B1).
+        // pool, and the per-workspace access provider. The 'mcp' capability action is
+        // the model's single door to them; the definition budget stays flat (B1).
         .AddSingleton<IMcpServerStore>(sp => new SqliteMcpServerStore(
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<IMcpClientSessionPool, SdkMcpClientSessionFactory>()
@@ -802,9 +802,10 @@ public static class AgentComposition
         });
   }
 
-  /// <summary>The exec engine, the exec tool, and the loop's tool registry.
+  /// <summary>The exec engine, the exec tool, and the loop's tool registry — which holds
+  ///     exec and nothing else (issue #288).
   /// </summary>
-  private static IServiceCollection AddExecAndLoopRegistry(IServiceCollection wired, AgentSettings settings)
+  private static IServiceCollection AddExecAndLoopRegistry(IServiceCollection wired)
   {
     return wired
         .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
@@ -828,20 +829,22 @@ public static class AgentComposition
             sp.GetRequiredService<IExecEngine>(),
             sp.GetRequiredService<ExecOptions>(),
             sp.GetRequiredService<IExecActivitySink>()))
+        // EXEC IS THE ONLY TOP-LEVEL TOOL (issue #288). Every other capability — the
+        // file, document, database, git, skill, MCP, computer and OpenRouter tools alike —
+        // is reached as Tools.* INSIDE an exec program, through the capability registry
+        // above. The split used to be arbitrary: six tools were reachable both ways and
+        // twenty-two only inside exec, with nothing deciding which side a tool landed on,
+        // and a model that read its tool list literally called 'read' at top level and got
+        // Error [UnknownTool] for the most obvious verb in any coding task. One door, one
+        // map (ExecGuide plus the rendered action reference), no ambiguity. The image
+        // channel is what makes this possible: nested ToolResult.Images ride the exec run
+        // result (ExecRunResult.Images) and out through ExecTool, so read_image, docx
+        // extract, pdf render and computer screenshots still reach the model.
+        //
+        // The settings gate still governs: a disabled computer tool is not bound into the
+        // capability surface, so moving it inside exec can never make it reachable.
         .AddSingleton<IToolRegistry>(sp =>
-            new ToolRegistry([sp.GetRequiredService<ITool>(),
-                new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
-                new OpenRouterManagementTool(sp.GetRequiredService<IOpenRouterManagementAccess>()),
-                new ReadImageTool(ReadOnlyResolver(sp),
-                    sp.GetRequiredService<IFileSystemAccess>(),
-                    new SessionImageInputCapability(sp)),
-                new DocxTool(Resolver(sp),
-                    sp.GetRequiredService<IDocxAccess>(),
-                    new SessionImageInputCapability(sp)),
-                new PdfTool(Resolver(sp),
-                    sp.GetRequiredService<IPdfAccess>(),
-                    new SessionImageInputCapability(sp)),
-                .. ComputerLoopTools(sp, settings)]));
+            new ToolRegistry([sp.GetRequiredService<ITool>()]));
   }
 
   /// <summary>The composite system prompt: skills bootstrap and listing, the static identity, the
@@ -1269,6 +1272,10 @@ public static class AgentComposition
     // tool stays root-only; a child's dispatch fails GrantViolation via the filtered
     // registry.
     names = names.Where(n => !string.Equals(n, "new_session", StringComparison.Ordinal));
+    // THE DOOR (issue #288): exec is the only top-level tool, so it rides the surface the
+    // spawn path grants from. Without it a narrowed child would hold a grant set it cannot
+    // reach - every capability lives behind a door the filter had closed.
+    names = names.Append(ToolGrantPolicy.DoorTool);
     return [.. names];
   }
 
@@ -1311,22 +1318,6 @@ public static class AgentComposition
         "Control the desktop (computer use): observe, click, type, and paste in apps.");
   }
 
-
-  /// <summary>The loop-registry computer tools (task 19): the 'computer' tool joins the
-  ///     loop's IToolRegistry when enabled, so its tool result (and any screenshot image part)
-  ///     enters the conversation as a first-class tool message on the wire.</summary>
-  private static IEnumerable<ITool> ComputerLoopTools(IServiceProvider sp, AgentSettings settings)
-  {
-    if (!settings.ComputerUse)
-    {
-      yield break;
-    }
-
-    yield return new ComputerTool(
-        sp.GetRequiredService<IComputerAccessProvider>().ForWorkspace(
-            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)!,
-        new SessionImageInputCapability(sp));
-  }
 
   /// <summary>The capability providers every agent surface shares, parameterized by the
   ///     agent-tools provider so root and child surfaces differ only in human actions.</summary>

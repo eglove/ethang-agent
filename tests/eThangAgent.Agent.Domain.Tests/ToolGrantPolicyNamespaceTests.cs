@@ -144,6 +144,8 @@ public class ToolGrantPolicyNamespaceTests
     });
 
     IReadOnlySet<string> effective = policy.EffectiveTools(Parent);
-    Assert.Equal(new HashSet<string>(StringComparer.Ordinal) { "web_fetch" }, effective);
+    // Plus the door (issue #288): exec is the only top-level tool, so a narrowed set that
+    // omitted it would grant nothing; the parent holds it, so this is not a widening.
+    Assert.Equal(new HashSet<string>(StringComparer.Ordinal) { "web_fetch", "exec" }, effective);
   }
 }

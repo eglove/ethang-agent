@@ -48,7 +48,15 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
     written into the workspace under `.ethang/images/` (format sniffed from the bytes, 20 MB cap)
     and rendered inline in the transcript, so the picture the user paid for is a file they can
     open rather than a dangling reference to a path on the provider's machine
-- `exec` tool — in-process C# scripting via Roslyn with artifact capture and structured output
+- **`exec` is the only top-level tool** — in-process C# scripting via Roslyn with artifact
+  capture and structured output. Every other capability below (`read`, `write`, `edit`,
+  `docx`, `pdf`, `read_image`, `computer`, `mcp`, `web_fetch`, git, skills, plans, state,
+  memory, subagents, …) is called as `Tools.<name>(...)` **inside** an exec program, so the
+  model has one door to learn instead of an arbitrary split with the tool list;
+  `Tools.List()` and `Tools.Describe("<name>")` are the discovery surface, and the exec
+  guide in the system prompt is the map. Images a nested tool attaches (a read_image file,
+  a docx extraction, a rendered PDF page, a computer screenshot) ride the exec result back
+  to the model as image parts, and the result states how many arrived
 - Every tool call carries a mandatory `timeoutSeconds` budget (1–3600): a call exceeding its
   budget is stopped and returned as `Error [ToolTimeout]` for self-correction; the agent's
   tool loop itself runs uncapped until the model answers without tool calls, with per-turn

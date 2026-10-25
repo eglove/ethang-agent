@@ -24,6 +24,17 @@ public sealed class ToolGrantPolicy
   public const string AllowKey = "tool.allow";
   public const string DenyKey = "tool.deny";
 
+  /// <summary>The ONE top-level tool (issue #288): exec is the only door, so a grant set
+  ///     that omits it leaves the child with no way to reach anything — every other
+  ///     capability is a <c>Tools.*</c> dispatch INSIDE an exec program. A narrowing
+  ///     grant (an allow list, or a deny list) therefore always keeps the door: without
+  ///     it the grant does not narrow the surface, it removes it, and the child fails
+  ///     every tool call with UnknownTool while its granted actions sit unreachable
+  ///     behind a door it cannot open. The door is not a capability of its own — what the
+  ///     child may DO is still decided by the grant set, enforced at dispatch by
+  ///     FilteredToolRegistry and FilteredCapabilityRegistry.</summary>
+  public const string DoorTool = "exec";
+
   /// <summary>The suffix marking a namespace pattern entry.</summary>
   private const string PatternSuffix = ".*";
 
@@ -50,8 +61,27 @@ public sealed class ToolGrantPolicy
       RemoveDenied(effective, deny, ExplicitRoots(allow, parentEffective));
     }
 
+    // The single door survives an allow list that merely forgets it (issue #288): a set
+    // without it grants nothing at all, because every capability is reached from inside
+    // exec. Two rules bound this so it can never become a silent widening or a clamp:
+    //  - the door is carried only when the PARENT holds it (a parent without exec keeps a
+    //    child without exec, exactly as the narrowing rule requires), and
+    //  - an EXPLICIT deny of the door is honored: the requester named it, and overriding
+    //    a deliberate deny would be the clamp this policy exists to forbid.
+    if (parentEffective.Contains(DoorTool) && !ExplicitDeniesDoor())
+    {
+      _ = effective.Add(DoorTool);
+    }
+
     return effective;
   }
+
+  /// <summary>Whether the deny list names the door explicitly (exact id, or a namespace
+  ///     pattern covering it). An allow list that omits exec is an omission to repair; a
+  ///     deny entry naming it is a decision to honor.</summary>
+  private bool ExplicitDeniesDoor() =>
+      _grants.TryGetValue(DenyKey, out string? deny) && deny is not null
+      && ParseList(deny).Any(entry => IsUnder(DoorTool, entry));
 
   /// <summary>Spawn validation (D9): every allowed entry must be within the parent's
   ///     effective reach — exact ids by containment, namespace patterns by nested-prefix

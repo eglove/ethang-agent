@@ -27,13 +27,15 @@ public class ReadImageCompositionTests
         .BuildServiceProvider();
   }
 
+  /// <summary>Issue #288: exec is the only top-level tool, so 'read_image' is NOT on the
+  ///     loop registry. It stays reachable as Tools.read_image inside exec, and the image
+  ///     it attaches rides the exec result (pinned end to end by ExecImageChannelTests).</summary>
   [Fact]
-  public void Loop_Registry_Carries_The_ReadImage_Tool()
+  public void Loop_Registry_Does_Not_Carry_The_ReadImage_Tool()
   {
     using ServiceProvider services = Build();
     IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    ReadImageTool tool = Assert.IsType<ReadImageTool>(registry.Find("read_image")!);
-    Assert.Equal("read_image", tool.Definition.Name);
+    Assert.Null(registry.Find("read_image"));
   }
 
   [Fact]
@@ -44,11 +46,13 @@ public class ReadImageCompositionTests
     Assert.True(surface().Resolve("read_image").IsSuccess);
   }
 
+  /// <summary>The scoped-tool contract lives on the capability surface now: re-rooting
+  ///     an anchored child's exec surface is what makes Tools.read_image resolve at the anchor.</summary>
   [Fact]
   public void ReadImage_Tool_IsWorkspaceScoped()
   {
     using ServiceProvider services = Build();
-    IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    Assert.True(registry.Find("read_image") is IWorkspaceScopedTool);
+    AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
+    Assert.Contains(tools.RootedAt(Path.GetTempPath()).Actions, a => a.Name == "read_image");
   }
 }

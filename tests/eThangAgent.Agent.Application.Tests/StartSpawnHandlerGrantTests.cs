@@ -55,6 +55,10 @@ public class StartSpawnHandlerGrantTests
     Assert.NotNull(saved.Contract);
     SpawnContract decoded = SpawnContract.Decode(saved.Contract);
     Assert.NotNull(decoded.DecodedEffectiveTools);
+    // The door (issue #288) is repaired only where an ALLOW list merely omitted exec; here
+    // the request DENIED exec explicitly, and a deliberate deny is honored - so the child
+    // reaches none of its granted actions. That is what denying the only door means, and
+    // overriding it would be the clamp the grant policy forbids.
     Assert.Equal(new HashSet<string>(StringComparer.Ordinal) { "web_fetch", "read" },
         decoded.DecodedEffectiveTools);
   }
@@ -128,6 +132,7 @@ public class StartSpawnHandlerGrantTests
     Assert.True(result.IsSuccess);
     AgentRecord saved = Assert.Single(store.Saved);
     SpawnContract decoded = SpawnContract.Decode(saved.Contract!);
+    // Explicit deny of the door honored (issue #288): see the grant-policy tests.
     Assert.Equal(new HashSet<string>(StringComparer.Ordinal) { "web_fetch", "read" },
         decoded.DecodedEffectiveTools);
   }

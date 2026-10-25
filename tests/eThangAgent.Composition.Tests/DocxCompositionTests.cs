@@ -26,13 +26,15 @@ public class DocxCompositionTests
         .BuildServiceProvider();
   }
 
+  /// <summary>Issue #288: exec is the only top-level tool, so 'docx' is NOT on the loop
+  ///     registry - it is reachable as Tools.docx inside exec, where `extract`'s images
+  ///     ride the exec result's image channel.</summary>
   [Fact]
-  public void Loop_Registry_Carries_The_Docx_Tool()
+  public void Loop_Registry_Does_Not_Carry_The_Docx_Tool()
   {
     using ServiceProvider services = Build();
     IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    DocxTool tool = Assert.IsType<DocxTool>(registry.Find("docx")!);
-    Assert.Equal("docx", tool.Definition.Name);
+    Assert.Null(registry.Find("docx"));
   }
 
   [Fact]
@@ -43,11 +45,13 @@ public class DocxCompositionTests
     Assert.True(surface().Resolve("docx").IsSuccess);
   }
 
+  /// <summary>The scoped-tool contract lives on the capability surface now: re-rooting
+  ///     an anchored child's exec surface is what makes Tools.docx resolve at the anchor.</summary>
   [Fact]
   public void Docx_Tool_IsWorkspaceScoped()
   {
     using ServiceProvider services = Build();
-    IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    Assert.True(registry.Find("docx") is IWorkspaceScopedTool);
+    AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
+    Assert.Contains(tools.RootedAt(Path.GetTempPath()).Actions, a => a.Name == "docx");
   }
 }

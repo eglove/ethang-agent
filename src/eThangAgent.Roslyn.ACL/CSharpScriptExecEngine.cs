@@ -126,7 +126,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
         return new ExecRunResult(ExecRunStatus.Completed, string.Empty,
             [.. interopViolations.Select(v => v.Message)],
             NestedDispatchCount: globals.NestedDispatchCount,
-            WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+            WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory,
+            Images: globals.Images, DroppedImageCount: globals.DroppedImageCount);
       }
 
       if (CompileFailure(compilation, ct) is { } compileFailure)
@@ -208,7 +209,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
   private ExecRunResult NoEntryPointResult(ScriptGlobals globals, string launchDirectory) =>
       new(ExecRunStatus.Completed, string.Empty, [],
           NestedDispatchCount: globals.NestedDispatchCount,
-          WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+          WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory,
+          Images: globals.Images, DroppedImageCount: globals.DroppedImageCount);
 
   /// <summary>Emit-diagnostic failure result, or null when the PE image emitted
   ///     cleanly. <paramref name="pe"/> is left at position 0 for the caller.</summary>
@@ -226,7 +228,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
         .Select(d => d.GetMessage(CultureInfo.InvariantCulture))];
     return new ExecRunResult(ExecRunStatus.Completed, string.Empty, emitErrors,
         NestedDispatchCount: globals.NestedDispatchCount,
-        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory,
+        Images: globals.Images, DroppedImageCount: globals.DroppedImageCount);
   }
 
   /// <summary>Resolves the entry point exactly as ScriptBuilder.GetEntryPointRuntimeMethod
@@ -368,7 +371,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     string output = string.Join("\n", outputLines);
     return new ExecRunResult(ExecRunStatus.Completed, output, [],
         NestedDispatchCount: globals.NestedDispatchCount,
-        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory, Changes: changes);
+        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory, Changes: changes,
+        Images: globals.Images, DroppedImageCount: globals.DroppedImageCount);
   }
 
   private ExecRunResult FaultResult(Exception ex, ScriptGlobals globals, string launchDirectory)
@@ -379,7 +383,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     // [ScriptError]:" gutter — tagging here too double-wraps the surface.
     return new ExecRunResult(ExecRunStatus.Completed, output, [ex.Message],
         NestedDispatchCount: globals.NestedDispatchCount,
-        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory,
+        Images: globals.Images, DroppedImageCount: globals.DroppedImageCount);
   }
 
   /// <summary>Unloads the collectible context once the run settles: the submission's

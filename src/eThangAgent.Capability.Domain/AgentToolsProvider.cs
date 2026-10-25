@@ -61,6 +61,11 @@ public sealed class AgentToolsProvider : ICapabilityProvider
     }
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput(actionName, jsonArguments), ct).ConfigureAwait(false);
-    return new CapabilityInvocationResult(result.Content, result.IsError);
+    // The image channel (issue #288): exec is the only top-level tool, so a nested
+    // read_image / docx extract / pdf render / computer screenshot attaches its bytes
+    // HERE or nowhere - dropping them would silently kill every image path. The
+    // exec engine collects what the run's dispatches carried and ExecTool re-attaches
+    // them to its own ToolResult.
+    return new CapabilityInvocationResult(result.Content, result.IsError, result.Images);
   }
 }

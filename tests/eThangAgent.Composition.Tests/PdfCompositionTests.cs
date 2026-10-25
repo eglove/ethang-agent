@@ -26,13 +26,15 @@ public class PdfCompositionTests
         .BuildServiceProvider();
   }
 
+  /// <summary>Issue #288: exec is the only top-level tool, so 'pdf' is NOT on the loop
+  ///     registry - it is reachable as Tools.pdf inside exec, where its images ride the
+  ///     exec result's image channel.</summary>
   [Fact]
-  public void Loop_Registry_Carries_The_Pdf_Tool()
+  public void Loop_Registry_Does_Not_Carry_The_Pdf_Tool()
   {
     using ServiceProvider services = Build();
     IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    PdfTool tool = Assert.IsType<PdfTool>(registry.Find("pdf")!);
-    Assert.Equal("pdf", tool.Definition.Name);
+    Assert.Null(registry.Find("pdf"));
   }
 
   [Fact]
@@ -43,11 +45,13 @@ public class PdfCompositionTests
     Assert.True(surface().Resolve("pdf").IsSuccess);
   }
 
+  /// <summary>The scoped-tool contract lives on the capability surface now: re-rooting
+  ///     an anchored child's exec surface is what makes Tools.pdf resolve at the anchor.</summary>
   [Fact]
   public void Pdf_Tool_IsWorkspaceScoped()
   {
     using ServiceProvider services = Build();
-    IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    Assert.True(registry.Find("pdf") is IWorkspaceScopedTool);
+    AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
+    Assert.Contains(tools.RootedAt(Path.GetTempPath()).Actions, a => a.Name == "pdf");
   }
 }

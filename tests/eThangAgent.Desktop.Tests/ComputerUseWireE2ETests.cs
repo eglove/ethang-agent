@@ -3,11 +3,16 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>Task 19 E2E: with computer use enabled, the loop's computer.observe result carries
-///     the screenshot image part into the conversation, and the NEXT provider request wire
+/// <summary>Task 19 E2E: with computer use enabled, a computer.observe result carries the
+///     screenshot image part into the conversation, and the NEXT provider request wire
 ///     contains the image part (OpenRouter row: parts on the tool message). The computer access
 ///     is a FAKE (the real broker path is the ACL integration suite's job); the composition and
-///     the loop are REAL.</summary>
+///     the loop are REAL.
+///     <para>Since issue #288 the model reaches computer the only way it can — as
+///     Tools.computer INSIDE an exec program — so these tests drive the real exec engine and
+///     assert the screenshot survives the trip out: tool result -> capability result -> exec
+///     run result -> exec tool result -> message parts -> the wire. That is the whole image
+///     channel, end to end, on the real composition.</para></summary>
 [Trait("Category", "Integration")]
 public sealed class ComputerUseWireE2ETests
 {
@@ -74,6 +79,15 @@ public sealed class ComputerUseWireE2ETests
     public IComputerAccess? ForWorkspace(string workspaceRoot) => new FakeComputerAccess();
   }
 
+  /// <summary>The exec envelope a model writes to observe the desktop: the screenshot it
+  ///     attaches must ride the exec result, because exec is the only door.</summary>
+  private static string ObserveThroughExecArgs() => System.Text.Json.JsonSerializer.Serialize(new
+  {
+    timeoutSeconds = 120,
+    title = "observe the desktop",
+    program = "return Tools.computer(new { action = \"observe\", app_ref = new { name = \"fake\" } });",
+  });
+
   [Fact]
   public async Task Observe_Screenshot_ReachesNextProviderRequest()
   {
@@ -83,13 +97,7 @@ public sealed class ComputerUseWireE2ETests
     };
     _ = await harness.StartAsync(computerUse: true).ConfigureAwait(true);
 
-    string observeArgs = System.Text.Json.JsonSerializer.Serialize(new
-    {
-      timeoutSeconds = 60,
-      action = "observe",
-      app_ref = new { name = "fake" },
-    });
-    _ = harness.Mock.Returns(E2E.ToolCall("c1", "computer", observeArgs));
+    _ = harness.Mock.Returns(E2E.ToolCall("c1", "exec", ObserveThroughExecArgs()));
     _ = harness.Mock.Returns(E2E.RawCompletion("seen the screenshot"));
 
     await E2E.RunTurnAsync(harness.Vm, "look at the screen").ConfigureAwait(true);
@@ -111,13 +119,7 @@ public sealed class ComputerUseWireE2ETests
     using E2E.HostHarness harness = new() { ComputerAccessProviderFactory = () => new FakeComputerAccessProvider() };
     _ = await harness.StartAsync(computerUse: true).ConfigureAwait(true);
 
-    string observeArgs = System.Text.Json.JsonSerializer.Serialize(new
-    {
-      timeoutSeconds = 60,
-      action = "observe",
-      app_ref = new { name = "fake" },
-    });
-    _ = harness.Mock.Returns(E2E.ToolCall("c1", "computer", observeArgs));
+    _ = harness.Mock.Returns(E2E.ToolCall("c1", "exec", ObserveThroughExecArgs()));
     _ = harness.Mock.Returns(E2E.RawCompletion("seen"));
     await E2E.RunTurnAsync(harness.Vm, "look").ConfigureAwait(true);
 

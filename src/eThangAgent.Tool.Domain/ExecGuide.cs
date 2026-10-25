@@ -2,10 +2,16 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.23";
+  public const string Version = "2.24";
 
   public const string Text = """
     ## exec — writing C# programs
+
+    **exec is the only tool; everything else is `Tools.*` inside it.** There is no other
+    top-level tool, so `read`, `edit`, `write`, `web_fetch`, `mcp` and the rest are never
+    called directly — they are dispatched from inside a program. Discovering what exists is
+    `Tools.List()` and `Tools.Describe("<name>")`; the rendered action reference below is
+    the same catalog in prose.
 
     `exec` runs a C# program you write. Its parameters are `timeoutSeconds` (required
     execution budget in whole seconds, 1..3600) and `program`, a string of C# text. The script runs in-process with Roslyn scripting. The return value becomes
@@ -64,10 +70,14 @@ public static class ExecGuide
     call whose explicit value is invalid fails with
     "Error [InvalidParameterValue]: nested call '<name>': ...".
 
-    Discover tools instead of guessing:
+    Discover tools instead of guessing — the surface is not memorized, it is read:
 
         Tools.List()
         Tools.Describe("read")
+
+    An image a nested tool attaches (Tools.read_image, Tools.docx extract, Tools.pdf render,
+    a desktop screenshot) rides the exec result back to you as an image part, and the output
+    names how many arrived.
 
     Durable state (claims, evidence, certification):
 

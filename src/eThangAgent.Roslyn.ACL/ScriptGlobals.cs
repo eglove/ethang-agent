@@ -27,7 +27,9 @@ public sealed class ScriptGlobals
   private static readonly TimeSpan ShellSampleInterval = TimeSpan.FromMilliseconds(250);
 
   private readonly ConcurrentQueue<string> _outputLines = new();
+  private readonly ConcurrentQueue<ToolResultImage> _images = new();
   private int _nestedDispatchCount;
+  private int _droppedImages;
   private readonly bool _captureStdout;
   private TextWriter? _originalOut;
 
@@ -113,6 +115,38 @@ public sealed class ScriptGlobals
   ///     ScriptTools.Invoke past every pre-dispatch contract throw, so a
   ///     counted dispatch is one that actually reached the provider.</summary>
   internal void CountNestedDispatch() => Interlocked.Increment(ref _nestedDispatchCount);
+
+  /// <summary>The images the run collected from nested dispatches (issue #288), in
+  ///     dispatch order and bounded by <see cref="ImageLimits.MaxPerMessage"/>: exec is
+  ///     the only top-level tool, so this queue is the whole image surface. A dispatch
+  ///     past the bound is DROPPED rather than the run failing - the transcript then
+  ///     says how many were dropped, so a silent loss is impossible.</summary>
+  public IReadOnlyList<ToolResultImage> Images => [.. _images];
+
+  /// <summary>Counts one collected image past <see cref="ImageLimits.MaxPerMessage"/>.
+  ///     The formatter renders it as a named notice beside the served images.</summary>
+  public int DroppedImageCount => _droppedImages;
+
+  /// <summary>Collects one dispatched result's images, honoring the per-message
+  ///     bound. Called by <see cref="ScriptTools"/> after every dispatch.</summary>
+  internal void CollectImages(IReadOnlyList<ToolResultImage>? images)
+  {
+    if (images is null or { Count: 0 })
+    {
+      return;
+    }
+
+    foreach (ToolResultImage image in images)
+    {
+      if (_images.Count >= ImageLimits.MaxPerMessage)
+      {
+        _ = Interlocked.Increment(ref _droppedImages);
+        continue;
+      }
+
+      _images.Enqueue(image);
+    }
+  }
 
   /// <summary>Tool-calling surface: Tools.read(...), Tools.Invoke(...), etc.</summary>
   public ScriptTools Tools { get; }
@@ -593,6 +627,13 @@ public sealed class ScriptTools
     string stripped = PrepareArguments(document, json, budget, explicitBudget, declaresTimeout);
 
     CapabilityInvocationResult result = Dispatch(name, resolved, stripped, budget);
+
+    // The image channel (issue #288): exec is the only top-level tool, so an image a
+    // nested read_image / docx / pdf / computer call attached must ride the RUN result
+    // or it never reaches the model. Collection happens before any branching so an
+    // erroring dispatch's images are surfaced too (a partial extract is still seen).
+    _globals.CollectImages(result.Images);
+
     if (result.IsError && IsContractError(result.Content))
     {
       // A RECOVERABLE argument-shape refusal stays IN-BAND (issue #259): the tool parsed

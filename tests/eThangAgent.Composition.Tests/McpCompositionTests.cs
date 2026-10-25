@@ -27,12 +27,17 @@ public class McpCompositionTests
         .BuildServiceProvider();
   }
 
+  /// <summary>Issue #288: exec is the only top-level tool. 'mcp' is reachable as
+  ///     Tools.mcp inside exec, and its dispatch surface (the capability registry) is what
+  ///     keeps the definition budget flat - the loop registry no longer holds it.</summary>
   [Fact]
-  public void Loop_Registry_Carries_The_Mcp_Tool()
+  public void Loop_Registry_Does_Not_Carry_The_Mcp_Tool()
   {
     using ServiceProvider services = Build();
     IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    Assert.NotNull(registry.Find("mcp"));
+    Assert.Null(registry.Find("mcp"));
+    Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
+    Assert.True(surface().Resolve("mcp").IsSuccess);
   }
 
   [Fact]
@@ -93,10 +98,8 @@ public class McpCompositionTests
     ToolDomain.Mcp.IMcpServerAccess access = services.GetRequiredService<ToolDomain.Mcp.IMcpServerAccess>();
     _ = Assert.IsType<ToolDomain.Mcp.McpServerAccess>(access);
 
-    // The loop tool and the capability surface share it: both bindings resolve
-    // the same singleton, never two pools over one workspace.
-    IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    Assert.NotNull(registry.Find("mcp"));
+    // The dispatch tool resolves the same singleton the status dialog reads, never
+    // two pools over one workspace (issue #106).
     Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
     Assert.True(surface().Resolve("mcp").IsSuccess);
   }
@@ -137,16 +140,21 @@ public class McpCompositionTests
   {
     // Issue #108: the composition's mcp tool is built with the ambient grant
     // scope, so a scoped child's dispatches re-check resolved ids. The probe:
-    // set the ambient, dispatch through the tool, observe the refusal.
+    // set the ambient, dispatch through the CAPABILITY surface (exec's only door to
+    // it, issue #288), observe the refusal.
     using ServiceProvider services = Build();
-    IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
-    ToolDomain.Mcp.McpTool tool = Assert.IsType<ToolDomain.Mcp.McpTool>(registry.Find("mcp"));
+    Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
+    // Dispatch exactly as a script does (Tools.mcp -> CapabilityRegistry.InvokeAsync):
+    // that path is the ONLY door now, so it is the one the ambient scope must reach.
+    ResolvedCapability resolved = surface().Resolve("mcp").Value
+        ?? throw new InvalidOperationException("the capability surface does not carry 'mcp'");
     ToolDomain.Mcp.AmbientMcpGrantScope.Current = new ToolDomain.Mcp.McpGrantScope(
         new HashSet<string>(StringComparer.Ordinal) { "mcp", "mcp.github.*" });
     try
     {
-      ToolResult result = await tool.ExecuteAsync(new RawToolInput("mcp", GrantProbeArgs),
-          ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+      CapabilityInvocationResult result = await surface()
+          .InvokeAsync(resolved, GrantProbeArgs, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
       Assert.True(result.IsError);
       Assert.Equal("Error [GrantViolation]: tool 'mcp.gitlab.push' is not granted to this agent.", result.Content);
     }

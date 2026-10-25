@@ -35,6 +35,7 @@ public static class ExecResultFormatter
     }
 
     AppendChangeAnnotation(sb, run);
+    AppendImageAnnotation(sb, run);
     AppendWorkspaceAnnotation(sb, run, program);
 
     foreach (string line in run.ErrorLines)
@@ -50,8 +51,51 @@ public static class ExecResultFormatter
       _ = sb.Append(CultureInfo.InvariantCulture, $"exec error [ScriptError]: {line}");
     }
 
-    return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0, title);
+    return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0, title, AttachedImages(run));
   }
+
+  /// <summary>The images a nested dispatch attached (issue #288): exec is the ONLY
+  ///     top-level tool, so the run's collected images ride THIS result as image parts
+  ///     and the text says how many arrived. Without the line the model sees an
+  ///     annotation it never asked for and cannot tell whether the picture came
+  ///     through; without the parts the image surface would silently disappear along
+  ///     with the other six doors. A dispatch past the per-result bound is DROPPED and
+  ///     NAMED — a silent loss would be the same lie as never carrying them.</summary>
+  private static void AppendImageAnnotation(StringBuilder sb, ExecRunResult run)
+  {
+    if (run.Images.Count == 0 && run.DroppedImageCount == 0)
+    {
+      return;
+    }
+
+    if (sb.Length > 0)
+    {
+      _ = sb.Append('\n');
+    }
+
+    if (run.Images.Count > 0)
+    {
+      string types = string.Join(", ", run.Images.Select(i => i.MediaType).Distinct(StringComparer.Ordinal));
+      _ = sb.Append(CultureInfo.InvariantCulture,
+          $"[exec: {run.Images.Count} image(s) attached to this result as image parts — {types}]");
+    }
+
+    if (run.DroppedImageCount > 0)
+    {
+      if (run.Images.Count > 0)
+      {
+        _ = sb.Append('\n');
+      }
+
+      _ = sb.Append(CultureInfo.InvariantCulture,
+          $"[exec: {run.DroppedImageCount} image(s) DROPPED — at most {ImageLimits.MaxPerMessage} images ride one result; split the run, or view them one at a time with Tools.read_image]");
+    }
+  }
+
+  /// <summary>The images to attach: null when the run carried none, so a text-only
+  ///     result keeps its legacy shape.</summary>
+  private static IReadOnlyList<ToolResultImage>? AttachedImages(ExecRunResult run) =>
+      run.Images.Count > 0 ? run.Images : null;
 
   /// <summary>The change report (issue #283): what the program actually changed in the
   ///     workspace, as a fact rather than advice. A run that changed nothing says so
@@ -154,6 +198,9 @@ public static class ExecResultFormatter
       _ = sb.Append('\n');
       _ = sb.Append(run.Output);
     }
-    return new ToolResult(sb.ToString(), true);
+
+    // A run that faulted after an image-bearing dispatch keeps what it collected: the
+    // extract already happened, and hiding it would make the model redo the work.
+    return new ToolResult(sb.ToString(), true, Images: AttachedImages(run));
   }
 }
