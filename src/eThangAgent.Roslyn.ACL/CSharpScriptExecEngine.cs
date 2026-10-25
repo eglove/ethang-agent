@@ -68,7 +68,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
   {
     ArgumentNullException.ThrowIfNull(program);
     Script<object> script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));
-    ImmutableArray<Diagnostic> diagnostics = script.GetCompilation().GetDiagnostics(ct);
+    Compilation compilation = script.GetCompilation();
+    ImmutableArray<Diagnostic> diagnostics = compilation.GetDiagnostics(ct);
     List<ExecParseError> errors = [.. diagnostics
         .Where(d => d.Severity == DiagnosticSeverity.Error)
         .Select(d =>
@@ -79,6 +80,14 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
                   loc.StartLinePosition.Character + 1,
                   d.GetMessage(CultureInfo.InvariantCulture));
         })];
+
+    // The native-interop gate (issue #282) runs on the SAME compilation the diagnostics
+    // came from, so it costs no extra compile and loads no assembly (the leak contract
+    // below stays intact). It is checked even when the compile already failed: a script
+    // with both a syntax error AND a DllImport should learn about the DllImport too,
+    // because that is the part it must not retry.
+    errors.AddRange(NativeInteropPolicy.Analyze(compilation, ct));
+
     return Task.FromResult(Result.Success<IReadOnlyList<ExecParseError>>(errors));
   }
 
@@ -107,6 +116,19 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     try
     {
       Compilation compilation = script.GetCompilation();
+
+      // The native-interop gate (issue #282) is enforced on the RUN path too, not only in
+      // ValidateAsync: a host that calls ExecuteAsync directly (the evidence runner's
+      // sibling path, or a future caller) must not be able to run a native call just
+      // because it skipped validation. Defence in depth at the seam that owns execution.
+      if (NativeInteropPolicy.Analyze(compilation, ct) is { Count: > 0 } interopViolations)
+      {
+        return new ExecRunResult(ExecRunStatus.Completed, string.Empty,
+            [.. interopViolations.Select(v => v.Message)],
+            NestedDispatchCount: globals.NestedDispatchCount,
+            WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+      }
+
       if (CompileFailure(compilation, ct) is { } compileFailure)
       {
         return compileFailure;

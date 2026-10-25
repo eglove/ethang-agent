@@ -61,6 +61,17 @@ public sealed class CSharpEvidenceRunner(EvidenceOptions options) : IEvidenceRun
             string.Join("\n", errors.Select(d => d.GetMessage(CultureInfo.InvariantCulture))));
       }
 
+      // The native-interop gate (issue #282) applies here too: the evidence runner is a
+      // SECOND independent compile path over the same Roslyn surface, so leaving it open
+      // would make the gate a one-attribute-change bypass (store a native call as a
+      // goal/check command and the evidence runner would compile and run it). Same
+      // compilation, no extra compile, no assembly loaded.
+      if (NativeInteropPolicy.Analyze(compilation, cts.Token) is { Count: > 0 } interopViolations)
+      {
+        return new EvidenceResult(command, false,
+            string.Join("\n", interopViolations.Select(v => v.Message)));
+      }
+
       IMethodSymbol? entryPoint = compilation.GetEntryPoint(cts.Token);
       if (entryPoint is null)
       {
