@@ -1,5 +1,6 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.ChildHost;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
@@ -85,6 +86,11 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     delivery registries and drive other envelope kinds while a turn is in flight.</summary>
   public ChildHostServer Server { get; }
 
+  /// <summary>How many events the host has forwarded toward the app. A rig has no app
+  ///     attached, so every wire write is dropped by contract - the COUNT is what proves
+  ///     the ROOT container's forwarder is subscribed at all.</summary>
+  public long ForwardedEventCount => Server.ForwardedEventCount;
+
   /// <summary>Builds a host whose provider streams <paramref name="deltas"/> and then
   ///     completes with <paramref name="answer"/>. <paramref name="betweenDeltas"/> runs
   ///     between the first and second delta, so a test can observe what the caller had
@@ -129,6 +135,11 @@ internal sealed class ScriptedRootHost : IDisposable
         .AddSingleton<IModelProvider>(provider)
         .AddSingleton(carrier)
         .AddSingleton<IAgentStore>(store)
+        // Production containers always register the session event stream, and the host's
+        // root-event forwarder resolves it to republish facts toward the app. A rig
+        // without it would silently skip forwarding and could not observe the wiring
+        // (issue #8 follow-up).
+        .AddSingleton<IAgentEvents, InProcessAgentEvents>()
         .AddSingleton(new SendMessageCommandHandler(agent: agent, conversation: conversation,
             inbox: options?.Inbox));
     // Production registers the ROOT steering inbox as the container's IAgentInbox and hands

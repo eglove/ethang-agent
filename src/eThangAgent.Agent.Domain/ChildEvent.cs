@@ -63,6 +63,22 @@ public sealed record MailboxUndeliveredEvent(AgentId ChildId, DateTimeOffset At,
 public sealed record PreemptedEvent(AgentId ChildId, DateTimeOffset At, string ByWhom, int Urgency)
     : ChildEvent(ChildId, At);
 
+/// <summary>A durable PLAN record changed (issue #8 follow-up): created, a step added/
+///     updated/removed, or a status moved. This is what makes the workbench's Plans view
+///     INSTANT and what lets a parent agent watch a subagent's plan work with
+///     <c>wakeOn=plan</c> - one subscribable for both readers.
+///     <para><paramref name="ChildId"/> is the AUTHORING agent: the child whose run wrote
+///     the plan, or the root session for a root write. A parent filtering on plan work
+///     therefore sees which of its children did it. <paramref name="Change"/> is a short
+///     tag (created | steps | status) and <paramref name="Status"/> names the new status
+///     for a status change, null otherwise - metadata only (D5), never plan content.</para>
+///     <para>Published by the Composition's <c>PlanChangePublisher</c> over the Plan
+///     Domain's own events: the Plan Domain cannot reference this assembly, so the
+///     translation lives at the composition root (the same shape the state-change
+///     adapter uses).</para></summary>
+public sealed record PlanChangedEvent(AgentId ChildId, DateTimeOffset At, int PlanId, string Change, string? Status)
+    : ChildEvent(ChildId, At);
+
 /// <summary>A RUNNING child's provider stream went silent past the stall threshold.
 ///     Informational: the child is still running; consumers (waits, UI) decide.
 ///     LastActivityKind is "content" or "reasoning" — the last stream fragment type seen.</summary>

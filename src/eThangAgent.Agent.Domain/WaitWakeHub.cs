@@ -10,6 +10,12 @@ public enum WakeReason
   StateWrite,
   Budget,
   Mailbox,
+
+  /// <summary>A durable PLAN record changed (created, step, or status). Distinct from
+  ///     <see cref="StateWrite"/> because plan work is the progress signal a parent agent
+  ///     actually cares about: a child marking a step done is the fact a waiting parent
+  ///     should wake on, and it is not a state-key write.</summary>
+  Plan,
 }
 
 /// <summary>A wake event. <paramref name="DigestLine"/> is the one-line digest entry rendered

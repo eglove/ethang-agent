@@ -405,11 +405,45 @@ public static class AgentComposition
             sp.GetRequiredService<ICommandRunStore>(),
             sp.GetRequiredService<Conversation>()))
         .AddSingleton<IUserCommandRunner>(sp => sp.GetRequiredService<UserCommandRunner>())
+        // The cross-process change signal (issue #8): SQLite's data_version, which moves
+        // when ANOTHER connection commits. Every production plan and todo write is made by
+        // the ChildHost, so no in-process event can ever see it - this is the backstop that
+        // re-reads the tables when the host commits. It was NEVER REGISTERED, so
+        // MainViewModel's GetService<IChangeSignal>() returned null and the Plans view's
+        // poller never started: the list stayed stale until the user switched workbench
+        // views (the explicit refresh in WorkbenchViewModel.Select was the only path that
+        // worked). One instance per container: the signal holds a live connection for its
+        // lifetime, and it is disposed with the container.
+        .AddSingleton<IChangeSignal>(sp => new SqliteChangeSignal(
+            sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<IStateStore, SqliteStateStore>()
         .AddSingleton<IPlanStore>(sp => new SqlitePlanStore(
             sp.GetRequiredService<AppDatabase>(),
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
-        .AddSingleton<PlanService>()
+        // The workbench's Plans view and a waiting parent agent both need to know a plan
+        // moved (issue #8 follow-up). ONE subscribable serves both: the Plan Domain's
+        // in-process events become PlanChangedEvent facts on the session's stream, which
+        // the ChildHost already forwards to the app over the wire.
+        //
+        // The publisher is WIRED HERE, inside the service's own factory, because DI is
+        // lazy and nothing resolves PlanChangePublisher by name: a separate registration
+        // would never be constructed, so it would subscribe to nothing and every plan
+        // event would fire into no listener - the exact defect this closes. Wiring it as
+        // PlanService is built makes the subscription a property of the service existing
+        // at all, which is the only ordering that cannot be forgotten. The publisher needs
+        // no field of its own: PlanService's event delegate list holds the strong
+        // reference that keeps it alive.
+        .AddSingleton(sp =>
+        {
+          PlanService service = new(
+              sp.GetRequiredService<IPlanStore>(),
+              sp.GetRequiredService<IPlanTodoCleaner>());
+          _ = new PlanChangePublisher(service, sp.GetRequiredService<IAgentEvents>(),
+              () => SubAgentSpawner.RunningChild?.Id
+                  ?? sp.GetRequiredService<RootSessionIdentity>().Id
+                  ?? AgentId.NewId());
+          return service;
+        })
         .AddSingleton<IPlanTodoCleaner>(sp => new StateServicePlanTodoCleaner(sp.GetRequiredService<IStateService>()))
         // The experiment ledger rides state keys (append-only), exactly as the todo tool
         // rides todo/list: the tool (a later task) resolves this port, never IStateService.
@@ -548,6 +582,7 @@ public static class AgentComposition
             ownerId: sp.GetRequiredService<RootSessionIdentity>().Id ?? AgentId.NewId()))
         .AddSingleton<IMailboxStore, SqliteMailboxStore>()
         .AddSingleton<IAgentEvents, InProcessAgentEvents>()
+
         .AddSingleton<ChildSupervisorRegistry>()
         .AddSingleton<ChildMailboxRegistry>()
         // W3.2: the cross-container mailbox locator. Hosts opening several sessions pass

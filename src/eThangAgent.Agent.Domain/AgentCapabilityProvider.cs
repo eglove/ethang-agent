@@ -429,6 +429,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     WakeReason.StateWrite => "state",
     WakeReason.Budget => "budget",
     WakeReason.Mailbox => "mailbox",
+    WakeReason.Plan => "plan",
     _ => "unknown",
   };
   /// <summary>agent.send: parent-to-child steering through the runtime's push-delivery.

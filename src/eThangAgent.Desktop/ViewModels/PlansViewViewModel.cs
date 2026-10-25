@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using eThangAgent.AgentDomain;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
@@ -61,12 +62,19 @@ internal sealed record TodoRowViewModel(int Id, string Marker, string Text, bool
 
 /// <summary>The workbench's Plans view (issue #8): this session's plan records and the
 ///     workspace todo list, refreshing as the agent changes them.
-///     <para>TWO sources, because the writer can be in either process. In-process writes
+///     <para>THREE sources, because the writer can be in either process. In-process writes
 ///     raise <see cref="PlanService"/> events and <see cref="IStateChangeBus"/> state
 ///     changes; a plan the agent writes is written by the ChildHost, so the view also
-///     polls an <see cref="IChangeSignal"/> (SQLite's data_version) and re-reads when
-///     another process commits. Both paths funnel into one <see cref="RefreshAsync"/>,
-///     so there is exactly one renderer and no chance of the two disagreeing.</para>
+///     subscribes the session's agent event stream for <see cref="PlanChangedEvent"/> —
+///     the INSTANT path, because the host already forwards those facts over the wire —
+///     and keeps an <see cref="IChangeSignal"/> (SQLite's data_version) as a backstop that
+///     re-reads when another process commits. Every path funnels into one
+///     <see cref="RefreshAsync"/>, so there is exactly one renderer and no chance of two
+///     disagreeing.</para>
+///     <para>The event stream is the primary mechanism and the poll is the safety net:
+///     the same <see cref="PlanChangedEvent"/> a parent agent watches with
+///     <c>wakeOn=plan</c> is what refreshes this view, so a subagent marking a step done
+///     is visible here without a polling interval.</para>
 ///     <para>Read-only by design (D4): the view never mutates a plan or a todo. A
 ///     corrupt plan row renders as a named marker instead of blanking the list (#279).</para></summary>
 internal sealed partial class PlansViewViewModel(
@@ -75,9 +83,11 @@ internal sealed partial class PlansViewViewModel(
     IChangeSignal? signal,
     IStateChangeBus? stateChanges,
     Action<Action> marshal,
-    TimeSpan? pollInterval = null) : ObservableObject, IDisposable
+    TimeSpan? pollInterval = null,
+    IAgentEvents? events = null) : ObservableObject, IDisposable
 {
   private readonly PlanService? _plans = plans;
+  private readonly IAgentEvents? _events = events;
   private readonly IStateService? _state = state;
   private readonly IChangeSignal? _signal = signal;
   private readonly IStateChangeBus? _stateChanges = stateChanges;
@@ -138,7 +148,15 @@ internal sealed partial class PlansViewViewModel(
           () => _ = RefreshAsync(CancellationToken.None));
     }
 
-    // Source B: in-process state writes (todo/list rides the state bus).
+    // Source B: the session's agent event stream (the INSTANT path). A plan written by
+    // the model is written by the ChildHost, so this process's PlanService events can
+    // never fire for it - the host forwards a PlanChangedEvent over the wire instead,
+    // and the runtime republishes it onto this stream. This is the same fact a parent
+    // agent wakes on with wakeOn=plan, so one subscribable serves both readers.
+    _eventsSubscription = _events?.Subscribe(new PlanChangeSubscriber(
+        () => _ = RefreshAsync(CancellationToken.None)));
+
+    // Source C: in-process state writes (todo/list rides the state bus).
     IDisposable? stateSubscription = _stateChanges?.Subscribe(change =>
     {
       if (change.Key == TodoTool.StoreKey)
@@ -151,9 +169,12 @@ internal sealed partial class PlansViewViewModel(
       _stateSubscription = stateSubscription;
     }
 
-    // Source C: cross-process commits, discovered by polling data_version. The baseline
-    // is seeded HERE, not on the first tick: a change landing between Start and that tick
-    // would otherwise be adopted as the baseline and never noticed.
+    // Source D: cross-process commits, discovered by polling data_version. A BACKSTOP,
+    // not the primary mechanism: the event stream above delivers a plan change instantly,
+    // while this catches anything that did not publish a fact (a direct SQL write, a
+    // future writer that forgets the event). The baseline is seeded HERE, not on the
+    // first tick: a change landing between Start and that tick would otherwise be adopted
+    // as the baseline and never noticed.
     if (_signal is not null)
     {
       _lastVersion = _signal.Read();
@@ -162,6 +183,24 @@ internal sealed partial class PlansViewViewModel(
   }
 
   private IDisposable? _stateSubscription;
+
+  /// <summary>The agent event stream lease (the instant path). Disposed with the view, so
+  ///     a closed tab cannot keep re-reading the database from a dead view.</summary>
+  private IDisposable? _eventsSubscription;
+
+  /// <summary>Subscribes the refresh to plan-change facts. Only <see cref="PlanChangedEvent"/>
+  ///     is wake-worthy here: every other event in the family is child-run telemetry this
+  ///     view does not render.</summary>
+  private sealed class PlanChangeSubscriber(Action onPlanChanged) : IAgentEventSubscriber
+  {
+    public void OnEvent(ChildEvent evt)
+    {
+      if (evt is PlanChangedEvent)
+      {
+        onPlanChanged();
+      }
+    }
+  }
 
   /// <summary>Re-reads both sources and re-renders. Concurrent calls collapse: a refresh
   ///     already in flight means the next one would read the same state, and the poller
@@ -361,6 +400,7 @@ internal sealed partial class PlansViewViewModel(
     _cts.Dispose();
     _planSubscription?.Dispose();
     _stateSubscription?.Dispose();
+    _eventsSubscription?.Dispose();
     // The change signal holds a live database connection for its whole lifetime (that
     // persistence is what makes data_version meaningful), so it must be released with
     // the view that owns it.

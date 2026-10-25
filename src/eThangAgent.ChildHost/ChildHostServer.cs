@@ -316,6 +316,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///   here: the stream's other subscribers must never see it.</summary>
   private async Task SendChildEventAsync(ChildEventEnvelope envelope)
   {
+    _ = Interlocked.Increment(ref _forwardedEvents);
 #pragma warning disable CA1031 // Named decision: a failed wire send must never reach the child loop.
     try
     {
@@ -327,6 +328,14 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }
+
+  /// <summary>How many forwarded child-event envelopes this host has handed to the wire.
+  ///     An OBSERVATION seam for tests: a rig with no app attached drops every write by
+  ///     contract, so 'was the forwarder subscribed at all' is otherwise unobservable.</summary>
+  private long _forwardedEvents;
+
+  /// <summary>The forwarded-envelope count (test observation seam).</summary>
+  public long ForwardedEventCount => Interlocked.Read(ref _forwardedEvents);
 
   /// <summary>The forwarder itself: translates one child event into its wire envelope.
   ///   A fault in serialization is contained (the stream's fault boundary) — a lost
@@ -486,6 +495,17 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       _rootHostFailure = _rootHost is null
           ? "the host settings named no root session id."
           : null;
+
+      // The ROOT container's event forwarder attaches HERE, the moment the runner
+      // exists (issue #8 follow-up). It used to attach only from ResolveRootInbox,
+      // which runs on the first root-steer envelope - so a host that was never
+      // steered forwarded NOTHING, and every plan-change fact the root loop published
+      // died in this process. The app's Plans view then had only its poller, and the
+      // user saw a stale list until they switched workbench views (2026-10-25).
+      if (_rootHost is { } runner)
+      {
+        AttachRootEventForwarder(runner);
+      }
     }
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
@@ -774,6 +794,11 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // caller can observe a half-built state.
       _rootHostBuild = Task.FromResult<RootRunHost?>(runner);
     }
+
+    // The same rule the production build honors: the forwarder attaches when the runner
+    // EXISTS, never on the first steer. A rig that skipped this would prove the plan-change
+    // forwarding works only for a host somebody happened to steer.
+    AttachRootEventForwarder(runner);
   }
 
   /// <summary>Observation seam for tests: the runner resolution the dispatch path uses, so a

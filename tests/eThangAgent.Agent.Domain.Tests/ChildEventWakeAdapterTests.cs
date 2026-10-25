@@ -116,6 +116,44 @@ public class ChildEventWakeAdapterTests
   }
 
   [Fact]
+  public void PlanChanged_Wakes_WithPlanDigest()
+  {
+    // The parent-agent half of issue #8's follow-up: a child that marks a plan step done
+    // is doing exactly the work a waiting parent should notice, and it is not a state-key
+    // write - so it carries its own reason and its own wakeOn token.
+    RecordingEvents events = new();
+    WaitWakeHub hub = new();
+    using ChildEventWakeAdapter adapter = new(events, hub);
+    List<WakeSignal> seen = [];
+    using IDisposable lease = hub.Subscribe(seen.Add);
+    AgentId child = new(Guid.NewGuid());
+
+    events.Subscriber!.OnEvent(new PlanChangedEvent(child, Now, 42, "status", "Completed"));
+
+    WakeSignal signal = Assert.Single(seen);
+    Assert.Equal(WakeReason.Plan, signal.Reason);
+    Assert.Equal(child, signal.ChildId);
+    Assert.Contains("#42", signal.DigestLine, StringComparison.Ordinal);
+    Assert.Contains("Completed", signal.DigestLine, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void PlanChanged_WithoutAStatus_RendersNoArrow()
+  {
+    // A step change has no new status: the digest must not claim one.
+    RecordingEvents events = new();
+    WaitWakeHub hub = new();
+    using ChildEventWakeAdapter adapter = new(events, hub);
+    List<WakeSignal> seen = [];
+    using IDisposable lease = hub.Subscribe(seen.Add);
+
+    events.Subscriber!.OnEvent(new PlanChangedEvent(new AgentId(Guid.NewGuid()), Now, 7, "steps", null));
+
+    WakeSignal signal = Assert.Single(seen);
+    Assert.DoesNotContain("->", signal.DigestLine, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void Dispose_StopsWaking()
   {
     RecordingEvents events = new();

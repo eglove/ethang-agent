@@ -1670,6 +1670,9 @@ internal sealed partial class MainViewModel : ObservableObject
           State = session.Services.GetService<IStateService>(),
           ChangeSignal = session.Services.GetService<IChangeSignal>(),
           StateChanges = session.Services.GetService<IStateChangeBus>(),
+          // The INSTANT path for the Plans view: plan-change facts ride the session's
+          // event stream, which the ChildHost forwards over the wire.
+          Events = session.Services.GetService<IAgentEvents>(),
         });
   }
 

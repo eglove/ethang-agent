@@ -28,7 +28,7 @@ public sealed class WakeFilter
     if (string.Equals(raw.Trim(), "all", StringComparison.OrdinalIgnoreCase))
     {
       foreach (WakeReason reason in (WakeReason[])[WakeReason.Idle, WakeReason.StreamStall,
-        WakeReason.StateWrite, WakeReason.Budget, WakeReason.Mailbox])
+        WakeReason.StateWrite, WakeReason.Budget, WakeReason.Mailbox, WakeReason.Plan])
       {
         _ = reasons.Add(reason);
       }
@@ -43,7 +43,7 @@ public sealed class WakeFilter
       if (!TokenReasons.TryGetValue(token.ToUpperInvariant(), out WakeReason? reason))
       {
         return Result.Failure<WakeFilter>(new DomainError("InvalidActionInput",
-            $"'wakeOn' token '{token}' is not one of: message, idle, settled, state, stream, budget, mailbox, all."));
+            $"'wakeOn' token '{token}' is not one of: message, idle, settled, state, stream, budget, mailbox, plan, all."));
       }
 
       if (reason is { } known)
@@ -64,6 +64,7 @@ public sealed class WakeFilter
         ["STREAM"] = WakeReason.StreamStall,
         ["BUDGET"] = WakeReason.Budget,
         ["MAILBOX"] = WakeReason.Mailbox,
+        ["PLAN"] = WakeReason.Plan,
         ["MESSAGE"] = null,
         ["SETTLED"] = null,
       }.ToFrozenDictionary();

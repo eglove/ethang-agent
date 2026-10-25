@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using eThangAgent.AgentDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
@@ -247,6 +248,63 @@ public sealed class PlansViewViewModelTests : IDisposable
     }
 
     _ = Assert.Single(vm.Todos);
+  }
+
+  [Fact]
+  public async Task PlanChangedEvent_RefreshesWithoutAManualCall()
+  {
+    // The INSTANT path (issue #8 follow-up). A plan write in production is dispatched by
+    // the model in the ChildHost process, so the app container's PlanService events never
+    // fire - the write reaches this process as a PlanChangedEvent on the session's event
+    // stream (the same stream a parent agent watches with wakeOn=plan). The view must
+    // re-read on that fact alone: no poll interval, no manual refresh.
+    FakePlanStore store = new();
+    FakeEvents events = new();
+    PlansViewViewModel vm = Own(new PlansViewViewModel(
+        new PlanService(store), null, null, null, render => render(),
+        pollInterval: TimeSpan.FromHours(1), events: events));
+    vm.Start();
+    await vm.RefreshAsync(TestContext.Current.CancellationToken);
+    Assert.True(vm.IsEmpty);
+
+    // The agent (in the host) writes a plan; the fact arrives on the event stream.
+    _ = await store.CreateAsync(Plan.New("written by the host", "g", "s", DateTimeOffset.UtcNow),
+        TestContext.Current.CancellationToken);
+    events.Publish(new PlanChangedEvent(new AgentId(Guid.NewGuid()), DateTimeOffset.UtcNow,
+        1, "created", null));
+
+    for (int i = 0; i < 200 && vm.Plans.Count == 0; i++)
+    {
+      await Task.Delay(10, TestContext.Current.CancellationToken);
+    }
+
+    _ = Assert.Single(vm.Plans);
+  }
+
+  /// <summary>A minimal event stream the test drives: the view subscribes, the test
+  ///     publishes, and no poller is involved.</summary>
+  private sealed class FakeEvents : IAgentEvents
+  {
+    private readonly List<IAgentEventSubscriber> _subscribers = [];
+
+    public IDisposable Subscribe(IAgentEventSubscriber subscriber)
+    {
+      _subscribers.Add(subscriber);
+      return new Lease(this, subscriber);
+    }
+
+    public void Publish(ChildEvent evt)
+    {
+      foreach (IAgentEventSubscriber subscriber in _subscribers.ToArray())
+      {
+        subscriber.OnEvent(evt);
+      }
+    }
+
+    private sealed class Lease(FakeEvents owner, IAgentEventSubscriber subscriber) : IDisposable
+    {
+      public void Dispose() => owner._subscribers.Remove(subscriber);
+    }
   }
 
   [Fact]

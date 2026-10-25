@@ -112,6 +112,13 @@ internal sealed record AgentSessionViewModelOptions
   public IChangeSignal? ChangeSignal { get; init; }
 
   public IStateChangeBus? StateChanges { get; init; }
+
+  /// <summary>The session's agent event stream: the workbench's Plans view subscribes it
+  ///     for <see cref="PlanChangedEvent"/> facts, which is the
+  ///     INSTANT refresh path (the host forwards them over the wire, so a plan the model
+  ///     writes in the host process reaches this view with no polling). Null = the view
+  ///     falls back to its poller alone (headless stubs).</summary>
+  public IAgentEvents? Events { get; init; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -390,7 +397,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
             options.State,
             options.ChangeSignal,
             options.StateChanges,
-            render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
+            render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
+            events: options.Events),
         Subagents);
     // Grand-plan "show initial bootstrap/context at start of session": the first
     // transcript line states what the session runs under (transient, never a
