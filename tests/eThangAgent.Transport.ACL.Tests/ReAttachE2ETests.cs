@@ -120,23 +120,40 @@ public class ReAttachE2ETests
 
   /// <summary>Connects to the host. A handshake blip under load is a STARTUP race, not the
   ///     contract under test (the host's single accept can be disturbed by another test's pipe
-  ///     traffic on a loaded machine), so a failed connect names the host's own log rather than
-  ///     reporting a bare timeout - the assertion that follows is about what a DROPPED
-  ///     connection does, and a startup failure must never be mistaken for that.</summary>
+  ///     traffic on a loaded machine), so a REFUSED connect is retried for a bounded window and
+  ///     only then reported - naming the host's own log rather than a bare timeout. The
+  ///     assertion that follows is about what a DROPPED connection does, and a startup failure
+  ///     must never be mistaken for that.
+  ///     <para>WHY THE RETRY IS NOT LENIENCY: the app-side answer to a refused startup connect
+  ///     is to relaunch the host (the supervisor's own contract), so retrying is what production
+  ///     does. Measured 2026-10-26 in a full-solution run: without it this test failed with
+  ///     "accept-failed: The pipe is being closed" while passing every time alone.</para></summary>
   private static async Task<NamedPipeChildTransport> ConnectAsync(
       string pipeName, ConcurrentQueue<string> hostLog)
   {
-    try
+    Exception? last = null;
+    for (int attempt = 0; attempt < 10; attempt++)
     {
-      return await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-          TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15),
-              TestContext.Current.CancellationToken).ConfigureAwait(true);
+      if (hostLog.Any(line => line.Contains("Server started", StringComparison.OrdinalIgnoreCase)))
+      {
+        break;
+      }
+
+      try
+      {
+        return await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
+            TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15),
+                TestContext.Current.CancellationToken).ConfigureAwait(true);
+      }
+      catch (Exception ex) when (ex is IOException or TimeoutException)
+      {
+        last = ex;
+        await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      }
     }
-    catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException)
-    {
-      throw new InvalidOperationException(
-          "the host never accepted its connection. host log: " + string.Join(" | ", hostLog), ex);
-    }
+
+    throw new InvalidOperationException(
+        "the host never accepted its connection. host log: " + string.Join(" | ", hostLog), last);
   }
 
   /// <summary>The composition's kill-on-close job, reached by reflection (internal type).</summary>

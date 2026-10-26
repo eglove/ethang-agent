@@ -62,22 +62,28 @@ public class SkillDirectoryE2ETests
         ws.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
       Assert.True(opened.IsSuccess);
       AgentSession session = opened.Value;
+      // The FINALLY owns the disposal (issue #284 item 3): a host stranded by a thrown
+      // assertion outlives the run and holds its SQLite file.
+      try
+      {
+        ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
+        Result<IReadOnlyList<SkillDefinition>> listed =
+          await catalog.ListAsync(TestContext.Current.CancellationToken);
+        Assert.True(listed.IsSuccess);
 
-      ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
-      Result<IReadOnlyList<SkillDefinition>> listed =
-        await catalog.ListAsync(TestContext.Current.CancellationToken);
-      Assert.True(listed.IsSuccess);
+        // The file skill lists beside the built-ins, carrying its File source.
+        SkillDefinition fileSkill = Assert.Single(listed.Value, s => s.Name == FileSkillName);
+        Assert.Equal(SkillSource.File, fileSkill.Source);
+        Assert.Contains(listed.Value, s => s.Name == "using-skills" && s.Source == SkillSource.BuiltIn);
 
-      // The file skill lists beside the built-ins, carrying its File source.
-      SkillDefinition fileSkill = Assert.Single(listed.Value, s => s.Name == FileSkillName);
-      Assert.Equal(SkillSource.File, fileSkill.Source);
-      Assert.Contains(listed.Value, s => s.Name == "using-skills" && s.Source == SkillSource.BuiltIn);
-
-      // Task 12 registered the listing: the composed SystemPrompt now carries the
-      // file skill under a directory-skills header (inverse of the old phase pin).
-      Assert.Contains(FileSkillName, session.SystemPrompt, StringComparison.Ordinal);
-
-      await session.Services.DisposeAsync();
+        // Task 12 registered the listing: the composed SystemPrompt now carries the
+        // file skill under a directory-skills header (inverse of the old phase pin).
+        Assert.Contains(FileSkillName, session.SystemPrompt, StringComparison.Ordinal);
+      }
+      finally
+      {
+        await session.Services.DisposeAsync().ConfigureAwait(true);
+      }
     }
     finally
     {
@@ -102,17 +108,21 @@ public class SkillDirectoryE2ETests
         ws.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
       Assert.True(opened.IsSuccess);
       AgentSession session = opened.Value;
-
-      ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
-      Result<IReadOnlyList<SkillDefinition>> listed =
-        await catalog.ListAsync(TestContext.Current.CancellationToken);
-      Assert.True(listed.IsSuccess);
-      Assert.NotEmpty(listed.Value);
-      Assert.All(listed.Value, s => Assert.Equal(SkillSource.BuiltIn, s.Source));
-      Assert.DoesNotContain(listed.Value, s => s.Name == FileSkillName);
-      Assert.DoesNotContain(FileSkillName, session.SystemPrompt, StringComparison.Ordinal);
-
-      await session.Services.DisposeAsync();
+      try
+      {
+        ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
+        Result<IReadOnlyList<SkillDefinition>> listed =
+          await catalog.ListAsync(TestContext.Current.CancellationToken);
+        Assert.True(listed.IsSuccess);
+        Assert.NotEmpty(listed.Value);
+        Assert.All(listed.Value, s => Assert.Equal(SkillSource.BuiltIn, s.Source));
+        Assert.DoesNotContain(listed.Value, s => s.Name == FileSkillName);
+        Assert.DoesNotContain(FileSkillName, session.SystemPrompt, StringComparison.Ordinal);
+      }
+      finally
+      {
+        await session.Services.DisposeAsync().ConfigureAwait(true);
+      }
     }
     finally
     {

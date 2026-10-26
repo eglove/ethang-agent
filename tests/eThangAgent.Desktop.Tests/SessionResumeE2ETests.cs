@@ -34,53 +34,60 @@ public class SessionResumeE2ETests
     Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
     Assert.True(resumed.IsSuccess);
     AgentSession session = resumed.Value;
+    // Disposal from a finally, so a thrown assertion cannot strand the host (#284 item 3).
+    try
+    {
 
-    // The conversation hydrates losslessly from the persisted transcript.
-    Assert.Equal(rootId, session.RootId);
-    Assert.Equal("remember the word crumble", session.Conversation.Messages[0].Content);
-    // The hydrated transcript plus the resume contract notice.
-    Assert.Equal(3, session.Conversation.Messages.Count);
+      // The conversation hydrates losslessly from the persisted transcript.
+      Assert.Equal(rootId, session.RootId);
+      Assert.Equal("remember the word crumble", session.Conversation.Messages[0].Content);
+      // The hydrated transcript plus the resume contract notice.
+      Assert.Equal(3, session.Conversation.Messages.Count);
 
-    // Pin the model the way the desktop's per-workspace preference does, so no
-    // selection run consumes the mock's scripted responses.
-    session.Preferences!.ModelId = E2E.SessionModel;
+      // Pin the model the way the desktop's per-workspace preference does, so no
+      // selection run consumes the mock's scripted responses.
+      session.Preferences!.ModelId = E2E.SessionModel;
 
-    // Open through the shell surface: the transcript replays into the view-model.
-    AgentSessionViewModel? sessionVmRef = null;
-    MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, evt =>
-        (sessionVmRef ?? throw new InvalidOperationException("sink fired before initialization"))
-            .ApplyUiStreamEventAsync(evt));
-    AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
-    sessionVmRef = vm;
+      // Open through the shell surface: the transcript replays into the view-model.
+      AgentSessionViewModel? sessionVmRef = null;
+      MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, evt =>
+          (sessionVmRef ?? throw new InvalidOperationException("sink fired before initialization"))
+              .ApplyUiStreamEventAsync(evt));
+      AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
+      sessionVmRef = vm;
 
-    // The bootstrap context line leads; the replayed transcript follows it,
-    // then the resume contract notice as a system entry.
-    Assert.Equal(4, vm.Transcript.Entries.Count);
-    _ = Assert.IsType<BootstrapEntry>(vm.Transcript.Entries[0]);
-    Assert.Equal("remember the word crumble",
-        Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[1]).Text);
-    Assert.Contains("pineapple",
-        Assert.IsType<AssistantTextEntry>(vm.Transcript.Entries[2]).Text, StringComparison.Ordinal);
-    Assert.Contains("CURRENT build's tool definitions are authoritative",
-        Assert.IsType<SystemMessageEntry>(vm.Transcript.Entries[3]).Text, StringComparison.Ordinal);
+      // The bootstrap context line leads; the replayed transcript follows it,
+      // then the resume contract notice as a system entry.
+      Assert.Equal(4, vm.Transcript.Entries.Count);
+      _ = Assert.IsType<BootstrapEntry>(vm.Transcript.Entries[0]);
+      Assert.Equal("remember the word crumble",
+          Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[1]).Text);
+      Assert.Contains("pineapple",
+          Assert.IsType<AssistantTextEntry>(vm.Transcript.Entries[2]).Text, StringComparison.Ordinal);
+      Assert.Contains("CURRENT build's tool definitions are authoritative",
+          Assert.IsType<SystemMessageEntry>(vm.Transcript.Entries[3]).Text, StringComparison.Ordinal);
 
-    // Turn two: the resumed session's request must CARRY the prior history.
-    _ = host.Mock.Returns(RawCompletion("crumble, of course"));
-    await vm.RunTurnAsync("what was the word?");
+      // Turn two: the resumed session's request must CARRY the prior history.
+      _ = host.Mock.Returns(RawCompletion("crumble, of course"));
+      await vm.RunTurnAsync("what was the word?");
 
-    Assert.Equal(2, host.Mock.RequestBodies.Count);
-    string secondTurn = host.Mock.RequestBodies[1];
-    Assert.Contains("remember the word crumble", secondTurn, StringComparison.Ordinal);
-    Assert.Contains("pineapple", secondTurn, StringComparison.Ordinal);
-    Assert.Contains("what was the word?", secondTurn, StringComparison.Ordinal);
+      Assert.Equal(2, host.Mock.RequestBodies.Count);
+      string secondTurn = host.Mock.RequestBodies[1];
+      Assert.Contains("remember the word crumble", secondTurn, StringComparison.Ordinal);
+      Assert.Contains("pineapple", secondTurn, StringComparison.Ordinal);
+      Assert.Contains("what was the word?", secondTurn, StringComparison.Ordinal);
 
-    string assistant = string.Join("", vm.Transcript.Entries
-        .OfType<AssistantTextEntry>().Select(a => a.Text));
-    Assert.Contains("crumble, of course", assistant, StringComparison.Ordinal);
+      string assistant = string.Join("", vm.Transcript.Entries
+          .OfType<AssistantTextEntry>().Select(a => a.Text));
+      Assert.Contains("crumble, of course", assistant, StringComparison.Ordinal);
 
-    // The session OWNS a host process: disposing the container disposes the
-    // supervisor, which kills that host. Without this the host outlives the test
-    // process as a stray (one suite run leaked 14 of them).
-    await session.Services.DisposeAsync().ConfigureAwait(true);
+      // The session OWNS a host process: disposing the container disposes the
+      // supervisor, which kills that host. Without this the host outlives the test
+      // process as a stray (one suite run leaked 14 of them).
+    }
+    finally
+    {
+      await session.Services.DisposeAsync().ConfigureAwait(true);
+    }
   }
 }

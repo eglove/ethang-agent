@@ -105,7 +105,7 @@ public sealed class ResourceIndicatorFeedTests
   }
 
   [AvaloniaFact]
-  public void PublishAsync_UpdatesOnTheUIThread()
+  public async Task PublishAsync_UpdatesOnTheUIThread()
   {
     ResourceIndicatorViewModel vm = new();
     FakeStore store = new();
@@ -121,19 +121,30 @@ public sealed class ResourceIndicatorFeedTests
     Task publish = Task.Run(async () =>
         await feed.PublishAsync(Tick(), TestContext.Current.CancellationToken).ConfigureAwait(false));
 
-    // The headless dispatcher only runs when it is PUMPED, so the test pumps it
-    // rather than awaiting the publish. The loop is BOUNDED: a feed that never
-    // posts fails the assertion instead of hanging the suite.
+    // The headless dispatcher only runs when it is PUMPED, so the test pumps it rather
+    // than awaiting the publish. The loop is BOUNDED: a feed that never posts fails the
+    // assertion instead of hanging the suite.
+    //
+    // YIELD BETWEEN PUMPS, DO NOT SPIN (2026-10-26): the publish awaits a store read whose
+    // continuation must be resumed BY THE THREAD POOL. A tight `Thread.Yield()` loop keeps
+    // this thread runnable and starves that pool on a busy machine, so the task under test
+    // never progresses and the failure reads as 'the feed never completed its publish' -
+    // a lie about the code under test. A real await hands the thread back, which is what
+    // production does.
     bool updated = false;
-    for (int i = 0; i < 5000 && !updated; i++)
+    for (int i = 0; i < 500 && !updated; i++)
     {
       Dispatcher.UIThread.RunJobs();
-      updated = onUiThread is not null;
+      updated = onUiThread is not null || publish.IsCompleted;
       if (!updated)
       {
-        _ = Thread.Yield();
+        await Task.Delay(1, TestContext.Current.CancellationToken).ConfigureAwait(true);
       }
     }
+
+    // The scan above stops at the first sign of completion; one more pump drains the
+    // post the feed made after its read resolved.
+    Dispatcher.UIThread.RunJobs();
 
     Assert.True(publish.IsCompleted, "the feed never completed its publish");
     Assert.True(updated, "the indicator was never updated");

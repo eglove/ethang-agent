@@ -135,67 +135,85 @@ public class RemoteHostE2ETests
         ct: TestContext.Current.CancellationToken);
     Assert.True(opened.IsSuccess, opened.Error?.Message);
     AgentSession session = opened.Value;
+    // Disposal is owned here so a thrown assertion below cannot strand the ChildHost
+    // (issue #284 item 3). The body disposes DELIBERATELY mid-test (the app-death
+    // simulation), so `disposed` keeps the finally from disposing twice.
+    bool disposed = false;
+    try
+    {
+      // Pin the session model like the standard harness: selection must not consume the
+      // parent's scripted responses.
+      session.Services.GetRequiredService<SessionModelPreferences>().ModelId = E2E.SessionModel;
 
-    // Pin the session model like the standard harness: selection must not consume the
-    // parent's scripted responses.
-    session.Services.GetRequiredService<SessionModelPreferences>().ModelId = E2E.SessionModel;
+      // Shell surface over the factory-built session (production wiring).
+      AgentSessionViewModel? vmRef = null;
+      async Task Sink(UiStreamEvent evt) =>
+          await (vmRef ?? throw new InvalidOperationException("sink before view-model init"))
+              .ApplyUiStreamEventAsync(evt).ConfigureAwait(true);
+      MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, Sink);
+      AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
+      vmRef = vm;
 
-    // Shell surface over the factory-built session (production wiring).
-    AgentSessionViewModel? vmRef = null;
-    async Task Sink(UiStreamEvent evt) =>
-        await (vmRef ?? throw new InvalidOperationException("sink before view-model init"))
-            .ApplyUiStreamEventAsync(evt).ConfigureAwait(true);
-    MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, Sink);
-    AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
-    vmRef = vm;
+      // Parent script: spawn through the production surface (exec -> agent.spawn), then
+      // poll-to-settled and fetch the report. Child script under the per-spawn model.
+      string spawnProgram = "var spawned = Tools.Invoke(\"agent.spawn\", new { timeoutSeconds = 60, taskPrompt = \"Say remote report done and nothing else.\", model = \"mock/sub-model\", label = \"remote-e2e\" }); return spawned;";
+      _ = host.Mock.ReturnsForModel(E2E.SessionModel,
+          E2E.ExecToolCall("parent_call_1", E2E.ExecProgram(spawnProgram)),
+          E2E.ExecToolCall("parent_call_2", E2E.ExecProgram(PollThenResult)),
+          RawCompletion("done: remote child reported"));
+      _ = host.Mock.ReturnsForModel("mock/sub-model",
+          RawCompletion("remote report done"));
 
-    // Parent script: spawn through the production surface (exec -> agent.spawn), then
-    // poll-to-settled and fetch the report. Child script under the per-spawn model.
-    string spawnProgram = "var spawned = Tools.Invoke(\"agent.spawn\", new { timeoutSeconds = 60, taskPrompt = \"Say remote report done and nothing else.\", model = \"mock/sub-model\", label = \"remote-e2e\" }); return spawned;";
-    _ = host.Mock.ReturnsForModel(E2E.SessionModel,
-        E2E.ExecToolCall("parent_call_1", E2E.ExecProgram(spawnProgram)),
-        E2E.ExecToolCall("parent_call_2", E2E.ExecProgram(PollThenResult)),
-        RawCompletion("done: remote child reported"));
-    _ = host.Mock.ReturnsForModel("mock/sub-model",
-        RawCompletion("remote report done"));
+      await vm.RunTurnAsync("delegate to a remote child")
+          .WaitAsync(TimeSpan.FromSeconds(45), TestContext.Current.CancellationToken);
 
-    await vm.RunTurnAsync("delegate to a remote child")
-        .WaitAsync(TimeSpan.FromSeconds(45), TestContext.Current.CancellationToken);
+      // The child settled HOST-side through the wire: its report reached the parent as
+      // the poll-and-fetch exec result — the tool message carries it verbatim.
+      Assert.Contains("remote report done",
+          E2E.FindToolMessageContaining(host.Mock.RequestBodies, "remote report done"),
+          StringComparison.OrdinalIgnoreCase);
 
-    // The child settled HOST-side through the wire: its report reached the parent as
-    // the poll-and-fetch exec result — the tool message carries it verbatim.
-    Assert.Contains("remote report done",
-        E2E.FindToolMessageContaining(host.Mock.RequestBodies, "remote report done"),
-        StringComparison.OrdinalIgnoreCase);
+      // Kill the APP-SIDE container (not the host): exactly the app-death simulation.
+      await session.Services.DisposeAsync();
+      disposed = true;
 
-    // Kill the APP-SIDE container (not the host): exactly the app-death simulation.
-    await session.Services.DisposeAsync();
+      // Re-open over the SAME database: the factory runs orphan repair with the host's
+      // declared (now empty) live set.
+      Result<AgentSession> reopened = await factory.CreateAsync(
+          ws, Providers.OpenRouter,
+          ct: TestContext.Current.CancellationToken);
+      Assert.True(reopened.IsSuccess, reopened.Error?.Message);
+      try
+      {
+        // The child's outcome is retrievable from the shared store after the re-open.
+        SqliteAgentStore verify = new(new AppDatabase(host.DatabasePath));
+        Result<IReadOnlyList<AgentRecord>> all =
+            await verify.ListAllAsync(TestContext.Current.CancellationToken);
+        Assert.True(all.IsSuccess);
+        AgentRecord child = Assert.Single(
+            all.Value, r => r.Depth == 1 && r.Label == "remote-e2e");
+        Assert.Equal(AgentStatus.Completed, child.Status);
+        Assert.Contains("remote report done", child.FinalReport ?? string.Empty, StringComparison.Ordinal);
 
-    // Re-open over the SAME database: the factory runs orphan repair with the host's
-    // declared (now empty) live set.
-    Result<AgentSession> reopened = await factory.CreateAsync(
-        ws, Providers.OpenRouter,
-        ct: TestContext.Current.CancellationToken);
-    Assert.True(reopened.IsSuccess, reopened.Error?.Message);
-
-    // The child's outcome is retrievable from the shared store after the re-open.
-    SqliteAgentStore verify = new(new AppDatabase(host.DatabasePath));
-    Result<IReadOnlyList<AgentRecord>> all =
-        await verify.ListAllAsync(TestContext.Current.CancellationToken);
-    Assert.True(all.IsSuccess);
-    AgentRecord child = Assert.Single(
-        all.Value, r => r.Depth == 1 && r.Label == "remote-e2e");
-    Assert.Equal(AgentStatus.Completed, child.Status);
-    Assert.Contains("remote report done", child.FinalReport ?? string.Empty, StringComparison.Ordinal);
-
-    // Orphan repair marked exactly the right rows: the settled child (owned by nobody
-    // but already terminal) is untouched — still Completed with its report, never
-    // re-marked Interrupted; the re-opened session's own root stays Running (exempt).
-    Assert.Equal(AgentStatus.Completed, child.Status);
-    AgentRecord reopenedRoot = Assert.Single(all.Value, r => r.Depth == 0 && r.Id == reopened.Value.RootId);
-    Assert.Equal(AgentStatus.Running, reopenedRoot.Status);
-
-    await reopened.Value.Services.DisposeAsync();
+        // Orphan repair marked exactly the right rows: the settled child (owned by nobody
+        // but already terminal) is untouched — still Completed with its report, never
+        // re-marked Interrupted; the re-opened session's own root stays Running (exempt).
+        Assert.Equal(AgentStatus.Completed, child.Status);
+        AgentRecord reopenedRoot = Assert.Single(all.Value, r => r.Depth == 0 && r.Id == reopened.Value.RootId);
+        Assert.Equal(AgentStatus.Running, reopenedRoot.Status);
+      }
+      finally
+      {
+        await reopened.Value.Services.DisposeAsync();
+      }
+    }
+    finally
+    {
+      if (!disposed)
+      {
+        await session.Services.DisposeAsync();
+      }
+    }
   }
 
   /// <summary>Follow-up pass B3: the remote child's system prompt carries the

@@ -51,9 +51,17 @@ public class SkillListingE2ETests
       workspaceRoot, Providers.OpenRouter, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(opened.IsSuccess);
     AgentSession session = opened.Value;
-    string prompt = session.SystemPrompt;
-    await session.Services.DisposeAsync().ConfigureAwait(true);
-    return prompt;
+    // The FINALLY owns the disposal (issue #284 item 3): the container owns a real
+    // ChildHost, and a dispose written after an assertion is skipped the moment that
+    // assertion throws - stranding the host and its SQLite file.
+    try
+    {
+      return session.SystemPrompt;
+    }
+    finally
+    {
+      await session.Services.DisposeAsync().ConfigureAwait(true);
+    }
   }
 
   [Fact]
