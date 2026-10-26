@@ -7,12 +7,14 @@
 // Usage: dotnet run --project tools/SkillActivationEval -- <workspaceRoot> <providerName> <outPath>
 //   workspaceRoot  an EXISTING empty directory; one fresh subdirectory is created per prompt
 //                  and each session is anchored there.
-//   providerName   exactly 'OpenRouter' | 'zai' | 'Local' (passed through to the session
-//                  factory's provider selection).
+//   providerName   exactly 'OpenRouter' (passed through to the session factory's provider
+//                  selection; z.ai and Local were retired with their providers).
 //   outPath        where the JSON result array is written.
-// The provider API key comes from the ETHANG_EVAL_KEY environment variable (OpenRouter/zai;
-// Local needs none). Eval sessions persist in the runner's OWN app database, never in the
-// interactive app's database.
+// The provider API key comes from the ETHANG_EVAL_KEY environment variable. Eval sessions
+// persist in the runner's OWN app database, never in the interactive app's database.
+//
+// The runner SCORES its own rows (see EvalRow.Correct): an unscored row is not a result,
+// and comparing output against prompts.json by hand is how a scoring bug survived a run.
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -33,8 +35,8 @@ internal static class Program
   private const int UsageExitCode = 2;
   private const int PromptHeadChars = 80;
   private const string EvalKeyVariable = "ETHANG_EVAL_KEY";
+  private const string ModelVariable = "ETHANG_EVAL_MODEL";
   private const string EvalDatabaseFileName = "skill-activation-eval.db";
-  private const string LocalBaseUrlVariable = "ETHANG_EVAL_LOCAL_BASE_URL";
   private const string BudgetVariable = "ETHANG_EVAL_PROMPT_BUDGET_SECONDS";
   private const int DefaultPromptBudgetSeconds = 600;
   private const int MinPromptBudgetSeconds = 30;
@@ -72,43 +74,66 @@ internal static class Program
     int i = 0;
     while (i < text.Length)
     {
-      if (text[i] != '\\' || i + 1 >= text.Length)
+      int consumed = TryDecodeEscape(text, i, sb);
+      if (consumed == 0)
       {
         _ = sb.Append(text[i]);
         i++;
         continue;
       }
 
-      char next = text[i + 1];
-      if (next == 'u' && i + 5 < text.Length
-          && int.TryParse(text.AsSpan(i + 2, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int code))
-      {
-        _ = sb.Append((char)code);
-        i += 6;
-        continue;
-      }
-
-      if (next is '\\' or '\"' or '\'' or 'n' or 'r' or 't')
-      {
-        _ = sb.Append(next switch
-        {
-          'n' => '\n',
-          'r' => '\r',
-          't' => '\t',
-          _ => next,
-        });
-        i += 2;
-        continue;
-      }
-
-      // Unknown escape (real rows carry file paths such as ..\\name): verbatim pass.
-      _ = sb.Append(text[i]);
-      _ = sb.Append(next);
-      i += 2;
+      i += consumed;
     }
 
     return sb.ToString();
   }
+
+  /// <summary>Decodes the escape sequence starting at <paramref name="index" />, appending
+  ///     its decoded text to <paramref name="sb" /> and returning the characters consumed —
+  ///     or 0 when the position is not an escape this decoder understands. An UNKNOWN
+  ///     escape consumes both characters and passes them through verbatim: real rows carry
+  ///     file paths such as ..\\name, and Regex.Unescape would throw on them, so the
+  ///     decoder is total by construction.</summary>
+  private static int TryDecodeEscape(string text, int index, StringBuilder sb)
+  {
+    if (text[index] != '\\' || index + 1 >= text.Length)
+    {
+      return 0;
+    }
+
+    char next = text[index + 1];
+    if (TryDecodeUnicode(text, index, sb) is { } unicodeLength)
+    {
+      return unicodeLength;
+    }
+
+    _ = sb.Append(ShortForm(next));
+    return 2;
+  }
+
+  /// <summary>The \\uXXXX form: four hex digits after 'u'. Returns the characters
+  ///     consumed (6) when the sequence decodes, or null when it is not one.</summary>
+  private static int? TryDecodeUnicode(string text, int index, StringBuilder sb)
+  {
+    if (text[index + 1] != 'u' || index + 5 >= text.Length
+        || !int.TryParse(text.AsSpan(index + 2, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int code))
+    {
+      return null;
+    }
+
+    _ = sb.Append((char)code);
+    return 6;
+  }
+
+  /// <summary>The single-character short forms. An UNKNOWN escape passes its character
+  ///     through verbatim (real rows carry file paths such as ..\\name).</summary>
+  private static char ShortForm(char escape) => escape switch
+  {
+    'n' => '\n',
+    'r' => '\r',
+    't' => '\t',
+    _ => escape,
+  };
 
   /// <summary>Strips escape layers until the text stops changing: real rows stack
   ///     backslash-u0022 two or more deep, and a single pass leaves inner layers
@@ -144,57 +169,71 @@ internal static class Program
     }
 
     string workspaceRoot = Path.GetFullPath(args[0]);
-    string? providerId = ResolveProviderId(args[1]);
     string outPath = Path.GetFullPath(args[2]);
-    if (providerId is null)
+    string? resolved = ResolveProviderId(args[1]);
+    if (await ValidateInvocationAsync(workspaceRoot, args[1], resolved).ConfigureAwait(false) is { } refusal)
     {
-      await Console.Error.WriteLineAsync($"unknown provider '{args[1]}'. Known providers: OpenRouter, zai, Local.");
+      await Console.Error.WriteLineAsync(refusal).ConfigureAwait(false);
       return UsageExitCode;
     }
 
-    if (!Directory.Exists(workspaceRoot))
-    {
-      await Console.Error.WriteLineAsync($"workspace root not found: '{workspaceRoot}'");
-      return UsageExitCode;
-    }
-
-    // The anchor must be an EXISTING EMPTY directory: one fresh subdirectory per prompt,
-    // and a reused root would silently carry a previous run's workspace-scoped state.
-    if (Directory.EnumerateFileSystemEntries(workspaceRoot).Any())
-    {
-      await Console.Error.WriteLineAsync($"workspace root must be an empty directory: '{workspaceRoot}'");
-      return UsageExitCode;
-    }
+    // ValidateInvocationAsync returned null, so the id resolved to a known provider.
+    string providerId = resolved!;
 
     // The eval's OWN app database beside the executable - never the interactive app's
     // database, never in-memory (extraction reads the file after sessions are disposed).
-    AppDatabase database = new(Path.Combine(AppContext.BaseDirectory, EvalDatabaseFileName));
+    //
+    // DELETED FIRST, and that is load-bearing: the file outlives a run, so a learned skill
+    // or a workspace-scoped row from an EARLIER run silently joins the next one's catalog.
+    // Measured: a stale learned skill ('debugging-without-artifacts') activated alongside
+    // real ones and inflated a run's activation count with a skill that does not exist in
+    // the repo. An eval whose inputs drift between runs measures nothing comparable.
+    string databasePath = Path.Combine(AppContext.BaseDirectory, EvalDatabaseFileName);
+    DeleteStaleDatabase(databasePath);
+    AppDatabase database = new(databasePath);
     if (!IsConfigured(providerId))
     {
-      await Console.Error.WriteLineAsync(providerId == Providers.Local
-          ? $"Local eval needs the {LocalBaseUrlVariable} environment variable (an OpenAI-compatible base URL)."
-          : $"eval needs the {EvalKeyVariable} environment variable for provider '{args[1]}'.");
+      await Console.Error.WriteLineAsync($"eval needs the {EvalKeyVariable} environment variable for provider '{args[1]}'.").ConfigureAwait(false);
+      return UsageExitCode;
+    }
+
+    // A run with no model measures NOTHING (every prompt fails NoModelSelected), so this
+    // is a refusal at the door rather than a table of identical failures that reads like a
+    // finding. The harness never substitutes a model, and neither does the eval.
+    if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ModelVariable)))
+    {
+      await Console.Error.WriteLineAsync($"eval needs the {ModelVariable} environment variable naming the model under test.").ConfigureAwait(false);
       return UsageExitCode;
     }
 
     AgentSettings settings = (await BuildSettingsAsync(providerId, database).ConfigureAwait(false))!;
 
+    await RunAllAsync(workspaceRoot, providerId, settings, database, outPath).ConfigureAwait(false);
+    return 0;
+  }
+
+  /// <summary>Runs every prompt sequentially and writes the scored JSON array. Sequential
+  ///     on purpose: the eval measures activation, and parallel sessions would contend for
+  ///     the provider's rate limit (measured: free tiers answer 429 under any concurrency).</summary>
+  private static async Task RunAllAsync(string workspaceRoot, string providerId,
+      AgentSettings settings, AppDatabase database, string outPath)
+  {
     List<EvalPrompt> prompts = ReadPrompts();
     int budgetSeconds = ResolveBudgetSeconds();
-    await Console.Out.WriteLineAsync($"per-prompt budget: {budgetSeconds}s (override with {BudgetVariable})");
+    await Console.Out.WriteLineAsync($"per-prompt budget: {budgetSeconds}s (override with {BudgetVariable})").ConfigureAwait(false);
     List<EvalRow> rows = [];
     foreach (EvalPrompt prompt in prompts)
     {
-      await Console.Error.WriteLineAsync($"prompt {prompt.Id} started (budget {budgetSeconds}s)");
+      await Console.Error.WriteLineAsync($"prompt {prompt.Id} started (budget {budgetSeconds}s)").ConfigureAwait(false);
       EvalRow row = await RunPromptAsync(prompt, workspaceRoot, providerId, settings, database, budgetSeconds).ConfigureAwait(false);
       rows.Add(row);
-      await Console.Out.WriteLineAsync(row.SummaryLine);
+      await Console.Out.WriteLineAsync(row.SummaryLine).ConfigureAwait(false);
     }
 
     string json = JsonSerializer.Serialize(rows, EvalJsonOptions);
     await File.WriteAllTextAsync(outPath, json, Encoding.UTF8).ConfigureAwait(false);
-    await Console.Out.WriteLineAsync($"wrote {rows.Count} row(s) to {outPath}");
-    return 0;
+    await Console.Out.WriteLineAsync($"wrote {rows.Count} row(s) to {outPath}").ConfigureAwait(false);
+    await PrintScoreAsync(rows).ConfigureAwait(false);
   }
 
   /// <summary>Runs ONE prompt in a fresh anchored session, disposes the session, and then
@@ -217,7 +256,7 @@ internal static class Program
       Result<AgentSession> created = await factory.CreateAsync(sessionWorkspace, providerName).ConfigureAwait(false);
       if (!created.IsSuccess)
       {
-        return new EvalRow(prompt.Id, Head(prompt.Prompt), [], null, null, created.Error.Message);
+        return new EvalRow(prompt.Id, Head(prompt.Prompt), [], prompt.Expected, prompt.ExpectNone, null, null, created.Error.Message);
       }
 
       // The container registers THE database the factory passed in; resolve it here so
@@ -226,6 +265,16 @@ internal static class Program
       sessionDatabase = session.Services.GetRequiredService<AppDatabase>();
       createdSessions.Add(session);
       sessionId = session.RootId.ToString();
+
+      // The eval must NAME its model: the harness deliberately never substitutes one
+      // (a session with no selection fails NoModelSelected), so an eval that does not set
+      // the preference measures nothing at all. EVAL_MODEL is the runner's own knob -
+      // the eval is an instrument, and the model under test is its input.
+      string? evalModel = Environment.GetEnvironmentVariable(ModelVariable);
+      if (!string.IsNullOrWhiteSpace(evalModel) && session.Preferences is not null)
+      {
+        session.Preferences.ModelId = evalModel;
+      }
       Result<string> result;
       try
       {
@@ -233,12 +282,12 @@ internal static class Program
       }
       catch (OperationCanceledException)
       {
-        return new EvalRow(prompt.Id, Head(prompt.Prompt), [], null, sessionId,
+        return new EvalRow(prompt.Id, Head(prompt.Prompt), [], prompt.Expected, prompt.ExpectNone, null, sessionId,
             $"prompt budget exhausted after {budgetSeconds}s - the turn was cancelled before completing");
       }
       if (!result.IsSuccess)
       {
-        return new EvalRow(prompt.Id, Head(prompt.Prompt), [], null, sessionId,
+        return new EvalRow(prompt.Id, Head(prompt.Prompt), [], prompt.Expected, prompt.ExpectNone, null, sessionId,
             $"[{result.Error.Code}] {result.Error.Message}");
       }
 
@@ -246,7 +295,7 @@ internal static class Program
       // RootSessionLifecycle.AppendExchangeAsync); a headless runner replicates that
       // contract here so the transcript rows exist for extraction and later resume.
       await session.Lifecycle.AppendExchangeAsync(
-          session.RootId, session.Conversation, messageCountBefore: 0, result,
+          session.RootId, session.Conversation, alreadyPersisted: 0, assistantText: AssistantText(result),
           reportError => Console.Error.WriteLine(reportError)).ConfigureAwait(false);
       await session.Lifecycle.CompleteAsync(session.RootId,
           reportError => Console.Error.WriteLine(reportError)).ConfigureAwait(false);
@@ -270,12 +319,12 @@ internal static class Program
     // meta_json contains 'skill_view', plus the root row's model_used stamp.
     if (error is not null || sessionDatabase is null)
     {
-      return new EvalRow(prompt.Id, Head(prompt.Prompt), [], null, sessionId, error ?? "session was not created");
+      return new EvalRow(prompt.Id, Head(prompt.Prompt), [], prompt.Expected, prompt.ExpectNone, null, sessionId, error ?? "session was not created");
     }
 
     string modelUsed = await ReadModelUsedAsync(sessionDatabase, new AgentId(Guid.Parse(sessionId!, CultureInfo.InvariantCulture))).ConfigureAwait(false);
     List<string> activated = ExtractSkillViews(sessionDatabase, new AgentId(Guid.Parse(sessionId!, CultureInfo.InvariantCulture)));
-    return new EvalRow(prompt.Id, Head(prompt.Prompt), activated, modelUsed, sessionId, null);
+    return new EvalRow(prompt.Id, Head(prompt.Prompt), activated, prompt.Expected, prompt.ExpectNone, modelUsed, sessionId, null);
   }
 
   /// <summary>Extracts the skill_view name arguments from the session's persisted
@@ -326,10 +375,8 @@ internal static class Program
   ///     own variables before any session is built.</summary>
   private static bool IsConfigured(string providerId) => providerId switch
   {
-    Providers.OpenRouter or Providers.Zai =>
+    Providers.OpenRouter =>
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(EvalKeyVariable)),
-    Providers.Local =>
-        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(LocalBaseUrlVariable)),
     _ => false,
   };
   /// <summary>Maps the CLI's display spellings (OpenRouter | zai | Local - the brief's
@@ -338,8 +385,6 @@ internal static class Program
   private static string? ResolveProviderId(string providerName) => providerName switch
   {
     "OpenRouter" => Providers.OpenRouter,
-    "zai" => Providers.Zai,
-    "Local" => Providers.Local,
     _ => null,
   };
   /// <summary>Builds the settings the way the Desktop does (AgentSettingsLoader over app
@@ -352,9 +397,7 @@ internal static class Program
     AgentSettings loaded = await AgentSettingsLoader.LoadAsync(new SqliteAppPreferenceStore(database)).ConfigureAwait(false);
     return providerName switch
     {
-      Providers.OpenRouter => loaded.WithApiKeys(key, null),
-      Providers.Zai => loaded.WithApiKeys(null, key),
-      Providers.Local => loaded.WithLocalSettings(Environment.GetEnvironmentVariable(LocalBaseUrlVariable), key),
+      Providers.OpenRouter => loaded.WithApiKeys(key),
       _ => null,
     };
   }
@@ -381,16 +424,99 @@ internal static class Program
   private static string Head(string text) =>
       text.Length <= PromptHeadChars ? text : text[..PromptHeadChars];
 
+  /// <summary>Prints the accuracy summary the run exists to produce: overall, split
+  ///     into task rows (a skill should activate) and abstention rows (none should).
+  ///     The split is the point - a matcher that never abstains and a matcher that never
+  ///     activates can post the same overall number and mean opposite things.</summary>
+  private static async Task PrintScoreAsync(List<EvalRow> rows)
+  {
+    if (rows.Count == 0)
+    {
+      await Console.Out.WriteLineAsync("score: no rows").ConfigureAwait(false);
+      return;
+    }
+
+    int taskTotal = rows.Count(r => !r.ExpectNone);
+    int taskHit = rows.Count(r => !r.ExpectNone && r.Correct);
+    int noneTotal = rows.Count(r => r.ExpectNone);
+    int noneHit = rows.Count(r => r.ExpectNone && r.Correct);
+    int hit = rows.Count(r => r.Correct);
+    await Console.Out.WriteLineAsync().ConfigureAwait(false);
+    await Console.Out.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+        $"score: {hit}/{rows.Count} correct ({100.0 * hit / rows.Count:F0}%)  tasks {taskHit}/{taskTotal}  abstain {noneHit}/{noneTotal}")).ConfigureAwait(false);
+    foreach (EvalRow row in rows.Where(r => !r.Correct))
+    {
+      await Console.Out.WriteLineAsync("    FAIL " + row.SummaryLine).ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>The turn's final assistant text for the persistence contract. The runner has
+  ///     no streaming surface, so the response's own text is the answer; an empty response
+  ///     still satisfies the non-null contract (the slice, not this string, is what persists).</summary>
+  private static string AssistantText(Result<string> result) =>
+      result.IsSuccess ? result.Value ?? string.Empty : string.Empty;
+
+  /// <summary>Deletes a previous run's eval database, retrying briefly. A file that stays
+  ///     locked is REPORTED and the run continues on the existing database: a stale catalog
+  ///     is a caveat on the results, never a reason to lose them.</summary>
+  private static void DeleteStaleDatabase(string databasePath)
+  {
+    for (int attempt = 0; attempt < 5; attempt++)
+    {
+      try
+      {
+        if (!File.Exists(databasePath))
+        {
+          return;
+        }
+
+        File.Delete(databasePath);
+        return;
+      }
+      catch (IOException) when (attempt < 4)
+      {
+        Thread.Sleep(400);
+      }
+      catch (IOException ex)
+      {
+        Console.Error.WriteLine($"warning: could not delete the previous eval database ({ex.Message}); results may include skills learned in an earlier run.");
+        return;
+      }
+    }
+  }
+
+  /// <summary>The invocation checks Main used to inline: an unknown provider, a missing
+  ///     workspace root, and a NON-EMPTY root (which would silently carry a previous run's
+  ///     workspace-scoped state into the next). Returns the refusal text, or null when the
+  ///     invocation is valid.</summary>
+  private static Task<string?> ValidateInvocationAsync(string workspaceRoot, string providerName, string? providerId)
+  {
+    if (providerId is null)
+    {
+      return Task.FromResult<string?>($"unknown provider '{providerName}'. Known providers: OpenRouter.");
+    }
+
+    if (!Directory.Exists(workspaceRoot))
+    {
+      return Task.FromResult<string?>($"workspace root not found: '{workspaceRoot}'");
+    }
+
+    // The anchor must be an EXISTING EMPTY directory: one fresh subdirectory per prompt,
+    // and a reused root would silently carry a previous run's workspace-scoped state.
+    bool empty = !Directory.EnumerateFileSystemEntries(workspaceRoot).Any();
+    return Task.FromResult(empty ? null : $"workspace root must be an empty directory: '{workspaceRoot}'");
+  }
+
   private static async Task PrintUsage()
   {
     await Console.Out.WriteLineAsync("SkillActivationEval - headless skill-activation eval runner");
     await Console.Out.WriteLineAsync();
     await Console.Out.WriteLineAsync("usage: dotnet run --project tools/SkillActivationEval -- <workspaceRoot> <providerName> <outPath>");
     await Console.Out.WriteLineAsync("  workspaceRoot  existing EMPTY directory; one fresh subdirectory is created per prompt");
-    await Console.Out.WriteLineAsync("  providerName   'OpenRouter' | 'zai' | 'Local'");
+    await Console.Out.WriteLineAsync("  providerName   'OpenRouter' (the only wired provider)");
     await Console.Out.WriteLineAsync("  outPath        path of the JSON result file to write");
-    await Console.Out.WriteLineAsync($"  API key        {EvalKeyVariable} environment variable (OpenRouter/zai; Local needs none)");
-    await Console.Out.WriteLineAsync($"  local server   {LocalBaseUrlVariable} environment variable (Local provider's OpenAI-compatible base URL)");
+    await Console.Out.WriteLineAsync($"  API key        {EvalKeyVariable} environment variable");
+    await Console.Out.WriteLineAsync($"  model          {ModelVariable} environment variable (REQUIRED: the harness never substitutes a model, so an unset model measures nothing)");
     await Console.Out.WriteLineAsync($"  per-prompt cap {BudgetVariable} seconds (default {DefaultPromptBudgetSeconds}; minimum {MinPromptBudgetSeconds})");
   }
 
@@ -410,17 +536,32 @@ internal static class Program
 internal sealed record EvalPrompt(string Id, string Prompt, string[] Expected, bool ExpectNone);
 #pragma warning restore CA1812 // Avoid uninstantiated internal classes
 
-/// <summary>One output row: the JSON entry shape the brief pins.</summary>
+/// <summary>One output row: the JSON entry shape the brief pins, plus the score.
+///     <para>The runner SCORES because an unscored row is not a result: a reader had to
+///     compare every line against prompts.json by hand, which is how a scoring bug (an
+///     empty-string 'no skill' compared against null) survived a whole run and reported
+///     0/5 abstentions while the transcript showed NONE on all five.</para></summary>
 internal sealed record EvalRow(
     string Id,
     string Prompt,
     IReadOnlyList<string> ActivatedSkills,
+    IReadOnlyList<string> ExpectedSkills,
+    bool ExpectNone,
     string? ModelUsed,
     string? SessionId,
     string? Error)
 {
-  /// <summary>The one-line console table row: id | activated | model.</summary>
+  /// <summary>Whether this row matched its expectation. A task row is correct when ANY
+  ///     expected skill activated (the prompt set lists alternatives where more than one
+  ///     answer is defensible); an abstention row is correct when NOTHING activated. An
+  ///     errored row is never correct.</summary>
+  [JsonIgnore]
+  public bool Correct => Error is null && (ExpectNone
+      ? ActivatedSkills.Count == 0
+      : ActivatedSkills.Any(a => ExpectedSkills.Contains(a, StringComparer.OrdinalIgnoreCase)));
+
+  /// <summary>The one-line console table row: id | PASS/fail | got | want | model.</summary>
   [JsonIgnore]
   public string SummaryLine => string.Create(CultureInfo.InvariantCulture,
-      $"{Id} | {(ActivatedSkills.Count == 0 ? "-" : string.Join(",", ActivatedSkills))} | {ModelUsed ?? "-"}{(Error is null ? string.Empty : " | error: " + Error)}");
+      $"{Id} | {(Correct ? "PASS" : "fail")} | got {(ActivatedSkills.Count == 0 ? "-" : string.Join(",", ActivatedSkills))} | want {(ExpectNone ? "NONE" : string.Join(",", ExpectedSkills))} | {ModelUsed ?? "-"}{(Error is null ? string.Empty : " | error: " + Error)}");
 }
