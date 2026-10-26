@@ -34,6 +34,13 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   /// <summary>The connect bound (a CLOCK): a pipe held by another instance must fail named.</summary>
   internal static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
 
+  /// <summary>How long disposal waits for a killed host to actually exit (a CLOCK, never a
+  ///     spin count). Bounded on purpose: a host that ignores the kill must not hang
+  ///     teardown, and the kill-on-close job remains the backstop. It exists because
+  ///     <c>Process.Kill</c> RETURNS BEFORE THE PROCESS IS GONE, so without it a caller
+  ///     could observe a 'disposed' session's host still alive and serving turns.</summary>
+  internal static readonly TimeSpan ExitWaitTimeout = TimeSpan.FromSeconds(10);
+
   /// <summary>How the host's started line resolved.</summary>
   internal enum StartedLineOutcome
   {
@@ -485,6 +492,11 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       if (!process.HasExited)
       {
         process.Kill(entireProcessTree: true);
+        // Kill() only ASKS. Waiting for the exit here is what makes 'disposal' mean
+        // 'the host is gone' rather than 'the kill was requested' - see DisposeAsync.
+        // Bounded so a wedged host cannot hang teardown; a timeout is not a failure,
+        // because the kill-on-close job still reaps it with this process.
+        _ = process.WaitForExit((int)ExitWaitTimeout.TotalMilliseconds);
       }
     }
     // Named decision (CA1031, S108, S2486): the process is already written off, so a
@@ -541,6 +553,16 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     // released in BOTH cases (an exited host used to keep an undisposed handle for the
     // supervisor's lifetime), and a teardown must never turn container disposal into a
     // fault at shutdown.
+    //
+    // DISPOSAL DOES NOT COMPLETE UNTIL THE HOST IS GONE (issue #284 follow-up).
+    // Kill() is a REQUEST: it returns as soon as the kernel accepts it, while the
+    // process keeps running - and keeps holding its SQLite file, its pipe and its
+    // scratch folder - for a window afterwards (measured on a loaded machine: a
+    // test-spawned host stayed in the process table for seconds, still serving turns,
+    // after its container's disposal had returned). A caller that treated 'dispose' as
+    // 'the host is gone' then observed a live process it thought it had killed, and the
+    // suite's leak guard reported a correctly finished test as a leak. The wait below
+    // is bounded, so a host that ignores the kill cannot hang teardown.
     if (host is not null)
     {
       KillQuietly(host);

@@ -75,6 +75,64 @@ public class RemoteHostSupervisorDisposalTests : SessionOwningTest
     Assert.True(WasDisposed(captured), "disposal must release the running host's handle");
   }
 
+
+  /// <summary>DISPOSAL MEANS THE HOST IS GONE, NOT THAT A KILL WAS REQUESTED.
+  ///     <para>The defect this pins: <c>Process.Kill</c> returns as soon as the kernel
+  ///     accepts the request, while the host keeps running and keeps holding its SQLite
+  ///     file, pipe and scratch folder for a window afterwards. Measured on a loaded
+  ///     machine, test-spawned hosts were still executing turns seconds after the
+  ///     container that owned them had been disposed - so a caller that treated
+  ///     'dispose completed' as 'this session's host is gone' observed a live process it
+  ///     believed it had killed. The Desktop suite's leak guard is exactly such a caller,
+  ///     and it reported correctly-finished tests as leaks.</para>
+  ///     <para>What is asserted is the CONTRACT rather than a duration: when disposal
+  ///     returns, the process id is no longer present in the process table. The bound
+  ///     lives in the supervisor (<c>ExitWaitTimeout</c>) so a wedged host cannot hang
+  ///     teardown; this test would fail on the pre-fix code, where disposal returned while
+  ///     the host was still alive.</para></summary>
+  [Fact]
+  public async Task DisposeAsync_DoesNotReturnUntilTheHostProcessIsGone()
+  {
+    AgentSession session = await CreateSessionAsync(Settings()).ConfigureAwait(true);
+    RemoteHostSupervisor supervisor = SupervisorOf(session);
+
+    int pid = supervisor.HostProcessId
+        ?? throw new InvalidOperationException("the session must own a live host process");
+    Assert.True(IsPresent(pid), "the host must be running before disposal");
+
+    await session.Services.DisposeAsync().ConfigureAwait(true);
+
+    Assert.False(IsPresent(pid),
+        $"disposal returned while host {pid} was still in the process table - a caller cannot "
+        + "distinguish that from a leak");
+  }
+
+  /// <summary>Is this pid in the process table at all? A presence question, deliberately
+  ///     NOT a liveness one: the leak guard (and any caller asking 'is it still here?')
+  ///     enumerates processes, so a terminated-but-present process still costs it an
+  ///     answer. Asking presence makes the assertion strict rather than generous.</summary>
+  private static bool IsPresent(int pid)
+  {
+    foreach (Process candidate in Process.GetProcesses())
+    {
+      using (candidate)
+      {
+        try
+        {
+          if (candidate.Id == pid)
+          {
+            return true;
+          }
+        }
+        catch (InvalidOperationException)
+        {
+          // Exited between enumeration and the read: not present any more.
+        }
+      }
+    }
+
+    return false;
+  }
   /// <summary>The other half of the acceptance criteria: a host that had ALREADY exited when
   ///     the supervisor was disposed. The old dispose only touched the process when
   ///     <c>HasExited</c> was false, so this case kept an undisposed handle for the

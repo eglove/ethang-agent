@@ -47,6 +47,14 @@ internal class AgentMarkdownBlock : ContentControl
   private DispatcherTimer? _throttle;
   private bool _pending;
 
+  /// <summary>How many times this block has rebuilt its visual, exposed so a test can
+  ///     assert the coalescing CONTRACT (a bounded number of rebuilds for a burst of
+  ///     deltas) instead of inferring it from wall-clock-dependent text. Counting here is
+  ///     the honest signal: the throttle's whole promise is about rebuild COUNT, and a
+  ///     value read back from <see cref="MarkdownText"/> reports whichever delta happened
+  ///     to be pending when the clock last fired.</summary>
+  internal int RenderCount { get; private set; }
+
   public string MarkdownText
   {
     get => GetValue(MarkdownTextProperty);
@@ -155,6 +163,7 @@ internal class AgentMarkdownBlock : ContentControl
 
   private void RenderMarkdown()
   {
+    RenderCount++;
     MarkdownViewer viewer = Viewer();
     viewer.Opacity = Variant == AgentMarkdownVariant.Reasoning ? ReasoningOpacity : 1.0;
     viewer.Markdown = MarkdownText ?? string.Empty;
@@ -163,6 +172,7 @@ internal class AgentMarkdownBlock : ContentControl
 
   private void RenderPlain()
   {
+    RenderCount++;
     _plainBlock ??= new TextBlock { FontStyle = FontStyle.Italic, TextWrapping = TextWrapping.Wrap };
     _plainBlock.Text = MarkdownText ?? string.Empty;
     _plainBlock.Opacity = ReasoningOpacity;

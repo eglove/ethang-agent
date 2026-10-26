@@ -208,25 +208,108 @@ public class AgentMarkdownBlockTests
   public void Delta_Burst_Renders_Once_While_Open_And_Final_On_Close()
   {
     Window window = new() { Width = 400, Height = 300 };
-    AgentMarkdownBlock block = new() { MarkdownText = "start", IsOpen = true };
+    // The throttle window is set WIDE so no timer tick can fire while the burst runs:
+    // the contract under test is the coalescing SHAPE (many deltas, few rebuilds). A
+    // 150 ms default made the assertion depend on how fast this machine drained 200
+    // dispatcher jobs - a wall-clock assumption the control never made.
+    AgentMarkdownBlock block = new()
+    {
+      MarkdownText = "start",
+      IsOpen = true,
+      ThrottleInterval = TimeSpan.FromSeconds(60),
+    };
     window.Content = block;
     window.Show();
     Dispatcher.UIThread.RunJobs();
+    Assert.Equal(1, block.RenderCount);
 
-    // A live stream: 200 Replace deltas against the open block. The coalescing
-    // throttle must keep the visual rebuilds bounded - only the initial render
-    // lands while streaming; nothing else until the clock is collapsed.
+    // A live stream: 200 Replace deltas against the open block. The coalescing throttle
+    // must keep the visual rebuilds BOUNDED - the initial render lands, every later
+    // delta only marks the block dirty, and nothing else rebuilds until the window
+    // closes. Asserting a bounded COUNT (not 'the text never changed') is the real
+    // contract: a value read back from the viewer only says which delta happened to be
+    // pending the last time the clock fired.
     for (int i = 0; i < 200; i++)
     {
       block.MarkdownText = "delta " + i + " **x**";
       Dispatcher.UIThread.RunJobs();
     }
 
+    Assert.Equal(1, block.RenderCount);
     Assert.Equal("start", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
 
     block.IsOpen = false;
     Dispatcher.UIThread.RunJobs();
     Assert.Equal("delta 199 **x**", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
+    Assert.Equal(2, block.RenderCount); // the close render is the only one the burst bought
+  }
+
+  /// <summary>The coalescing bound as a CONTRACT, at the control's REAL default interval:
+  ///     200 deltas must cost a small constant number of rebuilds, never one per delta.
+  ///     This is the assertion the throttle exists to satisfy, and unlike a fixed expected
+  ///     count it holds however long the burst takes on a given machine - the allowance
+  ///     grows with the elapsed clock, so what it catches is a coalescer that stopped
+  ///     coalescing rather than a machine that ran slowly.
+  ///     <para>It is also the RED half of the regression pair: against a control that
+  ///     rebuilt per delta (<c>RenderCount</c> reaching 200) the bound fails loudly.</para></summary>
+  [AvaloniaFact]
+  public void Delta_Burst_AtTheDefaultInterval_RebuildsFarFewerTimesThanThereAreDeltas()
+  {
+    Window window = new() { Width = 400, Height = 300 };
+    AgentMarkdownBlock block = new() { MarkdownText = "start", IsOpen = true };
+    Assert.Equal(TimeSpan.FromMilliseconds(150), block.ThrottleInterval); // the production default
+    window.Content = block;
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    const int deltas = 200;
+    System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+    for (int i = 0; i < deltas; i++)
+    {
+      block.MarkdownText = "delta " + i + " **x**";
+      Dispatcher.UIThread.RunJobs();
+    }
+
+    clock.Stop();
+    int renders = block.RenderCount;
+
+    // One rebuild per closed throttle window, plus the initial one and one in flight.
+    // The point is that the count tracks TIME while the delta count is 200: the two
+    // cannot be confused, which is exactly what the old 'text still says start'
+    // assertion did.
+    double windows = Math.Ceiling(clock.Elapsed.TotalMilliseconds / block.ThrottleInterval.TotalMilliseconds);
+    int bound = (int)windows + 2;
+    Assert.True(renders <= bound,
+        $"a {deltas}-delta burst taking {clock.Elapsed.TotalMilliseconds:F0} ms must rebuild at most "
+        + $"{bound} times ({block.ThrottleInterval.TotalMilliseconds:F0} ms windows), but rebuilt {renders} times");
+    Assert.True(renders < deltas, $"the throttle must coalesce: {renders} rebuilds for {deltas} deltas");
+
+    block.IsOpen = false;
+    Dispatcher.UIThread.RunJobs();
+    Assert.Equal("delta 199 **x**", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
+  }
+
+  /// <summary>The other side of the counter: a CLOSED block rebuilds on every change
+  ///     (the throttle is open-block only), so the counter must actually move - otherwise
+  ///     the bounded-count assertions above could pass against a dead counter that never
+  ///     increments, which is the failure mode a 'renders stayed at 1' test cannot see.</summary>
+  [AvaloniaFact]
+  public void RenderCount_MovesForEveryChange_WhenTheBlockIsClosed()
+  {
+    Window window = new() { Width = 400, Height = 300 };
+    AgentMarkdownBlock block = new() { MarkdownText = "one", IsOpen = false };
+    window.Content = block;
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    int afterFirst = block.RenderCount;
+
+    block.MarkdownText = "two";
+    Dispatcher.UIThread.RunJobs();
+    block.MarkdownText = "three";
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.Equal(afterFirst + 2, block.RenderCount);
+    Assert.Equal("three", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
   }
   private static IEnumerable<T> Descendants<T>(Control root) where T : Control
   {
