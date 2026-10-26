@@ -36,8 +36,13 @@ public interface IContextCompactor
 ///     did not run.</param>
 /// <param name="SummarizerProvider">The provider whose price applies to the summarizer
 ///     call: the writer config's provider, or null when it names none.</param>
+/// <param name="SummarizerServedModelId">The model the provider reported as having actually
+///     served the summarizer call (issue #290), or null when it reported none. The same
+///     requested-versus-served distinction the main loop records: a summarizer resolved
+///     through a router can be served by a different model than the one requested.</param>
 public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, TokenUsage? SummarizerUsage,
-    string? HandoffSummary = null, string? SummarizerModelId = null, string? SummarizerProvider = null)
+    string? HandoffSummary = null, string? SummarizerModelId = null, string? SummarizerProvider = null,
+    string? SummarizerServedModelId = null)
 {
   /// <summary>True when this outcome is a SESSION HANDOFF: the conversation was not
   ///     compacted, and the summary seeds a new session instead.</summary>
@@ -48,6 +53,7 @@ public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, To
   ///     the summarizer was called and billed whether or not the conversation was
   ///     compacted (issue #23: a handoff records its usage row too).</summary>
   public static CompactionOutcome Handoff(string summary, TokenUsage? usage,
-      string? summarizerModelId = null, string? summarizerProvider = null)
-      => new(0, 0, usage, summary, summarizerModelId, summarizerProvider);
+      string? summarizerModelId = null, string? summarizerProvider = null,
+      string? summarizerServedModelId = null)
+      => new(0, 0, usage, summary, summarizerModelId, summarizerProvider, summarizerServedModelId);
 }

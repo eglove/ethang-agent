@@ -49,6 +49,7 @@ public static class ResponsesApiRequestCore
       // Null when the response carried no reasoning item at all — an absent trace is a
       // different fact from an empty one, the rule TokenUsage's optional counts follow.
       Reasoning = reasoning.Length > 0 ? reasoning.ToString() : null,
+      ServedModelId = ParseServedModelId(body),
     });
   }
 
@@ -233,6 +234,27 @@ public static class ResponsesApiRequestCore
     int? serverToolCalls = OptionalCount(u, "server_tool_use", "web_search_requests");
     int? reasoning = OptionalCount(u, "output_tokens_details", "reasoning_tokens");
     return new TokenUsage(input, output, cached, serverToolCalls, reasoning);
+  }
+
+  /// <summary>Reads the response object's <c>model</c> field — the model the provider
+  ///     reports as having actually served this response (issue #290) — or null when the
+  ///     provider names none.
+  ///     <para>This is a DIFFERENT FACT from the requested model the request carried, and
+  ///     the whole point of reading it is that a router makes the two diverge. An absent
+  ///     field, a null, and an empty string all mean UNREPORTED and all read as null: a
+  ///     blank model id would be a name that names nothing, and coercing any of them onto
+  ///     the requested id would fabricate the very attribution this field exists to make
+  ///     honest.</para>
+  ///     <para>Shared by both parse paths deliberately: the non-streaming body and the
+  ///     streaming terminal event carry the same response object, so one reader keeps them
+  ///     from disagreeing about what answered.</para></summary>
+  public static string? ParseServedModelId(JsonElement parent)
+  {
+    return parent.TryGetProperty("model", out JsonElement model)
+        && model.ValueKind == JsonValueKind.String
+        && model.GetString() is { Length: > 0 } served
+        ? served
+        : null;
   }
 
   /// <summary>An optional nested count: <c>parent.member.countName</c> when the nested

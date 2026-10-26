@@ -16,7 +16,10 @@ namespace eThangAgent.ModelDomain;
 ///     whose prices are all null contributes tokens but no cost, and the summary counts it
 ///     as unpriced rather than pricing it at zero.</para></summary>
 /// <param name="CallClass">The persisted call class (opaque to this domain).</param>
-/// <param name="ModelId">The model the call ran on, or null when it cannot be named.</param>
+/// <param name="ModelId">The model whose prices applied — the SERVED model when the
+///     provider named one, the requested model only as the fallback (issue #290). Null when
+///     the call cannot name its model. This is the pricing basis and the per-model rollup's
+///     grouping key.</param>
 /// <param name="Provider">The provider whose price was stamped, or null when unnamed.</param>
 /// <param name="WorkspaceId">The workspace the work belongs to, or null when unwired.</param>
 /// <param name="InputTokens">Provider-scored prompt tokens, cached share included.</param>
@@ -26,6 +29,11 @@ namespace eThangAgent.ModelDomain;
 /// <param name="PromptPricePerToken">The uncached-input price stamped at write time, or null.</param>
 /// <param name="PromptCacheReadPricePerToken">The cache-read price stamped at write time, or null.</param>
 /// <param name="CompletionPricePerToken">The output price stamped at write time, or null.</param>
+/// <param name="RequestedModelId">The model the session asked for, or null when unnamed
+///     (issue #290). A router makes this differ from <paramref name="ModelId"/>.</param>
+/// <param name="ServedModelId">The model the provider reported as having served the call,
+///     or null when it reported none. Null means the row was priced on the requested model —
+///     the fallback, visible rather than assumed.</param>
 public sealed record UsageRow(
     string CallClass,
     string? ModelId,
@@ -37,7 +45,16 @@ public sealed record UsageRow(
     int? ReasoningTokens,
     decimal? PromptPricePerToken,
     decimal? PromptCacheReadPricePerToken,
-    decimal? CompletionPricePerToken);
+    decimal? CompletionPricePerToken,
+    string? RequestedModelId = null,
+    string? ServedModelId = null)
+{
+  /// <summary>True when this row's prices belong to the REQUESTED model because the
+  ///     provider named no serving model (issue #290): the fallback, stated rather than
+  ///     assumed. False when the served model priced the row, and false when no model is
+  ///     named at all — an unpriced row is not a fallback.</summary>
+  public bool PricedOnRequestedModel => ServedModelId is null && ModelId is not null;
+}
 
 /// <summary>Token and cost totals for one group of usage rows (one call class, or one
 ///     model). <see cref="Cost"/> is null when no row in the group could be priced, so a

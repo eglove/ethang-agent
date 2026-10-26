@@ -83,4 +83,35 @@ public class RootTurnUsagePayloadTests
   [Fact]
   public void Parse_UnreadablePayload_IsNull()
       => Assert.Null(RootTurnUsagePayload.Parse("not json"));
+
+  [Fact]
+  public void Serialize_RouterRow_CarriesBothModelIds()
+  {
+    // Issue #290: the app must be able to say what actually served a host-run call, so
+    // both ids cross the wire. A payload that dropped them would leave the status bar
+    // able to show a cost but unable to name the model that incurred it.
+    UsageRow row = new("main_loop", "cohere/north-mini-code:free", "openrouter", "ws-1",
+        1000, 100, 900, 42, 0.000002m, 0.0000002m, 0.000004m,
+        "openrouter/free", "cohere/north-mini-code:free");
+
+    RootTurnUsagePayload parsed = Assert.IsType<RootTurnUsagePayload>(
+        RootTurnUsagePayload.Parse(RootTurnUsagePayload.Serialize(row)));
+
+    Assert.Equal("openrouter/free", parsed.RequestedModelId);
+    Assert.Equal("cohere/north-mini-code:free", parsed.ServedModelId);
+    Assert.Equal("cohere/north-mini-code:free", parsed.ToRow().ModelId);
+    Assert.False(parsed.ToRow().PricedOnRequestedModel);
+  }
+
+  [Fact]
+  public void Parse_AnOlderHostsPayload_LeavesBothModelIdsNull()
+  {
+    // The two ids are members an older host does not emit. They must read back null - the
+    // same unreported rule the price members follow - never a fabricated name.
+    RootTurnUsagePayload? parsed = RootTurnUsagePayload.Parse("{}");
+
+    Assert.NotNull(parsed);
+    Assert.Null(parsed.RequestedModelId);
+    Assert.Null(parsed.ServedModelId);
+  }
 }

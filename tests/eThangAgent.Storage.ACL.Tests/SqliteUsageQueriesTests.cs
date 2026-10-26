@@ -92,6 +92,20 @@ public sealed class SqliteUsageQueriesTests : IDisposable
     Assert.True(appended.IsSuccess);
   }
 
+  /// <summary>Records one usage row that names BOTH the requested and the served model
+  ///     (issue #290), so the read model's grouping key is pinned against a router row.</summary>
+  private async Task RecordWithServedAsync(AgentId id, Tokens tokens, string requestedModelId,
+      string servedModelId, CancellationToken ct)
+  {
+    Result<string> appended = await _store.AppendEventAsync(
+        new AgentUsageRecorded(id, DateTimeOffset.UtcNow, Guid.NewGuid(), 0, tokens.Input,
+            tokens.Output, tokens.Cached, null, UsageCallClass.MainLoop, "ws-1", "openrouter",
+            Prices.Known.Prompt, Prices.Known.CacheRead, Prices.Known.Completion,
+            ModelId: servedModelId, RequestedModelId: requestedModelId,
+            ServedModelId: servedModelId), ct).ConfigureAwait(false);
+    Assert.True(appended.IsSuccess);
+  }
+
   /// <summary>Writes one usage row verbatim, the way a pre-#22 build left it on disk.</summary>
   private async Task InsertRawUsageRowAsync(AgentId id, string payload, CancellationToken ct)
   {
@@ -259,6 +273,30 @@ public sealed class SqliteUsageQueriesTests : IDisposable
     Assert.Equal(2, modelA.Totals.Calls);
     UsageModelTotal modelB = Assert.Single(summary.ByModel, m => m.ModelId == "model/b");
     Assert.Equal(1, modelB.Totals.Calls);
+  }
+
+  [Fact]
+  public async Task SessionSummary_RouterRows_GroupOnTheServedModel()
+  {
+    // Issue #290: the per-model rollup groups on what was BILLED. A router session that
+    // requested openrouter/free but was served by two different models must produce two
+    // model buckets - and no bucket for the alias, which ran nothing.
+    CancellationToken ct = TestContext.Current.CancellationToken;
+    AgentId root = AgentId.NewId();
+    await InsertAgentAsync(root, null, ct).ConfigureAwait(true);
+    await RecordWithServedAsync(root, new Tokens(100, 10, null), "openrouter/free",
+        "cohere/north-mini-code:free", ct).ConfigureAwait(true);
+    await RecordWithServedAsync(root, new Tokens(200, 20, null), "openrouter/free",
+        "google/gemini-flash:free", ct).ConfigureAwait(true);
+
+    UsageSummary summary = await SummarizeAsync(root, ct).ConfigureAwait(true);
+
+    Assert.Equal(2, summary.Totals.Calls);
+    UsageModelTotal served = Assert.Single(summary.ByModel, m => m.ModelId == "cohere/north-mini-code:free");
+    Assert.Equal(1, served.Totals.Calls);
+    Assert.Equal(100, served.Totals.InputTokens);
+    _ = Assert.Single(summary.ByModel, m => m.ModelId == "google/gemini-flash:free");
+    Assert.DoesNotContain(summary.ByModel, m => m.ModelId == "openrouter/free");
   }
 
   [Fact]

@@ -371,6 +371,52 @@ public class DefaultContextCompactorTests
     Assert.Equal("openrouter", outcome.Value.SummarizerProvider);
   }
 
+  /// <summary>The outcome carries the summarizer's SERVED model when the provider reported
+  ///     one (issue #290): a summarizer resolved through a router is served by whatever the
+  ///     router picked, so the row must price on that id rather than the requested one.</summary>
+  [Fact]
+  public async Task CompactAsync_SummarizerServedByADifferentModel_CarriesTheServedId()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    ModelConfig summarizer = ModelConfig.Create("openrouter/free", "openrouter", 100, 0.5f, 1000).Value!;
+    RecordingFactory factory = new(summarizer);
+    ((ScriptedProvider)factory.Provider).Enqueue(Result.Success(new ModelResponse("a summary", [])
+    {
+      Usage = new TokenUsage(50, 100),
+      ServedModelId = "cohere/north-mini-code:free",
+    }));
+    DefaultContextCompactor compactor = new(factory, () => summarizer);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.Equal("openrouter/free", outcome.Value.SummarizerModelId);
+    Assert.Equal("cohere/north-mini-code:free", outcome.Value.SummarizerServedModelId);
+  }
+
+  /// <summary>An unreported summarizer serving model stays null (issue #290): the outcome
+  ///     must not coerce it onto the requested id.</summary>
+  [Fact]
+  public async Task CompactAsync_SummarizerReportsNoModel_LeavesServedIdNull()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    ModelConfig summarizer = ModelConfig.Create("summarizer-model", "openrouter", 100, 0.5f, 1000).Value!;
+    RecordingFactory factory = new(summarizer);
+    ((ScriptedProvider)factory.Provider).Enqueue(Result.Success(new ModelResponse("a summary", [])
+    {
+      Usage = new TokenUsage(50, 100),
+    }));
+    DefaultContextCompactor compactor = new(factory, () => summarizer);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.Equal("summarizer-model", outcome.Value.SummarizerModelId);
+    Assert.Null(outcome.Value.SummarizerServedModelId);
+  }
+
   /// <summary>On FALLBACK the writer IS the serving model, and the outcome must say so:
   ///     the price stamped onto the usage row is the price of the model that ran.</summary>
   [Fact]

@@ -99,4 +99,37 @@ public class UsageWireTests
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.Usage);
   }
+
+  [Fact]
+  public async Task NonStreaming_RouterResponse_SurfacesTheServedModel()
+  {
+    // Issue #290 end to end through the production provider: the requested model is "m"
+    // and the router answered with a different one. The served id must reach the caller,
+    // because that is what the loop records and prices against.
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Json(HttpStatusCode.OK, /*lang=json,strict*/
+        """{"model":"cohere/north-mini-code:free","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"plain"}]}],"usage":{"input_tokens":42,"output_tokens":7}}""")));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("cohere/north-mini-code:free", result.Value.ServedModelId);
+  }
+
+  [Fact]
+  public async Task Streaming_RouterTerminalEvent_SurfacesTheServedModel()
+  {
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hi\"}\n\n" +
+        "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"cohere/north-mini-code:free\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":100,\"output_tokens\":10}}}\n\n" +
+        "data: [DONE]\n\n")));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("cohere/north-mini-code:free", result.Value.ServedModelId);
+  }
 }

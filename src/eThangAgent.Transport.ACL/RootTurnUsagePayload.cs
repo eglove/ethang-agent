@@ -29,7 +29,9 @@ public sealed record RootTurnUsagePayload(
     int? ReasoningTokens = null,
     decimal? PromptPricePerToken = null,
     decimal? PromptCacheReadPricePerToken = null,
-    decimal? CompletionPricePerToken = null)
+    decimal? CompletionPricePerToken = null,
+    string? RequestedModelId = null,
+    string? ServedModelId = null)
 {
   /// <summary>Projects one recorded row onto its wire form — the host's emission shape.</summary>
   public static RootTurnUsagePayload From(UsageRow row)
@@ -37,14 +39,16 @@ public sealed record RootTurnUsagePayload(
     ArgumentNullException.ThrowIfNull(row);
     return new RootTurnUsagePayload(row.CallClass, row.ModelId, row.Provider, row.WorkspaceId,
         row.InputTokens, row.OutputTokens, row.CachedInputTokens, row.ReasoningTokens,
-        row.PromptPricePerToken, row.PromptCacheReadPricePerToken, row.CompletionPricePerToken);
+        row.PromptPricePerToken, row.PromptCacheReadPricePerToken, row.CompletionPricePerToken,
+        row.RequestedModelId, row.ServedModelId);
   }
 
   /// <summary>Rebuilds the row the status bar's tally consumes. A payload that omits the
   ///     class reads as <c>main_loop</c> — the same legacy rule the stored rows follow.</summary>
   public UsageRow ToRow() => new(CallClass ?? MainLoopClass, ModelId, Provider, WorkspaceId,
       InputTokens, OutputTokens, CachedInputTokens, ReasoningTokens,
-      PromptPricePerToken, PromptCacheReadPricePerToken, CompletionPricePerToken);
+      PromptPricePerToken, PromptCacheReadPricePerToken, CompletionPricePerToken,
+      RequestedModelId, ServedModelId);
 
   /// <summary>Serializes one recorded row for a <c>usage</c> event.</summary>
   public static string Serialize(UsageRow row) => JsonSerializer.Serialize(From(row));

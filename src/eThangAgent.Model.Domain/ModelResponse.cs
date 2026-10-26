@@ -29,4 +29,16 @@ public sealed record ModelResponse(
   ///     (<c>response.reasoning_summary_text.delta</c>) accumulates the summary here; the
   ///     raw trace exists only when the provider streams one.</para></summary>
   public string? Reasoning { get; init; }
+
+  /// <summary>The model the provider reported as having served this response, read from
+  ///     the wire's <c>model</c> field — or null when the provider named none (issue #290).
+  ///     <para>This is a DIFFERENT FACT from the requested model the request carried. For a
+  ///     fixed model the two strings are equal and the distinction is invisible; for a
+  ///     router (<c>openrouter/free</c> selects per request) they diverge, and only this
+  ///     field can say what actually ran and what its prices are.</para>
+  ///     <para>NEVER FABRICATED: an unreported serving model stays null rather than being
+  ///     coerced to the requested id. "The provider did not say" is a real answer, and
+  ///     collapsing it into the request would restore exactly the confident-wrong record
+  ///     this field exists to eliminate.</para></summary>
+  public string? ServedModelId { get; init; }
 }

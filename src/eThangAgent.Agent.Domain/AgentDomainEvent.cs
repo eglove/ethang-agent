@@ -50,13 +50,20 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
     int InputTokens, int OutputTokens, int? CachedInputTokens, int? ReasoningTokens,
     UsageCallClass? CallClass = null, string? WorkspaceId = null, string? Provider = null,
     decimal? PromptPricePerToken = null, decimal? PromptCacheReadPricePerToken = null,
-    decimal? CompletionPricePerToken = null, string? ModelId = null)
+    decimal? CompletionPricePerToken = null, string? ModelId = null,
+    string? RequestedModelId = null, string? ServedModelId = null)
     : AgentDomainEvent(AgentId, OccurredAt)
 {
   /// <summary>The class this row belongs to, with the legacy rule applied: a null class
   ///     reads as <see cref="UsageCallClass.MainLoop"/>, because every row written before
   ///     the class existed came from the loop.</summary>
   public UsageCallClass EffectiveCallClass => CallClass ?? UsageCallClass.MainLoop;
+
+  /// <summary>True when the stamped prices belong to the REQUESTED model because the
+  ///     provider named no serving model (issue #290) — the fallback, made visible rather
+  ///     than assumed. False when the served model priced the row, and false when no model
+  ///     is named at all (an unpriced row is not a fallback).</summary>
+  public bool PricedOnRequestedModel => ServedModelId is null && ModelId is not null;
 
   /// <summary>Strictly validated construction (issue #23, B10): a record the loop cannot
   ///     honestly write is a DOMAIN ERROR here, never a coerced row. The recording site
@@ -77,7 +84,8 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
             usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens,
             attribution.CallClass, attribution.WorkspaceId, attribution.Provider,
             attribution.Prices.PromptPricePerToken, attribution.Prices.PromptCacheReadPricePerToken,
-            attribution.Prices.CompletionPricePerToken, attribution.ModelId));
+            attribution.Prices.CompletionPricePerToken, attribution.ModelId,
+            attribution.RequestedModelId, attribution.ServedModelId));
   }
 
   /// <summary>Projects this row onto the Model Domain's neutral read shape (issue #24), so
@@ -86,7 +94,8 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
   ///     set stays owned here, and the read model treats the name as opaque.</summary>
   public UsageRow ToUsageRow() => new(EffectiveCallClass.WireName, ModelId, Provider, WorkspaceId,
       InputTokens, OutputTokens, CachedInputTokens, ReasoningTokens,
-      PromptPricePerToken, PromptCacheReadPricePerToken, CompletionPricePerToken);
+      PromptPricePerToken, PromptCacheReadPricePerToken, CompletionPricePerToken,
+      RequestedModelId, ServedModelId);
   /// <summary>The name of the first negative count, or null when every count is sane.</summary>
   private static string? NegativeCount(TokenUsage usage) =>
       Counts(usage).FirstOrDefault(count => count.Value < 0).Key;
@@ -109,12 +118,25 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
 /// <param name="WorkspaceId">The workspace the work belongs to; null when unwired.</param>
 /// <param name="Provider">The provider whose price was stamped; null when unnamed.</param>
 /// <param name="Prices">The three per-token prices, each null when unknown.</param>
-/// <param name="ModelId">The model whose prices were stamped (issue #24): the per-model
-///     rollup groups on it, and a row that cannot name its model is reported with a null
-///     model rather than being attributed to one that did not run.</param>
+/// <param name="RequestedModelId">The model the session ASKED for (issue #290): what the
+///     user chose. Null when the call site cannot name it.</param>
+/// <param name="ServedModelId">The model the provider reported as having actually served
+///     the call, or null when it reported none. For a router this is the model that ran and
+///     that the stamped prices belong to.</param>
+/// <remarks>THE PRICING BASIS IS DERIVED, NOT PASSED (issue #290): <see cref="ModelId"/> is
+///     <see cref="ServedModelId"/> when the provider named one, and <see cref="RequestedModelId"/>
+///     only as the fallback. One derivation at the one write path keeps the per-model rollup
+///     grouping on what was billed without teaching every reader the fallback rule — and it
+///     is why the two source ids are the only model members a caller supplies.</remarks>
 public sealed record UsageAttribution(UsageCallClass CallClass, string? WorkspaceId, string? Provider,
-    UsagePrices Prices, string? ModelId = null)
+    UsagePrices Prices, string? RequestedModelId = null, string? ServedModelId = null)
 {
+  /// <summary>The model whose prices were stamped and whose bucket the per-model rollup
+  ///     groups on (issues #24, #290): the SERVED model when the provider named one, the
+  ///     requested model only as the fallback. A row that cannot name its model reads null
+  ///     rather than being attributed to one that did not run.</summary>
+  public string? ModelId => ServedModelId ?? RequestedModelId;
+
   /// <summary>The attribution of a call whose workspace, provider, and prices are all
   ///     unknown — the legacy shape, where tokens are recorded and cost reads as null.</summary>
   public static UsageAttribution Unattributed(UsageCallClass callClass) =>

@@ -348,6 +348,10 @@ public static class ResponsesApiStreamCore
     if (evt.TryGetProperty("response", out JsonElement response) && response.ValueKind == JsonValueKind.Object)
     {
       state.Usage = ResponsesApiRequestCore.ParseUsage(response);
+      // The terminal response object names what actually served the stream (issue #290):
+      // the same field the non-streaming body carries, read by the same shared reader so
+      // the two paths cannot disagree.
+      state.ServedModelId = ResponsesApiRequestCore.ParseServedModelId(response);
       state.FinishReason = ParseTerminalFinishReason(response, state.ToolCalls.Count > 0);
     }
   }
@@ -475,6 +479,11 @@ public static class ResponsesApiStreamCore
     internal Dictionary<int, ServerToolCall> ServerToolCalls { get; } = []; // keyed by output_index
     internal FinishReason FinishReason { get; set; } = FinishReason.Stop;
     internal TokenUsage? Usage { get; set; }
+
+    /// <summary>The model the terminal event reported as having served this stream, or null
+    ///     when it named none (issue #290). Null is a real answer — a stream whose terminal
+    ///     frame omits the field must not inherit a guess.</summary>
+    internal string? ServedModelId { get; set; }
     internal Action<string>? OnContentDelta { get; init; }
     internal Action<string>? OnReasoningDelta { get; init; }
 
@@ -493,6 +502,9 @@ public static class ResponsesApiStreamCore
       // different fact from an empty one (the rule TokenUsage's optional counts follow),
       // so a consumer can tell "no reasoning channel" from "reasoned nothing".
       Reasoning = ReasoningText.Length > 0 ? ReasoningText.ToString() : null,
+      // The unqualified name resolves to THIS state's property (an initializer's right side
+      // is evaluated in the enclosing scope), which is the value the terminal event set.
+      ServedModelId = ServedModelId,
     };
   }
 }

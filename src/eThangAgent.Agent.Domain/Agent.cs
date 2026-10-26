@@ -547,7 +547,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     try
     {
-      Result<AgentUsageRecorded> record = await BuildUsageRecordAsync(usage, state).ConfigureAwait(false);
+      Result<AgentUsageRecorded> record = await BuildUsageRecordAsync(response, usage, state).ConfigureAwait(false);
       if (!record.IsSuccess)
       {
         CountUsageDrop(state, callbacks, record.Error.Message);
@@ -597,13 +597,18 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     try
     {
+      // The SERVED summarizer model prices the row when the provider named one (issue #290):
+      // the same requested-versus-served rule the main loop applies, because a summarizer
+      // resolved through a router is served by whatever the router picked.
+      string pricingModelId = outcome.SummarizerServedModelId ?? modelId;
       UsagePrices prices = _usagePrices is null
           ? UsagePrices.Unknown
-          : await _usagePrices.PricesForAsync(modelId, outcome.SummarizerProvider, CancellationToken.None)
+          : await _usagePrices.PricesForAsync(pricingModelId, outcome.SummarizerProvider, CancellationToken.None)
               .ConfigureAwait(false);
       Result<AgentUsageRecorded> record = AgentUsageRecorded.Create(Id, DateTimeOffset.UtcNow,
           state.TurnId, state.Iteration, usage,
-          new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices, modelId));
+          new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices,
+              modelId, outcome.SummarizerServedModelId));
       if (!record.IsSuccess)
       {
         CountUsageDrop(state, callbacks, record.Error.Message);
@@ -624,21 +629,32 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   }
 
   /// <summary>Builds the row to persist for one provider call. With NEITHER a price source
-  ///     NOR a workspace id wired the record is the LEGACY shape — the positional
-  ///     constructor, every member this issue added left null — so the unwired path is
-  ///     byte-identical to before (B9), not merely equivalent. Otherwise the row carries
-  ///     its class, provider, workspace, and the three prices resolved at write time.
+  ///     NOR a workspace id wired the record keeps the LEGACY PRICE SHAPE — the positional
+  ///     constructor with every price, class, and attribution member null (B9). The two
+  ///     MODEL IDS are the deliberate exception (issue #290): they describe the call, not
+  ///     the wiring, so an unwired session still records what it asked for and what served
+  ///     it — otherwise it could never say which model ran. Otherwise the row carries its
+  ///     class, provider, workspace, and the three prices resolved at write time.
+  ///     <para>PRICING FOLLOWS THE SERVED ID when the provider named one: a router's call
+  ///     priced from the requested id is priced from a table belonging to a model that did
+  ///     not run.</para>
   ///     <para>Construction is strictly validated (B10): a record the domain cannot
   ///     honestly write is a named failure the caller counts as a drop.</para></summary>
-  private async Task<Result<AgentUsageRecorded>> BuildUsageRecordAsync(TokenUsage usage, TurnState state)
+  private async Task<Result<AgentUsageRecorded>> BuildUsageRecordAsync(ModelResponse response,
+      TokenUsage usage, TurnState state)
   {
     DateTimeOffset at = DateTimeOffset.UtcNow;
     return _usagePrices is null && _workspaceId is null
         ? Result.Success(new AgentUsageRecorded(Id, at, state.TurnId, state.Iteration,
-            usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens))
+            usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens,
+            // The pricing basis is stamped here too, so an unwired row still groups under the
+            // model that served it rather than under the null bucket (issue #290).
+            ModelId: response.ServedModelId ?? Config.ModelId,
+            RequestedModelId: Config.ModelId, ServedModelId: response.ServedModelId))
         : AgentUsageRecorded.Create(Id, at, state.TurnId, state.Iteration, usage,
             new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.Provider,
-                await ResolvePricesAsync().ConfigureAwait(false), Config.ModelId));
+                await ResolvePricesAsync(response).ConfigureAwait(false),
+                Config.ModelId, response.ServedModelId));
   }
 
   /// <summary>The three prices to stamp on this call's row: the catalog's current prices
@@ -647,11 +663,17 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     <para>The catalog lookup is the only await in the recording path that can be slow,
   ///     and it is memoized per (model, provider) for the process lifetime, so the steady
   ///     state is a dictionary read.</para></summary>
-  private async Task<UsagePrices> ResolvePricesAsync() =>
+  private async Task<UsagePrices> ResolvePricesAsync(ModelResponse response) =>
       _usagePrices is null
           ? UsagePrices.Unknown
-          : await _usagePrices.PricesForAsync(Config.ModelId, Config.Provider, CancellationToken.None)
-              .ConfigureAwait(false);
+          : await _usagePrices.PricesForAsync(PricingModelId(response), Config.Provider,
+              CancellationToken.None).ConfigureAwait(false);
+
+  /// <summary>The model whose price table applies to this response (issue #290): the SERVED
+  ///     model when the provider named one, the requested model only as the fallback. Pricing
+  ///     a router's call from the requested id prices a model that did not run — the wrong
+  ///     table, confidently applied.</summary>
+  private string PricingModelId(ModelResponse response) => response.ServedModelId ?? Config.ModelId;
 
   /// <summary>Counts a dropped usage row and surfaces the fact ONCE per turn (B8): the
   ///     first drop of a turn emits a notice, later drops only increment the counter. The

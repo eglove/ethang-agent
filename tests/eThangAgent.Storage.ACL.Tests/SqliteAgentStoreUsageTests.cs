@@ -96,7 +96,9 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
     // table, no migration - so a cost report is computable from agent_events alone.
     AgentId id = AgentId.NewId();
     AgentUsageRecorded recorded = new(id, DateTimeOffset.UtcNow, Guid.NewGuid(), 2, 100, 20, 64, 7,
-        UsageCallClass.Compaction, "ws-root", "openrouter", 0.000003m, 0.0000003m, 0.000015m);
+        UsageCallClass.Compaction, "ws-root", "openrouter", 0.000003m, 0.0000003m, 0.000015m,
+        ModelId: "cohere/north-mini-code:free", RequestedModelId: "openrouter/free",
+        ServedModelId: "cohere/north-mini-code:free");
 
     Assert.True((await _store.AppendEventAsync(recorded, ct: TestContext.Current.CancellationToken)).IsSuccess);
 
@@ -112,6 +114,12 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
     Assert.Equal(0.000003m, reloaded.PromptPricePerToken);
     Assert.Equal(0.0000003m, reloaded.PromptCacheReadPricePerToken);
     Assert.Equal(0.000015m, reloaded.CompletionPricePerToken);
+    // Issue #290: both model ids survive the round trip, and the pricing basis is the
+    // SERVED id - the row can still say what actually ran after a restart.
+    Assert.Equal("openrouter/free", reloaded.RequestedModelId);
+    Assert.Equal("cohere/north-mini-code:free", reloaded.ServedModelId);
+    Assert.Equal("cohere/north-mini-code:free", reloaded.ModelId);
+    Assert.False(reloaded.PricedOnRequestedModel);
   }
 
   [Fact]
@@ -154,6 +162,11 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
     Assert.Null(reloaded.PromptPricePerToken);
     Assert.Null(reloaded.PromptCacheReadPricePerToken);
     Assert.Null(reloaded.CompletionPricePerToken);
+    // Issue #290: the two model ids are members added after this payload was written, so
+    // they read back null - the same legacy rule the #22 members follow. A row that cannot
+    // name what served it must not be given a name after the fact.
+    Assert.Null(reloaded.RequestedModelId);
+    Assert.Null(reloaded.ServedModelId);
     Assert.Same(UsageCallClass.MainLoop, reloaded.EffectiveCallClass);
   }
 

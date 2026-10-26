@@ -157,7 +157,9 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
           Integer(root, "ReasoningTokens"),
           Decimal(root, "PromptPricePerToken"),
           Decimal(root, "PromptCacheReadPricePerToken"),
-          Decimal(root, "CompletionPricePerToken"));
+          Decimal(root, "CompletionPricePerToken"),
+          String(root, "RequestedModelId"),
+          String(root, "ServedModelId"));
     }
     catch (JsonException)
     {
