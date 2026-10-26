@@ -26,7 +26,7 @@ public class CatalogUsagePriceSourceTests
 
   private static ModelProviderEntry Entry(string model, string? provider, decimal prompt, decimal? cacheRead,
       decimal completion) =>
-      new(model, provider, prompt, cacheRead, completion, 128_000, 4096, true, false, null, null, null, null, null, "");
+      new(model, provider, prompt, cacheRead, completion, 128_000, 4096, true, false, true, null, null, null, null, null, "");
 
   [Fact]
   public async Task PricesFor_ModelWithCacheReadPrice_StampsAllThree()

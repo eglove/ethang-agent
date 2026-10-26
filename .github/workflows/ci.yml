@@ -121,6 +121,85 @@ jobs:
             ./TestResults/**/*.log
           if-no-files-found: ignore
 
+  # NON-REQUIRED, SECRET-GATED, BOUNDED (issue #289). This job exists to notice when the HARNESS
+  # regresses against a real model's actual behaviour - the one thing no fake-provider suite can
+  # see, because a fake is written by the same person who wrote the code under test.
+  #
+  # It is deliberately NOT part of build-test-coverage and must never be made a required check:
+  # a free model rate-limits and queues, so blocking a merge on it would block merges on weather.
+  # Every assertion is about an artifact THIS repository controls (the wire round trip, the typed
+  # error reaching the model, the transcript's losslessness, the change report, the usage row), so
+  # a red run means the harness broke - not that the model had a bad day. Tier 2 (procedure
+  # measurement) is recorded to an artifact and never fails the build.
+  live-model:
+    name: Live model (non-required)
+    runs-on: windows-latest
+    # Two live sessions, each a real turn against a free model that queues: generous, and still a
+    # bound, so a wedged provider cannot hold the runner.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: 10.0.x
+
+      # A fork's PR has no secret, and an offline runner has no network: both are ordinary states,
+      # so the job SKIPS with a clear message instead of failing. The tests also skip at runtime
+      # when the key is absent; this gate exists for the reader - a skipped JOB says why.
+      - name: Check for the live-model secret
+        id: gate
+        shell: powershell
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
+            Write-Host '::notice::OPENROUTER_API_KEY is not configured - skipping the live-model suite.'
+            'enabled=false' >> $env:GITHUB_OUTPUT
+          } else {
+            'enabled=true' >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build the live-model suite
+        if: steps.gate.outputs.enabled == 'true'
+        run: dotnet build tests/eThangAgent.LiveModel.Tests/eThangAgent.LiveModel.Tests.csproj -c Release --nologo
+
+      # ONLY the LiveModel trait: the suite's baseline-comparison tests are free and offline,
+      # and already run in build-test-coverage. --hangdump is the same circuit breaker the main
+      # job uses, so a wedged turn produces evidence instead of freezing the runner.
+      - name: Run the live-model suite
+        if: steps.gate.outputs.enabled == 'true'
+        shell: powershell
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          dotnet test tests/eThangAgent.LiveModel.Tests/eThangAgent.LiveModel.Tests.csproj -c Release --no-build --filter-trait 'Category=LiveModel' -- --hangdump --hangdump-timeout 10m --hangdump-type mini
+
+      # Tier 2's output is the TREND: uploaded per run so a drop is visible without anyone
+      # remembering to look. Carried on failure too, because a failing run's measurement is the
+      # one worth reading.
+      - name: Upload the Tier-2 measurement
+        if: always() && steps.gate.outputs.enabled == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-model-tier2
+          path: tests/eThangAgent.LiveModel.Tests/bin/Release/net10.0-windows/tier2-live-run.json
+          if-no-files-found: warn
+
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-model-diagnostics
+          path: |
+            ./TestResults/**/*.dmp
+            ./TestResults/**/*.log
+          if-no-files-found: ignore
+
   lint:
     name: Lint (dotnet format)
     runs-on: windows-latest

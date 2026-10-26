@@ -29,7 +29,8 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
   }
 
   private static ModelProviderEntry Entry(string modelId, string? provider, decimal prompt, decimal completion) =>
-      new(modelId, provider, prompt, null, completion, 128_000, 4096, true, false, 80.0, 70.0, 60.0, 1.5, 90.0, "desc");
+      new(modelId, provider, prompt, null, completion, 128_000, 4096, true, false, true, 80.0, 70.0, 60.0, 1.5, 90.0,
+          "desc");
 
   [Fact]
   public async Task ReadAsync_UnknownProvider_ReturnsCatalogCacheMiss()

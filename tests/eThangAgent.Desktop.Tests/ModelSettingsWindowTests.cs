@@ -15,8 +15,8 @@ public class ModelSettingsWindowTests
 {
   private static ModelProviderEntry Entry(string modelId) => new(
       modelId, "ProviderA", 0.000003m, null, 0.000015m, 200_000, 8192,
-      SupportsToolUse: true, SupportsVision: false, IntelligenceScore: null,
-      CodingScore: null, AgenticScore: null, LatencyMs: null,
+      SupportsToolUse: true, SupportsVision: false, SupportsTextOutput: true,
+      IntelligenceScore: null, CodingScore: null, AgenticScore: null, LatencyMs: null,
       ThroughputTokensPerSec: null, Description: null);
 
   [AvaloniaFact]

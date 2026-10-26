@@ -12,11 +12,11 @@ public class ModelPickerViewModelTests
   private static ModelProviderEntry Entry(
       string modelId,
       string providerName = "ProviderA",
-      decimal promptPrice = 0.000003m,
-      decimal completionPrice = 0.000015m,
+      decimal? promptPrice = 0.000003m,
+      decimal? completionPrice = 0.000015m,
       int context = 200_000)
       => new(modelId, providerName, promptPrice, null, completionPrice, context,
-          8192, SupportsToolUse: true, SupportsVision: false,
+          8192, SupportsToolUse: true, SupportsVision: false, SupportsTextOutput: true,
           IntelligenceScore: null, CodingScore: null, AgenticScore: null,
           LatencyMs: null, ThroughputTokensPerSec: null, Description: null);
 
@@ -99,6 +99,36 @@ public class ModelPickerViewModelTests
     string detail = Assert.Single(vm.FilteredRows).Detail;
     Assert.Contains("$1 in / $2 out", detail, StringComparison.Ordinal);
     Assert.DoesNotContain("pricing varies", detail, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task LoadAsync_AbsentPricing_Renders_PricingUnknown_NotZero()
+  {
+    // Issue #289: the catalog now says "unknown" (null) where it used to say zero, so an
+    // unpriced model must render as unknown. Rendering "$0 in / $0 out" would tell the
+    // user a paid model is free - the exact lie nullable prices exist to prevent.
+    ModelPickerViewModel vm = await LoadAsync(
+        [Entry("mystery/model", promptPrice: null, completionPrice: null)]);
+
+    string detail = Assert.Single(vm.FilteredRows).Detail;
+    Assert.Contains("pricing unknown", detail, StringComparison.Ordinal);
+    Assert.DoesNotContain("$0", detail, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task LoadAsync_AbsentPriced_Endpoint_Never_Wins_The_Cheapest_Comparison()
+  {
+    // An endpoint whose price is unknown (null) must not be chosen as the row's
+    // representative while a real price is on offer: unknown is not the cheapest.
+    ModelPickerViewModel vm = await LoadAsync(
+    [
+        Entry("alpha/model", providerName: "Unknown", promptPrice: null, completionPrice: null),
+        Entry("alpha/model", providerName: "Known", promptPrice: 0.000001m, completionPrice: 0.000002m),
+    ]);
+
+    string detail = Assert.Single(vm.FilteredRows).Detail;
+    Assert.Contains("$1 in / $2 out", detail, StringComparison.Ordinal);
+    Assert.DoesNotContain("pricing unknown", detail, StringComparison.Ordinal);
   }
 
   [Fact]

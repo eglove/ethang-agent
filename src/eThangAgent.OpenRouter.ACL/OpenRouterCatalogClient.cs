@@ -386,36 +386,39 @@ public sealed class OpenRouterCatalogClient(
 
     string id = idEl.GetString()!;
     int contextLength = GetIntOr(item, "context_length", 0);
-    (decimal promptPrice, decimal? cacheReadPrice, decimal completionPrice, decimal discount) = ParsePricing(item);
+    (decimal? promptPrice, decimal? cacheReadPrice, decimal? completionPrice, decimal discount) = ParsePricing(item);
     bool supportsToolUse = item.TryGetProperty("supported_parameters", out JsonElement paramsEl)
         && paramsEl.ValueKind == JsonValueKind.Array
         && ContainsString(paramsEl, "tools");
     bool supportsVision = ParseSupportsVision(item);
+    bool supportsTextOutput = ParseSupportsTextOutput(item);
+    bool isRouter = ParseIsRouter(item);
     string? description = GetStringOrNull(item, "description");
     (double? intelligence, double? coding, double? agentic) = ParseScores(item);
     (string? topProviderName, int topProviderContext, int topProviderMaxTokens) =
         ParseTopProvider(item, contextLength);
 
     IntermediateModel model = new(id, contextLength, promptPrice, cacheReadPrice, completionPrice, discount,
-        supportsToolUse, supportsVision, description, intelligence, coding, agentic,
-        topProviderName, topProviderContext, topProviderMaxTokens);
+        supportsToolUse, supportsVision, supportsTextOutput, isRouter, description, intelligence, coding,
+        agentic, topProviderName, topProviderContext, topProviderMaxTokens);
     return model;
   }
 
-  /// <summary>Model-level pricing: prompt and completion default to zero when pricing is
-  ///     absent or not an object, while the cache-read price stays NULL - "no cache price
-  ///     advertised" is a different fact from "cache reads are free" (a served "0" IS a
-  ///     real price of zero).</summary>
-  private static (decimal PromptPrice, decimal? CacheReadPrice, decimal CompletionPrice, decimal Discount) ParsePricing(
+  /// <summary>Model-level pricing, with EVERY price nullable (issue #289). A missing
+  ///     pricing block, a missing field, and unparseable text all resolve NULL - unknown -
+  ///     never zero: the old default of 0 made an unpriced model indistinguishable from a
+  ///     genuinely free one, which is exactly the distinction a free-model selector needs.
+  ///     A served "0" is still a real price of zero.</summary>
+  private static (decimal? PromptPrice, decimal? CacheReadPrice, decimal? CompletionPrice, decimal Discount) ParsePricing(
       JsonElement item)
   {
     if (item.TryGetProperty("pricing", out JsonElement pricing) && pricing.ValueKind == JsonValueKind.Object)
     {
-      return (ParseDecimal(pricing, "prompt"), ParsePriceOrNull(pricing, CacheReadPriceField),
-          ParseDecimal(pricing, "completion"), ParseDiscount(pricing));
+      return (ParsePriceOrNull(pricing, "prompt"), ParsePriceOrNull(pricing, CacheReadPriceField),
+          ParsePriceOrNull(pricing, "completion"), ParseDiscount(pricing));
     }
 
-    return (0m, null, 0m, 0m);
+    return (null, null, null, 0m);
   }
 
   /// <summary>Vision capability: any image input modality in the architecture block.
@@ -426,6 +429,37 @@ public sealed class OpenRouterCatalogClient(
     return item.TryGetProperty("architecture", out JsonElement arch) && arch.ValueKind == JsonValueKind.Object
         && arch.TryGetProperty("input_modalities", out JsonElement modalities) && modalities.ValueKind == JsonValueKind.Array
         && ContainsString(modalities, "image");
+  }
+
+  /// <summary>Text-output capability (issue #289): "text" among the architecture
+  ///     block's output modalities. A MISSING architecture object resolves FALSE - a model
+  ///     that declared no output modality has not declared text, and capability is never
+  ///     guessed. A generator that also emits audio (text+audio) still resolves true: it
+  ///     DOES produce text, and it is rejected elsewhere for its missing tool capability.</summary>
+  private static bool ParseSupportsTextOutput(JsonElement item)
+  {
+    return item.TryGetProperty("architecture", out JsonElement arch) && arch.ValueKind == JsonValueKind.Object
+        && arch.TryGetProperty("output_modalities", out JsonElement modalities) && modalities.ValueKind == JsonValueKind.Array
+        && ContainsString(modalities, "text");
+  }
+
+  /// <summary>Whether this row is a ROUTER rather than a model (issue #289): the
+  ///     architecture block's tokenizer reads "Router" for the pseudo-models that pick an
+  ///     upstream per request (openrouter/auto, openrouter/free, the ~-prefixed "latest"
+  ///     aliases), and measured on the live catalog that flag is exactly right - 27 rows
+  ///     carry it, and the four pseudo-models whose endpoints are unknown (auto, free,
+  ///     fusion, bodybuilder) are among them. An id-prefix test cannot express this: the
+  ///     ~-aliases route without the openrouter/ prefix, and a provider namespace may
+  ///     legitimately contain such a prefix.
+  ///     <para>Nothing is inferred when the block is absent: a row that declares no
+  ///     tokenizer is treated as a model, because calling a real model a router would
+  ///     silently remove it from every selection.</para></summary>
+  private static bool ParseIsRouter(JsonElement item)
+  {
+    return item.TryGetProperty("architecture", out JsonElement arch) && arch.ValueKind == JsonValueKind.Object
+        && arch.TryGetProperty("tokenizer", out JsonElement tokenizer)
+        && tokenizer.ValueKind == JsonValueKind.String
+        && string.Equals(tokenizer.GetString(), "Router", StringComparison.Ordinal);
   }
 
   /// <summary>Top-provider display name and limits, falling back to the model-level
@@ -484,13 +518,13 @@ public sealed class OpenRouterCatalogClient(
 
     string providerName = nameEl.GetString()!;
     (int contextLength, int maxCompletionTokens) = ParseEndpointLimits(endpoint, model);
-    (decimal promptPrice, decimal? cacheReadPrice, decimal completionPrice) = ParseEndpointPrices(endpoint, model);
+    (decimal? promptPrice, decimal? cacheReadPrice, decimal? completionPrice) = ParseEndpointPrices(endpoint, model);
     (double? latencyMs, double? throughput) = ParseEndpointPerformance(endpoint);
 
     return new ModelProviderEntry(model.Id, providerName, promptPrice, cacheReadPrice, completionPrice,
         contextLength, maxCompletionTokens, model.SupportsToolUse, model.SupportsVision,
-        model.IntelligenceScore, model.CodingScore, model.AgenticScore, latencyMs, throughput,
-        model.Description);
+        model.SupportsTextOutput, model.IntelligenceScore, model.CodingScore, model.AgenticScore,
+        latencyMs, throughput, model.Description, model.IsRouter);
   }
 
   /// <summary>The endpoint row's context window and completion cap: each falls back
@@ -506,7 +540,7 @@ public sealed class OpenRouterCatalogClient(
   ///     $0.35 as the price paid). The discount field is promo metadata, not a
   ///     multiplier: applying it double-discounts. The endpoint row overrides the
   ///     model-level price only when it carries one.</summary>
-  private static (decimal PromptPrice, decimal? CacheReadPrice, decimal CompletionPrice) ParseEndpointPrices(
+  private static (decimal? PromptPrice, decimal? CacheReadPrice, decimal? CompletionPrice) ParseEndpointPrices(
       JsonElement endpoint, IntermediateModel model)
   {
     if (!endpoint.TryGetProperty("pricing", out JsonElement pricing) || pricing.ValueKind != JsonValueKind.Object)
@@ -514,9 +548,9 @@ public sealed class OpenRouterCatalogClient(
       return (model.PromptPrice, model.CacheReadPrice, model.CompletionPrice);
     }
 
-    return (OverridePositive(ParseDecimal(pricing, "prompt"), model.PromptPrice),
+    return (OverrideAdvertisedPrice(ParsePriceOrNull(pricing, "prompt"), model.PromptPrice),
         OverrideCacheReadPrice(ParsePriceOrNull(pricing, CacheReadPriceField), model.CacheReadPrice),
-        OverridePositive(ParseDecimal(pricing, "completion"), model.CompletionPrice));
+        OverrideAdvertisedPrice(ParsePriceOrNull(pricing, "completion"), model.CompletionPrice));
   }
 
   /// <summary>The endpoint's cache-read price override: taken only when the row carries a
@@ -526,10 +560,14 @@ public sealed class OpenRouterCatalogClient(
   private static decimal? OverrideCacheReadPrice(decimal? endpointPrice, decimal? modelPrice)
       => endpointPrice is { } price && price >= 0m ? price : modelPrice;
 
-  /// <summary>The endpoint's price override: a price is taken only when the row
-  ///     carries a positive one — zero leaves the model-level value untouched.</summary>
-  private static decimal OverridePositive(decimal endpointPrice, decimal modelPrice)
-      => endpointPrice > 0m ? endpointPrice : modelPrice;
+  /// <summary>The endpoint's prompt/completion price override: a POSITIVE advertised price
+  ///     wins (state the endpoint's own number when it has one), and anything else - absent,
+  ///     unparseable, negative, or zero - inherits the model-level value. Zero inheriting is
+  ///     deliberate: a zero on an endpoint row carries no information beyond "no separate
+  ///     price here", and the model-level row is the authority for a free model either way.
+  ///     A null model-level value stays null - absence inherits absence.</summary>
+  private static decimal? OverrideAdvertisedPrice(decimal? endpointPrice, decimal? modelPrice)
+      => endpointPrice is { } price && price > 0m ? price : modelPrice;
 
   /// <summary>The endpoint row's observed performance over the trailing 30 days:
   ///     null when the server omits a metric — absence is an answer.</summary>
@@ -557,8 +595,8 @@ public sealed class OpenRouterCatalogClient(
     return new ModelProviderEntry(model.Id, model.TopProviderName, model.PromptPrice, model.CacheReadPrice,
         model.CompletionPrice,
         model.TopProviderContext, model.TopProviderMaxTokens, model.SupportsToolUse,
-        model.SupportsVision, model.IntelligenceScore, model.CodingScore, model.AgenticScore,
-        null, null, model.Description);
+        model.SupportsVision, model.SupportsTextOutput, model.IntelligenceScore, model.CodingScore,
+        model.AgenticScore, null, null, model.Description, model.IsRouter);
   }
 
   /// <summary>Artificial Analysis indices from the benchmarks block (model level).
@@ -614,19 +652,6 @@ public sealed class OpenRouterCatalogClient(
               ? parsed
               : null;
 
-  private static decimal ParseDecimal(JsonElement parent, string propertyName)
-  {
-    if (parent.TryGetProperty(propertyName, out JsonElement el) && el.ValueKind == JsonValueKind.String)
-    {
-      string? s = el.GetString();
-      if (decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal d))
-      {
-        return d;
-      }
-    }
-    return 0m;
-  }
-
   private static bool ContainsString(JsonElement array, string value)
   {
     foreach (JsonElement el in array.EnumerateArray())
@@ -643,12 +668,14 @@ public sealed class OpenRouterCatalogClient(
   private sealed record IntermediateModel(
       string Id,
       int ContextLength,
-      decimal PromptPrice,
+      decimal? PromptPrice,
       decimal? CacheReadPrice,
-      decimal CompletionPrice,
+      decimal? CompletionPrice,
       decimal Discount,
       bool SupportsToolUse,
       bool SupportsVision,
+      bool SupportsTextOutput,
+      bool IsRouter,
       string? Description,
       double? IntelligenceScore,
       double? CodingScore,

@@ -19,7 +19,7 @@ public class SubAgentSpawnerVisionFlagTests
         => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
             [.. entries.Select(e => new ModelProviderEntry(
                 e.ModelId, "TestProvider", 0.000001m, null, 0.000002m, 128_000, 8_192,
-                SupportsToolUse: true, SupportsVision: e.Vision,
+                SupportsToolUse: true, SupportsVision: e.Vision, SupportsTextOutput: true,
                 null, null, null, null, null, null))]));
   }
 

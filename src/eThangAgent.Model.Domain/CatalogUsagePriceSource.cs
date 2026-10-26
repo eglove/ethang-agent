@@ -71,12 +71,13 @@ public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePrice
   }
 
   /// <summary>The entry's advertised prices, with a negative value treated as "not a price"
-  ///     (the routing pseudo-models serve -1 to mean the price is set at routing time). A
-  ///     served zero stays a real price.</summary>
+  ///     (the routing pseudo-models serve -1 to mean the price is set at routing time) and
+  ///     an ABSENT one staying unknown (issue #289 made the catalog prices nullable; an
+  ///     unpriced model must not stamp a cost of zero). A served zero stays a real price.</summary>
   private static UsagePrices From(ModelProviderEntry entry)
       => new(PriceOrNull(entry.PromptPricePerToken),
           entry.PromptCacheReadPricePerToken is { } cacheRead ? PriceOrNull(cacheRead) : null,
           PriceOrNull(entry.CompletionPricePerToken));
 
-  private static decimal? PriceOrNull(decimal price) => price >= 0m ? price : null;
+  private static decimal? PriceOrNull(decimal? price) => price is { } value && value >= 0m ? value : null;
 }

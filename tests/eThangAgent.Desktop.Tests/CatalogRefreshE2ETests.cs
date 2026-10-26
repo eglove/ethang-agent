@@ -17,7 +17,7 @@ namespace eThangAgent.Desktop.Tests;
 public class CatalogRefreshE2ETests
 {
   private static ModelProviderEntry Cached(string id) => new(
-      id, null, 0.000009m, null, 0.000010m, 200_000, 4096, true, false,
+      id, null, 0.000009m, null, 0.000010m, 200_000, 4096, true, false, true,
       90, 85, 80, null, null, null);
 
   [AvaloniaTheory]

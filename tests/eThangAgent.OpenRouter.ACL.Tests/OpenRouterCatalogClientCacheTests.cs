@@ -59,7 +59,8 @@ public class OpenRouterCatalogClientCacheTests
       };
 
   private static ModelProviderEntry PersistedEntry() =>
-      new("persisted/model", "Persisted", 0.000009m, null, 0.000010m, 200_000, 4096, true, false, 90.0, 85.0, 80.0, null, null, "from disk");
+      new("persisted/model", "Persisted", 0.000009m, null, 0.000010m, 200_000, 4096, true, false, true, 90.0, 85.0,
+          80.0, null, null, "from disk");
 
   [Fact]
   public async Task GetAsync_ColdCache_ServesPersistedSnapshot_WithoutWaitingForHttp()

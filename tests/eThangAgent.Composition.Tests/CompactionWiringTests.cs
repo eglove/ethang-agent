@@ -6,7 +6,7 @@ namespace eThangAgent.Composition.Tests;
 public class CompactionWiringTests
 {
   private static ModelProviderEntry Entry(string model, string provider, decimal promptPrice, int window, bool tools = true) =>
-      new(model, provider, promptPrice, null, 0m, window, 4096, tools, false, null, null, null, null, null, "");
+      new(model, provider, promptPrice, null, 0m, window, 4096, tools, false, true, null, null, null, null, null, "");
 
   [Fact]
   public void Providers_ExposeRoutingModelId_WithoutCuratedWindow() =>

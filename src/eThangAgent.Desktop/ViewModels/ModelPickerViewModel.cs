@@ -173,22 +173,32 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   /// <summary>The endpoint a model's row is priced by: the cheapest normally-priced
   ///     one. OpenRouter reports -1 per-token prices on routing pseudo-models
   ///     (openrouter/auto) and the occasional endpoint — meaning "set at routing
-  ///     time" — so a negative price must never win the cheapest comparison.</summary>
+  ///     time" — so a negative price must never win the cheapest comparison, and an
+  ///     ABSENT price (issue #289: the catalog now says "unknown" instead of "free")
+  ///     never wins it either — unknown is not cheapest.</summary>
   private static ModelProviderEntry Representative(IEnumerable<ModelProviderEntry> endpoints)
   {
     List<ModelProviderEntry> priced = [.. endpoints
-        .Where(e => e.PromptPricePerToken >= 0 && e.CompletionPricePerToken >= 0)];
+        .Where(e => e.PromptPricePerToken is >= 0m && e.CompletionPricePerToken is >= 0m)];
     return priced.Count > 0
-        ? priced.OrderBy(e => e.PromptPricePerToken).ThenBy(e => e.CompletionPricePerToken).First()
+        ? priced.OrderBy(e => e.PromptPricePerToken)
+            .ThenBy(e => e.CompletionPricePerToken).First()
         : endpoints.First();
   }
 
+  /// <summary>The row's one-line detail. Three pricing states are deliberately distinct:
+  ///     a price the catalog advertises, a price set at routing time (negative), and a
+  ///     price nobody advertised (null). Rendering an unknown price as $0 would tell the
+  ///     user a paid model is free.</summary>
   private static string FormatDetail(ModelProviderEntry entry)
   {
-    string pricing = entry.PromptPricePerToken < 0 || entry.CompletionPricePerToken < 0
-        ? "pricing varies"
-        : $"{FormatPrice(entry.PromptPricePerToken * 1_000_000m)} in / " +
-          $"{FormatPrice(entry.CompletionPricePerToken * 1_000_000m)} out per M tokens";
+    string pricing = (entry.PromptPricePerToken, entry.CompletionPricePerToken) switch
+    {
+      (null, _) or (_, null) => "pricing unknown",
+      ( < 0m, _) or (_, < 0m) => "pricing varies",
+      ({ } prompt, { } completion) =>
+          $"{FormatPrice(prompt * 1_000_000m)} in / {FormatPrice(completion * 1_000_000m)} out per M tokens",
+    };
     return $"{pricing} · {FormatContext(entry.ContextLength)} ctx";
   }
 

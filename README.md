@@ -349,6 +349,29 @@ dotnet publish src/eThangAgent.Desktop -c Release -r win-x64 --self-contained fa
 - Integration tests exercise real ACL implementations; E2E tests drive the desktop app headless against a local mock provider server (OpenRouter-shaped).
 - Read `AGENTS.md` for architecture rules and conventions before writing code.
 
+### Live-model tests
+
+`tests/eThangAgent.LiveModel.Tests` is the one suite that drives the real composition against a **real free model** over the real provider wire. Every other suite uses fake providers, which is right — a fake is written by the same person who wrote the code under test — but it leaves the wire, the tool round trip, and the transcript's losslessness unexercised against a provider nobody here wrote.
+
+**Running it locally is opt-in and free of surprises.** The tests carry `[Trait("Category", "LiveModel")]` and skip at runtime when no key is configured, so a plain `dotnet test` stays offline:
+
+```powershell
+$env:OPENROUTER_API_KEY = 'sk-or-...'      # the only configuration needed
+dotnet test tests/eThangAgent.LiveModel.Tests/eThangAgent.LiveModel.Tests.csproj
+```
+
+Optional knobs: `ETHANG_LIVE_MODEL_BASE_URL` (point it at a proxy or a recording server) and `ETHANG_LIVE_MODEL_BUDGET_SECONDS` (per-turn wall-clock budget, default 240). An unconfigured run reports every test as skipped and exits 8 (Microsoft.Testing.Platform's "zero tests ran") — that is the expected offline signal, not a failure.
+
+**What it costs.** One catalog fetch (a per-model endpoint crawl, tens of seconds) plus up to four short sessions; a run takes roughly 1–2 minutes and roughly 40K free-model tokens in total. Free models queue, so a single transport fault (a 429, a timeout, a 5xx) is retried once; an assertion failure never is.
+
+**What it asserts — and why that is safe.** Only facts this repository controls: that the turn settles, that the usage ledger records non-zero input tokens and names the model that served it, that every assistant tool call has a matching persisted tool result, that a deliberately invalid call comes back as a typed `Error [Code]:` tool result, that a file-changing `exec` run emits `[exec: modified N workspace files]`, and that resume hydrates the persisted transcript. A weak model still produces a well-formed tool call; if any of the above breaks, the harness is broken.
+
+**The model is resolved, never hardcoded.** `BestFreeModelSelector` (Model Domain) ranks the live catalog's free models — both billable prices present and zero, text output, tool use, not a router — by coding, then intelligence, then agentic score with unmeasured models last. The suite **walks that ranked list** until a model actually serves, because the catalog cannot express everything: measured 2026-10-26, the best-scoring free model answers every request with HTTP 403 ("only available on agentic harnesses"). Each refusal is recorded and every failure message names the model that produced it.
+
+**Tier 2 records, it never fails.** Procedure measurements (did the model observe before mutating, verify after changing, hit the typed error, emit the change report) are written to `tier2-live-run.json` and compared against the committed `tier2-baseline.json`; a drop is printed, never asserted. CI uploads the artifact per run so the trend is visible without anyone remembering to look.
+
+**CI.** The `live-model` job is separate from `build-test-coverage`, is **never a required check**, skips with a notice when `OPENROUTER_API_KEY` is absent (a fork's PR), and is bounded by a 30-minute job timeout plus a 10-minute hang-dump breaker.
+
 ## Repository layout
 
 ```text

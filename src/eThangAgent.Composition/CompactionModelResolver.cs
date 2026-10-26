@@ -34,9 +34,11 @@ public sealed class CompactionModelResolver(IAppPreferenceStore preferences, IMo
           ?? entries.Value.FirstOrDefault(e => e.ModelId == preferredId);
     }
 
+    // Cheapest tool-capable entry, ordered on the UNCACHED prompt price with an absent
+    // price sorting LAST (issue #289: null means unknown, and unknown is never cheapest).
     chosen ??= entries.Value
         .Where(e => e.SupportsToolUse)
-        .OrderBy(e => e.PromptPricePerToken)
+        .OrderBy(e => e.PromptPricePerToken ?? decimal.MaxValue)
         .FirstOrDefault()
         ?? entries.Value[0];
 
