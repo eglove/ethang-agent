@@ -821,6 +821,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   /// <summary>The ONE-TIME soft reminder at or above the policy's soft level (and
   ///     below its ceiling): a System message naming the pressure, the context_trim
   ///     tool, and the ceiling; it never repeats until the pressure cycle resets.</summary>
+  public static string SoftReminderText(double utilization, double ceilingPercent)
+      => $"{SoftReminderPrefix} {utilization:0}% full — trim tool results you no longer need with "
+          + $"Tools.context_trim inside exec; a forced cleanup runs at {ceilingPercent:0}%].";
+
   private void ShowSoftReminderIfPressured(CompactionPolicy policy, double utilization, TurnCallbacks? callbacks)
   {
     if (utilization < policy.SoftReminderPercent || utilization >= policy.CeilingPercent || _softReminderShown)
@@ -829,7 +833,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
 
     _softReminderShown = true;
-    string reminder = $"{SoftReminderPrefix} {utilization:0}% full — trim tool results you no longer need with context_trim; a forced cleanup runs at {policy.CeilingPercent:0}%.]";
+    string reminder = SoftReminderText(utilization, policy.CeilingPercent);
     Conversation.AddSystemMessage(reminder);
     callbacks?.OnSystemMessage?.Invoke(reminder);
   }
