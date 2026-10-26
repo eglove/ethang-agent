@@ -74,11 +74,13 @@ public class ReAttachE2ETests
     }, TestContext.Current.CancellationToken);
     try
     {
-      // A handshake blip under load is a STARTUP race, not the contract under test: the
-      // host's single accept can be disturbed by another test's pipe traffic on a loaded
-      // machine, and the app-side answer to that is to relaunch (which the supervisor does).
-      // The contract asserted below is what happens AFTER a connection is established.
-      NamedPipeChildTransport app = await ConnectAsync(pipeName, hostLog).ConfigureAwait(true);
+      // The contract asserted below is what happens AFTER a connection is established, so the
+      // connection must actually BE established before it is dropped. A client-side connect
+      // completing is NOT that: the listening pipe instance exists from the host's constructor
+      // while its ConnectNamedPipe is only issued later, so a connect can succeed against an
+      // instance the host has not yet accepted. Dropping in that window tests nothing - it
+      // leaves the host with nobody to serve. Wait for the host's own accept line.
+      NamedPipeChildTransport app = await ConnectAsync(pipeName, host, hostLog).ConfigureAwait(true);
       RemoteAgentRuntime runtime = new(app);
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
@@ -118,42 +120,58 @@ public class ReAttachE2ETests
     }
   }
 
-  /// <summary>Connects to the host. A handshake blip under load is a STARTUP race, not the
-  ///     contract under test (the host's single accept can be disturbed by another test's pipe
-  ///     traffic on a loaded machine), so a REFUSED connect is retried for a bounded window and
-  ///     only then reported - naming the host's own log rather than a bare timeout. The
-  ///     assertion that follows is about what a DROPPED connection does, and a startup failure
-  ///     must never be mistaken for that.
-  ///     <para>WHY THE RETRY IS NOT LENIENCY: the app-side answer to a refused startup connect
-  ///     is to relaunch the host (the supervisor's own contract), so retrying is what production
-  ///     does. Measured 2026-10-26 in a full-solution run: without it this test failed with
-  ///     "accept-failed: The pipe is being closed" while passing every time alone.</para></summary>
+  /// <summary>Connects to the host and waits for the host to report that it ACCEPTED the
+  ///     connection, so the caller can drop an established connection rather than one the host
+  ///     never took.
+  ///     <para>THE TWO HALVES ARE DIFFERENT EVENTS. <c>ConnectToHostAsync</c> completing means
+  ///     the client attached to a listening instance; <c>app-connected</c> on the host's stdout
+  ///     means its ConnectNamedPipe returned. Only the second is the established connection this
+  ///     test drops. Measured 2026-10-26: a client that connects and leaves before the host
+  ///     accepts makes the host's WaitForConnectionAsync fail with ERROR_NO_DATA ("The pipe is
+  ///     being closed") - a full-solution run reproduced it 30 times in 200 under load while
+  ///     every isolated run passed. Retrying the CONNECT could never help, because the connect
+  ///     was already succeeding; the host was the thing dying.</para></summary>
   private static async Task<NamedPipeChildTransport> ConnectAsync(
-      string pipeName, ConcurrentQueue<string> hostLog)
+      string pipeName, Process host, ConcurrentQueue<string> hostLog)
   {
-    Exception? last = null;
-    for (int attempt = 0; attempt < 10; attempt++)
+    NamedPipeChildTransport app;
+    try
     {
-      if (hostLog.Any(line => line.Contains("Server started", StringComparison.OrdinalIgnoreCase)))
-      {
-        break;
-      }
-
-      try
-      {
-        return await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-            TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15),
-                TestContext.Current.CancellationToken).ConfigureAwait(true);
-      }
-      catch (Exception ex) when (ex is IOException or TimeoutException)
-      {
-        last = ex;
-        await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      }
+      app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
+          TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15),
+              TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+    catch (Exception ex) when (ex is IOException or TimeoutException)
+    {
+      throw new InvalidOperationException(
+          "the host never accepted its connection. host log: " + string.Join(" | ", hostLog), ex);
     }
 
+    // The host prints this line immediately after its accept returns, so observing it is the
+    // host's own confirmation that a connection exists to drop. The host also EXITS on a
+    // disturbed accept, so a host that died here is reported as such instead of being waited on.
+    Stopwatch waited = Stopwatch.StartNew();
+    while (waited.Elapsed < TimeSpan.FromSeconds(15))
+    {
+      if (hostLog.Any(line => line.Contains("app-connected", StringComparison.Ordinal)))
+      {
+        return app;
+      }
+
+      if (host.HasExited)
+      {
+        await app.DisposeAsync().ConfigureAwait(true);
+        throw new InvalidOperationException(
+            "the host exited before accepting its connection (exit code " + host.ExitCode
+            + "). host log: " + string.Join(" | ", hostLog));
+      }
+
+      await Task.Delay(10, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
+    await app.DisposeAsync().ConfigureAwait(true);
     throw new InvalidOperationException(
-        "the host never accepted its connection. host log: " + string.Join(" | ", hostLog), last);
+        "the host never reported its accept. host log: " + string.Join(" | ", hostLog));
   }
 
   /// <summary>The composition's kill-on-close job, reached by reflection (internal type).</summary>

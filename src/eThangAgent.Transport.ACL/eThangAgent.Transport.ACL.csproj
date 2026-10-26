@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <!-- The disturbed-accept seam (AcceptAppAsync's disturbForTest overload) is internal:
+         the window it reproduces cannot be hit on demand from outside, so the regression
+         test drives it through this friend assembly. -->
+    <InternalsVisibleTo Include="eThangAgent.Transport.ACL.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../eThangAgent.Agent.Domain/eThangAgent.Agent.Domain.csproj" />
     <!-- The context snapshot the `context` wire kind carries (issue #255) is a Model
          Domain record; the payload converts to and from it, so the reference is explicit
