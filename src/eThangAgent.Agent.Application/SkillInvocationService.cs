@@ -25,7 +25,11 @@ public sealed record SkillInvocation(
 public sealed partial class SkillInvocationService(ISkillCatalog catalog)
 {
   private const int InlineBodyLimit = 4000;
-  private const int DescriptionLimit = 60;
+
+  // Parity with SkillListingBudget.DescriptionLimit (the same 200-character cap): the
+  // invoked-skill header is the one place a description renders OUTSIDE the budgeted
+  // listing, so a smaller cap here would silently cut text the listing just showed whole.
+  private const int DescriptionLimit = 200;
 
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
 

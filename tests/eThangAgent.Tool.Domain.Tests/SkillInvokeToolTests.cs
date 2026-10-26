@@ -143,7 +143,7 @@ public class SkillInvokeToolTests
       }
 
       SkillDefinition skill = matches[0];
-      string description = skill.Description.Length <= 60 ? skill.Description : skill.Description[..60] + "…";
+      string description = skill.Description.Length <= 200 ? skill.Description : skill.Description[..200] + "…";
       string header = $"[skill invoked: {skill.Name}]\n{description}";
       string argsLine = string.IsNullOrWhiteSpace(arguments) ? string.Empty : $"\narguments: {arguments.Trim()}";
       string line = skill.Body.Length <= 4000

@@ -9,7 +9,11 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
   // Keep in sync: format parity with SkillsListingPromptProvider truncation
   // (SkillListingBudget.DescriptionLimit in eThangAgent.Composition) - Tool.Domain
   // cannot reference Composition, so the constant is duplicated deliberately.
-  private const int DescriptionLimit = 60;
+  // The listing's truncation marker sends the model HERE for the full catalog, so this
+  // surface must not cut what the listing was told to stop cutting: a cap that fires on
+  // an ordinary description makes the pointer a dead end. The real governor is the
+  // listing's MaxChars budget, not this constant.
+  private const int DescriptionLimit = 200;
 
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
   private readonly ILearnedSkillStore _learned = learned ?? throw new ArgumentNullException(nameof(learned));
@@ -24,7 +28,7 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
       "the name padded to 20 characters, the source label `builtin` for built-ins, `file` " +
       "for file skills, and `learned` for learned skills, the literal ` [manual]` marker " +
       "between the version and the description separator only for manual-invocation-only " +
-      "skills, and the description truncated to 60 characters with an appended … when " +
+      "skills, and the description truncated to 200 characters with an appended … when " +
       "longer. After the skill rows the catalog's diagnostics render: each collision line " +
       "verbatim with its `[collision] ` prefix, every other diagnostic as `[warning] " +
       "<text>`. Source-failure warnings — `[warning] built-in skills unavailable: <reason>` " +

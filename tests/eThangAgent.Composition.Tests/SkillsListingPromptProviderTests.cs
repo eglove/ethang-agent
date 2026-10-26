@@ -146,15 +146,33 @@ public class SkillsListingPromptProviderTests
   }
 
   [Fact]
-  public async Task Build_LongDescriptions_TruncatedAt60()
+  public async Task Build_LongDescriptions_TruncatedAtDescriptionLimit()
   {
-    string longDescription = new('x', 80);
+    int limit = SkillListingBudget.DescriptionLimit;
+    string longDescription = new('x', limit + 20);
     SkillDefinition skill = BuiltIn("trunc") with { Description = longDescription };
     FakeCatalog catalog = new(skill);
     string text = await Provider(catalog).BuildAsync();
 
-    Assert.Contains("- trunc: " + new string('x', 60) + '…', text, StringComparison.Ordinal);
-    Assert.DoesNotContain(new string('x', 61), text, StringComparison.Ordinal);
+    Assert.Contains("- trunc: " + new string('x', limit) + '…', text, StringComparison.Ordinal);
+    Assert.DoesNotContain(new string('x', limit + 1), text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Build_RealisticDescription_RendersWhole_TriggerClauseSurvives()
+  {
+    // THE REGRESSION THIS CAP EXISTS FOR: every real SKILL.md description states its
+    // trigger as a trailing 'Use when ...' clause, and the clause is what a model matches
+    // a task against. A cap that fires on ordinary descriptions cuts exactly that clause
+    // off - silently, since it happens before the budget pass and so emits no marker.
+    const string Trigger = "Use when facing two or more independent tasks with no shared state.";
+    string description = "Fan out independent subtasks to parallel subagents and fan in their results. " + Trigger;
+    FakeCatalog catalog = new(BuiltIn("dispatching-parallel-agents") with { Description = description });
+
+    string text = await Provider(catalog).BuildAsync();
+
+    Assert.Contains(Trigger, text, StringComparison.Ordinal);
+    Assert.DoesNotContain('…', text);
   }
 
   [Fact]

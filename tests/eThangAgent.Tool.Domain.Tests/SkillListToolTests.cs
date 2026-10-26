@@ -68,7 +68,10 @@ public class SkillListToolTests
   [Fact]
   public async Task MergesBuiltInAndLearned_SortedByName_TruncatesLongDescriptions()
   {
-    string longDescription = new('d', 61);
+    // The cap is 200: long enough that no real description is cut, short enough that a
+    // pathological one cannot eat the listing budget.
+    const int Limit = 200;
+    string longDescription = new('d', Limit + 1);
     SkillListTool tool = new(
         new FakeCatalog([Def("sample-skill", longDescription)]),
         new FakeLearnedStore(
@@ -79,19 +82,33 @@ public class SkillListToolTests
     string expected =
         "[skills: 2 available]\n" +
         $"{"my-skill",-20} learned v3  Remember deployment quirks\n" +
-        $"{"sample-skill",-20} builtin v1  {new string('d', 60)}\u2026";
+        $"{"sample-skill",-20} builtin v1  {new string('d', Limit)}\u2026";
     Assert.False(result.IsError);
     Assert.Equal(expected, result.Content);
   }
 
   [Fact]
-  public async Task Description_ExactlySixtyChars_IsNotTruncated()
+  public async Task Description_AtTheLimit_IsNotTruncated()
   {
-    string description = new('d', 60);
+    string description = new('d', 200);
     ToolResult result = await MakeTool([Def("s", description)])
             .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.Equal("[skills: 1 available]\n" + $"{"s",-20} builtin v1  {description}",
         result.Content);
+  }
+
+  [Fact]
+  public async Task RealisticDescription_RendersWhole_TriggerClauseSurvives()
+  {
+    // The listing's truncation marker sends the model HERE for the full catalog, so this
+    // surface must not cut what the listing stopped cutting: a 60-character cap made the
+    // pointer a dead end by dropping every real description's trailing 'Use when ...'.
+    const string Trigger = "Use when facing two or more independent tasks with no shared state.";
+    string description = "Fan out independent subtasks to parallel subagents and fan in their results. " + Trigger;
+    ToolResult result = await MakeTool([Def("dispatching-parallel-agents", description)])
+            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Contains(Trigger, result.Content, StringComparison.Ordinal);
   }
 
   // ---- File skills, the manual marker, and catalog diagnostics ----

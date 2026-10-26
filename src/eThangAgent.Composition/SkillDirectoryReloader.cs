@@ -52,7 +52,7 @@ public sealed class SkillDirectoryReloader(Func<Conversation?> conversation, Act
   /// <summary>The verbatim render: header, then up to ten entries -
   ///     "+ name: desc" added, "- name" removed, "~ name: desc" changed -
   ///     joined by "; ", then "; +N more (call skill_list)" when truncated.
-  ///     Descriptions truncate at the listing's 60-character budget.</summary>
+  ///     Descriptions truncate at the listing's DescriptionLimit cap.</summary>
   public static string? Render(SkillReloadDiff diff)
   {
     ArgumentNullException.ThrowIfNull(diff);

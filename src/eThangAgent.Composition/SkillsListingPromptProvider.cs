@@ -16,7 +16,17 @@ public static class SkillListingBudget
   // Keep in sync: format parity with SkillListTool truncation (its private
   // DescriptionLimit in eThangAgent.Tool.Domain) - Tool.Domain cannot reference
   // Composition, so the constant is duplicated deliberately.
-  public const int DescriptionLimit = 60;
+  //
+  // NAMED DECISION: this cap stops ONE pathological description from eating the whole
+  // budget - it is not the budget. The real governor is MaxChars, whose overflow pass
+  // strips descriptions lowest-precedence-first and ANNOUNCES every drop in the
+  // truncation marker. A cap small enough to fire on ordinary descriptions truncates
+  // SILENTLY, which is the failure mode the marker exists to prevent: the measured
+  // corpus tops out at 187 characters, and a 60-character cap was cutting the trigger
+  // clause ('Use when ...') off the end of all 18 SKILL.md descriptions - the exact
+  // text a model matches a task against. Keep this above the longest real description
+  // so the announced budget pass, not this constant, does the cutting.
+  public const int DescriptionLimit = 200;
 }
 
 /// <summary>The always-on budgeted skills listing, rendered into every session's
@@ -41,8 +51,10 @@ public static class SkillListingBudget
 ///     directory groups by matching SkillDefinition.Origin under a configured
 ///     directory path (case-insensitive, full-path normalized); an Origin matching
 ///     no configured directory renders under Global directory skills (defensive
-///     default). Descriptions truncate at 60 characters with an appended ellipsis
-///     (same as SkillListTool). A group with zero entries renders no header. The
+///     default). Descriptions truncate at DescriptionLimit characters with an appended
+///     ellipsis (same as SkillListTool); the cap is deliberately far above the longest
+///     real description so the budget pass below, which announces what it drops, is the
+///     mechanism that actually cuts. A group with zero entries renders no header. The
 ///     budget is SkillListingBudget.MaxChars for the whole block; the overflow
 ///     algorithm is deterministic - render fully, then while over budget strip
 ///     descriptions to bare '- &lt;name&gt;' lines lowest-precedence group first
