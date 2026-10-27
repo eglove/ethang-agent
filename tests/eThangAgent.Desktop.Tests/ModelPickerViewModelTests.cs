@@ -6,9 +6,9 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Behavior of the model + provider picker view-model (issue #296): two levels,
 ///     deduping, search, pre-selection, the confirm payload, the ordering presets, and the
-///     cache-hit-rate assumption. Catalog loading and the ledger read are faked at their
-///     delegate seams — the real catalog client and the real usage queries are covered in
-///     their own ACL tests.</summary>
+///     per-pair cache-hit-rate resolution. Catalog loading, the ledger read, and the published
+///     rates are faked at their delegate seams — the real catalog client and the real usage
+///     queries are covered in their own ACL tests.</summary>
 public class ModelPickerViewModelTests
 {
   private const string Model = "alpha/model";
@@ -40,22 +40,36 @@ public class ModelPickerViewModelTests
       IReadOnlyList<ModelProviderEntry> entries,
       string? currentModelId = null,
       string? currentProviderName = null,
-      ProviderPerformanceReport? report = null)
+      ProviderPerformanceReport? report = null,
+      IReadOnlyDictionary<string, PublishedProviderStats>? published = null)
       => new(_ => Task.FromResult(Result.Success(entries)), currentModelId, currentProviderName,
           report is null
               ? null
-              : _ => Task.FromResult(Result.Success(report)));
+              : _ => Task.FromResult(Result.Success(report)),
+          published is null
+              ? null
+              : _ => Task.FromResult(published));
 
   private static async Task<ModelPickerViewModel> LoadAsync(
       IReadOnlyList<ModelProviderEntry> entries,
       string? currentModelId = null,
       string? currentProviderName = null,
-      ProviderPerformanceReport? report = null)
+      ProviderPerformanceReport? report = null,
+      IReadOnlyDictionary<string, PublishedProviderStats>? published = null)
   {
-    ModelPickerViewModel vm = CreateVm(entries, currentModelId, currentProviderName, report);
+    ModelPickerViewModel vm = CreateVm(entries, currentModelId, currentProviderName, report,
+        published);
     await vm.LoadAsync().ConfigureAwait(true);
     return vm;
   }
+
+  /// <summary>The published rate for one pair, in the shape the catalog client supplies.</summary>
+  private static Dictionary<string, PublishedProviderStats> Published(
+      string providerName, decimal hitRate, string modelId = Model)
+      => new(StringComparer.Ordinal)
+      {
+        [$"{modelId}:{providerName}"] = PublishedProviderStats.Create(hitRate, null, null, null),
+      };
 
   private static ModelPickerRow Row(ModelPickerViewModel vm, string modelId)
       => vm.FilteredRows.First(r => r.ModelId == modelId);
@@ -217,9 +231,9 @@ public class ModelPickerViewModelTests
     Assert.Equal(2, vm.ProviderRows.Count);
     Assert.All(vm.ProviderRows, row =>
         Assert.Equal(ProviderPerformanceText.NotMeasured, row.LatencyText));
-    // Nothing measured means the documented default is in force, and the surface says so.
-    Assert.Equal(HitRateSource.Default, vm.Assumption.Source);
-    Assert.Contains("default", vm.HitRateSourceText, StringComparison.Ordinal);
+    // Nothing measured means the documented default is in force, and each row says so.
+    Assert.All(vm.ProviderRows, row =>
+        Assert.Equal(HitRateSource.Default, row.Assumption.Source));
   }
 
   [Fact]
@@ -241,69 +255,98 @@ public class ModelPickerViewModelTests
         vm.ProviderRows.First(r => r.ProviderName == "ProviderB").LatencyText);
   }
 
-  // ---- The hit-rate assumption (B4/D6) ----
+  // ---- Per-pair hit-rate resolution (B4/D6) ----
 
   [Fact]
-  public async Task TheMeasuredRate_IsAdopted_AndItsSourceIsNamed()
+  public async Task TheMeasuredPairRate_IsUsed_AndItsSourceIsNamed()
   {
-    ProviderPerformanceReport report = new(UsageScope.Workspace, 0.88m, 1000, 880, 3, 0, []);
+    ProviderPerformanceReport report = new(UsageScope.Workspace, 0.88m, 1000, 880, 3, 0,
+    [
+      new ProviderPerformance(Model, "ProviderA", 400d, 800d, 100d, 50d, 3, 3, 3, 0, 3, 1000, 880),
+    ]);
     ModelPickerViewModel vm = await LoadAsync([Entry()], currentModelId: Model, report: report);
 
-    Assert.Equal(0.88m, vm.Assumption.Rate);
-    Assert.Equal(HitRateSource.Workspace, vm.Assumption.Source);
-    Assert.Contains("workspace measured 88%", vm.HitRateSourceText, StringComparison.Ordinal);
-    Assert.Equal("88", vm.HitRateText);
+    ProviderEvidenceRow row = Assert.Single(vm.ProviderRows);
+    Assert.Equal(0.88m, row.Assumption.Rate);
+    Assert.Equal(HitRateSource.Workspace, row.Assumption.Source);
+    Assert.Contains("workspace measured 88%", row.HitRateText, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task AChangedRate_ReprojectsThePrices_AndSaysItIsManual()
+  public async Task AnUnmeasuredPair_UsesThePublishedRate_NotTheDefault()
   {
-    // The single most instructive interaction this surface offers: the same catalog, ranked
-    // at a rate the user chose, with the surface stating that the rate is theirs.
+    // The user's case: this pair has never run here, so there is no measurement to make -
+    // but the provider publishes one, and that beats a constant.
+    ModelPickerViewModel vm = await LoadAsync([Entry()], currentModelId: Model,
+        published: Published("ProviderA", 0.629m));
+
+    ProviderEvidenceRow row = Assert.Single(vm.ProviderRows);
+    Assert.Equal(0.629m, row.Assumption.Rate);
+    Assert.Equal(HitRateSource.Published, row.Assumption.Source);
+    Assert.Contains("OpenRouter published 62.9%", row.HitRateText, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task AMeasuredPair_OutranksThePublishedRate()
+  {
+    // Evidence about OUR prompt shapes beats evidence about the provider's whole traffic.
+    ProviderPerformanceReport report = new(UsageScope.Session, 0.97m, 1000, 970, 2, 0,
+    [
+      new ProviderPerformance(Model, "ProviderA", 400d, 800d, 100d, 50d, 2, 2, 2, 0, 2, 1000, 970),
+    ]);
+    ModelPickerViewModel vm = await LoadAsync([Entry()], currentModelId: Model, report: report,
+        published: Published("ProviderA", 0.10m));
+
+    ProviderEvidenceRow row = Assert.Single(vm.ProviderRows);
+    Assert.Equal(0.97m, row.Assumption.Rate);
+    Assert.Equal(HitRateSource.Session, row.Assumption.Source);
+  }
+
+  [Fact]
+  public async Task EachRowResolvesItsOwnRate_NotOneRateForTheList()
+  {
+    // The defect this replaced: one rate for the whole list, when the endpoints serving one
+    // model routinely differ by 70 points. Both prices and the stated source must be per row.
     ModelPickerViewModel vm = await LoadAsync(
     [
-      Caching("LowCache", promptPrice: 0.00000004m, cacheReadPrice: 0.00000003m),
-      Caching("HighCache", promptPrice: 0.00000008m, cacheReadPrice: 0.000000008m),
-    ], currentModelId: Model);
-    string before = vm.ProviderRows[0].EffectivePriceText;
+      Caching("Heavy", promptPrice: 0.000003m, cacheReadPrice: 0.0000003m),
+      Caching("Light", promptPrice: 0.000003m, cacheReadPrice: 0.0000003m),
+    ], currentModelId: Model, published: new Dictionary<string, PublishedProviderStats>(StringComparer.Ordinal)
+    {
+      [$"{Model}:Heavy"] = PublishedProviderStats.Create(0.90m, null, null, null),
+      [$"{Model}:Light"] = PublishedProviderStats.Create(0.10m, null, null, null),
+    });
 
-    vm.HitRateText = "0";
-    vm.ApplyHitRateCommand.Execute(null);
-
-    Assert.Equal(HitRateSource.Manual, vm.Assumption.Source);
-    Assert.Contains("manual", vm.HitRateSourceText, StringComparison.Ordinal);
-    Assert.NotEqual(before, vm.ProviderRows[0].EffectivePriceText);
-    // At a zero hit rate the cheap prompt price wins; the ranking follows the assumption.
-    Assert.Equal("LowCache", vm.ProviderRows[0].ProviderName);
-  }
-
-  [Theory]
-  [InlineData("abc")]
-  [InlineData("101")]
-  [InlineData("-5")]
-  [InlineData("")]
-  public async Task AMalformedRate_IsRefusedVisibly_AndChangesNothing(string text)
-  {
-    ModelPickerViewModel vm = await LoadAsync([Entry()], currentModelId: Model);
-    HitRateAssumption before = vm.Assumption;
-
-    vm.HitRateText = text;
-    vm.ApplyHitRateCommand.Execute(null);
-
-    Assert.NotNull(vm.HitRateError);
-    Assert.Same(before, vm.Assumption); // never a silent clamp
+    ProviderEvidenceRow heavy = vm.ProviderRows.First(r => r.ProviderName == "Heavy");
+    ProviderEvidenceRow light = vm.ProviderRows.First(r => r.ProviderName == "Light");
+    Assert.Equal(0.90m, heavy.Assumption.Rate);
+    Assert.Equal(0.10m, light.Assumption.Rate);
+    // Same listed prices, different rates: the effective prices must differ, and Heavy wins.
+    Assert.NotEqual(heavy.EffectivePriceText, light.EffectivePriceText);
+    Assert.Equal("Heavy", vm.ProviderRows[0].ProviderName);
   }
 
   [Fact]
-  public async Task ATrailingPercentSign_IsAccepted()
+  public async Task APairWithNoEvidenceAtAll_FallsBackToTheDocumentedDefault()
   {
     ModelPickerViewModel vm = await LoadAsync([Entry()], currentModelId: Model);
 
-    vm.HitRateText = "75%";
-    vm.ApplyHitRateCommand.Execute(null);
+    ProviderEvidenceRow row = Assert.Single(vm.ProviderRows);
+    Assert.Equal(HitRateSource.Default, row.Assumption.Source);
+    Assert.Contains("default", row.HitRateText, StringComparison.Ordinal);
+    Assert.Equal(HitRateAssumption.DefaultRate, row.Assumption.Rate);
+  }
 
-    Assert.Null(vm.HitRateError);
-    Assert.Equal(0.75m, vm.Assumption.Rate);
+  [Fact]
+  public async Task ThereIsNoEditableRateSurface()
+  {
+    // The rate is a property of the model, the provider, and the workload - not a user
+    // setting. The surface states where it came from instead of accepting a typed number.
+    ModelPickerViewModel vm = await LoadAsync([Entry()], currentModelId: Model);
+
+    Assert.Null(typeof(ModelPickerViewModel).GetProperty("HitRateText"));
+    Assert.Null(typeof(ModelPickerViewModel).GetProperty("ApplyHitRateCommand"));
+    Assert.Contains("resolved per provider", vm.RateCaption, StringComparison.OrdinalIgnoreCase);
   }
 
   // ---- Presets reorder, never hide (B5/D4) ----
@@ -440,7 +483,7 @@ public class ModelPickerViewModelTests
     await vm.LoadAsync().ConfigureAwait(true);
 
     Assert.Contains("ledger unreachable", vm.LoadError!, StringComparison.Ordinal);
-    Assert.Equal(HitRateSource.Default, vm.Assumption.Source);
+    Assert.Equal(HitRateSource.Default, Assert.Single(vm.ProviderRows).Assumption.Source);
     Assert.Equal(ProviderPerformanceText.NotMeasured, Assert.Single(vm.ProviderRows).LatencyText);
   }
 

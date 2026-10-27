@@ -49,23 +49,13 @@
                      IsVisible="{Binding ModelSection.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
         </StackPanel>
 
-        <!-- The cache-hit-rate assumption (D6): visible, sourced, and overridable. Every
-             price below is projected at this rate, and the provenance line says where the
-             rate came from — a projection built on an unstated assumption is a guess wearing
-             a decimal point. -->
-        <StackPanel Spacing="4" IsVisible="{Binding ModelSection, Converter={x:Static ObjectConverters.IsNotNull}}">
-          <TextBlock Text="Cache-hit assumption" FontWeight="SemiBold"/>
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBox x:Name="HitRateBox" Width="90" Text="{Binding ModelSection.HitRateText}"
-                     PlaceholderText="%" ToolTip.Tip="Whole percent of input tokens expected to be cache hits"/>
-            <TextBlock Text="%" VerticalAlignment="Center" Opacity="0.7"/>
-            <Button x:Name="ApplyHitRateButton" Content="Apply" Command="{Binding ModelSection.ApplyHitRateCommand}"/>
-          </StackPanel>
-          <TextBlock x:Name="HitRateSourceText" Text="{Binding ModelSection.HitRateSourceText}"
-                     FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
-          <TextBlock Text="{Binding ModelSection.HitRateError}" Foreground="OrangeRed" TextWrapping="Wrap" FontSize="11"
-                     IsVisible="{Binding ModelSection.HitRateError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-        </StackPanel>
+        <!-- The cache-hit rate is NOT a user setting: it is a property of the model, the
+             provider, and the workload, so the harness resolves it from evidence and each
+             provider row states the rate its own price was projected at. This caption only
+             explains the fallback for rows with no evidence of their own. -->
+        <TextBlock Text="{Binding ModelSection.RateCaption}" FontSize="11" Opacity="0.6"
+                   TextWrapping="Wrap"
+                   IsVisible="{Binding ModelSection, Converter={x:Static ObjectConverters.IsNotNull}}"/>
 
         <!-- Provider level (D1/B1): every endpoint of the selected model, with the evidence
              D3 names. Presets REORDER and never hide (D4), and the caption states which

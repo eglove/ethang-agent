@@ -202,13 +202,21 @@ public sealed record ProviderEvidenceRow(
       ? $"{measured.LatencySamples} timed call(s)"
       : string.Empty;
 
+  /// <summary>The cache-hit rate this row's effective price was projected at, spelled out
+  ///     with its provenance (issue #296 follow-up): <c>session measured 97.7%</c>,
+  ///     <c>OpenRouter published 62.9%</c>, or <c>default 50% (nothing measured yet)</c>.
+  ///     <para>PER ROW, NOT PER LIST: the endpoints serving one model differ hugely, so a
+  ///     single caption above the list would describe none of them. Showing the rate beside
+  ///     the price it produced is what makes the number checkable.</para></summary>
+  public string HitRateText => Assumption.Describe();
+
   /// <summary>The one-line detail a list row shows: the primary figure first, then the
   ///     secondary prompt price, then the cache position (D2's shape).</summary>
   public string Detail => $"{EffectivePriceText} · {PromptPriceText} · {CacheDiscountText}";
 
   /// <summary>The evidence line a detail pane shows: every dimension D3 names, each rendered
-  ///     or explicitly unavailable.</summary>
-  public string Evidence => $"{Detail} · {LatencyText} · {ThroughputText} · {UptimeText} · {ContextText}";
+  ///     or explicitly unavailable, plus the hit rate the price was projected at.</summary>
+  public string Evidence => $"{Detail} · {HitRateText} · {LatencyText} · {ThroughputText} · {UptimeText} · {ContextText}";
 
   /// <summary>One catalog score, or <c>not measured</c> - never a zero (D5).</summary>
   private static string Score(double? score) => score is { } value
@@ -253,20 +261,24 @@ public static class ProviderComparison
   ///     unavailable (headless hosts, a failed read). Null renders every measurement as
   ///     unavailable rather than failing the surface: a picker with no history is still a
   ///     picker.</param>
-  /// <param name="assumption">The hit rate the prices are projected at.</param>
+  /// <param name="rates">The per-pair hit rates each row is projected at (issue #296
+  ///     follow-up). Required rather than defaulted: one rate for a list whose endpoints
+  ///     range from 0% to 74% is wrong for nearly every row on it, so the caller must state
+  ///     what each row is priced at.</param>
   /// <param name="preset">The ordering the user selected.</param>
   /// <param name="promptTokens">The prompt size the comparison is for, which selects the
   ///     applicable price-ladder rung. Zero selects the base prices.</param>
   public static IReadOnlyList<ProviderEvidenceRow> Rows(
       IReadOnlyList<ModelProviderEntry> entries,
       ProviderPerformanceReport? report,
-      HitRateAssumption assumption,
+      HitRateLookup rates,
       ProviderPreset preset,
       int promptTokens = 0)
   {
     ArgumentNullException.ThrowIfNull(entries);
-    ArgumentNullException.ThrowIfNull(assumption);
-    RankingCriteria criteria = new(ProviderPresets.Priorities(preset), assumption.Rate, promptTokens);
+    ArgumentNullException.ThrowIfNull(rates);
+    RankingCriteria criteria = new(ProviderPresets.Priorities(preset), rates.Fallback.Rate,
+        promptTokens, null, rates);
     IReadOnlyList<RankableProvider> rankable = report is null
         ? [.. entries.Select(RankableProvider.Of)]
         : report.Rankable(entries);
@@ -274,7 +286,8 @@ public static class ProviderComparison
     [
         .. ProviderRanking.Rank(rankable, criteria).Select(ranked =>
             new ProviderEvidenceRow(ranked,
-                report?.Lookup(ranked.Entry.ModelId, ranked.Entry.ProviderName), assumption)),
+                report?.Lookup(ranked.Entry.ModelId, ranked.Entry.ProviderName),
+                ranked.Assumption ?? rates.Fallback)),
     ];
   }
 }

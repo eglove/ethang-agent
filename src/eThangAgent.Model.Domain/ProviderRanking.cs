@@ -88,14 +88,26 @@ public sealed record ProviderFilters(
 /// <param name="PromptTokens">The prompt size the comparison is for, which selects the
 ///     applicable price-ladder rung (issue #293). Zero selects the base prices.</param>
 /// <param name="Filters">The hard requirements, or null for none.</param>
+/// <param name="Rates">The per-pair hit rates, or null to project every row at
+///     <paramref name="HitRate"/> (issue #296 follow-up). A comparison that resolves rates
+///     per pair supplies this, because one rate for a list whose endpoints range from 0% to
+///     74% is wrong for nearly every row on it.</param>
 public sealed record RankingCriteria(
     IReadOnlyList<ProviderPriority> Priorities,
     decimal HitRate,
     int PromptTokens = 0,
-    ProviderFilters? Filters = null)
+    ProviderFilters? Filters = null,
+    HitRateLookup? Rates = null)
 {
   /// <summary>The hard requirements, never null.</summary>
   public ProviderFilters Requirements => Filters ?? ProviderFilters.None;
+
+  /// <summary>The assumption one row is projected at: its own resolved rate when the caller
+  ///     supplied per-pair evidence, else the single rate this criteria was built with.
+  ///     <para>NEVER NULL, so a row always knows what it was priced at and can say where that
+  ///     rate came from.</para></summary>
+  public HitRateAssumption AssumptionFor(ModelProviderEntry entry)
+      => Rates?.For(entry) ?? new HitRateAssumption(HitRate, HitRateSource.Default);
 }
 
 /// <summary>One catalog row paired with the measurements a caller OBSERVED for it (issue
@@ -131,7 +143,8 @@ public sealed record RankedProvider(
     ModelProviderEntry Entry,
     EffectiveInputPrice EffectivePrice,
     double? ObservedLatencyMs = null,
-    double? ObservedThroughputTokensPerSec = null)
+    double? ObservedThroughputTokensPerSec = null,
+    HitRateAssumption? Assumption = null)
 {
   /// <summary>The latency a surface shows: our measurement when one exists, else the catalog's
   ///     advertised figure (usually null - see <see cref="ProviderDimension.Latency"/>).</summary>
@@ -178,7 +191,8 @@ public static class ProviderRanking
     foreach (RankableProvider provider in providers)
     {
       ArgumentNullException.ThrowIfNull(provider);
-      EffectiveInputPrice price = EffectivePrice.For(provider.Entry, criteria.HitRate,
+      HitRateAssumption assumption = criteria.AssumptionFor(provider.Entry);
+      EffectiveInputPrice price = EffectivePrice.For(provider.Entry, assumption.Rate,
           criteria.PromptTokens);
       if (!Passes(provider.Entry, price, criteria.Requirements))
       {
@@ -186,7 +200,7 @@ public static class ProviderRanking
       }
 
       ranked.Add(new RankedProvider(provider.Entry, price, provider.ObservedLatencyMs,
-          provider.ObservedThroughputTokensPerSec));
+          provider.ObservedThroughputTokensPerSec, assumption));
     }
 
     ranked.Sort((left, right) => Compare(left, right, criteria.Priorities));

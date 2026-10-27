@@ -186,7 +186,7 @@ internal partial class MainWindow : Window
     ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
         ? new ModelSectionSeams(loadCatalog, preferences.ModelId,
             _vm.SelectedTabCatalogRefresher, preferences.ProviderName,
-            _vm.SelectedTabPerformanceLoader)
+            _vm.SelectedTabPerformanceLoader, _vm.SelectedTabPublishedRateLoader)
         : null;
     ModelSettingsViewModel vm = new(
         preferences,

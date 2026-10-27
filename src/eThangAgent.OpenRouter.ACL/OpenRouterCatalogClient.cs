@@ -31,6 +31,7 @@ public sealed class OpenRouterCatalogClient(
   private bool _disposed;
   private readonly Lock _refreshLock = new();
   private IReadOnlyList<ModelProviderEntry>? _cached;
+  private Dictionary<string, PublishedProviderStats> _published = new(StringComparer.Ordinal);
   private DateTimeOffset _fetchedAt;
   private Task<Result<IReadOnlyList<ModelProviderEntry>>>? _refresh;
 
@@ -141,7 +142,13 @@ public sealed class OpenRouterCatalogClient(
     }
 
     List<ModelProviderEntry> entries = await ExpandEndpointsAsync(phase1.Value, ct).ConfigureAwait(false);
+    // The published rates are fetched AFTER the endpoints, because binding a rate to a row
+    // needs that row's key. They are best effort by construction: a model that publishes
+    // nothing simply contributes nothing.
+    Dictionary<string, PublishedProviderStats> published =
+        await FetchPublishedStatsAsync(phase1.Value, ct).ConfigureAwait(false);
     _cached = entries;
+    _published = published;
     _fetchedAt = DateTimeOffset.UtcNow;
     await PersistAsync(ct).ConfigureAwait(false);
     return Result.Success<IReadOnlyList<ModelProviderEntry>>(entries);
@@ -263,6 +270,19 @@ public sealed class OpenRouterCatalogClient(
 
   private void ReportFault(Exception ex) => _onRefreshFault?.Invoke(ex);
 
+  /// <summary>The published per-endpoint cache-hit rates, keyed by
+  ///     <see cref="ModelProviderEntry.Key"/>. Empty until a fetch has run, and empty again
+  ///     when the fetch found nothing - a state the resolution chain already handles.</summary>
+  public Task<IReadOnlyDictionary<string, PublishedProviderStats>> GetPublishedStatsAsync(
+      CancellationToken ct = default)
+  {
+    lock (_refreshLock)
+    {
+      return Task.FromResult<IReadOnlyDictionary<string, PublishedProviderStats>>(
+          _published);
+    }
+  }
+
   private async Task<Result<List<IntermediateModel>>> FetchModelsAsync(CancellationToken ct)
   {
     using HttpRequestMessage request = new(HttpMethod.Get, _config.Endpoint("/api/v1/models"));
@@ -325,6 +345,229 @@ public sealed class OpenRouterCatalogClient(
 
     return entries;
   }
+
+  /// <summary>Fetches the cache-hit rates providers publish for each model (issue #296
+  ///     follow-up), keyed by <see cref="ModelProviderEntry.Key"/> so a rate binds to exactly
+  ///     the row the comparison prices.
+  ///     <para>WHY PER MODEL AND NOT PER ENDPOINT: the published statistics are served one
+  ///     model at a time (there is no bulk form - verified against the live API), and the
+  ///     response already carries every endpoint of that model, so one call covers a model's
+  ///     whole provider list.</para>
+  ///     <para>BEST EFFORT, ALWAYS. These are undocumented frontend endpoints: a shape change,
+  ///     a 404, or a network fault must leave the picker working with listed prices and the
+  ///     documented default rather than failing the catalog. Every failure resolves to 'no
+  ///     published rate for this model', which is a state the resolution chain already
+  ///     handles.</para></summary>
+  private async Task<Dictionary<string, PublishedProviderStats>> FetchPublishedStatsAsync(
+      List<IntermediateModel> models, CancellationToken ct)
+  {
+    Dictionary<string, PublishedProviderStats> stats = new(StringComparer.Ordinal);
+    await Parallel.ForEachAsync(models, new ParallelOptions
+    {
+      MaxDegreeOfParallelism = _config.EndpointFetchConcurrency,
+      CancellationToken = ct
+    },
+    async (model, token) =>
+    {
+      Dictionary<string, PublishedProviderStats> modelStats =
+          await FetchPublishedStatsForModelAsync(model, token).ConfigureAwait(false);
+      lock (stats)
+      {
+        foreach (KeyValuePair<string, PublishedProviderStats> pair in modelStats)
+        {
+          stats[pair.Key] = pair.Value;
+        }
+      }
+    }).ConfigureAwait(false);
+
+    return stats;
+  }
+
+  /// <summary>One model's published per-endpoint rates, keyed by the same composite the
+  ///     catalog rows use. An empty result means the model published nothing - never a
+  ///     failure the caller must handle.</summary>
+  private async Task<Dictionary<string, PublishedProviderStats>> FetchPublishedStatsForModelAsync(
+      IntermediateModel model, CancellationToken ct)
+  {
+    Dictionary<string, PublishedProviderStats> stats = new(StringComparer.Ordinal);
+    if (string.IsNullOrEmpty(model.Permaslug))
+    {
+      return stats;
+    }
+
+    // Named decision (CA1031): the published statistics are an ENRICHMENT. A fault here must
+    // never fail a catalog the picker can otherwise render, so every failure resolves to
+    // 'nothing published' and the resolution chain falls through to the documented default.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      // TWO CALLS, DELIBERATELY (measured live 2026-10-27). The endpoint payload carries the
+      // EXACT provider names the catalog uses (30/30 and 5/5 matched, zero missing), while
+      // the effective-pricing summaries carry display names with de-duplication suffixes
+      // ("DeepInfra (2)") that match only 20 of 35. The endpoint payload has no rates and the
+      // summaries have no exact names, so the two are joined on endpointId - which matched
+      // 35/35 - and the result is keyed by the catalog's own model+name pair.
+      using HttpRequestMessage endpointsRequest = new(HttpMethod.Get, _config.EndpointWithQuery(
+          "/api/frontend/v1/stats/endpoint",
+          $"permaslug={Uri.EscapeDataString(model.Permaslug)}&variant=standard"));
+      using HttpResponseMessage endpointsResponse =
+          await _http.SendAsync(endpointsRequest, ct).ConfigureAwait(false);
+      if (!endpointsResponse.IsSuccessStatusCode)
+      {
+        return stats;
+      }
+
+      using HttpRequestMessage pricingRequest = new(HttpMethod.Get, _config.EndpointWithQuery(
+          "/api/frontend/v1/stats/effective-pricing",
+          $"permaslug={Uri.EscapeDataString(model.Permaslug)}"));
+      using HttpResponseMessage pricingResponse =
+          await _http.SendAsync(pricingRequest, ct).ConfigureAwait(false);
+      if (!pricingResponse.IsSuccessStatusCode)
+      {
+        return stats;
+      }
+
+      JsonDocument endpointsDoc = await JsonDocument.ParseAsync(
+          await endpointsResponse.Content.ReadAsStreamAsync(ct).ConfigureAwait(false),
+          cancellationToken: ct).ConfigureAwait(false);
+      JsonDocument pricingDoc = await JsonDocument.ParseAsync(
+          await pricingResponse.Content.ReadAsStreamAsync(ct).ConfigureAwait(false),
+          cancellationToken: ct).ConfigureAwait(false);
+      using (endpointsDoc)
+      using (pricingDoc)
+      {
+        CollectPublishedStats(endpointsDoc.RootElement, pricingDoc.RootElement, model, stats);
+      }
+    }
+    catch (Exception ex) when (ex is HttpRequestException or JsonException)
+    {
+      return stats;
+    }
+#pragma warning restore CA1031
+
+    return stats;
+  }
+
+  /// <summary>Joins the two published payloads into one rate per catalog pair.
+  ///     <para>WHY TWO DOCUMENTS: the endpoint payload carries the EXACT provider names the
+  ///     catalog uses (measured live 2026-10-27: 30/30 and 5/5 matched, zero missing) but no
+  ///     rates; the effective-pricing payload carries the rates but names providers with
+  ///     de-duplication suffixes ("DeepInfra (2)") that match only 20 of 35 catalog rows.
+  ///     The two share <c>endpointId</c>, which joined 35/35, so the id is the join key and
+  ///     the name comes from the endpoint payload.</para>
+  ///     <para>WHERE SEVERAL ENDPOINTS SHARE A NAME the one with the most traffic behind its
+  ///     figure wins. The catalog's pair key is model + provider NAME and cannot distinguish
+  ///     them either - it renders one row per name - so the best-evidenced figure is the only
+  ///     defensible choice. Volume is deterministic; arrival order would let a 34K-token
+  ///     endpoint outrank a 9.5B-token one for no reason.</para></summary>
+  private static void CollectPublishedStats(JsonElement endpointsRoot, JsonElement pricingRoot,
+      IntermediateModel model, Dictionary<string, PublishedProviderStats> stats)
+  {
+    if (PublishedEndpoints(endpointsRoot) is not { } endpoints
+        || ProviderSummaries(pricingRoot) is not { } summaries)
+    {
+      return;
+    }
+
+    Dictionary<string, string> keysById = CatalogKeysByEndpointId(endpoints, model);
+    foreach (JsonElement summary in summaries)
+    {
+      if (summary.ValueKind == JsonValueKind.Object
+          && GetStringOrNull(summary, "endpointId") is { } endpointId
+          && keysById.TryGetValue(endpointId, out string? key))
+      {
+        Adopt(stats, key, summary);
+      }
+    }
+  }
+
+  /// <summary>The catalog pair each published endpoint belongs to, keyed by the endpoint id
+  ///     the two payloads share.</summary>
+  private static Dictionary<string, string> CatalogKeysByEndpointId(JsonElement[] endpoints,
+      IntermediateModel model)
+  {
+    Dictionary<string, string> keysById = new(StringComparer.Ordinal);
+    foreach (JsonElement endpoint in endpoints)
+    {
+      if (endpoint.ValueKind == JsonValueKind.Object
+          && GetStringOrNull(endpoint, "id") is { } id
+          && GetStringOrNull(endpoint, "provider_name") is { } providerName)
+      {
+        keysById[id] = $"{model.Id}:{providerName}";
+      }
+    }
+
+    return keysById;
+  }
+
+  /// <summary>Records one published summary for a pair, keeping the figure with the most
+  ///     traffic behind it when several endpoints share a name.</summary>
+  private static void Adopt(Dictionary<string, PublishedProviderStats> stats, string key,
+      JsonElement summary)
+  {
+    PublishedProviderStats candidate = PublishedProviderStats.Create(
+        ParseHitRate(summary),
+        ParsePricePerToken(summary, "effectiveInputPrice"),
+        ParsePricePerToken(summary, "effectiveOutputPrice"),
+        ParseTokenCount(summary));
+
+    if (!stats.TryGetValue(key, out PublishedProviderStats? existing)
+        || (candidate.TotalTokens ?? 0) > (existing.TotalTokens ?? 0))
+    {
+      stats[key] = candidate;
+    }
+  }
+
+  /// <summary>The endpoint array from the published endpoint payload, or null when the shape
+  ///     is not one we understand.</summary>
+  private static JsonElement[]? PublishedEndpoints(JsonElement root)
+      => root.ValueKind == JsonValueKind.Object
+          && root.TryGetProperty("data", out JsonElement data)
+          && data.ValueKind == JsonValueKind.Array
+              ? [.. data.EnumerateArray()]
+              : null;
+
+  /// <summary>The provider summaries array from one model's statistics payload, or null when
+  ///     the payload is not the shape we understand. Extracted so the walk above stays a
+  ///     single readable loop rather than a chain of shape guards.</summary>
+  private static JsonElement[]? ProviderSummaries(JsonElement root)
+      => root.ValueKind == JsonValueKind.Object
+          && root.TryGetProperty("data", out JsonElement data)
+          && data.ValueKind == JsonValueKind.Object
+          && data.TryGetProperty("providerSummaries", out JsonElement summaries)
+          && summaries.ValueKind == JsonValueKind.Array
+              ? [.. summaries.EnumerateArray()]
+              : null;
+
+  /// <summary>The published cache-hit share, or null when absent or out of range. A rate
+  ///     outside [0,1] is a payload we do not understand, and refusing it keeps a bad parse
+  ///     from becoming a plausible-looking price.</summary>
+  private static decimal? ParseHitRate(JsonElement summary)
+      => summary.TryGetProperty("cacheHitRate", out JsonElement el)
+          && el.ValueKind == JsonValueKind.Number
+          && el.TryGetDecimal(out decimal rate)
+          && rate is >= 0m and <= 1m
+              ? rate
+              : null;
+
+  /// <summary>A published per-MILLION price converted to per-token, or null when absent. The
+  ///     statistics payload serves dollars per million; the catalog serves dollars per token,
+  ///     and the two must not be mixed in one formula.</summary>
+  private static decimal? ParsePricePerToken(JsonElement summary, string name)
+      => summary.TryGetProperty(name, out JsonElement el)
+          && el.ValueKind == JsonValueKind.Number
+          && el.TryGetDecimal(out decimal perMillion)
+          && perMillion >= 0m
+              ? perMillion / 1_000_000m
+              : null;
+
+  /// <summary>The token volume the published figures rest on, or null when absent.</summary>
+  private static long? ParseTokenCount(JsonElement summary)
+      => summary.TryGetProperty("totalTokens", out JsonElement el)
+          && el.ValueKind == JsonValueKind.Number
+          && el.TryGetInt64(out long tokens)
+              ? tokens
+              : null;
 
   private async Task<List<ModelProviderEntry>> FetchEndpointsForModelAsync(IntermediateModel model, CancellationToken ct)
   {
@@ -404,7 +647,10 @@ public sealed class OpenRouterCatalogClient(
 
     IntermediateModel model = new(id, contextLength, promptPrice, cacheReadPrice, completionPrice, discount,
         supportsToolUse, supportsVision, supportsTextOutput, isRouter, description, intelligence, coding,
-        agentic, topProviderName, topProviderContext, topProviderMaxTokens, cacheWritePrice, overrides);
+        agentic, topProviderName, topProviderContext, topProviderMaxTokens, cacheWritePrice, overrides)
+    {
+      Permaslug = GetStringOrNull(item, "canonical_slug"),
+    };
     return model;
   }
 
@@ -762,7 +1008,13 @@ public sealed class OpenRouterCatalogClient(
     return false;
   }
 
-  /// <summary>Phase 1 intermediate: model-level data before per-provider expansion.</summary>
+  /// <summary>Phase 1 intermediate: model-level data before per-provider expansion.
+  ///     <para><c>Permaslug</c> is the model's canonical slug, the key the published
+  ///     statistics are served under. Read from <c>canonical_slug</c>: verified live
+  ///     2026-10-27 against 464 models, it matched the frontend catalog's <c>permaslug</c>
+  ///     exactly on all 376 that had a catalog row and disagreed on none. Null when the API
+  ///     omitted it, in which case no published rate is fetched for the model.</para>
+  ///     </summary>
   private sealed record IntermediateModel(
       string Id,
       int ContextLength,
@@ -782,5 +1034,10 @@ public sealed class OpenRouterCatalogClient(
       int TopProviderContext,
       int TopProviderMaxTokens,
       decimal? CacheWritePrice,
-      List<PriceOverride>? PriceOverrides);
+      List<PriceOverride>? PriceOverrides)
+  {
+    /// <summary>The model's canonical slug, the key the published statistics are served
+    ///     under, or null when the API omitted it.</summary>
+    public string? Permaslug { get; init; }
+  }
 }

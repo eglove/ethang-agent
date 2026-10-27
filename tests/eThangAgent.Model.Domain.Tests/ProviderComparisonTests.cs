@@ -38,7 +38,7 @@ public class ProviderComparisonTests
       decimal hitRate = 0.97m,
       ProviderPreset preset = ProviderPreset.Cheapest)
       => ProviderComparison.Rows(entries, report,
-          HitRateAssumption.Manual(hitRate), preset);
+          HitRateLookup.Uniform(HitRateAssumption.FromPublished(hitRate)), preset);
 
   // ---- B1/D1: the provider level exists and carries its own evidence ----
 
@@ -94,11 +94,35 @@ public class ProviderComparisonTests
   [Fact]
   public void EveryRow_CarriesTheAssumptionItWasPricedAt()
   {
-    HitRateAssumption assumption = HitRateAssumption.Manual(0.42m);
+    HitRateAssumption assumption = HitRateAssumption.FromPublished(0.42m);
     IReadOnlyList<ProviderEvidenceRow> rows = ProviderComparison.Rows(
-        [Reka(), DeepInfra()], null, assumption, ProviderPreset.Cheapest);
+        [Reka(), DeepInfra()], null, HitRateLookup.Uniform(assumption), ProviderPreset.Cheapest);
 
     Assert.All(rows, row => Assert.Same(assumption, row.Assumption));
+  }
+
+  [Fact]
+  public void EachRow_IsPricedAtItsOwnResolvedRate()
+  {
+    // The defect this replaced: one rate for the whole list. Two endpoints of one model can
+    // differ by 70 points, so the row's price must follow the row's rate.
+    HitRateLookup rates = HitRateLookup.Create(
+        [
+          new KeyValuePair<string, HitRateAssumption>($"{Model}:Reka",
+              HitRateAssumption.FromPublished(0.10m)),
+          new KeyValuePair<string, HitRateAssumption>($"{Model}:DeepInfra",
+              HitRateAssumption.FromPublished(0.95m)),
+        ],
+        HitRateAssumption.Fallback);
+
+    IReadOnlyList<ProviderEvidenceRow> rows = ProviderComparison.Rows(
+        [Reka(), DeepInfra()], null, rates, ProviderPreset.Cheapest);
+
+    ProviderEvidenceRow reka = rows.First(row => row.ProviderName == "Reka");
+    ProviderEvidenceRow deepInfra = rows.First(row => row.ProviderName == "DeepInfra");
+    Assert.Equal(0.10m, reka.Assumption.Rate);
+    Assert.Equal(0.95m, deepInfra.Assumption.Rate);
+    Assert.NotEqual(reka.EffectivePriceText, deepInfra.EffectivePriceText);
   }
 
   // ---- B3/D5: unmeasured renders as unmeasured ----

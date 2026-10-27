@@ -675,6 +675,24 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
+  /// <summary>Loads the cache-hit rates providers publish for their endpoints (issue #296
+  ///     follow-up), or null when no tab is selected or its catalog cannot publish any.
+  ///     <para>THIS IS THE RUNG THAT ANSWERS FOR A PAIR THE LEDGER HAS NEVER SEEN: a user who
+  ///     has never called a model+provider pair has no measurement of their own, and the
+  ///     provider's published rate is strictly better evidence than a constant. A catalog that
+  ///     does not implement it (a test double, a different provider) simply yields nothing and
+  ///     the documented default applies.</para></summary>
+  public Func<CancellationToken, Task<IReadOnlyDictionary<string, PublishedProviderStats>>>? SelectedTabPublishedRateLoader
+  {
+    get
+    {
+      AgentTabViewModel? tab = SelectedTab;
+      return tab is null
+          ? null
+          : ct => tab.Container.Services.GetRequiredService<IModelCatalog>().GetPublishedStatsAsync(ct);
+    }
+  }
+
   /// <summary>Joins source revalidation for the selected tab's settings dialog.</summary>
   public Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogRefresher
   {

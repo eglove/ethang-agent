@@ -21,4 +21,21 @@ public sealed record OpenRouterConfiguration(string ApiKey, Uri BaseUrl, string?
     builder.Path = $"{builder.Path.TrimEnd('/')}{path}";
     return builder.Uri;
   }
+
+  /// <summary>Builds an API endpoint with a QUERY STRING, which <see cref="Endpoint"/> cannot
+  ///     express: it assigns the whole argument to <see cref="UriBuilder.Path"/>, so a '?'
+  ///     inside it is escaped to %3F and the request silently 404s against a path that
+  ///     contains the query. The query is passed separately and assigned to
+  ///     <see cref="UriBuilder.Query"/>, where it belongs.</summary>
+  /// <param name="path">The path, without a query string.</param>
+  /// <param name="query">The query, with or without a leading '?'.</param>
+  public Uri EndpointWithQuery(string path, string query)
+  {
+    ArgumentNullException.ThrowIfNull(query);
+    UriBuilder builder = new(Endpoint(path))
+    {
+      Query = query.TrimStart('?'),
+    };
+    return builder.Uri;
+  }
 }

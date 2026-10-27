@@ -53,12 +53,16 @@ internal sealed record PresetOption(string DisplayName, ProviderPreset Preset);
 ///     provider level.</param>
 /// <param name="LoadPerformance">Loads the ledger's per-provider performance, or null when
 ///     the host wired no read model.</param>
+/// <param name="LoadPublished">Loads the rates providers publish for their endpoints, or null
+///     when the host wired no source. This is the rung that answers for a pair the ledger has
+///     never seen.</param>
 internal sealed record ModelSectionSeams(
     Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> LoadCatalog,
     string? CurrentModelId = null,
     Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? RefreshCatalog = null,
     string? CurrentProviderName = null,
-    Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? LoadPerformance = null);
+    Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? LoadPerformance = null,
+    Func<CancellationToken, Task<IReadOnlyDictionary<string, PublishedProviderStats>>>? LoadPublished = null);
 
 /// <summary>View-model behind the model + provider picker (issue #296): a searchable model
 ///     list, the selected model's provider rows with their evidence, the ordering preset, and
@@ -82,6 +86,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 {
   private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> _loadCatalog;
   private readonly Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? _loadPerformance;
+  private readonly Func<CancellationToken, Task<IReadOnlyDictionary<string, PublishedProviderStats>>>? _loadPublished;
   private readonly string? _currentModelId;
   private readonly string? _currentProviderName;
   private IReadOnlyList<ModelPickerRow> ModelRows { get; set; } = [];
@@ -95,8 +100,6 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   public event EventHandler<ModelChoice>? ConfirmRequested;
 
   public IRelayCommand ConfirmCommand { get; }
-
-  public IRelayCommand ApplyHitRateCommand { get; }
 
   [ObservableProperty]
   public partial string SearchText { get; set; }
@@ -173,26 +176,27 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       ? string.Empty
       : $"ordered by {DimensionName(ProviderPresets.Highlighted(SelectedPresetOption.Preset))}";
 
-  /// <summary>The cache-hit-rate assumption as editable whole-percent text (D6). Editing it
-  ///     and pressing Apply re-projects every price and re-ranks the provider level at the
-  ///     user's rate - the most instructive interaction this surface offers.</summary>
-  [ObservableProperty]
-  public partial string HitRateText { get; set; }
+  /// <summary>The rate every row with no evidence of its own is projected at, and the one
+  ///     the caption states. Rows with their own evidence carry theirs beside their price.
+  ///     <para>THERE IS NO EDITABLE RATE. A hand-typed assumption was removed: the rate is a
+  ///     property of the model, the provider, and the workload, so the harness resolves it
+  ///     from evidence - our ledger for the pair, then the rate the provider publishes, then
+  ///     this documented default - and each row says which rung answered for it.</para></summary>
+  public HitRateAssumption FallbackRate { get; private set; } = HitRateAssumption.Fallback;
 
-  /// <summary>Why the last Apply was refused, or null. A malformed rate is a visible
-  ///     refusal, never a silent clamp.</summary>
-  [ObservableProperty]
-  public partial string? HitRateError { get; set; }
+  /// <summary>Explains where a row's cache-hit rate comes from, since it is no longer a
+  ///     setting the user can see or change. States the fallback in force so a row showing
+  ///     the default is recognisable rather than mysterious.</summary>
+  public string RateCaption => $"Cache-hit rate is resolved per provider: our own measured rate "
+      + $"when this pair has run, else the rate the provider publishes, else {FallbackRate.Describe()}.";
 
-  /// <summary>The provenance line for the rate in force (D6/B4): <c>session measured 97.7%</c>,
-  ///     <c>default 50% (nothing measured yet)</c>, <c>manual 40%</c>. Always shown, because a
-  ///     projection built on an unstated assumption is a guess wearing a decimal point.
-  ///     </summary>
-  public string HitRateSourceText => Assumption.Describe();
+  /// <summary>The per-pair rates the rows are projected at, rebuilt whenever the catalog or
+  ///     the ledger changes.</summary>
+  private HitRateLookup _rates = HitRateLookup.Uniform(HitRateAssumption.Fallback);
 
-  /// <summary>The hit rate the prices are currently projected at. Never read without its
-  ///     provenance: <see cref="HitRateSourceText"/> states where it came from.</summary>
-  public HitRateAssumption Assumption { get; private set; } = HitRateAssumption.Fallback;
+  /// <summary>The published rates fetched alongside the catalog, keyed by pair.</summary>
+  private IReadOnlyDictionary<string, PublishedProviderStats> _published =
+      new Dictionary<string, PublishedProviderStats>(StringComparer.Ordinal);
 
   /// <param name="loadCatalog">Loads the open session's provider catalog (UI thread escape
   ///     handled here - the delegate itself may block on HTTP).</param>
@@ -204,14 +208,20 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     (issue #295). Null - a headless host or a host with no read model - renders every
   ///     measurement as unavailable rather than failing the surface: a picker with no history
   ///     is still a picker.</param>
+  /// <param name="loadPublished">Loads the rates providers publish for their endpoints
+  ///     (issue #296 follow-up). Null - a headless host, or a provider that publishes none -
+  ///     leaves every pair without a measurement on the documented default, which is exactly
+  ///     what such a session rendered before.</param>
   public ModelPickerViewModel(
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> loadCatalog,
       string? currentModelId,
       string? currentProviderName = null,
-      Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? loadPerformance = null)
+      Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? loadPerformance = null,
+      Func<CancellationToken, Task<IReadOnlyDictionary<string, PublishedProviderStats>>>? loadPublished = null)
   {
     _loadCatalog = loadCatalog ?? throw new ArgumentNullException(nameof(loadCatalog));
     _loadPerformance = loadPerformance;
+    _loadPublished = loadPublished;
     _currentModelId = currentModelId;
     _currentProviderName = currentProviderName;
 
@@ -220,9 +230,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     // load-bearing: ICommand.Execute does not consult CanExecute, and a disabled button is
     // only one of several ways this command can be invoked.
     ConfirmCommand = new RelayCommand(Confirm, () => SelectedRow is not null);
-    ApplyHitRateCommand = new RelayCommand(ApplyHitRate);
     SelectedPresetOption = PresetOptions[0];
-    HitRateText = FormatPercent(Assumption.Rate);
     SearchText = string.Empty; // raises OnSearchTextChanged → initial list
   }
 
@@ -260,8 +268,8 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       }
 
       CatalogEntries = catalog.Value;
-      ModelRows = BuildRows(catalog.Value);
-      RebuildFilteredRows();
+      _published = await LoadPublishedAsync();
+      ResolveRates();
       // Pre-select the session's live choice, when it is in the list. The provider level
       // then pre-selects the session's provider, so a reopened picker shows the pair it
       // committed.
@@ -304,7 +312,9 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       if (report.IsSuccess)
       {
         _report = report.Value;
-        AdoptAssumption(HitRateAssumption.From(report.Value));
+        // The ledger is now known, so every row's rate can be resolved: measured for pairs it
+        // covers, published for pairs it does not, the documented default for the rest.
+        ResolveRates();
       }
       else
       {
@@ -335,37 +345,18 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 
     ModelPickerRow? selected = SelectedRow;
     CatalogEntries = result.Value;
-    ModelRows = BuildRows(result.Value);
-    RebuildFilteredRows();
+    ResolveRates();
     SelectedRow = selected is null ? null
         : FilteredRows.FirstOrDefault(row => row.ModelId == selected.ModelId) ?? selected;
     LoadError = null;
   }
 
-  /// <summary>Parses the editable rate and re-projects at it. A malformed or out-of-range
-  ///     value is a visible refusal that changes nothing - never a silent clamp, which would
-  ///     rank providers at a rate the user did not type.</summary>
-  private void ApplyHitRate()
+  /// <summary>Re-resolves every row's rate from the evidence now in hand and re-renders both
+  ///     levels. Called whenever the catalog or the ledger lands: the rates depend on both, so
+  ///     neither can be adopted alone.</summary>
+  private void ResolveRates()
   {
-    if (!TryParsePercent(HitRateText, out decimal rate))
-    {
-      HitRateError = $"'{HitRateText}' is not a cache-hit rate. Enter a whole-percent figure between 0 and 100.";
-      return;
-    }
-
-    HitRateError = null;
-    AdoptAssumption(HitRateAssumption.Manual(rate));
-  }
-
-  /// <summary>Adopts a new assumption: the text follows it, the provenance line changes, and
-  ///     both levels re-render (the model summaries are priced too, so a rate change is
-  ///     visible one level up as well).</summary>
-  private void AdoptAssumption(HitRateAssumption assumption)
-  {
-    Assumption = assumption;
-    HitRateText = FormatPercent(assumption.Rate);
-    OnPropertyChanged(nameof(HitRateSourceText));
-    OnPropertyChanged(nameof(Assumption));
+    _rates = HitRateResolution.Resolve(CatalogEntries, _report, _published, FallbackRate);
     ModelRows = BuildRows(CatalogEntries);
     RebuildFilteredRows();
     RebuildProviderRows();
@@ -408,7 +399,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     }
 
     ProviderEvidenceRow? keep = SelectedProviderRow;
-    ProviderRows = ProviderComparison.Rows(row.Endpoints, _report, Assumption,
+    ProviderRows = ProviderComparison.Rows(row.Endpoints, _report, _rates,
         SelectedPresetOption.Preset);
     OnPropertyChanged(nameof(OrderingCaption));
     // A preset or rate change reorders; it must not lose the row the user was looking at.
@@ -443,7 +434,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
         {
           IReadOnlyList<ModelProviderEntry> endpoints = [.. group];
           IReadOnlyList<ProviderEvidenceRow> ranked = ProviderComparison.Rows(
-              endpoints, _report, Assumption, preset);
+              endpoints, _report, _rates, preset);
           return new ModelPickerRow(group.Key, group.Key,
               FormatDetail(ranked, endpoints.Count), endpoints);
         })
@@ -484,26 +475,36 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
           ? (tokens / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "M"
           : (tokens / 1_000d).ToString("0", CultureInfo.InvariantCulture) + "K";
 
-  /// <summary>A rate as editable whole-percent text: one decimal, so 97.7 survives the round
-  ///     trip through the box.</summary>
-  private static string FormatPercent(decimal rate)
-      => (rate * 100m).ToString("0.#", CultureInfo.InvariantCulture);
-
-  /// <summary>Parses whole-percent text into a rate in [0,1]. Strict: a trailing percent sign
-  ///     is accepted because users type one, anything else that is not a number in range is
-  ///     refused rather than coerced.</summary>
-  private static bool TryParsePercent(string? text, out decimal rate)
+  /// <summary>Loads the rates providers publish for their endpoints. Best effort: an empty
+  ///     result is a normal state (a host that wired no source, or a source that published
+  ///     nothing), and the resolution chain falls through to the documented default.
+  ///     <para>OFF THE UI THREAD for the same reason the catalog is: this is HTTP.</para>
+  ///     </summary>
+  private async Task<IReadOnlyDictionary<string, PublishedProviderStats>> LoadPublishedAsync()
   {
-    rate = 0m;
-    string trimmed = (text ?? string.Empty).Trim().TrimEnd('%').Trim();
-    if (!decimal.TryParse(trimmed, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal percent)
-        || percent is < 0m or > 100m)
+    if (_loadPublished is null)
     {
-      return false;
+      return new Dictionary<string, PublishedProviderStats>(StringComparer.Ordinal);
     }
 
-    rate = percent / 100m;
-    return true;
+    // Named decision (CA1031): published rates are an enrichment - a fault must leave the
+    // picker working with listed prices and the documented default, never fail the dialog.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      Task<IReadOnlyDictionary<string, PublishedProviderStats>> scheduled;
+      using (ExecutionContext.SuppressFlow())
+      {
+        scheduled = Task.Run(() => _loadPublished(CancellationToken.None));
+      }
+
+      return await scheduled;
+    }
+    catch (Exception)
+    {
+      return new Dictionary<string, PublishedProviderStats>(StringComparer.Ordinal);
+    }
+#pragma warning restore CA1031
   }
 
   /// <summary>The display name of a sort dimension, for the ordering caption.</summary>
