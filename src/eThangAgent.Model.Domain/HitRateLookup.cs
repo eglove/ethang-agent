@@ -44,18 +44,38 @@ public sealed class HitRateLookup
   }
 
   /// <summary>Builds a lookup from resolved pairs, keeping the fallback for everything else.
-  ///     </summary>
+  ///     <para>THE LOOKUP IS TOTAL OVER WHATEVER THE CATALOG HANDS IT, and that includes
+  ///     REPEATED PAIR KEYS. OpenRouter serves several endpoints under one provider name -
+  ///     region and ZDR variants of the same vendor - so the catalog legitimately emits
+  ///     several rows whose <see cref="ModelProviderEntry.Key"/> is identical (measured
+  ///     2026-10-27: 1509 catalog rows over 1170 distinct pairs, so 339 rows share a key with
+  ///     another). <c>ToDictionary</c> throws <c>An item with the same key has already been
+  ///     added</c> on the second one, and because this runs while the picker loads, the whole
+  ///     Model Settings dialog died on a raw exception instead of a model list.</para>
+  ///     <para>A DUPLICATE LOSES NOTHING: the rate is keyed by the PAIR, so every row sharing
+  ///     a key resolves the same rate by construction - the resolution reads only the model id,
+  ///     the provider name, and the key. The FIRST entry wins, which keeps the result
+  ///     deterministic for a given input order rather than dependent on dictionary internals.
+  ///     </para></summary>
   public static HitRateLookup Create(IEnumerable<KeyValuePair<string, HitRateAssumption>> rates,
       HitRateAssumption fallback)
   {
     ArgumentNullException.ThrowIfNull(rates);
     ArgumentNullException.ThrowIfNull(fallback);
-    // A null key or value is a caller's bug, not a rate: dropping it keeps the lookup total
-    // (every row still resolves through the fallback) instead of failing a whole comparison
-    // over one malformed entry.
-    Dictionary<string, HitRateAssumption> map = rates
-        .Where(pair => pair.Key is not null && pair.Value is not null)
-        .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+    Dictionary<string, HitRateAssumption> map = new(StringComparer.Ordinal);
+    foreach (KeyValuePair<string, HitRateAssumption> pair in rates)
+    {
+      // A null key or value is a caller's bug, not a rate: dropping it keeps the lookup total
+      // (every row still resolves through the fallback) instead of failing a whole comparison
+      // over one malformed entry. A repeated key is absorbed the same way - the first rate for
+      // a pair stands, because the pair is the whole key.
+      if (pair.Key is null || pair.Value is null)
+      {
+        continue;
+      }
+
+      _ = map.TryAdd(pair.Key, pair.Value);
+    }
 
     return new HitRateLookup(map, fallback);
   }
