@@ -21,4 +21,20 @@ public interface IUsageQueries
   ///     yet has no rows, and the status bar must render that state rather than an
   ///     error.</summary>
   Task<Result<UsageSummary>> SessionSummaryAsync(string sessionId, CancellationToken ct = default);
+
+  /// <summary>Observed per-provider performance from the ledger (issue #295): median call
+  ///     duration, median first-token latency, median output rate, and the token counts the
+  ///     cache-hit rate derives from — per model/provider pair, each with its sample count.
+  ///     <para>WHY THIS IS THE HONEST SOURCE (D3): the catalog's own latency and throughput
+  ///     fields are structurally dead — measured live, null on all 52 endpoints across 5
+  ///     models — so our own recorded call durations are the only measurement of the provider
+  ///     we actually reached. They come from the same rows this interface already rolls up.</para>
+  ///     <para>THE FALLBACK CHAIN IS SESSION, THEN WORKSPACE, THEN GLOBAL (D5), and the answer
+  ///     names which rung answered. A fresh session has no rows of its own, so refusing to
+  ///     answer would leave the picker with nothing to project from; answering silently from a
+  ///     wider scope would present another session's history as this one's.</para>
+  ///     <para>An empty scope is an EMPTY REPORT, not a failure — the same rule
+  ///     <see cref="SessionSummaryAsync"/> follows, and for the same reason.</para></summary>
+  Task<Result<ProviderPerformanceReport>> ProviderPerformanceAsync(
+      ProviderPerformanceRequest request, CancellationToken ct = default);
 }

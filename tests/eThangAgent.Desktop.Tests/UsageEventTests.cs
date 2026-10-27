@@ -91,5 +91,11 @@ public class UsageEventTests
   {
     public Task<Result<UsageSummary>> SessionSummaryAsync(string sessionId, CancellationToken ct = default)
         => Task.FromResult(Result.Success(summary));
+
+    // The status bar never asks for provider performance (issue #295); the member exists so
+    // the fake satisfies the read model's full contract rather than half of it.
+    public Task<Result<ProviderPerformanceReport>> ProviderPerformanceAsync(
+        ProviderPerformanceRequest request, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(ProviderPerformanceReport.Empty(UsageScope.Session)));
   }
 }

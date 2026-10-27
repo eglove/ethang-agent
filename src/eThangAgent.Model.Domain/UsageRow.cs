@@ -67,6 +67,16 @@ public sealed record UsageRow(
   ///     assumed. False when the served model priced the row, and false when no model is
   ///     named at all — an unpriced row is not a fallback.</summary>
   public bool PricedOnRequestedModel => ServedModelId is null && ModelId is not null;
+
+  /// <summary>The provider this call is attributed to when performance is aggregated (issue
+  ///     #295): the provider the WIRE named as having served it, falling back to the provider
+  ///     whose prices were stamped, and null when the row names neither.
+  ///     <para>THE FALLBACK IS THE SAME RULE THE MODEL ID FOLLOWS (issue #290): a fact about
+  ///     what served wins over what the request intended. On this surface the wire usually
+  ///     names no provider, so in practice this is the priced provider — stated as a fallback
+  ///     rather than assumed, so the day the wire starts naming one, the aggregation follows it
+  ///     with no further change.</para></summary>
+  public string? ObservedProvider => ServedProvider ?? Provider;
 }
 
 /// <summary>Token and cost totals for one group of usage rows (one call class, or one
