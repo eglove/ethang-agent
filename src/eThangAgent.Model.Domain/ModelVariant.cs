@@ -105,14 +105,15 @@ public static class ModelVariants
     };
   }
 
-  /// <summary>The dropdown label, stating the TRADEOFF in the same breath as the name: three
-  ///     entries reading only 'Standard / Nitro / Floor' would leave the user guessing what
-  ///     they are trading, which is the decision this control exists to make legible.</summary>
+  /// <summary>The dropdown label AND the status-line name: the variant's bare name.
+  ///     <para>DELIBERATELY SHORT. The control that offers these three choices carries the
+  ///     explanation underneath it, so repeating the tradeoff in every row and in the status
+  ///     bar only lengthened the decision without adding to it.</para></summary>
   public static string Describe(ModelVariant variant) => variant switch
   {
-    ModelVariant.Standard => "Standard — the provider's own routing",
-    ModelVariant.Nitro => "Nitro — fastest throughput (priority tier, billed at priority rates)",
-    ModelVariant.Floor => "Floor — lowest price (flex tier, billed at its discounted rate)",
+    ModelVariant.Standard => "Standard",
+    ModelVariant.Nitro => "Nitro",
+    ModelVariant.Floor => "Floor",
     _ => throw Unhandled(variant),
   };
 

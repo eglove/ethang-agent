@@ -80,11 +80,12 @@
           <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock Text="{Binding Status.Provider}"/>
           <TextBlock x:Name="ModelIdText" Text="{Binding Status.ModelId}"/>
-          <!-- The committed provider (issue #296, D7/B6): the pair is the decision, so the
-               bar names both halves. Hidden when no provider was pinned, so a session that
-               never committed one shows exactly the pre-#296 line. -->
+          <!-- The committed routing variant (issue #296, D7/B6): the pair is the decision, so
+               the bar names both halves. The name is BARE ('Nitro', 'Floor') - the tradeoff it
+               stands for is stated once beneath the Routing dropdown. Hidden for Standard and
+               for a session that never committed a variant. -->
           <TextBlock x:Name="ServingVariantText" Text="{Binding Status.ServingVariant}"
-                     ToolTip.Tip="The provider committed for this session"
+                     ToolTip.Tip="The routing variant committed for this session"
                      IsVisible="{Binding Status.ServingVariant, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
         </StackPanel>

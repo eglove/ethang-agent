@@ -51,7 +51,9 @@
 
         <!-- The routing VARIANT: the whole second half of the model decision. OpenRouter
              expresses 'fastest' and 'cheapest' as suffixes on the model id, so this one
-             dropdown replaces the retired provider/endpoint level and its ordering presets. -->
+             dropdown replaces the retired provider/endpoint level and its ordering presets.
+             The rows are the BARE NAMES; the caption underneath states what each one trades,
+             so the explanation lives in exactly one place. -->
         <StackPanel Spacing="4">
           <TextBlock Text="Routing" FontWeight="SemiBold"/>
           <ComboBox x:Name="VariantBox" ItemsSource="{Binding ModelSection.VariantOptions}"

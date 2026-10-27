@@ -147,12 +147,14 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   surface for per-session model choices. **Model selection is one decision in two halves:**
   a searchable list of the provider's lineup (each model summarised by its cheapest
   endpoint's effective input price, context window, and endpoint count), plus a **Routing**
-  dropdown offering **Standard / Nitro / Floor**. OpenRouter expresses those two tradeoffs
-  as suffixes on the model id — `:nitro` sorts every eligible endpoint by throughput and
-  admits priority-tier endpoints (billed at priority rates), `:floor` sorts by price and
-  admits flex-tier endpoints (billed at their discounted rate) — so the dropdown IS the
-  routing decision and the request carries no provider pin at all. Billing always follows
-  the tier that actually served, and the usage ledger records the prices it served at.
+  dropdown offering **Standard / Nitro / Floor** — the bare names, with the tradeoff each
+  one makes stated once in the caption beneath the dropdown rather than repeated in every
+  row and in the status bar. OpenRouter expresses those two tradeoffs as suffixes on the
+  model id — `:nitro` sorts every eligible endpoint by throughput and admits priority-tier
+  endpoints (billed at priority rates), `:floor` sorts by price and admits flex-tier
+  endpoints (billed at their discounted rate) — so the dropdown IS the routing decision and
+  the request carries no provider pin at all. Billing always follows the tier that
+  actually served, and the usage ledger records the prices it served at.
   Every unavailable value is rendered as unavailable (`not measured`, `pricing unknown`,
   `no cache support`, `cache support unverified`), never as a zero. The
   **Reasoning effort** selector offers model default or max, extra high, high, medium,

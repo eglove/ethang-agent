@@ -57,9 +57,9 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
 
   /// <summary>The routing variant committed for the session's model, or empty when none was
   ///     committed and the provider's own routing decides.
-  ///     <para>THE VARIANT IS THE DECISION'S SECOND HALF, so the status line names it: a bar
-  ///     that showed only the model would leave the user unable to tell whether their turns are
-  ///     routing for throughput or for price - the tradeoff they explicitly chose. Empty renders
+  ///     <para>THE VARIANT IS THE DECISION'S SECOND HALF, so the status line names it - as its
+  ///     bare name ('Nitro', 'Floor'), because the bar is a summary and the tradeoff each name
+  ///     stands for is explained once in the caption beneath the Routing dropdown. Empty renders
   ///     nothing, because Standard is the absence of a decision rather than one, and a session
   ///     that never committed a variant must not display a fabricated one.</para></summary>
   public string ServingVariant

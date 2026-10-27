@@ -31,7 +31,9 @@ internal sealed record ModelPickerRow(
     string Detail,
     IReadOnlyList<ModelProviderEntry> Endpoints);
 
-/// <summary>One row of the variant dropdown: the variant, its label, and the tradeoff it states.
+/// <summary>One row of the variant dropdown: the variant and its bare name. The tradeoff the
+///     name stands for is stated ONCE in the caption beneath the dropdown
+///     (<see cref="ModelPickerViewModel.VariantCaption"/>), not repeated in every row.
 ///     </summary>
 internal sealed record VariantOption(string DisplayName, ModelVariant Variant);
 
@@ -122,9 +124,9 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   [ObservableProperty]
   public partial VariantOption SelectedVariantOption { get; set; }
 
-  /// <summary>States what the variant actually costs, so the dropdown is never a mystery box:
-  ///     the two non-default variants admit a different service tier, and that tier is billed
-  ///     differently.</summary>
+  /// <summary>The explanation rendered UNDERNEATH the dropdown, and the reason the rows
+  ///     themselves are bare names: it states what each variant actually trades and costs, so the
+  ///     dropdown is never a mystery box without lengthening every row and the status bar.</summary>
   public static string VariantCaption => "Nitro admits priority-tier endpoints (billed at priority "
       + "rates) and sorts by throughput; Floor admits flex-tier endpoints (billed at their "
       + "discounted rate) and sorts by price. Billing always follows the tier that actually "

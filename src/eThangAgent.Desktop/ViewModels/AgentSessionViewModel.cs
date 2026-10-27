@@ -755,9 +755,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _modelPreferences.ModelId = chosen;
     _modelPreferences.ModelVariant = variant;
     Status.ModelId = chosen;
-    // The status line names the routing the request will actually carry. Standard renders as
-    // nothing: the default is not a decision the user made, and a bar labeling every session
-    // 'Standard' would be noise.
+    // The status line names the routing the request will actually carry, by its bare name
+    // ('Nitro', 'Floor') - the caption beneath the Routing dropdown explains what each one
+    // trades. Standard renders as nothing: the default is not a decision the user made, and a
+    // bar labeling every session 'Standard' would be noise.
     Status.ServingVariant = variant is { } committed && committed != ModelVariant.Standard
         ? ModelVariants.Describe(committed)
         : string.Empty;

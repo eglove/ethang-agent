@@ -67,13 +67,14 @@ public class ModelVariantTests
   }
 
   [Fact]
-  public void Describe_NamesTheTradeoffEachVariantMakes()
+  public void Describe_IsTheBareName_TheCaptionCarriesTheTradeoff()
   {
-    // A dropdown whose three entries read only 'Standard / Nitro / Floor' leaves the user
-    // guessing what they are trading, so each label states the tradeoff in the same breath.
-    Assert.Contains("throughput", ModelVariants.Describe(ModelVariant.Nitro), StringComparison.OrdinalIgnoreCase);
-    Assert.Contains("price", ModelVariants.Describe(ModelVariant.Floor), StringComparison.OrdinalIgnoreCase);
-    Assert.False(string.IsNullOrWhiteSpace(ModelVariants.Describe(ModelVariant.Standard)));
+    // The label is the variant's NAME, not a sentence: the control that offers the three choices
+    // states the tradeoff in the caption underneath it, so repeating it in every row and in the
+    // status bar only lengthened the decision. Pinned exactly so a longer label cannot creep back.
+    Assert.Equal("Standard", ModelVariants.Describe(ModelVariant.Standard));
+    Assert.Equal("Nitro", ModelVariants.Describe(ModelVariant.Nitro));
+    Assert.Equal("Floor", ModelVariants.Describe(ModelVariant.Floor));
   }
 
   [Fact]
