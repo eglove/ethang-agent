@@ -29,8 +29,14 @@ public static class PinnedProvider
       return null;
     }
 
+    // THE PIN MAY NAME A VARIANT SLUG rather than a bare provider name (issue #296
+    // follow-up): `xai/zdr/priority` pins one endpoint of "xAI", and the catalog carries that
+    // slug on the entry. Both forms are accepted, because a pre-variant pin stores the bare
+    // name and must keep working.
     bool modelKnown = entries.Any(e => e.ModelId == modelId);
-    bool providerServesModel = entries.Any(e => e.ModelId == modelId && e.ProviderName == providerName);
+    bool providerServesModel = entries.Any(e => e.ModelId == modelId
+        && (string.Equals(e.RoutingSlug, providerName, StringComparison.Ordinal)
+            || string.Equals(e.ProviderName, providerName, StringComparison.Ordinal)));
     return !modelKnown || providerServesModel
         ? null
         : new DomainError("UnknownPinnedProvider",

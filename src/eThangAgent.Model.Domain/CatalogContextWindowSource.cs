@@ -20,8 +20,12 @@ public sealed class CatalogContextWindowSource(IModelCatalog catalog) : IContext
     ArgumentNullException.ThrowIfNull(modelId);
     Result<IReadOnlyList<ModelProviderEntry>> entries = await catalog.GetAsync(ct).ConfigureAwait(false);
     return entries.Match(
+        // The slug first, then the provider name: the caller passes the slug the pin carries,
+        // and several entries share one provider name (issue #296 follow-up).
         success => success.FirstOrDefault(e => e.ModelId == modelId
-            && (providerName is null || e.ProviderName == providerName))?.ContextLength,
+            && (providerName is null
+                || string.Equals(e.RoutingSlug, providerName, StringComparison.Ordinal)
+                || string.Equals(e.ProviderName, providerName, StringComparison.Ordinal)))?.ContextLength,
         _ => null);
   }
 }

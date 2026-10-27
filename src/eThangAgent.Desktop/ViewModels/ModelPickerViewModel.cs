@@ -153,7 +153,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     it offers. Empty before a model is selected.</summary>
   public string ProviderLevelCaption => SelectedRow is null
       ? string.Empty
-      : $"{ProviderRows.Count} provider(s) for {SelectedRow.ModelId}";
+      : $"{ProviderRows.Count} endpoint(s) for {SelectedRow.ModelId}";
 
   /// <summary>The preset rows in display order (the ordering control's ItemsSource).</summary>
   public IReadOnlyList<PresetOption> PresetOptions { get; } =
@@ -369,10 +369,14 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       return;
     }
 
-    // The committed provider is the one the user selected in the provider level. When the
-    // model has no provider rows at all (an empty catalog slice) the provider stays unset
-    // rather than guessed - the same rule the model choice follows.
-    ConfirmRequested?.Invoke(this, new ModelChoice(row.ModelId, SelectedProviderRow?.Ranked.Entry.ProviderName));
+    // The committed provider is the one the user selected in the provider level, carried as
+    // its ROUTING SLUG (issue #296 follow-up). A provider name does not identify an endpoint -
+    // five grok-4.7 endpoints are all "xAI" and differ in region, ZDR, tier, and price - so
+    // committing the name would pin whichever variant the router preferred, which is the
+    // silent substitution the pin exists to prevent. When the model has no provider rows at
+    // all (an empty catalog slice) the provider stays unset rather than guessed - the same
+    // rule the model choice follows.
+    ConfirmRequested?.Invoke(this, new ModelChoice(row.ModelId, SelectedProviderRow?.Ranked.Entry.RoutingSlug));
   }
 
   [ObservableProperty]
@@ -382,8 +386,11 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   {
     RebuildProviderRows();
     // Pre-select the committed provider when the model is the one it was committed for.
+    // Pre-select by routing slug first, then by provider name, so a pin committed before
+    // variants were addressable still restores to its row.
     SelectedProviderRow = value?.ModelId == _currentModelId
-        ? ProviderRows.FirstOrDefault(row => row.Ranked.Entry.ProviderName == _currentProviderName)
+        ? ProviderRows.FirstOrDefault(row => row.Ranked.Entry.RoutingSlug == _currentProviderName)
+            ?? ProviderRows.FirstOrDefault(row => row.Ranked.Entry.ProviderName == _currentProviderName)
         : null;
   }
 
@@ -403,10 +410,12 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
         SelectedPresetOption.Preset);
     OnPropertyChanged(nameof(OrderingCaption));
     // A preset or rate change reorders; it must not lose the row the user was looking at.
+    // Identity is the ENDPOINT, so the row is restored by its key rather than its provider
+    // name - several rows share one name, and a name match would move the selection to
+    // whichever variant happened to sort first.
     SelectedProviderRow = keep is null
         ? null
-        : ProviderRows.FirstOrDefault(candidate =>
-            candidate.Ranked.Entry.ProviderName == keep.Ranked.Entry.ProviderName);
+        : ProviderRows.FirstOrDefault(candidate => candidate.Ranked.Entry.Key == keep.Ranked.Entry.Key);
   }
 
   private void RebuildFilteredRows()

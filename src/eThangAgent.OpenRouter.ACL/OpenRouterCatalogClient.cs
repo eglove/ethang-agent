@@ -343,8 +343,52 @@ public sealed class OpenRouterCatalogClient(
       }
     }).ConfigureAwait(false);
 
-    return entries;
+    return DeduplicateByEndpoint(entries);
   }
+
+  /// <summary>One row per ROUTABLE endpoint (issue #296 follow-up).
+  ///     <para>THE CATALOG'S CONTRACT IS 'ONE ROW PER ENDPOINT', and the variant slug is what
+  ///     an endpoint is. The API occasionally serves the same tag twice with different prices -
+  ///     measured live 2026-10-27, <c>google-vertex/us-south1</c> appeared twice on
+  ///     <c>qwen/qwen3-235b-a22b-2507</c> at $0.22/M and $0.25/M - and that is an UPSTREAM
+  ///     DUPLICATE, not two products: <c>provider.only</c> can only name the tag, so the router
+  ///     reaches one endpoint and the two prices are the API disagreeing with itself. Keeping
+  ///     both would show the user two rows they cannot choose between.</para>
+  ///     <para>THE CHEAPEST ADVERTISED PRICE WINS, deterministically: when the provider states
+  ///     two prices for one routable target, the lower one is the claim we can act on, and
+  ///     choosing by price (rather than by arrival order, which parallel fetching makes
+  ///     arbitrary) keeps the catalog stable across runs. A row with no advertised price sorts
+  ///     last, so an unpriced duplicate never displaces a priced one.</para>
+  ///     <para>THIS IS NOT THE COLLAPSING THE VARIANT KEY EXISTS TO PREVENT: that collapsed
+  ///     DIFFERENT endpoints (region, ZDR, tier) onto a provider name. This merges rows that
+  ///     name the SAME routable endpoint.</para></summary>
+  private static List<ModelProviderEntry> DeduplicateByEndpoint(List<ModelProviderEntry> entries)
+  {
+    Dictionary<string, ModelProviderEntry> byKey = new(entries.Count, StringComparer.Ordinal);
+    foreach (ModelProviderEntry entry in entries)
+    {
+      if (!byKey.TryGetValue(entry.Key, out ModelProviderEntry? existing)
+          || CheaperPromptPrice(entry, existing) < 0)
+      {
+        byKey[entry.Key] = entry;
+      }
+    }
+
+    return [.. byKey.Values];
+  }
+
+  /// <summary>Negative when <paramref name="candidate"/> advertises a lower prompt price than
+  ///     <paramref name="current"/>; positive when higher; zero when equal or unknowable.
+  ///     An absent price sorts last, because an unpriced row cannot be shown to be cheaper.
+  ///     </summary>
+  private static int CheaperPromptPrice(ModelProviderEntry candidate, ModelProviderEntry current)
+      => (candidate.PromptPricePerToken, current.PromptPricePerToken) switch
+      {
+        ({ } left, { } right) => left.CompareTo(right),
+        ({ }, null) => -1,
+        (null, { }) => 1,
+        _ => 0,
+      };
 
   /// <summary>Fetches the cache-hit rates providers publish for each model (issue #296
   ///     follow-up), keyed by <see cref="ModelProviderEntry.Key"/> so a rate binds to exactly
@@ -482,7 +526,14 @@ public sealed class OpenRouterCatalogClient(
   }
 
   /// <summary>The catalog pair each published endpoint belongs to, keyed by the endpoint id
-  ///     the two payloads share.</summary>
+  ///     the two payloads share.
+  ///     <para>THE KEY INCLUDES THE VARIANT SLUG, exactly as
+  ///     <see cref="ModelProviderEntry.Key"/> does (issue #296 follow-up). The published
+  ///     statistics are served per ENDPOINT, so a name-only key would bind one endpoint's
+  ///     rate to every endpoint of that provider - and the endpoints measured live differ
+  ///     hugely (one model's seven ranged 0% to 74.5%), so that is the single-number
+  ///     projection the per-pair resolution exists to remove. The endpoint payload carries the
+  ///     same <c>tag</c> the catalog does, so the two join on it.</para></summary>
   private static Dictionary<string, string> CatalogKeysByEndpointId(JsonElement[] endpoints,
       IntermediateModel model)
   {
@@ -493,7 +544,13 @@ public sealed class OpenRouterCatalogClient(
           && GetStringOrNull(endpoint, "id") is { } id
           && GetStringOrNull(endpoint, "provider_name") is { } providerName)
       {
-        keysById[id] = $"{model.Id}:{providerName}";
+        EndpointVariant variant = EndpointVariant.Parse(
+            GetStringOrNull(endpoint, "tag"),
+            GetStringOrNull(endpoint, "service_tier"),
+            GetStringOrNull(endpoint, "quantization"));
+        keysById[id] = variant.Slug is { } slug
+            ? $"{model.Id}:{providerName}:{slug}"
+            : $"{model.Id}:{providerName}";
       }
     }
 
@@ -778,7 +835,17 @@ public sealed class OpenRouterCatalogClient(
         contextLength, maxCompletionTokens, model.SupportsToolUse, model.SupportsVision,
         model.SupportsTextOutput, model.IntelligenceScore, model.CodingScore, model.AgenticScore,
         latencyMs, throughput, model.Description, model.IsRouter,
-        uptime30m, uptime5m, uptime1d, implicitCaching, cacheWritePrice, overrides);
+        uptime30m, uptime5m, uptime1d, implicitCaching, cacheWritePrice, overrides)
+    {
+      // The variant is what makes this endpoint distinct from the provider's other endpoints
+      // (issue #296 follow-up): the tag is the routable slug, and service_tier/quantization
+      // describe how it differs. Read here so every entry carries its own identity rather
+      // than sharing the provider's.
+      Variant = EndpointVariant.Parse(
+          GetStringOrNull(endpoint, "tag"),
+          GetStringOrNull(endpoint, "service_tier"),
+          GetStringOrNull(endpoint, "quantization")),
+    };
   }
 
   /// <summary>The endpoint row's context window and completion cap: each falls back

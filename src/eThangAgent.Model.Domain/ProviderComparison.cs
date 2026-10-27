@@ -118,6 +118,22 @@ public sealed record ProviderEvidenceRow(
   ///     provider is still a row: it is the model's own default endpoint.</summary>
   public string ProviderName => Ranked.Entry.ProviderName ?? UnnamedProvider;
 
+  /// <summary>How this endpoint differs from the provider's other endpoints, e.g.
+  ///     <c>zero data retention · region us · priority tier · fp8</c>, or empty when nothing
+  ///     distinguishes it (issue #296 follow-up).
+  ///     <para>WHY EVERY ROW CARRIES THIS: a provider does not serve one endpoint. Measured live
+  ///     2026-10-27, <c>x-ai/grok-4.7</c> has five endpoints all named "xAI" - plain, ZDR,
+  ///     ZDR+US, priority, and ZDR+priority - priced $2, $2, $2.20, $4 and $4 per million
+  ///     prompt tokens. Two rows that rendered identically would leave the user choosing
+  ///     between a $2 endpoint and a $4 one with no visible reason, so the difference is
+  ///     stated on the row rather than left to be inferred from the price.</para></summary>
+  public string VariantText => Ranked.Entry.Variant.Describe();
+
+  /// <summary>The routable slug this row would pin, e.g. <c>xai/zdr/priority</c>, or empty
+  ///     when the API named no tag. Shown so a user can see exactly what the pin will send.
+  ///     </summary>
+  public string SlugText => Ranked.Entry.Variant.SlugOrEmpty;
+
   /// <summary>What an unnamed provider renders as. Spelled out rather than left blank,
   ///     because a blank cell reads as an oversight (the same rule
   ///     <see cref="ProviderPerformanceText.NotMeasured"/> follows).</summary>
@@ -212,7 +228,9 @@ public sealed record ProviderEvidenceRow(
 
   /// <summary>The one-line detail a list row shows: the primary figure first, then the
   ///     secondary prompt price, then the cache position (D2's shape).</summary>
-  public string Detail => $"{EffectivePriceText} · {PromptPriceText} · {CacheDiscountText}";
+  public string Detail => VariantText.Length == 0
+      ? $"{EffectivePriceText} · {PromptPriceText} · {CacheDiscountText}"
+      : $"{VariantText} · {EffectivePriceText} · {PromptPriceText} · {CacheDiscountText}";
 
   /// <summary>The evidence line a detail pane shows: every dimension D3 names, each rendered
   ///     or explicitly unavailable, plus the hit rate the price was projected at.</summary>

@@ -65,7 +65,7 @@ public class OpenRouterModelProviderRequestTests
     return capturedBody!;
   }
 
-  private static ModelConfig WithSettings(OpenRouterRequestSettings settings, string? provider = null)
+  private static ModelConfig WithSettings(OpenRouterRequestSettings? settings, string? provider = null)
     => ModelConfig.Create(
         "openai/gpt-5", provider, 64, 0.7f, 4096,
         providerSettings: OpenRouterRequestSettings.Serialize(settings)).Value!;
@@ -113,6 +113,24 @@ public class OpenRouterModelProviderRequestTests
     Assert.Equal(42, root.GetProperty("seed").GetInt32());
     Assert.Equal("high", root.GetProperty("verbosity").GetString());
     Assert.False(root.GetProperty("parallel_tool_calls").GetBoolean());
+  }
+
+  [Fact]
+  public async Task Body_APinnedVariantSlug_ReachesTheWireVerbatim()
+  {
+    // Issue #296 follow-up: the pin carries the ENDPOINT slug, not the provider name. OpenRouter
+    // documents an endpoint slug as provider[/variant][/region][/tier] and accepts the full slug
+    // in provider.only, so this is what reaches ONE endpoint of "xAI" - the $4 priority variant
+    // the user chose rather than whichever of the five the router prefers.
+    string body = await CaptureBodyAsync(WithSettings(null, provider: "xai/zdr/priority"))
+        .ConfigureAwait(true);
+
+    using JsonDocument doc = JsonDocument.Parse(body);
+    JsonElement provider = doc.RootElement.GetProperty("provider");
+    string[] only = [.. provider.GetProperty("only").EnumerateArray().Select(e => e.GetString()!)];
+    Assert.Equal(["xai/zdr/priority"], only);
+    // The lock still rides with it: a pin that permits fallbacks is a preference, not a pin.
+    Assert.False(provider.GetProperty("allow_fallbacks").GetBoolean());
   }
 
   [Fact]

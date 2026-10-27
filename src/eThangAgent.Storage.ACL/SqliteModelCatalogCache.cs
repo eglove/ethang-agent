@@ -48,10 +48,10 @@ public sealed class SqliteModelCatalogCache(AppDatabase database) : IModelCatalo
 
       string payload = reader.GetString(0);
       DateTimeOffset fetchedAt = DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture);
-      List<ModelProviderEntry>? entries;
+      ModelCatalogSnapshot? snapshot;
       try
       {
-        entries = JsonSerializer.Deserialize<List<ModelProviderEntry>>(payload);
+        snapshot = Deserialize(payload);
       }
       catch (JsonException ex)
       {
@@ -59,10 +59,22 @@ public sealed class SqliteModelCatalogCache(AppDatabase database) : IModelCatalo
             $"The persisted catalog for provider '{provider}' could not be parsed: {ex.Message}"));
       }
 
-      return entries is null
-          ? Result.Failure<ModelCatalogSnapshot>(new DomainError("CatalogCacheCorrupt",
-              $"The persisted catalog for provider '{provider}' parsed to null."))
-          : Result.Success(new ModelCatalogSnapshot(entries, fetchedAt));
+      if (snapshot is null)
+      {
+        return Result.Failure<ModelCatalogSnapshot>(new DomainError("CatalogCacheCorrupt",
+            $"The persisted catalog for provider '{provider}' parsed to null."));
+      }
+
+      // A LEGACY SNAPSHOT IS A MISS, NOT A HIT (issue #296 follow-up). It was written before
+      // endpoint variants existed, so every entry deserializes with the unspecified variant and
+      // collapses back onto the pair key - serving it would show the user the exact collapsed
+      // list variants were added to fix, for as long as the TTL lasts. Refetching is the honest
+      // answer, and the caller already treats a miss as 'fetch'.
+      return snapshot.HasCurrentShape
+          ? Result.Success(snapshot with { FetchedAt = fetchedAt })
+          : Result.Failure<ModelCatalogSnapshot>(new DomainError("CatalogCacheStaleShape",
+              $"The persisted catalog for provider '{provider}' predates endpoint variants "
+              + $"(shape {snapshot.ShapeVersion}, need {ModelCatalogSnapshot.CurrentShapeVersion}); refetching."));
     }
     catch (SqliteException ex)
     {
@@ -74,7 +86,7 @@ public sealed class SqliteModelCatalogCache(AppDatabase database) : IModelCatalo
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(provider);
     ArgumentNullException.ThrowIfNull(snapshot);
-    string payload = JsonSerializer.Serialize(snapshot.Entries);
+    string payload = Serialize(snapshot);
     await _writeGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
@@ -99,6 +111,42 @@ public sealed class SqliteModelCatalogCache(AppDatabase database) : IModelCatalo
       _ = _writeGate.Release();
     }
   }
+
+  /// <summary>The persisted envelope: the entries plus the shape version they were written
+  ///     with. An ENVELOPE rather than a bare array so a future entry-shape change can be
+  ///     detected instead of silently misread - the legacy array is still read, and reports
+  ///     shape 0 so the caller can tell it apart.
+  ///     <para>WHY NOT A SCHEMA MIGRATION: the payload is a cache, not a record. A stale cache
+  ///     entry has no history worth preserving, so invalidating it costs one refetch, while a
+  ///     migration would have to rewrite JSON in place and could still be wrong about what the
+  ///     old rows meant.</para></summary>
+  private static string Serialize(ModelCatalogSnapshot snapshot)
+      => JsonSerializer.Serialize(new PersistedCatalog(
+          ModelCatalogSnapshot.CurrentShapeVersion, snapshot.Entries));
+
+  /// <summary>Reads either the current envelope or the legacy bare array, reporting the shape
+  ///     each one carries.</summary>
+  private static ModelCatalogSnapshot? Deserialize(string payload)
+  {
+    using JsonDocument document = JsonDocument.Parse(payload);
+    if (document.RootElement.ValueKind == JsonValueKind.Array)
+    {
+      List<ModelProviderEntry>? legacy = JsonSerializer.Deserialize<List<ModelProviderEntry>>(payload);
+      return legacy is null
+          ? null
+          : new ModelCatalogSnapshot(legacy, DateTimeOffset.MinValue,
+              ModelCatalogSnapshot.LegacyShapeVersion);
+    }
+
+    PersistedCatalog? stored = JsonSerializer.Deserialize<PersistedCatalog>(payload);
+    return stored?.Entries is null
+        ? null
+        : new ModelCatalogSnapshot(stored.Entries, DateTimeOffset.MinValue, stored.ShapeVersion);
+  }
+
+  /// <summary>The persisted payload shape. Internal so the storage ACL owns its own wire form
+  ///     while the domain owns the contract.</summary>
+  private sealed record PersistedCatalog(int ShapeVersion, IReadOnlyList<ModelProviderEntry> Entries);
 
   private static DomainError Unavailable(SqliteException ex)
       => new("StorageUnavailable", $"the model catalog cache could not complete the operation: {ex.Message}");

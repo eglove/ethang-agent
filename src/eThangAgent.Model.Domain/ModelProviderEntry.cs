@@ -66,8 +66,39 @@ public sealed record ModelProviderEntry(
     decimal? PromptCacheWritePricePerToken = null,
     IReadOnlyList<PriceOverride>? PriceOverrides = null)
 {
-  /// <summary>Composite key for exclusion: "ModelId:ProviderName".</summary>
-  public string Key => $"{ModelId}:{ProviderName}";
+  /// <summary>Which distinct endpoint of the provider this row is, or
+  ///     <see cref="EndpointVariant.Unspecified"/> when the API described none.
+  ///     <para>AN INIT MEMBER RATHER THAN A POSITIONAL ONE, so it stays non-nullable while the
+  ///     positional list keeps its existing shape: every caller that predates variants keeps
+  ///     compiling and gets the unspecified default, which reproduces the previous key exactly.
+  ///     </para></summary>
+  public EndpointVariant Variant { get; init; } = EndpointVariant.Unspecified;
+
+  /// <summary>Composite key for one ENDPOINT: "ModelId:ProviderName:VariantSlug".
+  ///     <para>THE VARIANT SLUG IS PART OF THE KEY, and that is the whole point: a provider
+  ///     name does not identify an endpoint. Five <c>x-ai/grok-4.7</c> endpoints are all named
+  ///     "xAI" and differ in region, ZDR, tier, and price, so a name-keyed pair collapsed them
+  ///     into one row and silently discarded the rest (339 of 1509 live rows). Keying on the
+  ///     slug keeps every one of them distinct, which is what lets the picker show and pin
+  ///     them.</para>
+  ///     <para>A NULL SLUG FALLS BACK TO THE PROVIDER NAME, reproducing the previous key
+  ///     exactly: a payload that carries no tags degrades to the old behaviour rather than
+  ///     collapsing every endpoint of a provider into a single row.</para></summary>
+  public string Key => Variant.Slug is { } slug
+      ? $"{ModelId}:{ProviderName}:{slug}"
+      : $"{ModelId}:{ProviderName}";
+
+  /// <summary>What a request must name to reach THIS endpoint: the variant slug when the
+  ///     API served one, else the provider name.
+  ///     <para>THIS IS WHAT THE PIN CARRIES (issue #296 follow-up). OpenRouter's routing
+  ///     documentation states every endpoint slug has the shape
+  ///     <c>provider[/variant][/region][/tier]</c> and that <c>provider.only</c> accepts the
+  ///     full slug, so <c>only: ["xai/zdr/priority"]</c> reaches exactly that endpoint - while
+  ///     <c>only: ["xAI"]</c> reaches whichever of the five the router prefers, which is the
+  ///     silent substitution the pin exists to prevent.</para>
+  ///     <para>A NULL SLUG FALLS BACK TO THE PROVIDER NAME, reproducing the previous pin for a
+  ///     payload that carries no tags.</para></summary>
+  public string? RoutingSlug => Variant.Slug ?? ProviderName;
 
   /// <summary>True when both billable prices are PRESENT and zero: the catalog says this
   ///     model costs nothing right now. A model with an absent (null) price is NOT free -

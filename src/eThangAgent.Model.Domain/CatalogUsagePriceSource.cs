@@ -70,8 +70,15 @@ public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePrice
       return UsagePrices.Unknown;
     }
 
+    // MATCHING IS BY THE ROUTING SLUG, not the provider name (issue #296 follow-up): the
+    // caller passes the slug the pin carries, and several entries share one provider name
+    // (five grok-4.7 endpoints are all "xAI"), so a name match would stamp one endpoint's
+    // prices on a call another endpoint served. A slug that names no entry falls back to the
+    // provider name so a pre-variant pin keeps resolving.
     ModelProviderEntry? entry = entries.Value.FirstOrDefault(e => e.ModelId == modelId
-        && (providerName is null || e.ProviderName == providerName));
+        && (providerName is null
+            || string.Equals(e.RoutingSlug, providerName, StringComparison.Ordinal)
+            || string.Equals(e.ProviderName, providerName, StringComparison.Ordinal)));
     if (entry is null)
     {
       return UsagePrices.Unknown;

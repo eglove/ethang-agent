@@ -110,12 +110,13 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
   }
 
   [Fact]
-  public async Task ReadAsync_PayloadWrittenBeforeIssue293_DeserializesWithNewMembersDefaulted()
+  public async Task ReadAsync_PayloadWrittenBeforeVariants_IsAMiss_NotACollapsedCatalog()
   {
-    // ACCEPTANCE CRITERION (issue #293): the four new members are nullable/defaulted so a
-    // catalog cache payload written by an OLDER build still deserializes. This is the real
-    // legacy shape - an entry with no uptime, no implicit-caching flag, no cache-write price,
-    // and no price ladder - stored verbatim as JSON, read back through the real serializer.
+    // A LEGACY ARRAY PAYLOAD IS REFUSED (issue #296 follow-up). It was written before endpoint
+    // variants existed, so every entry in it deserializes with the unspecified variant and
+    // collapses back onto the pair key - five grok-4.7 endpoints become one row. Serving it
+    // would show the user the exact collapsed list variants were added to fix, for as long as
+    // the TTL lasts, so the cache reports it as stale and the caller refetches.
     const string legacyPayload =
         "[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\",\"PromptPricePerToken\":0.000001," +
         "\"PromptCacheReadPricePerToken\":null,\"CompletionPricePerToken\":0.000002,\"ContextLength\":128000," +
@@ -134,23 +135,91 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
       _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
     }
 
+    SqliteModelCatalogCache cache = new(db);
+    Result<ModelCatalogSnapshot> read =
+        await cache.ReadAsync("openrouter", TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(read.IsSuccess);
+    Assert.Equal("CatalogCacheStaleShape", read.Error.Code);
+  }
+
+  [Fact]
+  public async Task ReadAsync_EntryMissingTheNewerMembers_DeserializesWithThemDefaulted()
+  {
+    // ACCEPTANCE CRITERION (issue #293), kept: the newer members are nullable/defaulted, so an
+    // entry that omits them still deserializes. The versioned envelope is what makes this
+    // distinguishable from a payload that predates VARIANTS - here the shape is current, so the
+    // snapshot is served, and the absent members stay absent rather than being falsely
+    // populated.
+    const string sparseEnvelope =
+        "{\"ShapeVersion\":1,\"Entries\":[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\"," +
+        "\"PromptPricePerToken\":0.000001,\"PromptCacheReadPricePerToken\":null," +
+        "\"CompletionPricePerToken\":0.000002,\"ContextLength\":128000,\"MaxCompletionTokens\":4096," +
+        "\"SupportsToolUse\":true,\"SupportsVision\":false,\"SupportsTextOutput\":true," +
+        "\"IntelligenceScore\":80.0,\"CodingScore\":70.0,\"AgenticScore\":60.0,\"LatencyMs\":null," +
+        "\"ThroughputTokensPerSec\":null,\"Description\":\"desc\",\"IsRouter\":false}]}";
+    AppDatabase db = new(_dbPath);
+    using (SqliteConnection connection = db.Open())
+    {
+      using SqliteCommand command = connection.CreateCommand();
+      command.CommandText =
+          "INSERT INTO model_catalog_cache (provider, payload_json, fetched_at) VALUES ('openrouter', $p, $t);";
+      _ = command.Parameters.AddWithValue("$p", sparseEnvelope);
+      _ = command.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+      _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
     SqliteCatalogCacheResult read = await ReadLegacyAsync(db);
 
     Assert.True(read.IsSuccess);
     ModelProviderEntry entry = Assert.Single(read.Entries);
     Assert.Equal(0.000001m, entry.PromptPricePerToken);
-    // The new members are ABSENT, not falsely populated: an old payload has said nothing
-    // about uptime, implicit caching, cache writes, or a price ladder.
+    // The newer members are ABSENT, not falsely populated.
     Assert.Null(entry.UptimeLast30m);
-    Assert.Null(entry.UptimeLast5m);
-    Assert.Null(entry.UptimeLast1d);
     Assert.Null(entry.SupportsImplicitCaching);
-    Assert.Null(entry.PromptCacheWritePricePerToken);
     Assert.Null(entry.PriceOverrides);
     Assert.False(entry.HasPriceOverrides);
-    // And the price resolution still works on a legacy row: the base prices apply.
+    // An entry with no variant is the unspecified one, and its key falls back to the pair.
+    Assert.True(entry.Variant.IsUnspecified);
+    Assert.Equal("google/gemini:Google", entry.Key);
+    // And the price resolution still works: the base prices apply.
     Assert.Equal(0.000001m, entry.PricesFor(1_000_000).PromptPricePerToken);
   }
+
+  [Fact]
+  public async Task WriteThenRead_PreservesVariantIdentity()
+  {
+    // The round trip that matters for the picker: five endpoints of one provider stay five
+    // rows, each with its own routable slug.
+    AppDatabase db = new(_dbPath);
+    SqliteModelCatalogCache cache = new(db);
+    ModelProviderEntry[] entries =
+    [
+      VariantEntry("xai"),
+      VariantEntry("xai/zdr"),
+      VariantEntry("xai/zdr/us"),
+      VariantEntry("xai/priority"),
+      VariantEntry("xai/zdr/priority"),
+    ];
+    _ = await cache.WriteAsync("openrouter",
+        new ModelCatalogSnapshot(entries, DateTimeOffset.UtcNow, ModelCatalogSnapshot.CurrentShapeVersion),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Result<ModelCatalogSnapshot> read =
+        await cache.ReadAsync("openrouter", TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(read.IsSuccess);
+    Assert.Equal(5, read.Value.Entries.Count);
+    Assert.Equal(5, read.Value.Entries.Select(e => e.Key).Distinct(StringComparer.Ordinal).Count());
+    Assert.Equal("xai/zdr/us",
+        read.Value.Entries.Single(e => e.Variant.Slug == "xai/zdr/us").RoutingSlug);
+  }
+
+  private static ModelProviderEntry VariantEntry(string tag) =>
+      Entry("x-ai/grok-4.7", "xAI", 0.000002m, 0.000006m) with
+      {
+        Variant = EndpointVariant.Parse(tag, null, null),
+      };
 
   private static async Task<SqliteCatalogCacheResult> ReadLegacyAsync(AppDatabase db)
   {
