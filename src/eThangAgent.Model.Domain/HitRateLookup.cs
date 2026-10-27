@@ -36,12 +36,41 @@ public sealed class HitRateLookup
 
   /// <summary>The rate for one row: its resolved rate when one exists, else the fallback.
   ///     NEVER null and never an implied zero - a row with no evidence is projected at the
-  ///     documented default and says so.</summary>
+  ///     documented default and says so.
+  ///     <para>THE LOOKUP IS BY ENDPOINT, THEN BY NAME (issue #296 follow-up). The row's
+  ///     <see cref="ModelProviderEntry.Key"/> carries the variant slug, so an endpoint that was
+  ///     measured resolves its own figure. A row with no measurement of its own falls back to
+  ///     the NAME rung only when the row itself names no endpoint - a legacy row recorded
+  ///     before endpoints were distinguishable, whose measurement is a name-level fact. An
+  ///     endpoint that was never called has NO measurement, and must not wear a sibling's:
+  ///     that inheritance is the blend this class exists to prevent.</para></summary>
   public HitRateAssumption For(ModelProviderEntry entry)
   {
     ArgumentNullException.ThrowIfNull(entry);
-    return _byPair.TryGetValue(entry.Key, out HitRateAssumption? rate) ? rate : Fallback;
+    if (_byPair.TryGetValue(entry.Key, out HitRateAssumption? rate))
+    {
+      return rate;
+    }
+
+    // Only an endpoint-less row may resolve through the name rung: it is the shape a legacy
+    // measurement was recorded under, so the two describe the same thing.
+    return entry.Variant.IsUnspecified
+        && _byPair.TryGetValue(NameKey(entry), out HitRateAssumption? byName)
+            ? byName
+            : Fallback;
   }
+
+  /// <summary>The name-only key a legacy measurement is stored under: model + provider name,
+  ///     the shape every usage row carried before endpoints were distinguishable. Kept as ONE
+  ///     function so the writer and the reader of that rung cannot disagree.</summary>
+  public static string NameKey(ModelProviderEntry entry)
+  {
+    ArgumentNullException.ThrowIfNull(entry);
+    return NameKey(entry.ModelId, entry.ProviderName);
+  }
+
+  /// <summary>The name-only key for a measurement whose rows named no endpoint.</summary>
+  public static string NameKey(string modelId, string? providerName) => $"{modelId}:{providerName}";
 
   /// <summary>Builds a lookup from resolved pairs, keeping the fallback for everything else.
   ///     <para>THE LOOKUP IS TOTAL OVER WHATEVER THE CATALOG HANDS IT, and that includes
@@ -135,6 +164,21 @@ public static class HitRateResolution
       }
     }
 
+    // THE NAME RUNG CARRIES ONLY THE MEASUREMENTS THAT NAMED NO ENDPOINT (the legacy rows).
+    // Those describe the provider name rather than any one endpoint, which is why only an
+    // endpoint-less row may read this rung back (see HitRateLookup.For). It is added from the
+    // REPORT rather than from the catalog rows, because it is a statement about the LEDGER:
+    // a catalog row that happens to share the name is not evidence that the name was measured.
+    foreach (ProviderPerformance measured in report?.Providers ?? [])
+    {
+      if (measured.ServedEndpoint is null && measured.HitRate is { } rate)
+      {
+        rates.Add(new KeyValuePair<string, HitRateAssumption>(
+            HitRateLookup.NameKey(measured.ModelId ?? string.Empty, measured.ProviderName),
+            new HitRateAssumption(rate, measuredSource)));
+      }
+    }
+
     return HitRateLookup.Create(rates, fallback);
   }
 
@@ -146,11 +190,24 @@ public static class HitRateResolution
       IReadOnlyDictionary<string, PublishedProviderStats>? published,
       HitRateSource measuredSource)
   {
-    // 1. Our own ledger, for this exact pair. A pair with no input tokens billed has no
-    //    measured rate (HitRate is null), which is 'not measured', not 'measured zero'.
-    if (report?.Lookup(entry.ModelId, entry.ProviderName)?.HitRate is { } measured)
+    // 1. Our own ledger, for this exact ENDPOINT. The lookup key is the row's routing slug,
+    //    not its provider name: one provider serves several endpoints at different prices and
+    //    with different cache behaviour, so a name-keyed lookup hands every variant the same
+    //    blended figure and then prices it at its own different price.
+    //
+    //    A NAME-ONLY MEASUREMENT ANSWERS ONLY AN ENDPOINT-LESS ROW. It is the legacy shape,
+    //    and it genuinely describes the name; handing it to a tagged row would be the same
+    //    blend one level down, so the name rung is written separately (below) and read back
+    //    only through HitRateLookup.For's endpoint-less branch.
+    //
+    //    A pair with no input tokens billed has no measured rate (HitRate is null), which is
+    //    'not measured', not 'measured zero'.
+    ProviderPerformance? measured = entry.Variant.IsUnspecified
+        ? report?.LookupByName(entry.ModelId, entry.ProviderName)
+        : report?.LookupByEndpoint(entry.ModelId, entry.RoutingSlug);
+    if (measured?.HitRate is { } rate)
     {
-      return new HitRateAssumption(measured, measuredSource);
+      return new HitRateAssumption(rate, measuredSource);
     }
 
     // 2. What the provider publishes for this endpoint.

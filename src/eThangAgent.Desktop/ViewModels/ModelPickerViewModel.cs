@@ -356,7 +356,14 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     neither can be adopted alone.</summary>
   private void ResolveRates()
   {
-    _rates = HitRateResolution.Resolve(CatalogEntries, _report, _published, FallbackRate);
+    // THE MEASUREMENTS ARE BOUND TO ENDPOINTS BEFORE ANY RATE IS RESOLVED (issue #296
+    // follow-up). A usage row carries the session's PIN as its provider stamp, so a slug pin
+    // already identifies one endpoint while a bare name pin identifies none of the provider's
+    // several. Binding against the catalog turns the first into per-endpoint evidence and
+    // leaves the second honestly ambiguous, instead of blending every variant into one figure
+    // and then pricing each variant at its own different price.
+    ProviderPerformanceReport? measured = _report?.BindEndpoints(CatalogEntries);
+    _rates = HitRateResolution.Resolve(CatalogEntries, measured, _published, FallbackRate);
     ModelRows = BuildRows(CatalogEntries);
     RebuildFilteredRows();
     RebuildProviderRows();

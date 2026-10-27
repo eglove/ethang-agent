@@ -82,6 +82,12 @@ public sealed record ProviderPerformanceRequest(string? SessionId = null, string
 /// <param name="Calls">Every call in the group, measured or not.</param>
 /// <param name="InputTokens">Prompt tokens the group was billed for, cached share included.</param>
 /// <param name="CachedInputTokens">The prompt-cache hits the group reported.</param>
+/// <param name="ServedEndpoint">The ENDPOINT that served these calls - the routing slug the
+///     pin carries, or the provider name for a row recorded before endpoints were
+///     distinguishable. Null when the rows name no endpoint at all. THIS IS THE MEASURED
+///     RUNG'S IDENTITY: a provider name does not identify an endpoint, so a name-keyed
+///     measurement blends every variant of a provider into one figure that describes none of
+///     them.</param>
 public sealed record ProviderPerformance(
     string? ModelId,
     string? ProviderName,
@@ -95,7 +101,8 @@ public sealed record ProviderPerformance(
     int UnmeasuredCalls,
     int Calls,
     long InputTokens,
-    long CachedInputTokens)
+    long CachedInputTokens,
+    string? ServedEndpoint = null)
 {
   /// <summary>This pair's measured cache-hit rate, or null when it was billed for no input
   ///     tokens (D4). Derived, never carried, so it cannot disagree with the counts it came
@@ -163,9 +170,82 @@ public sealed record ProviderPerformanceReport(
 
   /// <summary>The measurements for one model/provider pair, or null when that pair never ran
   ///     in scope. The pair is the ranking key, so this is the lookup a provider comparison
-  ///     makes (<see cref="RankableProvider"/>).</summary>
+  ///     makes (<see cref="RankableProvider"/>).
+  ///     <para>THIS IS THE NAME RUNG, NOT THE ENDPOINT ONE: several endpoints of a provider
+  ///     share a name, so a caller pricing an ENDPOINT must use
+  ///     <see cref="LookupByEndpoint"/>. Reading this one for a tagged row is exactly the
+  ///     blend the endpoint rung exists to prevent.</para></summary>
   public ProviderPerformance? Lookup(string? modelId, string? providerName) =>
       Providers.FirstOrDefault(row => row.ModelId == modelId && row.ProviderName == providerName);
+
+  /// <summary>The measurements for one ENDPOINT, or null when it never ran in scope (issue
+  ///     #296 follow-up). The endpoint is named by the routing slug the pin carries, so this
+  ///     is the lookup a caller pricing an endpoint makes - a provider name cannot identify
+  ///     one, and a name-keyed figure is a blend of every variant.
+  ///     <para>A ROW RECORDED BEFORE ENDPOINTS WERE DISTINGUISHABLE names only the provider;
+  ///     it is the NAME rung and is deliberately NOT matched here, so a tagged row can never
+  ///     inherit a name-level figure as though it had been measured. Callers that want that
+  ///     legacy behaviour ask <see cref="LookupByName"/> explicitly.</para></summary>
+  public ProviderPerformance? LookupByEndpoint(string? modelId, string? servedEndpoint) =>
+      Providers.FirstOrDefault(row => row.ModelId == modelId
+          && row.ServedEndpoint is not null
+          && string.Equals(row.ServedEndpoint, servedEndpoint, StringComparison.Ordinal));
+
+  /// <summary>The measurements recorded under a provider NAME with no endpoint, or null when
+  ///     none were (issue #296 follow-up). This is the legacy rung: its figure describes the
+  ///     name, which is all those rows knew. Only an endpoint-less catalog row may consume
+  ///     it.</summary>
+  public ProviderPerformance? LookupByName(string? modelId, string? providerName) =>
+      Providers.FirstOrDefault(row => row.ModelId == modelId
+          && row.ServedEndpoint is null
+          && row.ProviderName == providerName);
+
+  /// <summary>Binds each measured row to the ENDPOINT its provider stamp identifies (issue
+  ///     #296 follow-up), returning a report whose rows carry <see cref="ProviderPerformance.ServedEndpoint"/>.
+  ///     <para>WHY THIS LIVES HERE AND NOT IN THE STORAGE ACL: identifying an endpoint needs the
+  ///     CATALOG (a provider name serves many endpoints; a routing slug serves one), and the
+  ///     catalog belongs to this domain. The ACL aggregates what the rows SAY; this decides what
+  ///     they MEAN.</para>
+  ///     <para>A SLUG STAMP IS UNAMBIGUOUS: the pin carries <c>provider/variant/region/tier</c>,
+  ///     so a row stamped <c>deepinfra/fp8/flex</c> was that endpoint and nothing else. A NAME
+  ///     STAMP IS AMBIGUOUS BY CONSTRUCTION: <c>DeepInfra</c> is three endpoints at three
+  ///     prices, so it binds to NOTHING and stays on the name rung - which is the honest
+  ///     answer, not a blend. The same rule applies when a slug names no catalog row (a stale
+  ///     pin): no evidence, no binding.</para></summary>
+  public ProviderPerformanceReport BindEndpoints(IReadOnlyList<ModelProviderEntry> entries)
+  {
+    ArgumentNullException.ThrowIfNull(entries);
+    // ONLY A REAL VARIANT SLUG BINDS. RoutingSlug falls back to the provider NAME for an
+    // endpoint-less catalog row, and treating that fallback as a slug would make a bare name
+    // look like an endpoint identity - reintroducing the very ambiguity this method exists to
+    // remove (a name bound to itself is not evidence of which endpoint served).
+    Dictionary<string, string> slugByModelAndStamp = new(StringComparer.Ordinal);
+    foreach (ModelProviderEntry entry in entries.Where(e => e is not null && e.Variant.Slug is not null))
+    {
+      slugByModelAndStamp[$"{entry.ModelId}\u001F{entry.RoutingSlug}"] = entry.Variant.Slug!;
+    }
+
+    return this with
+    {
+      Providers = [.. Providers.Select(row => Bind(row, slugByModelAndStamp))],
+    };
+  }
+
+  /// <summary>One row bound to its endpoint when its stamp names exactly one, else unchanged.
+  ///     Extracted so the 'already bound' and 'no unambiguous endpoint' cases stay separate
+  ///     statements rather than a nested conditional.</summary>
+  private static ProviderPerformance Bind(ProviderPerformance row,
+      Dictionary<string, string> slugByModelAndStamp)
+  {
+    // Already bound: the row knows its endpoint and a second pass must not re-key it.
+    if (row.ServedEndpoint is not null)
+    {
+      return row;
+    }
+
+    string? slug = slugByModelAndStamp.GetValueOrDefault($"{row.ModelId}\u001F{row.ProviderName}");
+    return slug is null ? row : row with { ServedEndpoint = slug };
+  }
 
   /// <summary>These measurements paired onto catalog rows, ready for
   ///     <see cref="ProviderRanking.Rank(IReadOnlyList{RankableProvider}, RankingCriteria)"/>
