@@ -193,6 +193,47 @@ public class StartSpawnHandlerTests
   }
 
   [Fact]
+  public async Task Execute_SessionProviderCommitted_ChildResolvesOnIt_AndFailsWhenTheCatalogLacksIt()
+  {
+    // Issue #297, D4/D5 at the spawn boundary: the session's pin rides the child's resolution,
+    // and a pinned provider the catalog does not offer for the child's model fails the spawn
+    // by name instead of quietly dropping the pin (which would split the subtree's cost across
+    // providers).
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ProviderName = "Reka" };
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null),
+        new SpawnOptions(FallbackModel, preferences), windowSource: new FixedWindowSource(),
+        catalog: new ListingCatalog(("alpha/model", "DeepInfra")));
+
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("UnknownPinnedProvider", result.Error.Code);
+    Assert.Contains("Reka", result.Error.Message, StringComparison.Ordinal);
+    Assert.Empty(store.Saved);
+    Assert.Empty(runtime.Started);
+  }
+
+  [Fact]
+  public async Task Execute_SessionProviderCommitted_ChildResolvesOnIt_WhenTheCatalogOffersIt()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ProviderName = "DeepInfra" };
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null),
+        new SpawnOptions(FallbackModel, preferences), windowSource: new FixedWindowSource(),
+        catalog: new ListingCatalog(("alpha/model", "DeepInfra")));
+
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess, result.Error?.Message);
+    Assert.Equal("alpha/model", Assert.Single(store.Saved).ModelUsed);
+  }
+
+  [Fact]
   public async Task Execute_PreferenceMutatedBetweenExecutions_NextChildSeesNewChoice()
   {
     FakeAgentStore store = new();

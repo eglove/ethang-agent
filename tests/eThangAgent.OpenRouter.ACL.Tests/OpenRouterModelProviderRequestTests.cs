@@ -116,13 +116,18 @@ public class OpenRouterModelProviderRequestTests
   }
 
   [Fact]
-  public async Task Body_RoutingReplacesProviderObject()
+  public async Task Body_RoutingWithoutAPin_ReachesTheWire()
   {
+    // Issue #297, D3: routing still owns the "provider" key when NOTHING is pinned - the
+    // conflict rule only fires for a real pin. This test used to be
+    // Body_RoutingReplacesProviderObject and PINNED THE BUG: it asserted that a configured
+    // routing silently discarded a committed provider pin. The override is now a named
+    // failure (the test below), so the honest case is routing with no pin at all.
     OpenRouterRequestSettings settings = new()
     {
       Routing = new Routing(Order: ["a", "b"], Sort: "price", AllowFallbacks: false)
     };
-    string body = await CaptureBodyAsync(WithSettings(settings, provider: "legacy-pin")).ConfigureAwait(true);
+    string body = await CaptureBodyAsync(WithSettings(settings)).ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);
     JsonElement provider = doc.RootElement.GetProperty("provider");
@@ -134,16 +139,80 @@ public class OpenRouterModelProviderRequestTests
   }
 
   [Fact]
-  public async Task Body_ACommittedProviderPin_ReachesTheWire()
+  public async Task Body_RoutingWithALockedProvider_IsANamedConflict_AndSendsNothing()
   {
-    // Issue #296, D7/B2: the pair the user committed is what the request pins. The resolver
-    // now carries it onto ModelConfig.Provider, and this is the wire end of that path.
+    // Issue #297, D3/B3: routing and a pin share one JSON key, so one of them used to lose
+    // silently. The turn now fails with a typed error naming BOTH sides and no request is
+    // sent - a request that quietly dropped the pin would be served by a provider the user
+    // did not choose, which is the substitution this whole feature refuses.
+    OpenRouterRequestSettings settings = new()
+    {
+      Routing = new Routing(DataCollection: "deny")
+    };
+    int requests = 0;
+    FakeHttpMessageHandler handler = new(_ =>
+    {
+      requests++;
+      return Task.FromResult(Wire.Ok());
+    });
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(
+        WithSettings(settings, provider: "DeepInfra"),
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("ProviderRoutingConflict", result.Error.Code);
+    Assert.Contains("DeepInfra", result.Error.Message, StringComparison.Ordinal);
+    Assert.Contains("data_collection=deny", result.Error.Message, StringComparison.Ordinal);
+    Assert.Equal(0, requests);
+  }
+
+  [Fact]
+  public async Task Body_RoutingRestatingThePin_IsStillAConflict()
+  {
+    // A routing whose `only` names the pinned provider is NOT waved through: the routing
+    // object replaces the whole pin, including its allow_fallbacks:false, so 'compatible'
+    // would be a second silent preference rule deciding which routings are harmless.
+    OpenRouterRequestSettings settings = new()
+    {
+      Routing = new Routing(Only: ["DeepInfra"])
+    };
+
+    Result<ModelResponse> result = await SendAsync(WithSettings(settings, provider: "DeepInfra"))
+        .ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("ProviderRoutingConflict", result.Error.Code);
+  }
+
+  /// <summary>Sends one request and returns the provider's Result, for the failure paths that
+  ///     never reach the wire.</summary>
+  private static async Task<Result<ModelResponse>> SendAsync(ModelConfig config)
+  {
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Ok()));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+    return await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+  }
+
+  [Fact]
+  public async Task Body_ACommittedProviderPin_ReachesTheWire_AsALock()
+  {
+    // Issue #296, D7/B2 and #297, D2: the pair the user committed is what the request pins,
+    // and the pin is a HARD constraint - allow_fallbacks:false rides with it. A pin that
+    // permitted fallbacks would be a preference the router may ignore, which is the silent
+    // substitution the harness refuses everywhere else.
     string body = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings(),
         provider: "DeepInfra")).ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);
-    JsonElement only = doc.RootElement.GetProperty("provider").GetProperty("only");
+    JsonElement provider = doc.RootElement.GetProperty("provider");
+    JsonElement only = provider.GetProperty("only");
     Assert.Equal("DeepInfra", Assert.Single(only.EnumerateArray()).GetString());
+    Assert.False(provider.GetProperty("allow_fallbacks").GetBoolean());
   }
 
   [Fact]

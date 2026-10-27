@@ -306,30 +306,43 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
               ? parentResolved
               : _spawn.ChildToolSurface ?? new HashSet<string>(StringComparer.Ordinal);
 
+  /// <summary>Resolves the child's model, with the session's committed PROVIDER riding every
+  ///     branch (issue #297, D4).
+  ///     <para>WHY THE PROVIDER IS NOT PER-BRANCH: a child that silently landed on a different
+  ///     provider than its parent would make the session's cost unreadable — the ledger's
+  ///     prices, cache ratio, and reliability all belong to a provider, and a subtree split
+  ///     across providers is a bill nobody can attribute. Per-child provider choice is out of
+  ///     scope, so the session's pin applies to every child.</para>
+  ///     <para>A PIN THE CATALOG CANNOT SERVE FOR THE CHILD'S MODEL IS A NAMED FAILURE, not a
+  ///     reason to drop the pin: an explicit child model the pinned provider does not offer
+  ///     fails the spawn naming both, exactly as the root turn would (D5). Dropping the pin
+  ///     there would be the silent substitution the whole feature refuses.</para></summary>
   private async Task<Result<ModelConfig>> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
   {
+    string? providerName = _spawn.Preferences?.ProviderName;
+
     // 1. Explicit per-spawn model always wins. Unknown window → failed spawn: the
     //    request named this model explicitly, so silently serving another would lie.
     if (!string.IsNullOrWhiteSpace(request.Model))
     {
-      return await CreateAsync(request.Model, null, ct).ConfigureAwait(false);
+      return await CreateAsync(request.Model, providerName, ct).ConfigureAwait(false);
     }
 
     // 2. The session's live model choice (the host's model picker) is session-wide:
     //    children follow it too, ahead of the static configured default.
     if (!string.IsNullOrWhiteSpace(_spawn.Preferences?.ModelId))
     {
-      return await CreateAsync(_spawn.Preferences.ModelId, null, ct).ConfigureAwait(false);
+      return await CreateAsync(_spawn.Preferences.ModelId, providerName, ct).ConfigureAwait(false);
     }
 
     // 3. Configured default model wins.
     if (!string.IsNullOrWhiteSpace(_options.DefaultModel))
     {
-      return await CreateAsync(_options.DefaultModel, null, ct).ConfigureAwait(false);
+      return await CreateAsync(_options.DefaultModel, providerName, ct).ConfigureAwait(false);
     }
 
     // 4. Fallback to the host-injected fallback model.
-    return await CreateAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
+    return await CreateAsync(_fallbackModelId, providerName, ct).ConfigureAwait(false);
   }
 
   /// <summary>The model's vision capability from the session catalog: the first entry
@@ -349,10 +362,34 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
         && e.SupportsVision);
   }
 
+  /// <summary>The named failure for a pinned provider the catalog does not offer for this
+  ///     model, or null when the pin is servable, unset, or unverifiable. The RULE is
+  ///     <see cref="PinnedProvider"/> — shared with the root resolver so a spawn and a turn
+  ///     can never disagree about when a pin has vanished.</summary>
+  private async Task<DomainError?> PinnedProviderMissingAsync(string modelId, string? providerName, CancellationToken ct)
+  {
+    if (string.IsNullOrWhiteSpace(providerName) || _catalog is null)
+    {
+      return null;
+    }
+
+    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
+    return PinnedProvider.MissingFor(entries.IsSuccess ? entries.Value : null, modelId, providerName);
+  }
+
   /// <summary>Creates the config for an explicitly chosen model id; a model with no
-  /// catalog window fails the spawn (strict correctness — never guess a window).</summary>
+  /// catalog window fails the spawn (strict correctness — never guess a window), and so does
+  /// a pinned provider the catalog does not offer for that model (issue #297, D5). The pin
+  /// check runs FIRST so the message names the real cause: a vanished provider would
+  /// otherwise surface as 'no catalog context window', which reads as a model problem and
+  /// sends the user to change the wrong half of the pair.</summary>
   private async Task<Result<ModelConfig>> CreateAsync(string modelId, string? providerName, CancellationToken ct)
   {
+    if (await PinnedProviderMissingAsync(modelId, providerName, ct).ConfigureAwait(false) is { } missing)
+    {
+      return Result.Failure<ModelConfig>(missing);
+    }
+
     int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(modelId, providerName, ct).ConfigureAwait(false);
     return window is { } resolved
         ? ModelConfig.Create(modelId, providerName, _spawn.MaxTokens, _spawn.Temperature, resolved,

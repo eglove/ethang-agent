@@ -261,7 +261,11 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   /// <summary>Stamps the provider pin (when one is configured), parses the
   ///     provider settings, and applies them to the body; a parse fault or a
   ///     malformed stop condition surfaces as the returned DomainError — never
-  ///     silently dropped.</summary>
+  ///     silently dropped.
+  ///     <para>THE PIN IS A LOCK, NOT A SUGGESTION (issue #297, D2): <c>allow_fallbacks: false</c>
+  ///     rides with <c>only</c>. A pin that permits fallbacks is a preference the router may
+  ///     ignore, which is the silent substitution this harness refuses everywhere else — the
+  ///     user's committed provider either serves or the call fails.</para></summary>
   private static DomainError? ParseAndApplySettings(Dictionary<string, object?> bodyDict,
       ModelConfig config, ModelRequest request)
   {
@@ -273,7 +277,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 
     if (!string.IsNullOrWhiteSpace(config.Provider))
     {
-      bodyDict["provider"] = new { only = new[] { config.Provider } };
+      bodyDict["provider"] = new { only = new[] { config.Provider }, allow_fallbacks = false };
     }
 
     return ApplyProviderSettings(bodyDict, settingsResult.ValueOrNull, request, config);
@@ -327,17 +331,33 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   }
 
   /// <summary>The OR-side request settings (routing, server-side tools, plugins,
-  ///     budgets) reach the wire here. Routing REPLACES the provider pinning (same
-  ///     "provider" key); with no routing configured the pinning stays exactly as
-  ///     before. Server-tool entries lead the tools array so user-defined tools
-  ///     follow; enabled plugins ride the "plugins" array. Default sections
-  ///     contribute zero keys, so a default ProviderSettings leaves the body
-  ///     unchanged. Returns the fault when the stop conditions are malformed.</summary>
+  ///     budgets) reach the wire here. Server-tool entries lead the tools array so
+  ///     user-defined tools follow; enabled plugins ride the "plugins" array. Default
+  ///     sections contribute zero keys, so a default ProviderSettings leaves the body
+  ///     unchanged. Returns the fault when the stop conditions are malformed.
+  ///     <para>ROUTING AND A PIN SHARE ONE KEY, SO THEY CANNOT BOTH WIN (issue #297, D3). This
+  ///     method used to OVERWRITE the pin with the routing object without a word, so a session
+  ///     with <c>data_collection: deny</c> configured silently discarded the provider the user
+  ///     committed. Silently preferring either one is the defect #297 exists to close, so the
+  ///     combination is now a NAMED failure naming both sides; the user resolves it by
+  ///     disabling routing or clearing the pin. The rule is deliberately strict — a routing
+  ///     that merely RESTATES the pin is still a conflict, because the routing object replaces
+  ///     the whole pin (including its <c>allow_fallbacks: false</c>), and a compatibility check
+  ///     guessing which routings are 'harmless' would be a second, silent preference rule.
+  ///     </para></summary>
   private static DomainError? ApplyProviderSettings(Dictionary<string, object?> bodyDict,
       OpenRouterRequestSettings? settings, ModelRequest request, ModelConfig config)
   {
     if (settings?.Routing is { } routing && routing != EmptyRouting)
     {
+      if (!string.IsNullOrWhiteSpace(config.Provider))
+      {
+        return new DomainError("ProviderRoutingConflict",
+            $"provider '{config.Provider}' is pinned but provider routing is configured ({DescribeRouting(routing)}); "
+            + "routing replaces the pin, so the request would not be served by the chosen provider. "
+            + "Disable provider routing in Model Settings or clear the provider choice, then send the turn again.");
+      }
+
       bodyDict["provider"] = RoutingBody(routing);
     }
 
@@ -578,6 +598,24 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
           $"Malformed OpenRouter provider settings: {ex.Message}"));
     }
   }
+
+  /// <summary>Renders the configured routing members for the conflict error, so the message
+  ///     names what the user must change instead of saying only that something conflicts.
+  ///     Built from the SAME wire body the request would have carried, so the description can
+  ///     never disagree with what routing would have sent.</summary>
+  private static string DescribeRouting(Routing routing)
+      => string.Join(", ", RoutingBody(routing).Select(member =>
+          $"{member.Key}={RenderValue(member.Value)}"));
+
+  /// <summary>A routing member's value as the error text shows it: arrays in brackets, scalars
+  ///     verbatim. Null members never reach here (RoutingBody omits them).</summary>
+  private static string RenderValue(object? value) => value switch
+  {
+    null => string.Empty,
+    string text => text,
+    System.Collections.IEnumerable items => "[" + string.Join(", ", items.Cast<object?>().Select(RenderValue)) + "]",
+    _ => value.ToString() ?? string.Empty,
+  };
 
   /// <summary>The full routing object for body["provider"]: every non-null member under
   ///     its snake_case wire key, matching the T3 serializer's routing section shape;

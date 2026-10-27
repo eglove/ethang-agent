@@ -40,10 +40,13 @@ public sealed class RootAgentResolver(
   ///     a provider the request never pinned: the same class of lie as the 2026-10-22 model
   ///     substitution. A null preference still means UNSET (the provider's own routing), which
   ///     is what every session that committed no provider does.</para>
-  ///     <para>WHAT THIS DOES NOT DO (issue #297): the pin does not yet carry
-  ///     <c>allow_fallbacks: false</c>, a configured routing that would replace it is not yet
-  ///     a named error, and children do not yet inherit it. Those are #297's decisions, not
-  ///     this one's.</para></summary>
+  ///     <para>THE PIN IS NOW A LOCK (issue #297). The wire carries <c>allow_fallbacks: false</c>
+  ///     with it (D2); a configured routing that would replace it fails the turn with
+  ///     <c>ProviderRoutingConflict</c> instead of silently winning (D3); a provider the catalog
+  ///     no longer offers for the chosen model fails with <c>UnknownPinnedProvider</c> (D5)
+  ///     through the shared <see cref="PinnedProvider"/> rule; and children inherit the pin
+  ///     (D4) — see <c>SubAgentSpawner.ChildConfigAsync</c>, which builds the child's config
+  ///     with it.</para></summary>
   public async Task<Result<(ModelConfig Config, string? Notice)>> ResolveAsync(CancellationToken ct = default)
   {
     // 0. The user's live model choice wins over everything static. Runtime
@@ -109,15 +112,30 @@ public sealed class RootAgentResolver(
   /// <summary>Builds the config for <paramref name="modelId"/>, or fails with a named error.
   ///     An unknown context window is a FAILURE, not a reason to serve another model: the
   ///     window is what the context accountant budgets against, and silently swapping the
-  ///     model to obtain one is the substitution this class refuses.</summary>
+  ///     model to obtain one is the substitution this class refuses.
+  ///     <para>A PINNED PROVIDER THE CATALOG DOES NOT KNOW IS ITS OWN NAMED FAILURE (issue #297,
+  ///     D5). The pin is a hard constraint, so a provider that has disappeared from the catalog
+  ///     cannot be served and must not be swapped for one that can: the turn fails naming the
+  ///     provider, exactly as an unknown model window does. The check runs BEFORE the window
+  ///     lookup so the message names the real cause — a vanished provider would otherwise
+  ///     surface as 'no catalog context window', which reads as a model problem and sends the
+  ///     user to change the wrong half of the pair. A catalog that is unavailable or whose
+  ///     fetch failed is NOT treated as 'the provider vanished': that is an environmental
+  ///     fault, and the window lookup below reports it.</para></summary>
   private async Task<Result<ModelConfig>> MakeAsync(string modelId, string? providerName, CancellationToken ct)
   {
+    if (await PinnedProviderMissingAsync(modelId, providerName, ct).ConfigureAwait(false) is { } missing)
+    {
+      return Result.Failure<ModelConfig>(missing);
+    }
+
     int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(modelId, providerName, ct).ConfigureAwait(false);
     if (window is not { } resolved)
     {
       return Result.Failure<ModelConfig>(new DomainError("UnknownModelWindow",
-          $"model '{modelId}' has no catalog context window (the catalog is unavailable or the model is unknown), "
-          + "so the turn cannot be budgeted; the harness never substitutes a different model."));
+          $"model '{modelId}'{(providerName is null ? string.Empty : $" on provider '{providerName}'")} has no catalog context window "
+          + "(the catalog is unavailable or the model is unknown), so the turn cannot be budgeted; "
+          + "the harness never substitutes a different model."));
     }
 
     Result<ModelConfig> created = ModelConfig.Create(
@@ -143,6 +161,24 @@ public sealed class RootAgentResolver(
         e.ModelId == modelId
         && (providerName is null || e.ProviderName == providerName)
         && e.SupportsVision);
+  }
+
+  /// <summary>The named failure for a pinned provider the catalog does not list, or null when
+  ///     the pin is servable (or unset, or the catalog is unavailable). The RULE lives in
+  ///     <see cref="PinnedProvider"/> so the child spawner applies exactly the same one; this
+  ///     method only supplies the catalog read.
+  ///     <para>A FAILED OR EMPTY CATALOG READS AS 'UNVERIFIABLE', never as 'the provider
+  ///     vanished': a transient fetch fault must not tell the user their choice is gone.</para>
+  ///     </summary>
+  private async Task<DomainError?> PinnedProviderMissingAsync(string modelId, string? providerName, CancellationToken ct)
+  {
+    if (string.IsNullOrWhiteSpace(providerName) || _catalog is null)
+    {
+      return null;
+    }
+
+    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
+    return PinnedProvider.MissingFor(entries.IsSuccess ? entries.Value : null, modelId, providerName);
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)

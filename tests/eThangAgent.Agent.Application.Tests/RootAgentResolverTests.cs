@@ -242,6 +242,49 @@ public class RootAgentResolverTests
   }
 
   [Fact]
+  public async Task APinnedProviderTheCatalogNoLongerOffers_FailsNamingTheProvider()
+  {
+    // Issue #297, D5/B5: the pin is a HARD constraint, so a provider that has disappeared from
+    // the catalog cannot be served and must not be swapped for one that can. The message names
+    // the provider AND the model, because the user has to know which half of the pair to change.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ProviderName = "Reka" };
+    RootAgentResolver resolver = new(
+        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
+            new ListingCatalog(("alpha/model", "DeepInfra"))),
+        preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.False(resolution.IsSuccess);
+    Assert.Equal("UnknownPinnedProvider", resolution.Error.Code);
+    Assert.Contains("Reka", resolution.Error.Message, StringComparison.Ordinal);
+    Assert.Contains("alpha/model", resolution.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task AnUnreadableCatalog_DoesNotFailAPinnedTurn()
+  {
+    // A failed catalog fetch is an ENVIRONMENTAL fault, never proof that the pin vanished:
+    // failing here would tell the user their chosen provider is gone because a fetch timed out.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ProviderName = "DeepInfra" };
+    RootAgentResolver resolver = new(
+        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
+            ListingCatalog.Unavailable()),
+        preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("DeepInfra", resolution.Value.Config.Provider);
+  }
+
+  [Fact]
   public async Task PinnedModelWithUnknownWindow_FailsUnknownModelWindow()
   {
     FakeAgentStore store = new();
