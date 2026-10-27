@@ -47,6 +47,8 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
     // its FTS5 index, and the sync triggers — a migrated database has none of them.
     Assert.DoesNotContain("curated_memories", names);
     Assert.DoesNotContain("curated_memories_fts", names);
+    // Issue #298: V22 drops the smart-selection feature's provider_exclusions table.
+    Assert.DoesNotContain("provider_exclusions", names);
     // The FTS5 index itself is meaningful; its shadow tables are not.
     Assert.Contains("state_keys_fts", names);
     Assert.DoesNotContain("state_keys_fts_content", names);
@@ -62,7 +64,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
 
     Assert.True(schema.IsSuccess);
     // Bump alongside the next AppDatabase migration.
-    Assert.Equal(21, schema.Value.SchemaVersion);
+    Assert.Equal(22, schema.Value.SchemaVersion);
   }
 
   [Fact]

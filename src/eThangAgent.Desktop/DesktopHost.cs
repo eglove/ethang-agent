@@ -54,6 +54,14 @@ internal static class DesktopHost
   {
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
+
+    // Issue #298: dead preference rows left behind by deleted features are swept at
+    // startup. The APP owns the schema and is the only writer that migrates, so this is
+    // the one place the sweep can run without fighting the guest child host for the
+    // schema lock. A sweep failure is reported and the app opens anyway - a cleanup is
+    // never a reason to refuse to start.
+    await SweepDeadPreferencesAsync(database);
+
     SqliteAppPreferenceStore preferences = new(database);
     IApiKeyProtector protector = new DpapiKeyProtector();
 
@@ -87,6 +95,26 @@ internal static class DesktopHost
         new SqliteWatchdogEventStore(database),
         watchdogOptions,
         compactionHandoff);
+  }
+
+  /// <summary>Issue #298: removes preference rows whose feature was deleted and logs what
+  ///     went. Silent when there was nothing to remove (a startup line about nothing is
+  ///     noise); a storage failure is reported in the same place and never blocks startup.</summary>
+  private static async Task SweepDeadPreferencesAsync(AppDatabase database)
+  {
+    Result<IReadOnlyList<string>> swept =
+        await DeadPreferenceSweep.SweepAsync(database).ConfigureAwait(false);
+    if (!swept.IsSuccess)
+    {
+      await Console.Error.WriteLineAsync(
+          $"dead preference sweep failed: [{swept.Error?.Code}] {swept.Error?.Message}");
+      return;
+    }
+
+    if (DeadPreferenceSweep.DescribeOutcome(swept.Value) is { } message)
+    {
+      await Console.Error.WriteLineAsync(message);
+    }
   }
 
   /// <summary>Recovers one stored key: absent stays null; undecryptable (corrupted or

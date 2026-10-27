@@ -120,6 +120,7 @@ public sealed class AppDatabase
     (19, ApplyV19),
     (20, ApplyV20),
     (21, ApplyV21),
+    (22, ApplyV22),
   ];
 
   private void Migrate()
@@ -830,6 +831,17 @@ public sealed class AppDatabase
       Execute(connection, "PRAGMA foreign_keys = ON;");
     }
   }
+
+  /// <summary>V22 drops the smart-selection feature's provider_exclusions table (issue #298).
+  ///     The table recorded providers that failed for a model, and the selector that read it
+  ///     (IModelSelector, SmartModelSelector, MeasuredMixPolicy) is deleted, so nothing writes
+  ///     or reads it. The data is worthless (0 rows measured) but the migration is REAL rather
+  ///     than a schema edit because a shipped database already carries the table: V6 created it
+  ///     and only a versioned step can take it away. V6 is deliberately left creating it so a
+  ///     fresh database walks the same path an existing one did (the V4/V18 curated-memories
+  ///     precedent) and the two cannot diverge.</summary>
+  private static void ApplyV22(SqliteConnection connection)
+      => Execute(connection, "DROP TABLE IF EXISTS provider_exclusions;");
 
   /// <summary>V18 removes the curated-memories feature (issue #236): the store, its
   ///     capability surface, and the turn-boundary nudge loop are gone, so the schema
