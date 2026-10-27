@@ -387,6 +387,10 @@ public sealed class OpenRouterCatalogClient(
     string id = idEl.GetString()!;
     int contextLength = GetIntOr(item, "context_length", 0);
     (decimal? promptPrice, decimal? cacheReadPrice, decimal? completionPrice, decimal discount) = ParsePricing(item);
+    (decimal? cacheWritePrice, List<PriceOverride>? overrides) =
+        item.TryGetProperty("pricing", out JsonElement modelPricing) && modelPricing.ValueKind == JsonValueKind.Object
+            ? (ParsePriceOrNull(modelPricing, CacheWritePriceField), ParseOverrides(modelPricing))
+            : (null, null);
     bool supportsToolUse = item.TryGetProperty("supported_parameters", out JsonElement paramsEl)
         && paramsEl.ValueKind == JsonValueKind.Array
         && ContainsString(paramsEl, "tools");
@@ -400,7 +404,7 @@ public sealed class OpenRouterCatalogClient(
 
     IntermediateModel model = new(id, contextLength, promptPrice, cacheReadPrice, completionPrice, discount,
         supportsToolUse, supportsVision, supportsTextOutput, isRouter, description, intelligence, coding,
-        agentic, topProviderName, topProviderContext, topProviderMaxTokens);
+        agentic, topProviderName, topProviderContext, topProviderMaxTokens, cacheWritePrice, overrides);
     return model;
   }
 
@@ -520,11 +524,15 @@ public sealed class OpenRouterCatalogClient(
     (int contextLength, int maxCompletionTokens) = ParseEndpointLimits(endpoint, model);
     (decimal? promptPrice, decimal? cacheReadPrice, decimal? completionPrice) = ParseEndpointPrices(endpoint, model);
     (double? latencyMs, double? throughput) = ParseEndpointPerformance(endpoint);
+    (double? uptime30m, double? uptime5m, double? uptime1d) = ParseEndpointUptime(endpoint);
+    bool? implicitCaching = ParseImplicitCaching(endpoint);
+    (decimal? cacheWritePrice, IReadOnlyList<PriceOverride>? overrides) = ParseEndpointCacheAndOverrides(endpoint, model);
 
     return new ModelProviderEntry(model.Id, providerName, promptPrice, cacheReadPrice, completionPrice,
         contextLength, maxCompletionTokens, model.SupportsToolUse, model.SupportsVision,
         model.SupportsTextOutput, model.IntelligenceScore, model.CodingScore, model.AgenticScore,
-        latencyMs, throughput, model.Description, model.IsRouter);
+        latencyMs, throughput, model.Description, model.IsRouter,
+        uptime30m, uptime5m, uptime1d, implicitCaching, cacheWritePrice, overrides);
   }
 
   /// <summary>The endpoint row's context window and completion cap: each falls back
@@ -569,10 +577,89 @@ public sealed class OpenRouterCatalogClient(
   private static decimal? OverrideAdvertisedPrice(decimal? endpointPrice, decimal? modelPrice)
       => endpointPrice is { } price && price > 0m ? price : modelPrice;
 
-  /// <summary>The endpoint row's observed performance over the trailing 30 days:
-  ///     null when the server omits a metric — absence is an answer.</summary>
+  /// <summary>The endpoint row's advertised latency and throughput: null when the server
+  ///     omits a metric — absence is an answer.
+  ///     <para>MEASURED DEAD, 2026-10-27 (issue #293): across 5 models and 52 endpoints fetched
+  ///     from the live endpoints API, <c>latency_last_30m</c> and <c>throughput_last_30m</c>
+  ///     were null on EVERY row. The fields are still parsed — the provider may populate them
+  ///     later, and a parser that stopped reading them could never notice — but no consumer
+  ///     treats them as a latency source. <see cref="ProviderPerformanceText"/> is what states
+  ///     an absent number as absent rather than as zero.</para></summary>
   private static (double? LatencyMs, double? Throughput) ParseEndpointPerformance(JsonElement endpoint)
       => (OptionalDouble(endpoint, "latency_last_30m"), OptionalDouble(endpoint, "throughput_last_30m"));
+
+  /// <summary>The endpoint's served-request success rates over the trailing 30 minutes, 5
+  ///     minutes, and 1 day (issue #293, D2), each null when the server omits it.
+  ///     <para>THIS IS THE RELIABILITY SIGNAL THAT IS ACTUALLY POPULATED: measured live, one
+  ///     model served it on 35 of 35 endpoints while two others served it on 3 of 7 and 6 of 8.
+  ///     A provider at 87% uptime is a real risk to a long session in a way no price column can
+  ///     express, and before this it was parsed by nothing.</para></summary>
+  private static (double? Uptime30m, double? Uptime5m, double? Uptime1d) ParseEndpointUptime(JsonElement endpoint)
+      => (OptionalDouble(endpoint, "uptime_last_30m"), OptionalDouble(endpoint, "uptime_last_5m"),
+          OptionalDouble(endpoint, "uptime_last_1d"));
+
+  /// <summary>Whether the endpoint caches prompts implicitly (issue #293, D3), or NULL when it
+  ///     did not say.
+  ///     <para>THE TRI-STATE IS THE POINT: a row loaded from a catalog cache written before this
+  ///     member existed has said NOTHING, and reading that as false would tell the user a
+  ///     caching provider does not cache. False is only ever a parsed false; the field is
+  ///     present on every live endpoint today, so in practice this resolves a real boolean.</para>
+  ///     <para>Why it matters beyond a label: a row that advertises a cache-read price but does
+  ///     not support implicit caching will never actually charge it, so the picker can now
+  ///     distinguish "cheap cache reads" from "cheap cache reads you will never get".</para></summary>
+  private static bool? ParseImplicitCaching(JsonElement endpoint)
+      => endpoint.TryGetProperty("supports_implicit_caching", out JsonElement el)
+          && el.ValueKind is JsonValueKind.True or JsonValueKind.False
+              ? el.GetBoolean()
+              : null;
+
+  /// <summary>The endpoint's cache-WRITE price and its price ladder (issue #293, D4/D5), both
+  ///     read from the endpoint's own pricing block.
+  ///     <para>Both fall back to the MODEL-level pricing block when the endpoint omits them: the
+  ///     live /api/v1/models payload serves <c>input_cache_write</c> and <c>overrides</c> at the
+  ///     model level for models whose endpoints repeat them, so a reader that only looked at the
+  ///     endpoint row would miss half of them.</para></summary>
+  private static (decimal? CacheWritePrice, List<PriceOverride>? Overrides) ParseEndpointCacheAndOverrides(
+      JsonElement endpoint, IntermediateModel model)
+  {
+    JsonElement pricing = endpoint.TryGetProperty("pricing", out JsonElement own) && own.ValueKind == JsonValueKind.Object
+        ? own
+        : default;
+    return (ParsePriceOrNull(pricing, CacheWritePriceField) ?? model.CacheWritePrice,
+        ParseOverrides(pricing) ?? model.PriceOverrides);
+  }
+
+  /// <summary>The price ladder under <c>pricing.overrides</c> (issue #293), or null when the
+  ///     endpoint serves a single price.
+  ///     <para>THE SHAPE IS A PROMPT-SIZE TIER, verified against the live payload: every entry
+  ///     carries <c>min_prompt_tokens</c> and a full price set, and none carries a time bound.
+  ///     An entry with no <c>min_prompt_tokens</c> is SKIPPED rather than defaulted to zero —
+  ///     a rung that applies to every call would silently replace the base price with whatever
+  ///     that entry happened to say.</para></summary>
+  private static List<PriceOverride>? ParseOverrides(JsonElement pricing)
+  {
+    if (pricing.ValueKind != JsonValueKind.Object
+        || !pricing.TryGetProperty("overrides", out JsonElement overrides)
+        || overrides.ValueKind != JsonValueKind.Array)
+    {
+      return null;
+    }
+
+    List<PriceOverride> tiers = [];
+    foreach (JsonElement tier in overrides.EnumerateArray())
+    {
+      if (tier.ValueKind != JsonValueKind.Object || OptionalInt(tier, "min_prompt_tokens") is not { } minTokens)
+      {
+        continue;
+      }
+
+      tiers.Add(new PriceOverride(minTokens, ParsePriceOrNull(tier, "prompt"),
+          ParsePriceOrNull(tier, CacheReadPriceField), ParsePriceOrNull(tier, CacheWritePriceField),
+          ParsePriceOrNull(tier, "completion")));
+    }
+
+    return tiers.Count > 0 ? tiers : null;
+  }
 
   /// <summary>Reads an optional integer property, null when absent or not a number.</summary>
   private static int? OptionalInt(JsonElement parent, string name)
@@ -592,11 +679,16 @@ public sealed class OpenRouterCatalogClient(
   ///     and fail every request. Null never pins.</summary>
   private static ModelProviderEntry CreateFallbackEntry(IntermediateModel model)
   {
+    // The model-level ladder and cache-write price still apply here: they come from the
+    // /api/v1/models payload, which succeeded even though this model's endpoints call did not.
+    // Everything endpoint-specific stays null - SupportsImplicitCaching included, because an
+    // unparsed endpoint has not said false (issue #293).
     return new ModelProviderEntry(model.Id, model.TopProviderName, model.PromptPrice, model.CacheReadPrice,
         model.CompletionPrice,
         model.TopProviderContext, model.TopProviderMaxTokens, model.SupportsToolUse,
         model.SupportsVision, model.SupportsTextOutput, model.IntelligenceScore, model.CodingScore,
-        model.AgenticScore, null, null, model.Description, model.IsRouter);
+        model.AgenticScore, null, null, model.Description, model.IsRouter, PriceOverrides: model.PriceOverrides,
+        PromptCacheWritePricePerToken: model.CacheWritePrice);
   }
 
   /// <summary>Artificial Analysis indices from the benchmarks block (model level).
@@ -641,6 +733,12 @@ public sealed class OpenRouterCatalogClient(
   ///     for an input token served from the prompt cache (issue #22).</summary>
   private const string CacheReadPriceField = "input_cache_read";
 
+  /// <summary>The endpoints API's cache-WRITE price field name: what the provider charges to
+  ///     put a prompt INTO its cache (issue #293, D5). Cache writes are billed on some providers
+  ///     and were invisible, so a model whose cache reads are free but whose cache writes cost
+  ///     1.25x the prompt price read as a bargain it is not.</summary>
+  private const string CacheWritePriceField = "input_cache_write";
+
   /// <summary>Reads an optional price: null when the property is absent, not a string, or
   ///     not a parseable decimal. A negative advertised value is likewise not a price (the
   ///     routing pseudo-models serve -1 to mean "set at routing time"), while a served
@@ -682,5 +780,7 @@ public sealed class OpenRouterCatalogClient(
       double? AgenticScore,
       string? TopProviderName,
       int TopProviderContext,
-      int TopProviderMaxTokens);
+      int TopProviderMaxTokens,
+      decimal? CacheWritePrice,
+      List<PriceOverride>? PriceOverrides);
 }

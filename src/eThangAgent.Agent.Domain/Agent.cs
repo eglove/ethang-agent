@@ -601,10 +601,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // the same requested-versus-served rule the main loop applies, because a summarizer
       // resolved through a router is served by whatever the router picked.
       string pricingModelId = outcome.SummarizerServedModelId ?? modelId;
+      // The summarizer's own prompt size selects its price tier (issue #293): a compaction
+      // prompt that crossed a ladder rung is billed at the upper price, and stamping the base
+      // price would understate exactly the calls that cost most.
       UsagePrices prices = _usagePrices is null
           ? UsagePrices.Unknown
-          : await _usagePrices.PricesForAsync(pricingModelId, outcome.SummarizerProvider, CancellationToken.None)
-              .ConfigureAwait(false);
+          : await _usagePrices.PricesForAsync(pricingModelId, outcome.SummarizerProvider,
+              usage.InputTokens, CancellationToken.None).ConfigureAwait(false);
       Result<AgentUsageRecorded> record = AgentUsageRecorded.Create(Id, DateTimeOffset.UtcNow,
           state.TurnId, state.Iteration, usage,
           new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices,
@@ -660,7 +663,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
             ServedProvider: response.ServedProvider))
         : AgentUsageRecorded.Create(Id, at, state.TurnId, state.Iteration, usage,
             new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.Provider,
-                await ResolvePricesAsync(response).ConfigureAwait(false),
+                await ResolvePricesAsync(response, usage).ConfigureAwait(false),
                 Config.ModelId, response.ServedModelId, timing, response.ServedProvider));
   }
 
@@ -670,11 +673,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     <para>The catalog lookup is the only await in the recording path that can be slow,
   ///     and it is memoized per (model, provider) for the process lifetime, so the steady
   ///     state is a dictionary read.</para></summary>
-  private async Task<UsagePrices> ResolvePricesAsync(ModelResponse response) =>
+  private async Task<UsagePrices> ResolvePricesAsync(ModelResponse response, TokenUsage usage) =>
       _usagePrices is null
           ? UsagePrices.Unknown
           : await _usagePrices.PricesForAsync(PricingModelId(response), Config.Provider,
-              CancellationToken.None).ConfigureAwait(false);
+              usage.InputTokens, CancellationToken.None).ConfigureAwait(false);
 
   /// <summary>The model whose price table applies to this response (issue #290): the SERVED
   ///     model when the provider named one, the requested model only as the fallback. Pricing

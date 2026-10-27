@@ -14,6 +14,33 @@ namespace eThangAgent.ModelDomain;
 /// <para><see cref="SupportsTextOutput"/> is parsed from the architecture's
 /// <c>output_modalities</c>. Without it "produces text" was not expressible, so a caller
 /// could not tell a chat model from a music generator.</para>
+/// <para>THE PERFORMANCE FIELDS ARE KEPT AND DISTRUSTED (issue #293, D1).
+/// <see cref="LatencyMs"/> and <see cref="ThroughputTokensPerSec"/> stay on the record and
+/// stay nullable: the provider may populate them later, and removing them would be a lie in
+/// the other direction. But NO CONSUMER TREATS THEM AS A LATENCY SOURCE, because measured
+/// live on 2026-10-27 across 5 models and 52 endpoints they were null on EVERY row - the
+/// fields are structurally dead, and a picker that rendered them would show a blank where a
+/// comparison belongs. Measured call durations from the usage ledger are the honest latency
+/// source; <see cref="ProviderPerformanceText"/> is the one place that decides how an absent
+/// number is stated, so no surface can quietly render it as zero.</para>
+/// <para><c>UptimeLast30m</c>/<c>UptimeLast5m</c>/<c>UptimeLast1d</c> are the endpoint's
+/// served-request success rates as the API reports them (0-100), each null when it reported
+/// none (issue #293). THIS is the reliability signal that is actually populated - measured
+/// live, 35 of 35 endpoints on one model carried it - and a provider at 87% is a real risk to
+/// a long session in a way no price column can express.</para>
+/// <para><c>SupportsImplicitCaching</c> is whether the endpoint caches prompts implicitly, or
+/// null when the field was never parsed (issue #293). TRI-STATE ON PURPOSE: a row loaded from
+/// a catalog cache written before this member existed has NOT said false, it has said nothing,
+/// and coercing that to false would tell the user a caching provider does not cache. False is
+/// only ever a parsed false.</para>
+/// <para><c>PromptCacheWritePricePerToken</c> is what the endpoint charges to WRITE a prompt
+/// into its cache, or null when it advertises no such price (issue #293). It completes the
+/// cost formula: a model whose cache READS are free but whose cache WRITES cost 1.25x the
+/// prompt price is not the bargain the read price alone suggests.</para>
+/// <para><c>PriceOverrides</c> is the endpoint's price ladder, or null/empty when it serves a
+/// single price (issue #293). Each rung applies once a call's prompt reaches its
+/// <see cref="PriceOverride.MinPromptTokens"/>; <see cref="PricesFor"/> resolves which one a
+/// call is billed from.</para>
 public sealed record ModelProviderEntry(
     string ModelId,
     string? ProviderName,
@@ -31,7 +58,13 @@ public sealed record ModelProviderEntry(
     double? LatencyMs,
     double? ThroughputTokensPerSec,
     string? Description,
-    bool IsRouter = false)
+    bool IsRouter = false,
+    double? UptimeLast30m = null,
+    double? UptimeLast5m = null,
+    double? UptimeLast1d = null,
+    bool? SupportsImplicitCaching = null,
+    decimal? PromptCacheWritePricePerToken = null,
+    IReadOnlyList<PriceOverride>? PriceOverrides = null)
 {
   /// <summary>Composite key for exclusion: "ModelId:ProviderName".</summary>
   public string Key => $"{ModelId}:{ProviderName}";
@@ -46,4 +79,23 @@ public sealed record ModelProviderEntry(
   ///     price; an absent price advertises nothing.</summary>
   public bool HasAdvertisedPrices
       => PromptPricePerToken is >= 0m && CompletionPricePerToken is >= 0m;
+
+  /// <summary>True when this endpoint serves a price LADDER rather than one price (issue
+  ///     #293): a call's cost then depends on its prompt size, which a single base price
+  ///     cannot express.</summary>
+  public bool HasPriceOverrides => PriceOverrides is { Count: > 0 };
+
+  /// <summary>The prices a call with <paramref name="promptTokens"/> prompt tokens is billed
+  ///     at (issue #293): the applicable ladder rung when the endpoint serves one, else this
+  ///     entry's base prices. A rung that omits a price leaves that member null - the tier
+  ///     said nothing about it, and a base price is not inherited into a tier that exists to
+  ///     state different numbers.</summary>
+  public UsagePrices PricesFor(int promptTokens)
+  {
+    PriceOverride? tier = PriceTiers.Applicable(PriceOverrides, promptTokens);
+    return tier is null
+        ? new UsagePrices(PromptPricePerToken, PromptCacheReadPricePerToken, CompletionPricePerToken)
+        : new UsagePrices(tier.PromptPricePerToken, tier.PromptCacheReadPricePerToken,
+            tier.CompletionPricePerToken);
+  }
 }

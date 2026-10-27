@@ -110,6 +110,62 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
   }
 
   [Fact]
+  public async Task ReadAsync_PayloadWrittenBeforeIssue293_DeserializesWithNewMembersDefaulted()
+  {
+    // ACCEPTANCE CRITERION (issue #293): the four new members are nullable/defaulted so a
+    // catalog cache payload written by an OLDER build still deserializes. This is the real
+    // legacy shape - an entry with no uptime, no implicit-caching flag, no cache-write price,
+    // and no price ladder - stored verbatim as JSON, read back through the real serializer.
+    const string legacyPayload =
+        "[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\",\"PromptPricePerToken\":0.000001," +
+        "\"PromptCacheReadPricePerToken\":null,\"CompletionPricePerToken\":0.000002,\"ContextLength\":128000," +
+        "\"MaxCompletionTokens\":4096,\"SupportsToolUse\":true,\"SupportsVision\":false," +
+        "\"SupportsTextOutput\":true,\"IntelligenceScore\":80.0,\"CodingScore\":70.0," +
+        "\"AgenticScore\":60.0,\"LatencyMs\":null,\"ThroughputTokensPerSec\":null," +
+        "\"Description\":\"desc\",\"IsRouter\":false}]";
+    AppDatabase db = new(_dbPath);
+    using (SqliteConnection connection = db.Open())
+    {
+      using SqliteCommand command = connection.CreateCommand();
+      command.CommandText =
+          "INSERT INTO model_catalog_cache (provider, payload_json, fetched_at) VALUES ('openrouter', $p, $t);";
+      _ = command.Parameters.AddWithValue("$p", legacyPayload);
+      _ = command.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+      _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
+    SqliteCatalogCacheResult read = await ReadLegacyAsync(db);
+
+    Assert.True(read.IsSuccess);
+    ModelProviderEntry entry = Assert.Single(read.Entries);
+    Assert.Equal(0.000001m, entry.PromptPricePerToken);
+    // The new members are ABSENT, not falsely populated: an old payload has said nothing
+    // about uptime, implicit caching, cache writes, or a price ladder.
+    Assert.Null(entry.UptimeLast30m);
+    Assert.Null(entry.UptimeLast5m);
+    Assert.Null(entry.UptimeLast1d);
+    Assert.Null(entry.SupportsImplicitCaching);
+    Assert.Null(entry.PromptCacheWritePricePerToken);
+    Assert.Null(entry.PriceOverrides);
+    Assert.False(entry.HasPriceOverrides);
+    // And the price resolution still works on a legacy row: the base prices apply.
+    Assert.Equal(0.000001m, entry.PricesFor(1_000_000).PromptPricePerToken);
+  }
+
+  private static async Task<SqliteCatalogCacheResult> ReadLegacyAsync(AppDatabase db)
+  {
+    SqliteModelCatalogCache cache = new(db);
+    Result<ModelCatalogSnapshot> read =
+        await cache.ReadAsync("openrouter", TestContext.Current.CancellationToken).ConfigureAwait(true);
+    return read.IsSuccess
+        ? new SqliteCatalogCacheResult(true, read.Value.Entries, null)
+        : new SqliteCatalogCacheResult(false, [], read.Error.Code);
+  }
+
+  private sealed record SqliteCatalogCacheResult(bool IsSuccess, IReadOnlyList<ModelProviderEntry> Entries,
+      string? ErrorCode);
+
+  [Fact]
   public async Task V17_AddsTable_LeavingEarlierRowsUntouched()
   {
     // Build a fully-migrated database with a real row, then drop the V17 table and

@@ -17,7 +17,15 @@ public sealed record UsagePrices(decimal? PromptPricePerToken, decimal? PromptCa
 /// <see cref="UsagePrices.Unknown"/> — cost is never fabricated from a guess.</summary>
 public interface IUsagePriceSource
 {
-  Task<UsagePrices> PricesForAsync(string modelId, string? providerName, CancellationToken ct = default);
+  /// <remarks><c>promptTokens</c> is the call's PROMPT SIZE, which decides which rung of a
+  ///     price ladder applies (issue #293): an endpoint that charges $3/M up to 200,000 prompt
+  ///     tokens and $6/M above it bills a 300,000-token call at the upper rung, and a stamp
+  ///     that ignored the size would record half the real cost. A caller that genuinely does
+  ///     not know the size passes 0, which selects the base prices - the honest reading for a
+  ///     call whose size is unknown, never the most expensive rung. Defaulted so an existing
+  ///     caller that cannot supply a size keeps its previous (base-price) behavior.</remarks>
+  Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+      CancellationToken ct = default);
 }
 
 /// <summary>Catalog-backed <see cref="IUsagePriceSource"/>: resolves the three prices from
@@ -28,6 +36,11 @@ public interface IUsagePriceSource
 ///     re-resolve within one process cannot produce a different answer for a call that
 ///     already happened. A FAILED catalog read is NOT memoized: a transient failure must
 ///     not poison every later stamp with nulls for the process lifetime.</para>
+///     <para>WHAT IS MEMOIZED IS THE ENTRY, NOT THE PRICE (issue #293): the answer now
+///     depends on the call's prompt size, so caching a resolved <see cref="UsagePrices"/>
+///     per (model, provider) would serve the first call's tier to every later call - a
+///     long-context call billed at the short-context rate, silently. The catalog walk is
+///     what memoization exists to avoid, and that is what is cached.</para>
 ///     <para>Selection matches <see cref="CatalogContextWindowSource"/>: the first entry
 ///     with the same model id whose provider name is null or equal. A model whose entry
 ///     advertises no usable prices (the routing pseudo-models' -1, "set at routing time")
@@ -35,18 +48,19 @@ public interface IUsagePriceSource
 public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePriceSource
 {
   private readonly IModelCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
-  private readonly Dictionary<(string ModelId, string? Provider), UsagePrices> _memo = [];
+  private readonly Dictionary<(string ModelId, string? Provider), ModelProviderEntry> _memo = [];
   private readonly Lock _memoLock = new();
 
-  public async Task<UsagePrices> PricesForAsync(string modelId, string? providerName, CancellationToken ct = default)
+  public async Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+      CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
     (string ModelId, string? Provider) key = (modelId, providerName);
     lock (_memoLock)
     {
-      if (_memo.TryGetValue(key, out UsagePrices? memoized))
+      if (_memo.TryGetValue(key, out ModelProviderEntry? memoized))
       {
-        return memoized;
+        return From(memoized, promptTokens);
       }
     }
 
@@ -58,26 +72,32 @@ public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePrice
 
     ModelProviderEntry? entry = entries.Value.FirstOrDefault(e => e.ModelId == modelId
         && (providerName is null || e.ProviderName == providerName));
-    UsagePrices prices = entry is null ? UsagePrices.Unknown : From(entry);
-    if (entry is not null)
+    if (entry is null)
     {
-      lock (_memoLock)
-      {
-        _memo[key] = prices;
-      }
+      return UsagePrices.Unknown;
     }
 
-    return prices;
+    lock (_memoLock)
+    {
+      _memo[key] = entry;
+    }
+
+    return From(entry, promptTokens);
   }
 
-  /// <summary>The entry's advertised prices, with a negative value treated as "not a price"
-  ///     (the routing pseudo-models serve -1 to mean the price is set at routing time) and
-  ///     an ABSENT one staying unknown (issue #289 made the catalog prices nullable; an
-  ///     unpriced model must not stamp a cost of zero). A served zero stays a real price.</summary>
-  private static UsagePrices From(ModelProviderEntry entry)
-      => new(PriceOrNull(entry.PromptPricePerToken),
-          entry.PromptCacheReadPricePerToken is { } cacheRead ? PriceOrNull(cacheRead) : null,
-          PriceOrNull(entry.CompletionPricePerToken));
+  /// <summary>The entry's prices for a call of this prompt size (issue #293): the applicable
+  ///     ladder rung when the endpoint serves one, else the base prices. A negative value is
+  ///     treated as "not a price" (the routing pseudo-models serve -1 to mean the price is set
+  ///     at routing time) and an ABSENT one stays unknown (issue #289 made the catalog prices
+  ///     nullable; an unpriced model must not stamp a cost of zero). A served zero stays a real
+  ///     price.</summary>
+  private static UsagePrices From(ModelProviderEntry entry, int promptTokens)
+  {
+    UsagePrices tier = entry.PricesFor(promptTokens);
+    return new(PriceOrNull(tier.PromptPricePerToken),
+        tier.PromptCacheReadPricePerToken is { } cacheRead ? PriceOrNull(cacheRead) : null,
+        PriceOrNull(tier.CompletionPricePerToken));
+  }
 
   private static decimal? PriceOrNull(decimal? price) => price is { } value && value >= 0m ? value : null;
 }

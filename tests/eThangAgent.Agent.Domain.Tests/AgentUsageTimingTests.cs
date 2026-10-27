@@ -31,7 +31,8 @@ public class AgentUsageTimingTests
   {
     private static readonly UsagePrices Prices = new(0.000003m, 0.0000003m, 0.000015m);
 
-    public Task<UsagePrices> PricesForAsync(string modelId, string? providerName, CancellationToken ct = default)
+    public Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+        CancellationToken ct = default)
         => Task.FromResult(Prices);
   }
 

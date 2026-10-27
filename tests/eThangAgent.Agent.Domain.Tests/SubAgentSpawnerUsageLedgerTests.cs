@@ -16,7 +16,8 @@ public class SubAgentSpawnerUsageLedgerTests
 
   private sealed class FixedPriceSource(UsagePrices prices) : IUsagePriceSource
   {
-    public Task<UsagePrices> PricesForAsync(string modelId, string? providerName, CancellationToken ct = default)
+    public Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+        CancellationToken ct = default)
         => Task.FromResult(prices);
   }
 

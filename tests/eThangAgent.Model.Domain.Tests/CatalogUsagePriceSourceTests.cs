@@ -34,7 +34,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("m", "openrouter", 0.000001m, 0.0000001m, 0.000002m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "openrouter", TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
 
     Assert.Equal(0.000001m, prices.PromptPricePerToken);
     Assert.Equal(0.0000001m, prices.PromptCacheReadPricePerToken);
@@ -49,7 +49,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("m", "openrouter", 0.000001m, null, 0.000002m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "openrouter", TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
 
     Assert.Equal(0.000001m, prices.PromptPricePerToken);
     Assert.Null(prices.PromptCacheReadPricePerToken);
@@ -61,7 +61,7 @@ public class CatalogUsagePriceSourceTests
   {
     CatalogUsagePriceSource source = new(new FakeCatalog([Entry("other", "openrouter", 1m, 1m, 1m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "openrouter", TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
 
     Assert.Equal(UsagePrices.Unknown, prices);
   }
@@ -74,9 +74,9 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FailingCatalog());
 
     Assert.Equal(UsagePrices.Unknown,
-        await source.PricesForAsync("m", null, TestContext.Current.CancellationToken));
+        await source.PricesForAsync("m", null, 0, TestContext.Current.CancellationToken));
     Assert.Equal(UsagePrices.Unknown,
-        await source.PricesForAsync("m", null, TestContext.Current.CancellationToken));
+        await source.PricesForAsync("m", null, 0, TestContext.Current.CancellationToken));
   }
 
   [Fact]
@@ -87,7 +87,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("openrouter/auto", null, -1m, -1m, -1m)]));
 
-    UsagePrices prices = await source.PricesForAsync("openrouter/auto", null, TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("openrouter/auto", null, 0, TestContext.Current.CancellationToken);
 
     Assert.Equal(UsagePrices.Unknown, prices);
   }
@@ -98,8 +98,8 @@ public class CatalogUsagePriceSourceTests
     FakeCatalog catalog = new([Entry("m", "openrouter", 0.000001m, 0.0000001m, 0.000002m)]);
     CatalogUsagePriceSource source = new(catalog);
 
-    _ = await source.PricesForAsync("m", "openrouter", TestContext.Current.CancellationToken);
-    _ = await source.PricesForAsync("m", "openrouter", TestContext.Current.CancellationToken);
+    _ = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
+    _ = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
 
     Assert.Equal(1, catalog.Calls);
   }
@@ -110,7 +110,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("m", "a", 0.000001m, null, 0.000002m), Entry("m", "b", 0.000009m, null, 0.000010m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "b", TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", "b", 0, TestContext.Current.CancellationToken);
 
     Assert.Equal(0.000009m, prices.PromptPricePerToken);
   }
@@ -122,7 +122,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("m", "openrouter", 0.000001m, 0m, 0.000002m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "openrouter", TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
 
     Assert.Equal(0m, prices.PromptCacheReadPricePerToken);
   }
