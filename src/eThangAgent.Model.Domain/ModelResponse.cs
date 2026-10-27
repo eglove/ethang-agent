@@ -30,6 +30,46 @@ public sealed record ModelResponse(
   ///     raw trace exists only when the provider streams one.</para></summary>
   public string? Reasoning { get; init; }
 
+  /// <summary>The provider the wire reported as having served this response, or null when it
+  ///     named none (issue #292).
+  ///     <para>MEASURED FACT, 2026-10-27: the Responses API's response object does NOT carry a
+  ///     provider field — six live models (including <c>openrouter/auto</c> and
+  ///     <c>openrouter/free</c>, which resolve to a concrete model), pinned and unpinned,
+  ///     streaming and not, all returned the same key set with no <c>provider</c> member, and
+  ///     the <c>X-Provider-Name</c> header the CORS expose-list advertises was absent on this
+  ///     surface. So this member is null in practice today, and null is a REAL ANSWER: the
+  ///     upstream vendor is simply not something this wire tells us. It is parsed anyway
+  ///     because a provider that DOES name one must be recorded rather than guessed at — the
+  ///     same forward-compatible rule <see cref="ServedModelId"/> follows.</para>
+  ///     <para>NEVER FABRICATED FROM THE REQUEST: a session that pinned a provider carries
+  ///     that pin in its <c>ModelConfig</c>, and copying it here would turn a request's
+  ///     intention into a claim about what served — issue #292's B3 forbids exactly that.</para></summary>
+  public string? ServedProvider { get; init; }
+
+  /// <summary>How long the provider call took, in whole milliseconds, measured around the
+  ///     call itself — request dispatch to response settled — or null when nothing measured
+  ///     it (issue #292).
+  ///     <para>THE PROVIDER CALL, NOT THE ITERATION: an iteration includes tool dispatch and
+  ///     local work, so timing it would compare providers on a number that is mostly ours.
+  ///     A provider ACL owns dispatch and settle, so it is the only layer that can measure
+  ///     this honestly.</para>
+  ///     <para>NULL IS 'NOT MEASURED' AND ZERO IS A REAL MEASUREMENT: a call that completed in
+  ///     under a millisecond reports 0, which is a fact; a response nobody timed reports null,
+  ///     which is the absence of one. Coercing either into the other would make a fast
+  ///     provider and an unmeasured one indistinguishable in exactly the comparison this
+  ///     member exists to serve.</para></summary>
+  public long? DurationMs { get; init; }
+
+  /// <summary>How long the provider took to send its first streamed delta, in whole
+  ///     milliseconds, or null when it streamed none (issue #292).
+  ///     <para>A DIFFERENT FACT FROM <see cref="DurationMs"/>: a provider that sends its first
+  ///     token in 300 ms and finishes in 40 s feels nothing like one that thinks for 20 s and
+  ///     then dumps everything, and only the pair can tell them apart.</para>
+  ///     <para>NULL, NEVER ZERO, FOR A NON-STREAMING RESPONSE: a single JSON body has no first
+  ///     delta, so there is nothing to time. A fabricated 0 would read as instant
+  ///     responsiveness — the opposite of the truth.</para></summary>
+  public long? FirstTokenMs { get; init; }
+
   /// <summary>The model the provider reported as having served this response, read from
   ///     the wire's <c>model</c> field — or null when the provider named none (issue #290).
   ///     <para>This is a DIFFERENT FACT from the requested model the request carried. For a

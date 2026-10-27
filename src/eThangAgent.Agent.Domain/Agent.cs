@@ -608,7 +608,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       Result<AgentUsageRecorded> record = AgentUsageRecorded.Create(Id, DateTimeOffset.UtcNow,
           state.TurnId, state.Iteration, usage,
           new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices,
-              modelId, outcome.SummarizerServedModelId));
+              modelId, outcome.SummarizerServedModelId, outcome.SummarizerTiming,
+              outcome.SummarizerServedProvider));
       if (!record.IsSuccess)
       {
         CountUsageDrop(state, callbacks, record.Error.Message);
@@ -644,17 +645,23 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       TokenUsage usage, TurnState state)
   {
     DateTimeOffset at = DateTimeOffset.UtcNow;
+    // Timing and the serving provider describe the CALL, not the wiring (issue #292), so
+    // they are stamped on the legacy shape too — the same exception the model ids already
+    // take. An unwired session still learns how long its calls took.
+    UsageTiming timing = UsageTiming.From(response);
     return _usagePrices is null && _workspaceId is null
         ? Result.Success(new AgentUsageRecorded(Id, at, state.TurnId, state.Iteration,
             usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens,
             // The pricing basis is stamped here too, so an unwired row still groups under the
             // model that served it rather than under the null bucket (issue #290).
             ModelId: response.ServedModelId ?? Config.ModelId,
-            RequestedModelId: Config.ModelId, ServedModelId: response.ServedModelId))
+            RequestedModelId: Config.ModelId, ServedModelId: response.ServedModelId,
+            DurationMs: timing.DurationMs, FirstTokenMs: timing.FirstTokenMs,
+            ServedProvider: response.ServedProvider))
         : AgentUsageRecorded.Create(Id, at, state.TurnId, state.Iteration, usage,
             new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.Provider,
                 await ResolvePricesAsync(response).ConfigureAwait(false),
-                Config.ModelId, response.ServedModelId));
+                Config.ModelId, response.ServedModelId, timing, response.ServedProvider));
   }
 
   /// <summary>The three prices to stamp on this call's row: the catalog's current prices

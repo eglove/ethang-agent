@@ -47,6 +47,10 @@ public static class ResponsesApiStreamCore
     {
       OnContentDelta = onContentDelta,
       OnReasoningDelta = onReasoningDelta,
+      // The clock the first-delta measurement runs from (issue #292): taken before the
+      // first read, so the number covers the provider's think-then-send latency rather
+      // than only the gap between two deltas. Per attempt, because a retry is a new call.
+      StartedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
     };
     bool sawDone = false;
     try
@@ -352,6 +356,9 @@ public static class ResponsesApiStreamCore
       // the same field the non-streaming body carries, read by the same shared reader so
       // the two paths cannot disagree.
       state.ServedModelId = ResponsesApiRequestCore.ParseServedModelId(response);
+      // The same shared reader the non-streaming path uses, so the two cannot disagree
+      // about whether the provider named one (issue #292).
+      state.ServedProvider = ResponsesApiRequestCore.ParseServedProvider(response);
       state.FinishReason = ParseTerminalFinishReason(response, state.ToolCalls.Count > 0);
     }
   }
@@ -421,6 +428,12 @@ public static class ResponsesApiStreamCore
       return;
     }
 
+    // The FIRST delta of either kind is the responsiveness a user feels (issue #292):
+    // stamped once, never overwritten, so a long generation does not erase how quickly
+    // the provider started answering. A stream that carries no delta at all leaves this
+    // null — 'never streamed' is not 'instant'.
+    state.FirstTokenMs ??= (long)System.Diagnostics.Stopwatch.GetElapsedTime(state.StartedTimestamp).TotalMilliseconds;
+
     if (sink == DeltaSink.Content)
     {
       _ = state.Content.Append(text);
@@ -484,6 +497,21 @@ public static class ResponsesApiStreamCore
     ///     when it named none (issue #290). Null is a real answer — a stream whose terminal
     ///     frame omits the field must not inherit a guess.</summary>
     internal string? ServedModelId { get; set; }
+
+    /// <summary>The provider the terminal event named as having served this stream, or null
+    ///     when it named none (issue #292). Measured: this surface names none today, so null
+    ///     is the ordinary answer and never a guess inherited from the request.</summary>
+    internal string? ServedProvider { get; set; }
+
+    /// <summary>Milliseconds from the stream's first read to its first delta, or null when
+    ///     the stream carried no delta at all (issue #292). Stamped once — the FIRST delta is
+    ///     the responsiveness a user feels, and every later one would only measure the
+    ///     provider's throughput, which is a different question.</summary>
+    internal long? FirstTokenMs { get; set; }
+
+    /// <summary>The <see cref="System.Diagnostics.Stopwatch"/> tick taken when this stream
+    ///     began reading, which <see cref="FirstTokenMs"/> is measured from (issue #292).</summary>
+    internal long StartedTimestamp { get; init; }
     internal Action<string>? OnContentDelta { get; init; }
     internal Action<string>? OnReasoningDelta { get; init; }
 
@@ -505,6 +533,8 @@ public static class ResponsesApiStreamCore
       // The unqualified name resolves to THIS state's property (an initializer's right side
       // is evaluated in the enclosing scope), which is the value the terminal event set.
       ServedModelId = ServedModelId,
+      ServedProvider = ServedProvider,
+      FirstTokenMs = FirstTokenMs,
     };
   }
 }

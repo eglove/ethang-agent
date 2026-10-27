@@ -92,10 +92,17 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       }
 
       using HttpRequestMessage httpRequest = NewRequest(built.Value);
+      // Timing wraps the provider call itself (issue #292): dispatch to settled, not the
+      // iteration, which would mostly measure our own tool dispatch and local work.
+      long started = Stopwatch.GetTimestamp();
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
-      return !response.IsSuccessStatusCode
-        ? await StatusOutcomeAsync(response, ct).ConfigureAwait(false)
-        : AttemptOutcome.Final(await ReadJsonBodyAsync(response, ct).ConfigureAwait(false));
+      if (!response.IsSuccessStatusCode)
+      {
+        return await StatusOutcomeAsync(response, ct).ConfigureAwait(false);
+      }
+
+      Result<ModelResponse> parsed = await ReadJsonBodyAsync(response, ct).ConfigureAwait(false);
+      return AttemptOutcome.Final(WithDuration(parsed, Stopwatch.GetElapsedTime(started)));
     }
     catch (OperationCanceledException)
     {
@@ -167,6 +174,11 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       }
 
       using HttpRequestMessage httpRequest = NewRequest(built.Value);
+      // Same measurement as the non-streaming path (issue #292): the clock starts at
+      // dispatch and stops when the response is settled, so the two paths report a
+      // comparable number. The stream core contributes FirstTokenMs; this contributes the
+      // total, and neither can be produced by the other.
+      long started = Stopwatch.GetTimestamp();
       // Headers-read completion so the body surfaces incrementally instead of buffering.
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
       if (!response.IsSuccessStatusCode)
@@ -175,9 +187,10 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       }
 
       string? contentType = response.Content.Headers.ContentType?.MediaType;
-      return contentType == "text/event-stream"
-        ? AttemptOutcome.Final(await ReadSseStreamAsync(response, onContentDelta, onReasoningDelta, ct).ConfigureAwait(false))
-        : AttemptOutcome.Final(await ReadJsonBodyAsync(response, ct).ConfigureAwait(false));
+      Result<ModelResponse> parsed = contentType == "text/event-stream"
+        ? await ReadSseStreamAsync(response, onContentDelta, onReasoningDelta, ct).ConfigureAwait(false)
+        : await ReadJsonBodyAsync(response, ct).ConfigureAwait(false);
+      return AttemptOutcome.Final(WithDuration(parsed, Stopwatch.GetElapsedTime(started)));
     }
     catch (OperationCanceledException)
     {
@@ -755,6 +768,17 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       Action<string>? onReasoningDelta,
       CancellationToken ct)
     => ResponsesApiStreamCore.ReadSseStreamAsync(response, onContentDelta, onReasoningDelta, ct);
+
+  /// <summary>Stamps a successful response with how long the call took (issue #292). A
+  ///     FAILURE is returned untouched: a failed call produced no response to describe, and
+  ///     a duration on an error result would be a number nobody can use.
+  ///     <para>Whole milliseconds, truncated. A call that finished inside one millisecond
+  ///     reports 0 — a real measurement, not the absence of one; only a response no caller
+  ///     timed carries null.</para></summary>
+  private static Result<ModelResponse> WithDuration(Result<ModelResponse> result, TimeSpan elapsed)
+      => result.IsSuccess
+          ? Result.Success(result.Value with { DurationMs = (long)elapsed.TotalMilliseconds })
+          : result;
 
   /// <summary>One provider attempt's verdict plus what a retry decision needs: whether the
   ///     failure was transient and any server-provided Retry-After hint.</summary>

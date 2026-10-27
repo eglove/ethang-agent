@@ -159,7 +159,12 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
           Decimal(root, "PromptCacheReadPricePerToken"),
           Decimal(root, "CompletionPricePerToken"),
           String(root, "RequestedModelId"),
-          String(root, "ServedModelId"));
+          String(root, "ServedModelId"),
+          // Issue #292: timing is read the same tolerant way every other member is - a row
+          // written before it existed reads as unmeasured, never as zero.
+          Long(root, "DurationMs"),
+          Long(root, "FirstTokenMs"),
+          String(root, "ServedProvider"));
     }
     catch (JsonException)
     {
@@ -175,6 +180,15 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
   private static int? Integer(JsonElement element, string name)
       => element.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Number
           && value.TryGetInt32(out int parsed)
+          ? parsed
+          : null;
+
+  /// <summary>A 64-bit count as stored, or null when absent or not an integer. Separate from
+  ///     <see cref="Integer"/> because a duration in milliseconds can exceed int's range on a
+  ///     long call, and truncating one would report a duration that never happened.</summary>
+  private static long? Long(JsonElement element, string name)
+      => element.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Number
+          && value.TryGetInt64(out long parsed)
           ? parsed
           : null;
 

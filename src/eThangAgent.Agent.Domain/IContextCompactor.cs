@@ -40,9 +40,16 @@ public interface IContextCompactor
 ///     served the summarizer call (issue #290), or null when it reported none. The same
 ///     requested-versus-served distinction the main loop records: a summarizer resolved
 ///     through a router can be served by a different model than the one requested.</param>
+/// <param name="SummarizerTiming">How long the summarizer call took and how quickly it began
+///     streaming (issue #292), or <see cref="UsageTiming.Unmeasured"/> when nothing measured
+///     it. A summarizer call is a provider call like any other, so leaving it unmeasured
+///     would make compaction rows silently incomparable with main-loop rows.</param>
+/// <param name="SummarizerServedProvider">The provider the wire reported as having served the
+///     summarizer call (issue #292), or null when it named none.</param>
 public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, TokenUsage? SummarizerUsage,
     string? HandoffSummary = null, string? SummarizerModelId = null, string? SummarizerProvider = null,
-    string? SummarizerServedModelId = null)
+    string? SummarizerServedModelId = null, UsageTiming SummarizerTiming = default,
+    string? SummarizerServedProvider = null)
 {
   /// <summary>True when this outcome is a SESSION HANDOFF: the conversation was not
   ///     compacted, and the summary seeds a new session instead.</summary>
@@ -54,6 +61,8 @@ public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, To
   ///     compacted (issue #23: a handoff records its usage row too).</summary>
   public static CompactionOutcome Handoff(string summary, TokenUsage? usage,
       string? summarizerModelId = null, string? summarizerProvider = null,
-      string? summarizerServedModelId = null)
-      => new(0, 0, usage, summary, summarizerModelId, summarizerProvider, summarizerServedModelId);
+      string? summarizerServedModelId = null, UsageTiming summarizerTiming = default,
+      string? summarizerServedProvider = null)
+      => new(0, 0, usage, summary, summarizerModelId, summarizerProvider, summarizerServedModelId,
+          summarizerTiming, summarizerServedProvider);
 }

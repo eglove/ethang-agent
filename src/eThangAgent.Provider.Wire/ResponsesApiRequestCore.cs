@@ -50,6 +50,7 @@ public static class ResponsesApiRequestCore
       // different fact from an empty one, the rule TokenUsage's optional counts follow.
       Reasoning = reasoning.Length > 0 ? reasoning.ToString() : null,
       ServedModelId = ParseServedModelId(body),
+      ServedProvider = ParseServedProvider(body),
     });
   }
 
@@ -253,6 +254,27 @@ public static class ResponsesApiRequestCore
     return parent.TryGetProperty("model", out JsonElement model)
         && model.ValueKind == JsonValueKind.String
         && model.GetString() is { Length: > 0 } served
+        ? served
+        : null;
+  }
+
+  /// <summary>Reads the response object's serving-provider name (issue #292), or null when
+  ///     it names none.
+  ///     <para>MEASURED 2026-10-27: this surface names no provider at all. Six live models —
+  ///     two of them routers that resolve to a concrete model — returned an identical key set
+  ///     with no <c>provider</c> member, and the <c>X-Provider-Name</c> header was absent. So
+  ///     null is the ordinary answer here, and it is an ANSWER: the upstream vendor is not
+  ///     something this wire reports. The reader exists so a provider that starts naming one
+  ///     is recorded verbatim instead of being lost, and so both parse paths agree.</para>
+  ///     <para>Absent, null, and empty all mean UNREPORTED and all read as null — the same
+  ///     rule <see cref="ParseServedModelId"/> follows, for the same reason: a blank name is
+  ///     a name that names nothing, and coercing it onto the request's pin would fabricate
+  ///     the attribution this member exists to keep honest.</para></summary>
+  public static string? ParseServedProvider(JsonElement parent)
+  {
+    return parent.TryGetProperty("provider", out JsonElement provider)
+        && provider.ValueKind == JsonValueKind.String
+        && provider.GetString() is { Length: > 0 } served
         ? served
         : null;
   }

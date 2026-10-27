@@ -34,6 +34,16 @@ namespace eThangAgent.ModelDomain;
 /// <param name="ServedModelId">The model the provider reported as having served the call,
 ///     or null when it reported none. Null means the row was priced on the requested model —
 ///     the fallback, visible rather than assumed.</param>
+/// <param name="DurationMs">How long the provider call took in whole milliseconds, or null
+///     when it was not measured (issue #292). Null is 'not measured', never 'instant' — a
+///     call that finished inside a millisecond carries 0, which is a real measurement.</param>
+/// <param name="FirstTokenMs">How long the provider took to send its first streamed delta in
+///     whole milliseconds, or null when it streamed none (issue #292) — always null for a
+///     non-streaming call, which has no first delta to time.</param>
+/// <param name="ServedProvider">The provider the wire reported as having served the call, or
+///     null when it named none (issue #292). Distinct from <paramref name="Provider"/>, which
+///     is the provider whose PRICES were stamped: on this surface the wire names no serving
+///     provider, so this is usually null while the priced provider is known.</param>
 public sealed record UsageRow(
     string CallClass,
     string? ModelId,
@@ -47,7 +57,10 @@ public sealed record UsageRow(
     decimal? PromptCacheReadPricePerToken,
     decimal? CompletionPricePerToken,
     string? RequestedModelId = null,
-    string? ServedModelId = null)
+    string? ServedModelId = null,
+    long? DurationMs = null,
+    long? FirstTokenMs = null,
+    string? ServedProvider = null)
 {
   /// <summary>True when this row's prices belong to the REQUESTED model because the
   ///     provider named no serving model (issue #290): the fallback, stated rather than

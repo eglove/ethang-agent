@@ -84,7 +84,8 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     return compacted.IsSuccess
         ? Result.Success(new CompactionOutcome(plan.EvictCount, keptTail.Count, summary.Value.Usage,
             SummarizerModelId: summary.Value.ModelId, SummarizerProvider: summary.Value.Provider,
-            SummarizerServedModelId: summary.Value.ServedModelId))
+            SummarizerServedModelId: summary.Value.ServedModelId,
+            SummarizerTiming: summary.Value.Timing, SummarizerServedProvider: summary.Value.ServedProvider))
         : Result.Failure<CompactionOutcome>(compacted.Error);
   }
 
@@ -92,7 +93,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
   ///     token usage, and the identity of the model that produced it (issue #23) — the
   ///     resolved WRITER, which is the serving model on fallback, never a guess.</summary>
   private sealed record SummaryResult(string Text, TokenUsage? Usage, string ModelId, string? Provider,
-      string? ServedModelId);
+      string? ServedModelId, UsageTiming Timing, string? ServedProvider);
 
   /// <summary>One summarizer call over the evicted prefix: resolves the writer (the
   ///     factory delegate, falling back to the serving model), sends the render, and
@@ -118,7 +119,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
         ? Result.Failure<SummaryResult>(new DomainError("EmptySummary",
             "The summarizer model returned no summary text."))
         : Result.Success(new SummaryResult(trimmed, response.Value.Usage, writer.ModelId, writer.Provider,
-            response.Value.ServedModelId));
+            response.Value.ServedModelId, UsageTiming.From(response.Value), response.Value.ServedProvider));
   }
 
   /// <summary>THE HANDOFF REPLACES IN-PLACE COMPACTION (issue #234): the enablement
@@ -134,7 +135,8 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
         .Match(
             success => success && SubAgentSpawner.RunningChild is null
                 ? Result.Success(CompactionOutcome.Handoff(summary.Text, summary.Usage,
-                    summary.ModelId, summary.Provider, summary.ServedModelId))
+                    summary.ModelId, summary.Provider, summary.ServedModelId, summary.Timing,
+                    summary.ServedProvider))
                 : null,
             failure => Result.Failure<CompactionOutcome>(failure));
   }

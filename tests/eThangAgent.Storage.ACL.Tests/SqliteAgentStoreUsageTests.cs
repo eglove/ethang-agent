@@ -123,6 +123,55 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
   }
 
   [Fact]
+  public async Task AppendEventAsync_UsageTiming_RoundTripsThroughTheStore()
+  {
+    // Issue #292: the measured duration, the first-token time, and the serving provider
+    // ride the SAME row - no new table, no migration - so a per-provider latency report is
+    // computable from agent_events alone.
+    AgentId id = AgentId.NewId();
+    AgentUsageRecorded recorded = new(id, DateTimeOffset.UtcNow, Guid.NewGuid(), 1, 100, 20, 64, 7,
+        UsageCallClass.MainLoop, "ws-root", "openrouter", 0.000003m, 0.0000003m, 0.000015m,
+        ModelId: "cohere/north-mini-code:free", RequestedModelId: "openrouter/free",
+        ServedModelId: "cohere/north-mini-code:free", DurationMs: 4321, FirstTokenMs: 250,
+        ServedProvider: "DeepInfra");
+
+    Assert.True((await _store.AppendEventAsync(recorded, ct: TestContext.Current.CancellationToken)).IsSuccess);
+
+    Result<IReadOnlyList<AgentDomainEvent>> events =
+        await _store.GetEventsAsync(id, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(events.IsSuccess);
+    AgentUsageRecorded reloaded = Assert.IsType<AgentUsageRecorded>(Assert.Single(events.Value));
+    Assert.Equal(recorded, reloaded);
+    Assert.Equal(4321, reloaded.DurationMs);
+    Assert.Equal(250, reloaded.FirstTokenMs);
+    Assert.Equal("DeepInfra", reloaded.ServedProvider);
+  }
+
+  [Fact]
+  public async Task GetEventsAsync_UsageTiming_IsReadableFromTheDatabaseDirectly()
+  {
+    // The acceptance criterion 'computable from persisted data alone' - read the way an
+    // eval or a human would, with plain SQL over the event table, not through the store.
+    AgentId id = AgentId.NewId();
+    _ = await _store.AppendEventAsync(
+        new AgentUsageRecorded(id, DateTimeOffset.UtcNow, Guid.NewGuid(), 0, 1000, 200, 750, 55,
+            DurationMs: 1234, FirstTokenMs: 99),
+        ct: TestContext.Current.CancellationToken);
+
+    using Microsoft.Data.Sqlite.SqliteConnection connection = new AppDatabase(_dbPath).OpenReadOnly();
+    using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "SELECT payload_json FROM agent_events WHERE agent_id=@id AND type='usage';";
+    _ = command.Parameters.AddWithValue("@id", id.ToString());
+    using Microsoft.Data.Sqlite.SqliteDataReader reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken).ConfigureAwait(true));
+    string payload = reader.GetString(0);
+    Assert.Contains("\"DurationMs\":1234", payload, StringComparison.Ordinal);
+    Assert.Contains("\"FirstTokenMs\":99", payload, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task GetEventsAsync_LegacyUsagePayload_ReadsWithNullMembersAndMainLoopClass()
   {
     // A row written before #22 carries none of the new members. It must still deserialize -
@@ -167,6 +216,12 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
     // name what served it must not be given a name after the fact.
     Assert.Null(reloaded.RequestedModelId);
     Assert.Null(reloaded.ServedModelId);
+    // Issue #292: the timing and serving-provider members are the same kind of late
+    // addition, so they read back null too - 'not measured' and 'the wire named none',
+    // never a fabricated 0 or a backfilled provider name.
+    Assert.Null(reloaded.DurationMs);
+    Assert.Null(reloaded.FirstTokenMs);
+    Assert.Null(reloaded.ServedProvider);
     Assert.Same(UsageCallClass.MainLoop, reloaded.EffectiveCallClass);
   }
 
