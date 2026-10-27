@@ -2,10 +2,11 @@ using eThangAgent.ModelDomain;
 
 namespace eThangAgent.Model.Domain.Tests;
 
-/// <summary>The catalog-driven selection rule behind the live-model suite (issue #289) and,
-///     with no change at its seam, behind a future "best free model" option in the model
-///     picker: a PURE function over catalog entries, so it is unit tested against a
-///     FIXTURE catalog and never touches the network.
+/// <summary>The catalog-driven selection rule for "best free model" (issue #289): a PURE
+///     function over catalog entries, so it is unit tested against a FIXTURE catalog and
+///     never touches the network. Its first caller (the live-model suite) was deleted on
+///     2026-10-27, so these tests are now the rule's only coverage - kept because a future
+///     "best free" picker option would use it unchanged.
 ///     <para>The fixture below mirrors the LIVE catalog's shape (measured 2026-10-26): the
 ///     real free models and their scores, the two music generators that advertise zero
 ///     prices but no tool capability, an unpriced model, the free router, and a paid

@@ -7,8 +7,8 @@ using eThangAgent.SharedKernel;
 #pragma warning disable CA2000 // HttpClient owns the handler; provider lifetime bounds it
 namespace eThangAgent.OpenRouter.ACL.Tests;
 
-/// <summary>Two catalog facts the live-model selector (issue #289) depends on, both of
-///     which the parser used to destroy before any consumer could see them:
+/// <summary>Two catalog facts the "best free model" selector (issue #289) depends on, both
+///     of which the parser used to destroy before any consumer could see them:
 ///     <list type="number">
 ///     <item>PRICE ABSENCE READ AS FREE. <c>ParsePricing</c> returned 0 for a missing
 ///     pricing block and <c>ParseDecimal</c> returned 0 for anything unparseable, so an

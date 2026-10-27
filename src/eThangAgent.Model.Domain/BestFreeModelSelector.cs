@@ -1,9 +1,13 @@
 namespace eThangAgent.ModelDomain;
 
 /// <summary>What a caller requires of a "best free model" pick. Every knob is an explicit
-///     choice at the CALL SITE rather than a constant inside the rule: the live-model suite
-///     (issue #289) needs a window big enough for a real harness prompt, while a future
-///     model-picker option would take the default (no minimum).</summary>
+///     choice at the CALL SITE rather than a constant inside the rule: a caller sending a
+///     real harness prompt needs a window big enough for it, while a future model-picker
+///     option would take the default (no minimum).
+///     <para>NO PRODUCTION CONSUMER TODAY: the live-model suite (issue #289) was this rule's
+///     only caller and was deleted on 2026-10-27. It is kept because it is a pure, tested
+///     rule that a future "best free" picker option would use unchanged - see issue #296's
+///     follow-up note. Deleting it is a product decision, not a cleanup.</para></summary>
 public sealed record BestFreeModelCriteria
 {
   /// <summary>The smallest context window that is still useful, in tokens. Zero means no

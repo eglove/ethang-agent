@@ -24,7 +24,6 @@
     <Project Path="tests/eThangAgent.Transport.ACL.Tests/eThangAgent.Transport.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.Web.ACL.Tests/eThangAgent.Web.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.PDF.ACL.Tests/eThangAgent.PDF.ACL.Tests.csproj" />
-    <Project Path="tests/eThangAgent.LiveModel.Tests/eThangAgent.LiveModel.Tests.csproj" />
   </Folder>
   <Project Path="src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
   <Project Path="src/eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />

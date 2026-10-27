@@ -145,7 +145,17 @@ content is refused; the extension alone is never trusted (magic-byte + package s
 
 - **Model Settings** window (left menu, visible whenever a tab is open) — the one
   surface for per-session model choices. The **Model** section is a searchable catalog of
-  the provider's lineup; the
+  the provider's lineup, followed by the selected model's **provider** rows (issue #296):
+  each row shows the effective input price at the stated cache-hit rate as its primary
+  figure with the prompt price secondary, plus the cache discount, observed latency and
+  throughput, uptime, context window, and capability scores. The **Cache-hit assumption**
+  field beside it states the rate every price was projected at and where it came from
+  (session / workspace / whole ledger measured, the documented default, or your own
+  override), and editing it re-ranks the providers at that rate. The **preset** selector
+  (Cheapest / Fastest / Most reliable / Best capability) only reorders — no row is ever
+  hidden — and the caption names the dimension that drove the order. Every unavailable
+  value is rendered as unavailable (`not measured`, `pricing unknown`, `no cache support`,
+  `cache support unverified`), never as a zero. The
   **Reasoning effort** selector offers model default or max, extra high, high, medium,
   low, minimal, none; the **Reasoning summary (display)** selector beside it (OpenRouter
   sessions) asks the provider for its own summary of its reasoning — provider default,
@@ -274,7 +284,7 @@ Saved keys apply to newly opened agents; already-open tabs keep the credentials 
 
 The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. The model is chosen per tab through the **Model Settings** window (left menu, visible whenever a tab is open), and the choice applies from the next turn to the root agent and children alike. It is remembered per workspace + provider and restored when the same directory reopens; clearing the choice returns the session to the provider's default model. Reasoning effort works the same way through the window's **Reasoning effort** selector, with **Model default** returning the session to the provider's own behavior; the **Reasoning summary (display)** selector beside it persists the same way and asks the provider for its own summary of its reasoning (provider default, auto, concise, or detailed).
 
-The picker offers a searchable list of every OpenRouter model (deduped across provider endpoints, shown with effective pricing and context size). Catalog prices are served final: OpenRouter's endpoints API reports the price you actually pay, and its `discount` field is promo metadata rather than a multiplier. The catalog is **persisted in the app database** (scoped by provider and API source, so proxy/mock catalogs cannot overwrite the live catalog; legacy source-less snapshots are ignored) and served **stale-while-revalidate**: reopening the app shows the model picker instantly from the last fetched catalog while a background refresh revalidates it. Every new catalog client revalidates a persisted snapshot even within the 24-hour TTL; warm reads use the TTL, and opening Model Settings joins the refresh and updates the model list without resetting search or selection. A failed refresh keeps cached models visible and shows its error. With no persisted snapshot, the initial load waits for the API.
+The picker offers a searchable list of every OpenRouter model (deduped across provider endpoints, each summarised by its best provider under the current preset), and selecting a model reveals that model's provider rows with their own evidence. **The model and its provider are chosen together and committed together**: the pair is persisted per workspace + provider, the status bar names both halves, and the resolver pins the committed provider onto the request. A workspace whose stored choice predates the pair restores its model with the provider left unset rather than guessed. Catalog prices are served final: OpenRouter's endpoints API reports the price you actually pay, and its `discount` field is promo metadata rather than a multiplier. The catalog is **persisted in the app database** (scoped by provider and API source, so proxy/mock catalogs cannot overwrite the live catalog; legacy source-less snapshots are ignored) and served **stale-while-revalidate**: reopening the app shows the model picker instantly from the last fetched catalog while a background refresh revalidates it. Every new catalog client revalidates a persisted snapshot even within the 24-hour TTL; warm reads use the TTL, and opening Model Settings joins the refresh and updates the model list without resetting search or selection. A failed refresh keeps cached models visible and shows its error. With no persisted snapshot, the initial load waits for the API.
 
 The chosen model is pinned per session (the persisted `ModelUsed` record is the pin) — the model picker is the way to change models. The status bar always shows the model that will serve the next turn: the pick notice updates it when a choice lands, and a session that already carries a pin (resumed, or past its first turn) shows the pinned id from attach. The harness never substitutes a different model for the one you picked: if the chosen model cannot be served (its catalog context window is unknown), the turn fails with `Error [UnknownModelWindow]` instead of quietly running on another model. A session that has picked nothing names its default model explicitly, so the status bar and the model that actually runs are always the same model. Sub-agent spawns follow the session's model choice (unless the spawn names a model or a configured default applies); with no choice and no configured default, the provider's fallback model serves.
 
@@ -348,29 +358,6 @@ dotnet publish src/eThangAgent.Desktop -c Release -r win-x64 --self-contained fa
 - Unit tests use fakes only — a domain test never knows Roslyn, HTTP, or OpenRouter exist.
 - Integration tests exercise real ACL implementations; E2E tests drive the desktop app headless against a local mock provider server (OpenRouter-shaped).
 - Read `AGENTS.md` for architecture rules and conventions before writing code.
-
-### Live-model tests
-
-`tests/eThangAgent.LiveModel.Tests` is the one suite that drives the real composition against a **real free model** over the real provider wire. Every other suite uses fake providers, which is right — a fake is written by the same person who wrote the code under test — but it leaves the wire, the tool round trip, and the transcript's losslessness unexercised against a provider nobody here wrote.
-
-**Running it locally is opt-in and free of surprises.** The tests carry `[Trait("Category", "LiveModel")]` and skip at runtime when no key is configured, so a plain `dotnet test` stays offline:
-
-```powershell
-$env:OPENROUTER_API_KEY = 'sk-or-...'      # the only configuration needed
-dotnet test tests/eThangAgent.LiveModel.Tests/eThangAgent.LiveModel.Tests.csproj
-```
-
-Optional knobs: `ETHANG_LIVE_MODEL_BASE_URL` (point it at a proxy or a recording server) and `ETHANG_LIVE_MODEL_BUDGET_SECONDS` (per-turn wall-clock budget, default 240). An unconfigured run reports every test as skipped and exits 8 (Microsoft.Testing.Platform's "zero tests ran") — that is the expected offline signal, not a failure.
-
-**What it costs.** One catalog fetch (a per-model endpoint crawl, tens of seconds) plus up to four short sessions; a run takes roughly 1–2 minutes and roughly 40K free-model tokens in total. Free models queue, so a single transport fault (a 429, a timeout, a 5xx) is retried once; an assertion failure never is.
-
-**What it asserts — and why that is safe.** Only facts this repository controls: that the turn settles, that the usage ledger records non-zero input tokens and names the model that served it, that every assistant tool call has a matching persisted tool result, that a deliberately invalid call comes back as a typed `Error [Code]:` tool result, that a file-changing `exec` run emits `[exec: modified N workspace files]`, and that resume hydrates the persisted transcript. A weak model still produces a well-formed tool call; if any of the above breaks, the harness is broken.
-
-**The model is resolved, never hardcoded.** `BestFreeModelSelector` (Model Domain) ranks the live catalog's free models — both billable prices present and zero, text output, tool use, not a router — by coding, then intelligence, then agentic score with unmeasured models last. The suite **walks that ranked list** until a model actually serves, because the catalog cannot express everything: measured 2026-10-26, the best-scoring free model answers every request with HTTP 403 ("only available on agentic harnesses"). Each refusal is recorded and every failure message names the model that produced it.
-
-**Tier 2 records, it never fails.** Procedure measurements (did the model observe before mutating, verify after changing, hit the typed error, emit the change report) are written to `tier2-live-run.json` and compared against the committed `tier2-baseline.json`; a drop is printed, never asserted. CI uploads the artifact per run so the trend is visible without anyone remembering to look.
-
-**CI.** The `live-model` job is separate from `build-test-coverage`, is **never a required check**, skips with a notice when `OPENROUTER_API_KEY` is absent (a fork's PR), and is bounded by a 30-minute job timeout plus a 10-minute hang-dump breaker.
 
 ## Repository layout
 
