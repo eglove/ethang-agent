@@ -127,6 +127,58 @@ public class ModelSettingsModelSectionTests
     Assert.Equal("ProviderB", live.ProviderName); // applied to the live preferences
   }
 
+  [Fact]
+  public async Task Save_WithAVariantEndpoint_CarriesTheRoutingSlug_NotTheProviderName()
+  {
+    // A provider does not serve one endpoint: five grok-4.7 endpoints are all named "xAI" and
+    // differ in region, ZDR, tier, and price. Committing the NAME pins whichever variant the
+    // router prefers - the silent substitution the pin exists to prevent - so the save carries
+    // the SLUG. The picker's own confirm path always did; this path did not, and it is the one
+    // the Model Settings window actually uses.
+    SessionModelPreferences live = new();
+    ModelSettingsSnapshot? received = null;
+    ModelSettingsViewModel vm = new(
+        live, ProvidersOpenRouter, persist: s => received = s,
+        modelSection: new ModelSectionSeams(
+            Loader(Variant("alpha/model", "xAI", "xai"), Variant("alpha/model", "xAI", "xai/zdr/priority")),
+            CurrentModelId: "alpha/model", CurrentProviderName: "xai"));
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+    Assert.Equal("xai", vm.ModelSection!.SelectedProviderRow!.Ranked.Entry.RoutingSlug);
+
+    // The user moves to the ZDR variant of the same provider: same NAME, different endpoint.
+    vm.ModelSection.SelectedProviderRow = vm.ModelSection.ProviderRows
+        .First(row => row.Ranked.Entry.RoutingSlug == "xai/zdr/priority");
+    Assert.True(vm.TrySave(out string? error), error);
+
+    Assert.Equal(ModelChoiceKind.Pinned, received!.Model!.Kind);
+    Assert.Equal("xai/zdr/priority", received.Model.ProviderName);
+    Assert.Equal("xai/zdr/priority", live.ProviderName); // the slug, never the name
+  }
+
+  [Fact]
+  public async Task Save_WithAnUntouchedWindow_StaysUnchanged_EvenWhenTheLedgerRerenders()
+  {
+    // The rows are REBUILT whenever the rates are re-resolved - the catalog landing, then the
+    // ledger landing. Reference-equality on the row object therefore reported "changed" for a
+    // window nobody touched, turning an open-and-save into a Pinned write. Identity is the
+    // model id and the routing slug, which survive a re-render.
+    SessionModelPreferences live = new();
+    ModelSettingsSnapshot? received = null;
+    ModelSettingsViewModel vm = new(
+        live, ProvidersOpenRouter, persist: s => received = s,
+        modelSection: new ModelSectionSeams(
+            Loader(Entry("alpha/model"), Entry("beta/model")), CurrentModelId: "alpha/model",
+            LoadPerformance: _ => Task.FromResult(Result.Success(
+                ProviderPerformanceReport.Empty(UsageScope.Session)))));
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(vm.TrySave(out string? error), error);
+    Assert.Equal(ModelChoiceKind.Unchanged, received!.Model!.Kind);
+  }
+
+  private static ModelProviderEntry Variant(string modelId, string providerName, string slug) =>
+      Entry(modelId, providerName) with { Variant = new EndpointVariant(slug) };
+
   [Theory]
   [InlineData(false)]
   [InlineData(true)]

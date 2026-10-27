@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using eThangAgent.Desktop.ViewModels;
@@ -13,8 +14,8 @@ namespace eThangAgent.Desktop.Tests;
 ///     but the auto row).</summary>
 public class ModelSettingsWindowTests
 {
-  private static ModelProviderEntry Entry(string modelId) => new(
-      modelId, "ProviderA", 0.000003m, null, 0.000015m, 200_000, 8192,
+  private static ModelProviderEntry Entry(string modelId, string providerName = "ProviderA") => new(
+      modelId, providerName, 0.000003m, null, 0.000015m, 200_000, 8192,
       SupportsToolUse: true, SupportsVision: false, SupportsTextOutput: true,
       IntelligenceScore: null, CodingScore: null, AgenticScore: null, LatencyMs: null,
       ThroughputTokensPerSec: null, Description: null);
@@ -48,5 +49,55 @@ public class ModelSettingsWindowTests
     window.Close();
 
     _ = Assert.Single(vm.ModelSection!.FilteredRows); // the loaded entry
+  }
+
+  /// <summary>The window opens ON the pair the session is serving. The catalog load
+  ///     pre-selects it, then the ledger read lands and re-renders both levels — and that
+  ///     second render must not drop the selection the user is looking at.
+  ///     <para>Regression: the re-render swapped ItemsSource, the ListBox cleared its
+  ///     selection, the two-way binding wrote null back into the view-model, and the window
+  ///     opened with NO model highlighted and NO provider level at all — while the status
+  ///     bar beside it named the model and provider that were serving.</para></summary>
+  [AvaloniaFact]
+  public async Task TheWindow_OpensOnTheServedPair_EvenAfterTheLedgerLands()
+  {
+    ProviderPerformanceReport report = ProviderPerformanceReport.Empty(UsageScope.Session);
+    ModelSettingsViewModel vm = new(
+        new SessionModelPreferences(), "openrouter",
+        persist: _ => { },
+        modelSection: new ModelSectionSeams(
+            _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
+            [
+              Entry("alpha/model"),
+              Entry("zeta/model", "ProviderA"),
+              Entry("zeta/model", "ProviderB"),
+            ])),
+            CurrentModelId: "zeta/model",
+            CurrentProviderName: "ProviderB",
+            LoadPerformance: _ => Task.FromResult(Result.Success(report))));
+    Views.ModelSettingsWindow window = new(vm);
+
+    window.Show();
+    // Pump until the WHOLE load has landed: the catalog, the published rates, and then the
+    // ledger read that re-renders both levels. That last re-render is the one that used to
+    // drop the selection, so stopping at the first non-null selection would miss the defect.
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+    while (DateTimeOffset.UtcNow < deadline && vm.ModelSection!.IsLoading)
+    {
+      await Dispatcher.UIThread.InvokeAsync(() => { });
+    }
+    window.Close();
+
+    Assert.Equal("zeta/model", vm.ModelSection!.SelectedRow?.ModelId);
+    // The provider level renders for the served model, with the served endpoint selected -
+    // this is the half the user could not see at all.
+    Assert.True(vm.ModelSection.HasProviderRows);
+    Assert.Equal("ProviderB", vm.ModelSection.SelectedProviderRow?.ProviderName);
+    // ...and the list the user is looking at actually highlights it. The view-model state
+    // alone is not the claim: the defect was a binding round trip (ItemsSource swap -> the
+    // control clears its selection -> writes null back), so the control is where it has to
+    // be pinned.
+    ListBox list = window.FindControl<ListBox>("ModelList")!;
+    Assert.Same(vm.ModelSection.SelectedRow, list.SelectedItem);
   }
 }

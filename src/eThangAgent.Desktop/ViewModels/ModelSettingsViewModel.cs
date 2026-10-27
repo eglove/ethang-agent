@@ -643,8 +643,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     if (ModelSection is not null)
     {
       await ModelSection.LoadAsync();
-      _preselectedRow = ModelSection.SelectedRow;
-      _preselectedProviderName = ModelSection.SelectedProviderRow?.Ranked.Entry.ProviderName;
+      CapturePreselection();
     }
 
     if (_refreshCatalog is not null)
@@ -938,33 +937,48 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     </summary>
   private void ApplyCatalogRefresh(Result<IReadOnlyList<ModelProviderEntry>> refreshed)
   {
-    ModelPickerRow? before = ModelSection?.SelectedRow;
-    bool unchanged = ReferenceEquals(before, _preselectedRow);
+    string? before = ModelSection?.SelectedRow?.ModelId;
+    bool unchanged = string.Equals(before, _preselectedModelId, StringComparison.Ordinal);
     ModelSection?.ApplyRefresh(refreshed);
     if (unchanged)
     {
-      _preselectedRow = ModelSection?.SelectedRow;
-      _preselectedProviderName = ModelSection?.SelectedProviderRow?.Ranked.Entry.ProviderName;
+      CapturePreselection();
     }
   }
 
-  /// <summary>The model choice the save carries, derived from the section: no
-  ///     section, or no row picked, means Unchanged; the auto row means Auto;
-  ///     any other selected row means Pinned with its model id. Derived at save
-  ///     time — the picker view-model keeps no separate dirty flag.</summary>
-  /// <summary>The row the section pre-selected when it loaded: the session's live
-  ///     choice, or the auto row when no choice is pinned and the provider offers
-  ///     automatic resolution. A save with this row still selected carries
-  ///     Unchanged — the user opened the window and changed nothing.</summary>
-  private ModelPickerRow? _preselectedRow;
+  /// <summary>Records the pair the section is showing as the one it opened on, so a save
+  ///     that still has it selected carries Unchanged. Called once after the load, and again
+  ///     after a catalog refresh that did not move the selection.</summary>
+  private void CapturePreselection()
+  {
+    _preselectedModelId = ModelSection?.SelectedRow?.ModelId;
+    _preselectedProviderSlug = ModelSection?.SelectedProviderRow?.Ranked.Entry.RoutingSlug;
+  }
+
+  /// <summary>The MODEL ID the section pre-selected when it loaded: the session's live
+  ///     choice. A save that still has this model selected carries Unchanged — the user
+  ///     opened the window and changed nothing.
+  ///     <para>IDENTITY IS THE MODEL ID, NOT THE ROW OBJECT. The rows are rebuilt whenever
+  ///     the rates are re-resolved (the catalog landing, then the ledger landing, then a
+  ///     refresh), so reference equality reported "changed" for a window nobody touched and
+  ///     turned an untouched open-and-save into a Pinned write. The id is what the choice
+  ///     actually is.</para></summary>
+  private string? _preselectedModelId;
 
   /// <summary>The provider the section pre-selected when it loaded (issue #296, D7).
   ///     <para>THE PAIR IS THE DECISION, so "nothing changed" must mean BOTH halves are
   ///     unchanged. A user who keeps the model and switches the provider has made a real
   ///     choice, and reporting it as Unchanged would silently discard it - the same class of
-  ///     defect as a status line naming a provider the request never pinned.</para></summary>
-  private string? _preselectedProviderName;
+  ///     defect as a status line naming a provider the request never pinned.</para>
+  ///     <para>It carries the ROUTING SLUG, not the provider name: a provider does not serve
+  ///     one endpoint, so the name pins whichever variant the router prefers. The picker's
+  ///     own confirm path already commits the slug; this path committed the name and quietly
+  ///     re-opened the substitution the pin exists to prevent.</para></summary>
+  private string? _preselectedProviderSlug;
 
+  /// <summary>The model choice the save carries, derived from the section: no section, or no
+  ///     row picked, means Unchanged; any other selected row means Pinned with its pair.
+  ///     Derived at save time — the picker view-model keeps no separate dirty flag.</summary>
   private ModelChoice ModelChoiceFromSection()
   {
     if (ModelSection?.SelectedRow is not { } row)
@@ -972,12 +986,12 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       return ModelChoice.Unchanged; // nothing picked — the shell's model state is untouched
     }
 
-    string? providerName = ModelSection.SelectedProviderRow?.Ranked.Entry.ProviderName;
-    bool sameModel = ReferenceEquals(row, _preselectedRow);
-    bool sameProvider = string.Equals(providerName, _preselectedProviderName, StringComparison.Ordinal);
+    string? providerSlug = ModelSection.SelectedProviderRow?.Ranked.Entry.RoutingSlug;
+    bool sameModel = string.Equals(row.ModelId, _preselectedModelId, StringComparison.Ordinal);
+    bool sameProvider = string.Equals(providerSlug, _preselectedProviderSlug, StringComparison.Ordinal);
     return sameModel && sameProvider
         ? ModelChoice.Unchanged // opened on this pair, still on it
-        : ModelChoice.Pinned(row.ModelId!, providerName);
+        : ModelChoice.Pinned(row.ModelId!, providerSlug);
   }
 
   /// <summary>The all-or-nothing save: validate every knob, then apply to the

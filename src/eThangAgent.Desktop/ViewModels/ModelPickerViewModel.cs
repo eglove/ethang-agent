@@ -425,8 +425,21 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     rows.AddRange(needle.Length == 0
         ? ModelRows
         : ModelRows.Where(r => r.ModelId!.Contains(needle, StringComparison.OrdinalIgnoreCase)));
+    // The selection is captured BEFORE the list identity changes: the bound list control
+    // drops its selection when ItemsSource is replaced and writes null straight back into
+    // SelectedRow (synchronously, inside the notification below).
+    ModelPickerRow? keep = SelectedRow;
     FilteredRowsList = rows;
     OnPropertyChanged(nameof(FilteredRows));
+    // ...so it is re-resolved AFTER, by MODEL ID (the row objects are new: their details
+    // were re-rendered from the rates just resolved). Without this the window opened with
+    // nothing selected - the catalog load pre-selected the served model, the ledger read
+    // then re-rendered the level and silently dropped it, so the provider level never
+    // appeared and a save reported Unchanged for a pair the user could not see. This is
+    // the same restore-by-key rule RebuildProviderRows already follows for its level.
+    SelectedRow = keep is null
+        ? null
+        : rows.FirstOrDefault(row => row.ModelId == keep.ModelId);
   }
 
   /// <summary>The model level, deduped by model id. Each row is summarised by its best
