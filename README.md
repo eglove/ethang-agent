@@ -163,11 +163,11 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   what enters the request's context. The **Sampling** section carries the twelve knobs
   (top-p, top-k, frequency/presence/repetition penalties, min-p, top-a,
   seed, temperature and max-tokens caps as text fields; verbosity, parallel tool
-  calls and the fixed-vocabulary routing/plugin fields as dropdowns over the
-  provider-documented values); the OpenRouter section adds provider routing,
-  the ten wired server tools, plugins, and loop budgets.
-  Choices apply from the next turn, root and children alike, and are persisted per
-  workspace + provider — no config files
+  calls and the fixed-vocabulary plugin fields as dropdowns over the
+  provider-documented values); the OpenRouter section adds
+  the ten wired server tools, plugins, and loop budgets. Provider ROUTING is gone:
+  the user picks one model/provider pair in the picker, and that pin is the whole
+  routing decision.
 - **Reasoning summary is a display knob, not a context one** — the Model Settings window's
   summary selector rides the request's `reasoning.summary` member (independent of effort:
   either can be set alone, and both together emit one well-formed object), so the provider

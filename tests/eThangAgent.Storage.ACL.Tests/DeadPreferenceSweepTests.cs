@@ -106,6 +106,63 @@ public sealed class DeadPreferenceSweepTests : IDisposable
     Assert.Contains("smart_selection:x", message, StringComparison.Ordinal);
     Assert.Contains("subagent_remote_host", message, StringComparison.Ordinal);
   }
+  [Fact]
+  public async Task Sweep_Strips_A_Dead_Member_But_Keeps_The_Live_Row()
+  {
+    // ROUTING IS DELETED, but provider_settings:* survives because it still carries
+    // server_tools, plugins, and reasoning_summary. A whole-key sweep would destroy settings
+    // the user still wants, so the dead member is stripped from the JSON in place and the
+    // row is reported as '<key>#<member>'.
+    CancellationToken ct = TestContext.Current.CancellationToken;
+    const string key = "provider_settings:openrouter:C:\\ws\\a";
+    _ = await _store.SetAsync(key,
+        /*lang=json,strict*/"""{"routing":{"data_collection":"deny"},"server_tools":{"openrouter:web_search":true}}""", ct);
+
+    Result<IReadOnlyList<string>> swept = await DeadPreferenceSweep.SweepAsync(_db, ct);
+
+    Assert.True(swept.IsSuccess, $"[{swept.Error?.Code}] {swept.Error?.Message}");
+    Assert.Equal([key + "#routing"], swept.Value);
+
+    string? stored = await _store.GetAsync(key, ct);
+    Assert.NotNull(stored);
+    // The dead member is gone; the live section is untouched.
+    Assert.DoesNotContain("routing", stored, StringComparison.Ordinal);
+    Assert.Contains("openrouter:web_search", stored, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Sweep_Leaves_An_Unparseable_Payload_Alone()
+  {
+    // Corrupt storage is an infrastructure fault, not something a startup cleanup should
+    // rewrite: a rewrite would destroy the evidence a human needs to diagnose it.
+    CancellationToken ct = TestContext.Current.CancellationToken;
+    const string key = "provider_settings:openrouter:C:\\ws\\broken";
+    _ = await _store.SetAsync(key, "{not json", ct);
+
+    Result<IReadOnlyList<string>> swept = await DeadPreferenceSweep.SweepAsync(_db, ct);
+
+    Assert.True(swept.IsSuccess, $"[{swept.Error?.Code}] {swept.Error?.Message}");
+    Assert.Empty(swept.Value);
+    Assert.Equal("{not json", await _store.GetAsync(key, ct));
+  }
+
+  [Fact]
+  public async Task Sweep_Leaves_A_Payload_With_No_Dead_Member_Unrewritten()
+  {
+    // A clean row must not be rewritten at all - a no-op write would move updated_at and
+    // report a change that never happened.
+    CancellationToken ct = TestContext.Current.CancellationToken;
+    const string key = "provider_settings:openrouter:C:\\ws\\clean";
+    const string payload = /*lang=json,strict*/"""{"server_tools":{"openrouter:web_search":true}}""";
+    _ = await _store.SetAsync(key, payload, ct);
+
+    Result<IReadOnlyList<string>> swept = await DeadPreferenceSweep.SweepAsync(_db, ct);
+
+    Assert.True(swept.IsSuccess, $"[{swept.Error?.Code}] {swept.Error?.Message}");
+    Assert.Empty(swept.Value);
+    Assert.Equal(payload, await _store.GetAsync(key, ct));
+  }
+
 
   [Fact]
   public async Task Sweep_Leaves_The_Rest_Of_The_Database_Intact()

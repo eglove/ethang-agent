@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Nodes;
 using eThangAgent.SharedKernel;
 using Microsoft.Data.Sqlite;
 
@@ -95,6 +96,11 @@ public static class DeadPreferenceSweep
         _ = await delete.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       }
 
+      // MEMBER-LEVEL sweep for a payload whose CONTAINER survives (routing removal):
+      // the row stays because it still carries live sections, so the dead member is
+      // stripped from the JSON in place and the key is reported as '<key>#routing'.
+      await StripDeadMembersAsync(connection, transaction, removed, ct).ConfigureAwait(false);
+
       await transaction.CommitAsync(ct).ConfigureAwait(false);
       return Result.Success<IReadOnlyList<string>>(removed);
     }
@@ -107,6 +113,101 @@ public static class DeadPreferenceSweep
       return Result.Failure<IReadOnlyList<string>>(
           new DomainError("DeadPreferenceSweepFailed", ex.Message));
     }
+  }
+
+  /// <summary>The payload MEMBERS whose feature is deleted, keyed by the preference-key
+  ///     prefix whose JSON carries them.
+  ///     <para>THIS IS NOT A KEY DELETE: the container row SURVIVES because it still carries
+  ///     live sections (server_tools, plugins, reasoning_summary), so a whole-key sweep would
+  ///     destroy settings the user still wants. Only the named member is stripped.</para>
+  ///     <para><c>provider_settings:*#routing</c> - OpenRouter provider routing was DELETED
+  ///     (the user now picks one model/provider pair instead of configuring routing). A stored
+  ///     payload still carrying <c>routing</c> is not merely dead weight: it was the OTHER
+  ///     writer of the request's <c>provider</c> key, so leaving it would describe a request
+  ///     the harness can no longer make.</para></summary>
+  public static IReadOnlyDictionary<string, IReadOnlyList<string>> DeadMembersByKeyPrefix { get; } =
+      new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+      {
+        ["provider_settings:"] = ["routing"],
+      };
+
+  /// <summary>Strips every dead member from the JSON payload of each matching preference row,
+  ///     reporting each strip as <c>&lt;key&gt;#&lt;member&gt;</c>. A row whose JSON is
+  ///     unparseable, or whose payload is not an object, is LEFT ALONE and reported - corrupt
+  ///     storage is an infrastructure fault, and a cleanup that rewrote it would destroy
+  ///     evidence a human needs.</summary>
+  private static async Task StripDeadMembersAsync(SqliteConnection connection,
+      SqliteTransaction transaction, List<string> removed, CancellationToken ct)
+  {
+    foreach ((string prefix, IReadOnlyList<string> members) in DeadMembersByKeyPrefix)
+    {
+      List<(string Key, string Json)> rows = [];
+      using (SqliteCommand select = connection.CreateCommand())
+      {
+        select.Transaction = transaction;
+        select.CommandText = "SELECT key, value FROM app_preferences WHERE key LIKE $value ESCAPE '\\' ORDER BY key;";
+        _ = select.Parameters.AddWithValue("$value", EscapeLike(prefix) + "%");
+        using SqliteDataReader reader = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+          rows.Add((reader.GetString(0), reader.GetString(1)));
+        }
+      }
+
+      foreach ((string key, string json) in rows)
+      {
+        if (StripMembers(json, members) is not { } stripped)
+        {
+          continue;
+        }
+
+        using SqliteCommand update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = "UPDATE app_preferences SET value = $value, updated_at = $at WHERE key = $key;";
+        _ = update.Parameters.AddWithValue("$value", stripped.Json);
+        _ = update.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        _ = update.Parameters.AddWithValue("$key", key);
+        _ = await update.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        removed.AddRange(stripped.RemovedMembers.Select(member => key + "#" + member));
+      }
+    }
+  }
+
+  /// <summary>Removes the named members from one JSON object payload. Returns null when
+  ///     nothing was removed (so a clean row is never rewritten), or the stripped JSON plus
+  ///     the member names actually removed. Unparseable JSON or a non-object payload returns
+  ///     null and leaves the row untouched.</summary>
+  private static (string Json, IReadOnlyList<string> RemovedMembers)? StripMembers(
+      string json, IReadOnlyList<string> members)
+  {
+    JsonNode? node;
+    try
+    {
+      node = JsonNode.Parse(json);
+    }
+    // Named decision (CA1031): a cleanup must not crash startup on corrupt storage; the
+    // unparseable row is simply left as-is for a human to inspect.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+#pragma warning restore CA1031
+    {
+      return null;
+    }
+
+    if (node is not JsonObject payload)
+    {
+      return null;
+    }
+
+    // Remove() returns true only when the member existed, so it doubles as the filter:
+    // the list ends up holding exactly the members this payload actually carried.
+    List<string> removedMembers = [];
+    foreach (string member in members.Where(payload.Remove))
+    {
+      removedMembers.Add(member);
+    }
+
+    return removedMembers.Count == 0 ? null : (payload.ToJsonString(), removedMembers);
   }
 
   /// <summary>The one-line log message for a completed sweep: silent when nothing was

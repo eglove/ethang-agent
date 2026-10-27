@@ -46,6 +46,19 @@ public sealed record ModelResponse(
   ///     intention into a claim about what served — issue #292's B3 forbids exactly that.</para></summary>
   public string? ServedProvider { get; init; }
 
+  /// <summary>The capacity tier the provider reported as having ACTUALLY served this response
+  ///     (default, flex, priority, ultrafast), or null when it reported none.
+  ///     <para>THE ONLY SMOKE TEST FOR A TIER PIN. A user who pins <c>deepinfra/fp8/flex</c>
+  ///     states an intention; the request body carries it, and until this member existed
+  ///     nothing confirmed the flex endpoint served the call. OpenRouter's service-tiers docs
+  ///     state the response "includes a service_tier field that indicates which capacity tier
+  ///     was actually used", returned at the TOP LEVEL of the Responses API response object.</para>
+  ///     <para>NULL IS A REAL ANSWER: the docs define null as "no service tier is available
+  ///     from upstream", so an absent member reads as unreported. Never fabricate it from the
+  ///     request's requested tier — a pin is an intention, and copying it here would repeat the
+  ///     exact mistake <see cref="ServedProvider"/> exists to prevent.</para></summary>
+  public string? ServedServiceTier { get; init; }
+
   /// <summary>How long the provider call took, in whole milliseconds, measured around the
   ///     call itself — request dispatch to response settled — or null when nothing measured
   ///     it (issue #292).

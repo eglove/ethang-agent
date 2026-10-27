@@ -359,6 +359,9 @@ public static class ResponsesApiStreamCore
       // The same shared reader the non-streaming path uses, so the two cannot disagree
       // about whether the provider named one (issue #292).
       state.ServedProvider = ResponsesApiRequestCore.ParseServedProvider(response);
+      // The tier that ACTUALLY served the stream — the smoke test for a tier pin, read by the
+      // same shared reader as the non-streaming path so the two cannot disagree.
+      state.ServedServiceTier = ResponsesApiRequestCore.ParseServiceTier(response);
       state.FinishReason = ParseTerminalFinishReason(response, state.ToolCalls.Count > 0);
     }
   }
@@ -503,6 +506,12 @@ public static class ResponsesApiStreamCore
     ///     is the ordinary answer and never a guess inherited from the request.</summary>
     internal string? ServedProvider { get; set; }
 
+    /// <summary>The capacity tier the terminal event reported as having actually served this
+    ///     stream (default, flex, priority, ultrafast), or null when it reported none. Null is
+    ///     a real answer — the docs state null means no tier was available upstream — and it is
+    ///     never inherited from the request's requested tier.</summary>
+    internal string? ServedServiceTier { get; set; }
+
     /// <summary>Milliseconds from the stream's first read to its first delta, or null when
     ///     the stream carried no delta at all (issue #292). Stamped once — the FIRST delta is
     ///     the responsiveness a user feels, and every later one would only measure the
@@ -534,6 +543,7 @@ public static class ResponsesApiStreamCore
       // is evaluated in the enclosing scope), which is the value the terminal event set.
       ServedModelId = ServedModelId,
       ServedProvider = ServedProvider,
+      ServedServiceTier = ServedServiceTier,
       FirstTokenMs = FirstTokenMs,
     };
   }

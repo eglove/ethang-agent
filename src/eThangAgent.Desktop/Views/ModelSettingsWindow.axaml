@@ -129,31 +129,9 @@
           </ItemsControl.ItemTemplate>
         </ItemsControl>
 
-        <!-- OpenRouter-only: routing, server tools, plugins, budgets. Collapsed
+        <!-- OpenRouter-only: server tools, plugins, budgets. Collapsed
              entirely on non-OpenRouter sessions; a save then persists null. -->
         <StackPanel IsVisible="{Binding ShowOpenRouterSection}" Spacing="8">
-          <TextBlock Text="OpenRouter routing" FontWeight="SemiBold"/>
-          <StackPanel Spacing="4">
-            <TextBlock Text="Provider order (comma-separated)" FontSize="12" Opacity="0.75"/>
-            <TextBox Text="{Binding Routing.OrderText}"/>
-            <TextBlock Text="Only these providers (comma-separated)" FontSize="12" Opacity="0.75"/>
-            <TextBox Text="{Binding Routing.OnlyText}"/>
-            <TextBlock Text="Ignore these providers (comma-separated)" FontSize="12" Opacity="0.75"/>
-            <TextBox Text="{Binding Routing.IgnoreText}"/>
-            <CheckBox Content="Allow fallbacks" IsChecked="{Binding Routing.AllowFallbacks}"/>
-            <TextBlock Text="Sort" FontSize="12" Opacity="0.75"/>
-            <ComboBox ItemsSource="{Binding Routing.SortChoices}" SelectedItem="{Binding Routing.SelectedSort}"
-                      DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
-            <TextBlock Text="Quantizations (comma-separated)" FontSize="12" Opacity="0.75"/>
-            <TextBox Text="{Binding Routing.QuantizationsText}"/>
-            <CheckBox Content="Require parameters" IsChecked="{Binding Routing.RequireParameters}"/>
-            <TextBlock Text="Data collection" FontSize="12" Opacity="0.75"/>
-            <ComboBox ItemsSource="{Binding Routing.DataCollectionChoices}" SelectedItem="{Binding Routing.SelectedDataCollection}"
-                      DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
-            <TextBlock Text="Models fallback chain (comma-separated)" FontSize="12" Opacity="0.75"/>
-            <TextBox Text="{Binding Routing.ModelsText}"/>
-</StackPanel>
-
           <TextBlock Text="Server-side tools" FontWeight="SemiBold" Margin="0,8,0,0"/>
           <ItemsControl ItemsSource="{Binding ToolToggles}" Margin="0,-8,0,0">
             <ItemsControl.ItemTemplate>

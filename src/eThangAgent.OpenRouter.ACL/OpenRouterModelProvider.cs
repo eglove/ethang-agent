@@ -38,7 +38,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   /// <summary>OpenRouter's session_id length limit (256 characters), enforced at the
   ///     request boundary: a longer id is a named failure, never a truncated key.</summary>
   private const int MaxSessionIdCharacters = 256;
-  private static readonly Routing EmptyRouting = new();
 
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly OpenRouterConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -330,37 +329,18 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     return null;
   }
 
-  /// <summary>The OR-side request settings (routing, server-side tools, plugins,
-  ///     budgets) reach the wire here. Server-tool entries lead the tools array so
-  ///     user-defined tools follow; enabled plugins ride the "plugins" array. Default
-  ///     sections contribute zero keys, so a default ProviderSettings leaves the body
-  ///     unchanged. Returns the fault when the stop conditions are malformed.
-  ///     <para>ROUTING AND A PIN SHARE ONE KEY, SO THEY CANNOT BOTH WIN (issue #297, D3). This
-  ///     method used to OVERWRITE the pin with the routing object without a word, so a session
-  ///     with <c>data_collection: deny</c> configured silently discarded the provider the user
-  ///     committed. Silently preferring either one is the defect #297 exists to close, so the
-  ///     combination is now a NAMED failure naming both sides; the user resolves it by
-  ///     disabling routing or clearing the pin. The rule is deliberately strict — a routing
-  ///     that merely RESTATES the pin is still a conflict, because the routing object replaces
-  ///     the whole pin (including its <c>allow_fallbacks: false</c>), and a compatibility check
-  ///     guessing which routings are 'harmless' would be a second, silent preference rule.
-  ///     </para></summary>
+  /// <summary>The OR-side request settings (server-side tools, plugins, budgets)
+  ///     reach the wire here. Server-tool entries lead the tools array so user-defined
+  ///     tools follow; enabled plugins ride the "plugins" array. Default sections
+  ///     contribute zero keys, so a default ProviderSettings leaves the body unchanged.
+  ///     Returns the fault when the stop conditions are malformed.
+  ///     <para>THE PROVIDER PIN IS THE ONLY THING THAT WRITES body["provider"] (issue #297,
+  ///     D2): routing is deleted, so nothing competes with the pin for that key. The user
+  ///     chooses one model/provider pair in Model Settings and that pair either serves or
+  ///     the call fails - there is no routing object left to silently replace it.</para></summary>
   private static DomainError? ApplyProviderSettings(Dictionary<string, object?> bodyDict,
       OpenRouterRequestSettings? settings, ModelRequest request, ModelConfig config)
   {
-    if (settings?.Routing is { } routing && routing != EmptyRouting)
-    {
-      if (!string.IsNullOrWhiteSpace(config.Provider))
-      {
-        return new DomainError("ProviderRoutingConflict",
-            $"provider '{config.Provider}' is pinned but provider routing is configured ({DescribeRouting(routing)}); "
-            + "routing replaces the pin, so the request would not be served by the chosen provider. "
-            + "Disable provider routing in Model Settings or clear the provider choice, then send the turn again.");
-      }
-
-      bodyDict["provider"] = RoutingBody(routing);
-    }
-
     if (settings?.ServerTools.MaxToolCalls is { } maxToolCalls)
     {
       bodyDict["max_tool_calls"] = maxToolCalls;
@@ -597,78 +577,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       return Result.Failure<OpenRouterRequestSettings?>(new DomainError("InvalidProviderSettings",
           $"Malformed OpenRouter provider settings: {ex.Message}"));
     }
-  }
-
-  /// <summary>Renders the configured routing members for the conflict error, so the message
-  ///     names what the user must change instead of saying only that something conflicts.
-  ///     Built from the SAME wire body the request would have carried, so the description can
-  ///     never disagree with what routing would have sent.</summary>
-  private static string DescribeRouting(Routing routing)
-      => string.Join(", ", RoutingBody(routing).Select(member =>
-          $"{member.Key}={RenderValue(member.Value)}"));
-
-  /// <summary>A routing member's value as the error text shows it: arrays in brackets, scalars
-  ///     verbatim. Null members never reach here (RoutingBody omits them).</summary>
-  private static string RenderValue(object? value) => value switch
-  {
-    null => string.Empty,
-    string text => text,
-    System.Collections.IEnumerable items => "[" + string.Join(", ", items.Cast<object?>().Select(RenderValue)) + "]",
-    _ => value.ToString() ?? string.Empty,
-  };
-
-  /// <summary>The full routing object for body["provider"]: every non-null member under
-  ///     its snake_case wire key, matching the T3 serializer's routing section shape;
-  ///     null members are emitted only when present.</summary>
-  private static Dictionary<string, object?> RoutingBody(Routing routing)
-  {
-    Dictionary<string, object?> body = [];
-    if (routing.Order is { } order)
-    {
-      body["order"] = order;
-    }
-
-    if (routing.Only is { } only)
-    {
-      body["only"] = only;
-    }
-
-    if (routing.Ignore is { } ignore)
-    {
-      body["ignore"] = ignore;
-    }
-
-    if (routing.AllowFallbacks is { } allowFallbacks)
-    {
-      body["allow_fallbacks"] = allowFallbacks;
-    }
-
-    if (routing.Sort is { } sort)
-    {
-      body["sort"] = sort;
-    }
-
-    if (routing.Quantizations is { } quantizations)
-    {
-      body["quantizations"] = quantizations;
-    }
-
-    if (routing.RequireParameters is { } requireParameters)
-    {
-      body["require_parameters"] = requireParameters;
-    }
-
-    if (routing.DataCollection is { } dataCollection)
-    {
-      body["data_collection"] = dataCollection;
-    }
-
-    if (routing.Models is { } models)
-    {
-      body["models"] = models;
-    }
-
-    return body;
   }
 
   /// <summary>The wire entries for the enabled server tools, in declared order: each

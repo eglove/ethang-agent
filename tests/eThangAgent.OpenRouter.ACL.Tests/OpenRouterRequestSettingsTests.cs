@@ -51,16 +51,6 @@ public class OpenRouterRequestSettingsTests
 
   private static OpenRouterRequestSettings FullyPopulated() => new()
   {
-    Routing = new Routing(
-      Order: ["openai/gpt-5", "anthropic/claude-sonnet-4.5"],
-      Only: ["openai"],
-      Ignore: ["google"],
-      AllowFallbacks: false,
-      Sort: "price",
-      Quantizations: ["int4", "int8"],
-      RequireParameters: true,
-      DataCollection: "deny",
-      Models: ["openai/gpt-5"]),
     ServerTools = new ServerTools(
       WebSearch: true,
       WebFetch: true,
@@ -277,7 +267,6 @@ public class OpenRouterRequestSettingsTests
   {
     OpenRouterRequestSettings original = new()
     {
-      Routing = new Routing(Sort: "price"),
       ReasoningSummary = summary,
     };
 

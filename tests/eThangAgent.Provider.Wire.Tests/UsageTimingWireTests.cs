@@ -141,6 +141,71 @@ public class UsageTimingWireTests
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.ServedProvider);
   }
+  [Fact]
+  public void ParseResponse_BodyReportsFlexServiceTier_CapturesItVerbatim()
+  {
+    // THE FLEX SMOKE TEST. A session that pins deepinfra/fp8/flex states an INTENTION in the
+    // request; the response's top-level service_tier is the only fact the wire returns about
+    // which capacity tier actually served it. OpenRouter's service-tiers docs: the Responses
+    // API returns service_tier "at the top level of the response object".
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
+        JsonDocument.Parse(
+            /*lang=json,strict*/"""{"model":"m","service_tier":"flex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
+            .RootElement);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("flex", result.Value.ServedServiceTier);
+  }
+
+  [Fact]
+  public void ParseResponse_NoServiceTier_ServedServiceTierStaysNull()
+  {
+    // The docs define null as "no service tier is available from upstream", so an absent
+    // member reads as unreported. It must NEVER be backfilled from the request's requested
+    // tier: a pin is an intention, and copying it here would fabricate the attribution this
+    // member exists to make honest (the same rule ServedProvider follows).
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
+        JsonDocument.Parse(
+            /*lang=json,strict*/"""{"model":"m","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
+            .RootElement);
+
+    Assert.True(result.IsSuccess);
+    Assert.Null(result.Value.ServedServiceTier);
+  }
+
+  [Fact]
+  public void ParseResponse_NullServiceTier_ReadsAsUnreported()
+  {
+    // An explicit JSON null is the shape a standard-tier call actually returns, and it means
+    // the same thing as absence: no tier information. It is not the string "null".
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
+        JsonDocument.Parse(
+            /*lang=json,strict*/"""{"model":"m","service_tier":null,"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
+            .RootElement);
+
+    Assert.True(result.IsSuccess);
+    Assert.Null(result.Value.ServedServiceTier);
+  }
+
+  [Fact]
+  public async Task ReadSseStreamAsync_TerminalReportsServiceTier_CapturesItVerbatim()
+  {
+    // The streaming path must agree with the non-streaming one - both read the same response
+    // object through the same shared reader.
+    Result<ModelResponse> result = await ReadAsync(
+        """
+        data: {"type":"response.output_text.delta","delta":"Hi"}
+
+        data: {"type":"response.completed","response":{"status":"completed","service_tier":"flex"}}
+
+        data: [DONE]
+
+        """);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("flex", result.Value.ServedServiceTier);
+  }
+
 
   [Fact]
   public async Task ReadSseStreamAsync_TerminalNamesProvider_CapturesItVerbatim()

@@ -134,86 +134,40 @@ public class OpenRouterModelProviderRequestTests
   }
 
   [Fact]
-  public async Task Body_RoutingWithoutAPin_ReachesTheWire()
+  public async Task Body_ALegacyRoutingPayload_IsIgnored_AndThePinStillWins()
   {
-    // Issue #297, D3: routing still owns the "provider" key when NOTHING is pinned - the
-    // conflict rule only fires for a real pin. This test used to be
-    // Body_RoutingReplacesProviderObject and PINNED THE BUG: it asserted that a configured
-    // routing silently discarded a committed provider pin. The override is now a named
-    // failure (the test below), so the honest case is routing with no pin at all.
-    OpenRouterRequestSettings settings = new()
-    {
-      Routing = new Routing(Order: ["a", "b"], Sort: "price", AllowFallbacks: false)
-    };
-    string body = await CaptureBodyAsync(WithSettings(settings)).ConfigureAwait(true);
+    // ROUTING IS DELETED. The user now commits ONE model/provider pair and nothing else
+    // writes the request's "provider" key. The risk this test guards is the transition:
+    // persisted ProviderSettings written before the removal still carry a "routing"
+    // object, and OpenRouterRequestSettings skips unknown members on read - so an old
+    // payload must not resurrect routing behaviour, and it must never win over the pin.
+    OpenRouterRequestSettings settings = OpenRouterRequestSettings.Parse(
+        /*lang=json,strict*/"""{"routing":{"data_collection":"deny","only":["someone-else"]}}""")!;
+    string body = await CaptureBodyAsync(WithSettings(settings, provider: "deepinfra/fp8/flex"))
+        .ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);
     JsonElement provider = doc.RootElement.GetProperty("provider");
-    string[] order = [.. provider.GetProperty("order").EnumerateArray().Select(e => e.GetString()!)];
-    Assert.Equal(["a", "b"], order);
-    Assert.Equal("price", provider.GetProperty("sort").GetString());
+    // The pin is the ONLY content of the provider object: no order, sort, only-override,
+    // quantizations, or data_collection survived from the dead payload.
+    Assert.Equal(
+        ["allow_fallbacks", "only"],
+        provider.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
+    Assert.Equal("deepinfra/fp8/flex", Assert.Single(provider.GetProperty("only").EnumerateArray()).GetString());
     Assert.False(provider.GetProperty("allow_fallbacks").GetBoolean());
-    Assert.False(provider.TryGetProperty("only", out _));
   }
 
   [Fact]
-  public async Task Body_RoutingWithALockedProvider_IsANamedConflict_AndSendsNothing()
+  public async Task Body_NoPinAndNoRouting_SendsNoProviderObjectAtAll()
   {
-    // Issue #297, D3/B3: routing and a pin share one JSON key, so one of them used to lose
-    // silently. The turn now fails with a typed error naming BOTH sides and no request is
-    // sent - a request that quietly dropped the pin would be served by a provider the user
-    // did not choose, which is the substitution this whole feature refuses.
-    OpenRouterRequestSettings settings = new()
-    {
-      Routing = new Routing(DataCollection: "deny")
-    };
-    int requests = 0;
-    FakeHttpMessageHandler handler = new(_ =>
-    {
-      requests++;
-      return Task.FromResult(Wire.Ok());
-    });
-    using HttpClient http = new(handler);
-    OpenRouterModelProvider provider = new(http, Config);
-
-    Result<ModelResponse> result = await provider.SendAsync(
-        WithSettings(settings, provider: "DeepInfra"),
-        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken).ConfigureAwait(true);
-
-    Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderRoutingConflict", result.Error.Code);
-    Assert.Contains("DeepInfra", result.Error.Message, StringComparison.Ordinal);
-    Assert.Contains("data_collection=deny", result.Error.Message, StringComparison.Ordinal);
-    Assert.Equal(0, requests);
-  }
-
-  [Fact]
-  public async Task Body_RoutingRestatingThePin_IsStillAConflict()
-  {
-    // A routing whose `only` names the pinned provider is NOT waved through: the routing
-    // object replaces the whole pin, including its allow_fallbacks:false, so 'compatible'
-    // would be a second silent preference rule deciding which routings are harmless.
-    OpenRouterRequestSettings settings = new()
-    {
-      Routing = new Routing(Only: ["DeepInfra"])
-    };
-
-    Result<ModelResponse> result = await SendAsync(WithSettings(settings, provider: "DeepInfra"))
+    // With routing gone, a session that pinned nothing sends NO provider key: the
+    // provider's own load balancing decides. This is the state the settings dialog now
+    // produces for a user who never picked a provider row.
+    string body = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings()))
         .ConfigureAwait(true);
 
-    Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderRoutingConflict", result.Error.Code);
-  }
-
-  /// <summary>Sends one request and returns the provider's Result, for the failure paths that
-  ///     never reach the wire.</summary>
-  private static async Task<Result<ModelResponse>> SendAsync(ModelConfig config)
-  {
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Ok()));
-    using HttpClient http = new(handler);
-    OpenRouterModelProvider provider = new(http, Config);
-    return await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    using JsonDocument doc = JsonDocument.Parse(body);
+    Assert.False(doc.RootElement.TryGetProperty("provider", out _));
   }
 
   [Fact]

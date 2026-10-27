@@ -4,26 +4,20 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.OpenRouter.ACL;
 
-/// <summary>Typed OpenRouter-side request settings: provider routing, the eleven
+/// <summary>Typed OpenRouter-side request settings: the eleven
 ///     server-side tools available on the responses API, plugins, and server-tool budgets, as one record the ACL
 ///     serializes to the opaque ProviderSettings JSON the Model Domain carries
 ///     (never exposed as a type outside this project). All members are optional;
 ///     disabled toggles and unset members are omitted, so the serialized form of an
 ///     all-default instance is the empty JSON object.</summary>
-/// <remarks>The section records (Routing, ServerTools, Plugins) live beside this
+/// <remarks>The section records (ServerTools, Plugins) live beside this
 ///     record at namespace level rather than nested inside it: C# forbids a nested
 ///     type and a same-named property in one declaring type, and the outer record's
-///     Routing / ServerTools / Plugins properties and the type names are both part
+///     ServerTools / Plugins properties and the type names are both part
 ///     of this record's fixed surface.</remarks>
 [JsonConverter(typeof(WireConverter))]
 public sealed record OpenRouterRequestSettings
 {
-  /// <summary>Routing preferences for OpenRouter's provider routing: ordering,
-  ///     inclusion, exclusion, fallback, sort, quantization, parameter,
-  ///     data-collection, model, and route controls.</summary>
-  [JsonIgnore]
-  public Routing Routing { get; init; } = new();
-
   /// <summary>The ten OpenRouter server-side tools available on the responses
   ///     API; an enabled tool runs on the
   ///     provider side and is keyed by its wire type string when serialized.</summary>
@@ -67,7 +61,6 @@ public sealed record OpenRouterRequestSettings
 #pragma warning disable CA1812 // Instantiated by System.Text.Json through the JsonConverter attribute.
   private sealed class WireConverter : JsonConverter<OpenRouterRequestSettings>
   {
-    private static readonly Routing EmptyRouting = new();
     private static readonly ServerTools EmptyServerTools = new();
     private static readonly Plugins EmptyPlugins = new();
 
@@ -99,8 +92,6 @@ public sealed record OpenRouterRequestSettings
     ///     the persisted surface grows.</summary>
     private sealed class Members
     {
-      public Routing? Routing { get; set; }
-
       public ServerTools? ServerTools { get; set; }
 
       public Plugins? Plugins { get; set; }
@@ -109,7 +100,6 @@ public sealed record OpenRouterRequestSettings
 
       public OpenRouterRequestSettings ToSettings() => new()
       {
-        Routing = Routing ?? new(),
         ServerTools = ServerTools ?? new(),
         Plugins = Plugins ?? new(),
         ReasoningSummary = ReasoningSummary,
@@ -121,7 +111,6 @@ public sealed record OpenRouterRequestSettings
       {
         switch (name)
         {
-          case "routing": Routing = JsonSerializer.Deserialize<Routing>(ref reader, options); break;
           case "server_tools": ServerTools = JsonSerializer.Deserialize<ServerTools>(ref reader, options); break;
           case "plugins": Plugins = JsonSerializer.Deserialize<Plugins>(ref reader, options); break;
           case "reasoning_summary": ReasoningSummary = ReadSummary(ref reader); break;
@@ -160,12 +149,6 @@ public sealed record OpenRouterRequestSettings
     public override void Write(Utf8JsonWriter writer, OpenRouterRequestSettings value, JsonSerializerOptions options)
     {
       writer.WriteStartObject();
-      if (value.Routing != EmptyRouting)
-      {
-        writer.WritePropertyName("routing");
-        JsonSerializer.Serialize(writer, value.Routing, options);
-      }
-
       if (value.ServerTools != EmptyServerTools)
       {
         writer.WritePropertyName("server_tools");
@@ -189,101 +172,6 @@ public sealed record OpenRouterRequestSettings
   }
 #pragma warning restore CA1812
 }
-
-/// <summary>OpenRouter routing preferences; every member is optional and null
-///     members are omitted from the serialized form. Array members compare by
-///     element sequence, so a round-trip through Serialize and Parse is
-///     value-equal.</summary>
-/// <param name="Order">Preferred provider order. Wire: order.</param>
-/// <param name="Only">Restrict routing to these providers. Wire: only.</param>
-/// <param name="Ignore">Exclude these providers from routing. Wire: ignore.</param>
-/// <param name="AllowFallbacks">Whether other providers may serve the request.
-///     Wire: allow_fallbacks.</param>
-/// <param name="Sort">Routing sort key, e.g. price or throughput. Wire: sort.</param>
-/// <param name="Quantizations">Acceptable quantization levels. Wire: quantizations.</param>
-/// <param name="RequireParameters">Whether the provider must support all request
-///     parameters. Wire: require_parameters.</param>
-/// <param name="DataCollection">Provider data-collection policy filter, e.g. deny.
-///     Wire: data_collection.</param>
-/// <param name="Models">Restrict routing to these models. Wire: models.</param>
-#pragma warning disable CA1819 // By-design wire data-carrier: the OpenRouter API's own members are arrays; this record is data, not a mutable surface.
-public sealed record Routing(
-  [property: JsonPropertyName("order")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string[]? Order = null,
-  [property: JsonPropertyName("only")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string[]? Only = null,
-  [property: JsonPropertyName("ignore")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string[]? Ignore = null,
-  [property: JsonPropertyName("allow_fallbacks")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  bool? AllowFallbacks = null,
-  [property: JsonPropertyName("sort")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string? Sort = null,
-  [property: JsonPropertyName("quantizations")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string[]? Quantizations = null,
-  [property: JsonPropertyName("require_parameters")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  bool? RequireParameters = null,
-  [property: JsonPropertyName("data_collection")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string? DataCollection = null,
-  [property: JsonPropertyName("models")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string[]? Models = null)
-{
-  /// <summary>Sequence equality over the array members — the default record
-  ///     equality compares arrays by reference, which would break
-  ///     Parse(Serialize(x)) equal to x.</summary>
-  public bool Equals(Routing? other)
-      => other is not null
-          && NullableSequenceEqual(Order, other.Order)
-          && NullableSequenceEqual(Only, other.Only)
-          && NullableSequenceEqual(Ignore, other.Ignore)
-          && AllowFallbacks == other.AllowFallbacks
-          && Sort == other.Sort
-          && NullableSequenceEqual(Quantizations, other.Quantizations)
-          && RequireParameters == other.RequireParameters
-          && DataCollection == other.DataCollection
-          && NullableSequenceEqual(Models, other.Models);
-
-  /// <summary>Sequence hash consistent with Equals.</summary>
-  public override int GetHashCode()
-  {
-    HashCode hash = new();
-    AddSequence(ref hash, Order);
-    AddSequence(ref hash, Only);
-    AddSequence(ref hash, Ignore);
-    hash.Add(AllowFallbacks);
-    hash.Add(Sort);
-    AddSequence(ref hash, Quantizations);
-    hash.Add(RequireParameters);
-    hash.Add(DataCollection);
-    AddSequence(ref hash, Models);
-    return hash.ToHashCode();
-  }
-
-  private static bool NullableSequenceEqual(string[]? left, string[]? right)
-      => left is null ? right is null : right is not null && left.SequenceEqual(right);
-
-  private static void AddSequence(ref HashCode hash, string[]? values)
-  {
-    if (values is null)
-    {
-      return;
-    }
-
-    foreach (string value in values)
-    {
-      hash.Add(value);
-    }
-  }
-}
-#pragma warning restore CA1819
 
 /// <summary>The ten OpenRouter server-side tools available on the responses
 ///     API, and the server-tool budgets.

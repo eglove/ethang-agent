@@ -173,53 +173,6 @@ public class ModelSettingsChoiceTests
     Assert.Contains(ModelSettingsViewModel.KnobVerbosity, error, StringComparison.Ordinal);
   }
 
-  // ---- Routing dropdowns project onto the same text fields the save reads ----
-
-  [Fact]
-  public void RoutingSortDropdown_RoundTripsThroughTheText()
-  {
-    ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, persist: _ => { });
-
-    vm.Routing.SelectedSort = vm.Routing.SortChoices.First(c => c.Value == "throughput");
-    Assert.Equal("throughput", vm.Routing.SortText);
-
-    Routing routing = vm.Routing.ToRouting();
-    Assert.Equal("throughput", routing.Sort);
-  }
-
-  [Fact]
-  public void RoutingSortUnsetRow_SavesNull()
-  {
-    ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, persist: _ => { });
-
-    vm.Routing.SelectedSort = vm.Routing.SortChoices.First(c => c.Value == "price");
-    vm.Routing.SelectedSort = SettingChoice.Unset;
-
-    Assert.Equal(string.Empty, vm.Routing.SortText);
-    Assert.Null(vm.Routing.ToRouting().Sort);
-  }
-
-  [Fact]
-  public void RoutingOutOfVocabularyPersistedSort_GetsACustomRow()
-  {
-    ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, persist: _ => { });
-    vm.Routing.SortText = "exoticsort";
-
-    Assert.Contains(vm.Routing.SortChoices, c => c.Value == "exoticsort");
-    Assert.Equal("exoticsort", vm.Routing.SelectedSort.Value);
-  }
-
-  [Fact]
-  public void RoutingDataCollection_RoundTripsThroughTheText()
-  {
-    ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, persist: _ => { });
-
-    vm.Routing.SelectedDataCollection = vm.Routing.DataCollectionChoices.First(c => c.Value == "deny");
-
-    Routing routing = vm.Routing.ToRouting();
-    Assert.Equal("deny", routing.DataCollection);
-  }
-
   // ---- The web plugin's engine dropdown ----
 
   [Fact]

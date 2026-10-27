@@ -33,8 +33,7 @@ internal sealed record ModelSettingsSnapshot(
 
 /// <summary>One selectable row of a fixed-vocabulary setting: the display label the
 ///     dropdown shows and the exact text the save path persists. The unset row's
-///     value is the empty string — the "unset" contract every knob and routing
-///     field shares.</summary>
+///     value is the empty string — the "unset" contract every knob shares.</summary>
 internal sealed record SettingChoice(string Display, string Value)
 {
   public static SettingChoice Unset { get; } = new("(default)", string.Empty);
@@ -43,10 +42,9 @@ internal sealed record SettingChoice(string Display, string Value)
 /// <summary>The documented option vocabularies for the fixed-value settings, each
 ///     verified against OpenRouter's official documentation: the Model Domain's
 ///     verbosity levels (API parameters enum: low, medium, high, xhigh, max), the
-///     parallel-tool-calls boolean, the provider-routing sort keys (provider
-///     selection guide: price, throughput, latency), the data-collection policy
-///     (allow, deny), and the web plugin's search engines (web-search
-///     plugin guide: native, exa, firecrawl, parallel, perplexity, or unset).
+///     parallel-tool-calls boolean, the data-collection policy (allow, deny),
+///     and the web plugin's search engines (web-search plugin guide: native,
+///     exa, firecrawl, parallel, perplexity, or unset).
 ///     A persisted value outside its vocabulary is preserved as a synthetic
 ///     "(custom)" row — never silently dropped or coerced.</summary>
 internal static class SettingChoiceVocabulary
@@ -181,90 +179,6 @@ internal sealed partial class KnobEntry(string name, string label, string text, 
       }
     }
   }
-}
-
-/// <summary>The OpenRouter routing fields, edited as raw text (list fields are
-///     comma-separated; the two policy booleans are editor tri-states) and
-///     projected onto the ACL's typed <see cref="Routing"/> record at save time.
-///     Plain CLR properties: initial values are set before the window binds and
-///     user edits write straight through (the session-file-row pattern).</summary>
-internal sealed class RoutingSection
-{
-  public string OrderText { get; set; } = string.Empty;
-  public string OnlyText { get; set; } = string.Empty;
-  public string IgnoreText { get; set; } = string.Empty;
-  public bool? AllowFallbacks { get; set; }
-  public string SortText { get; set; } = string.Empty;
-  public string QuantizationsText { get; set; } = string.Empty;
-  public bool? RequireParameters { get; set; }
-  public string DataCollectionText { get; set; } = string.Empty;
-  public string ModelsText { get; set; } = string.Empty;
-
-  // Fixed-vocabulary fields render as dropdowns over the documented values; the
-  // text property stays the single source of truth and the selection is a
-  // projection of it. SettingChoice is a record (value equality), so a freshly
-  // computed ItemsSource still matches the ComboBox's selected row by value.
-  public IReadOnlyList<SettingChoice> SortChoices
-      => SettingChoiceVocabulary.WithUnset(SettingChoiceVocabulary.Sort, SortText);
-
-  public SettingChoice SelectedSort
-  {
-    get => SettingChoiceVocabulary.RowFor(SortChoices, SortText);
-    set => SortText = value.Value;
-  }
-
-  public IReadOnlyList<SettingChoice> DataCollectionChoices
-      => SettingChoiceVocabulary.WithUnset(SettingChoiceVocabulary.DataCollection, DataCollectionText);
-
-  public SettingChoice SelectedDataCollection
-  {
-    get => SettingChoiceVocabulary.RowFor(DataCollectionChoices, DataCollectionText);
-    set => DataCollectionText = value.Value;
-  }
-
-
-
-  /// <summary>Projects the fields onto the ACL record: blank text becomes null,
-  ///     comma-separated text splits on commas and trims each entry.</summary>
-  public Routing ToRouting() => new(
-      Order: SplitList(OrderText),
-      Only: SplitList(OnlyText),
-      Ignore: SplitList(IgnoreText),
-      AllowFallbacks: AllowFallbacks,
-      Sort: NullIfBlank(SortText),
-      Quantizations: SplitList(QuantizationsText),
-      RequireParameters: RequireParameters,
-      DataCollection: NullIfBlank(DataCollectionText),
-      Models: SplitList(ModelsText));
-
-  private static string[]? SplitList(string text)
-  {
-    string trimmed = text.Trim();
-    return trimmed.Length == 0
-        ? null
-        : [.. trimmed.Split(',').Select(entry => entry.Trim()).Where(entry => entry.Length > 0)];
-  }
-
-  private static string? NullIfBlank(string text)
-  {
-    string trimmed = text.Trim();
-    return trimmed.Length == 0 ? null : trimmed;
-  }
-
-  internal static RoutingSection From(Routing routing) => new()
-  {
-    OrderText = JoinList(routing.Order),
-    OnlyText = JoinList(routing.Only),
-    IgnoreText = JoinList(routing.Ignore),
-    AllowFallbacks = routing.AllowFallbacks,
-    SortText = routing.Sort ?? string.Empty,
-    QuantizationsText = JoinList(routing.Quantizations),
-    RequireParameters = routing.RequireParameters,
-    DataCollectionText = routing.DataCollection ?? string.Empty,
-    ModelsText = JoinList(routing.Models),
-  };
-
-  private static string JoinList(string[]? values) => values is null ? string.Empty : string.Join(", ", values);
 }
 
 /// <summary>The ten OpenRouter server-tool toggles available on the responses
@@ -540,8 +454,8 @@ internal sealed class ToolToggleRow
 }
 
 /// <summary>View-model behind the Model Settings window: the effort choice, the
-///     twelve sampling knobs, and — on OpenRouter sessions only — the routing,
-///     server-tool, plugin, and budget section. Pure state and validation;
+///     twelve sampling knobs, and — on OpenRouter sessions only — the server-tool,
+///     plugin, and budget section. Pure state and validation;
 ///     window mechanics and persistence belong to the caller. Constructed with
 ///     the session's live <see cref="SessionModelPreferences"/>, the provider id,
 ///     and a persistence delegate seam (tests inject a recorder; production
@@ -671,8 +585,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   /// <summary>The twelve knob rows, keyed by name constant.</summary>
   public IReadOnlyDictionary<string, KnobEntry> Knobs { get; }
 
-  public RoutingSection Routing { get; }
-
   public ServerToolsSection ServerTools { get; }
 
   public PluginsSection Plugins { get; }
@@ -760,7 +672,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   /// <summary>The chosen reasoning summary: <see cref="SummaryDefault"/> or a
   ///     <see cref="ReasoningSummaryLevel"/> name. Persisted inside the OpenRouter
   ///     provider-settings payload, so it round-trips per workspace + provider the
-  ///     way routing and the server-tool toggles do.</summary>
+  ///     way the server-tool toggles do.</summary>
   [ObservableProperty]
   public partial string SummaryChoice { get; set; }
 
@@ -823,7 +735,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       [KnobVerbosity] = CreateEntry(KnobVerbosity, Format(_live.Verbosity), SettingChoiceVocabulary.Verbosity),
       [KnobParallelToolCalls] = CreateEntry(KnobParallelToolCalls, Format(_live.ParallelToolCalls), SettingChoiceVocabulary.ParallelToolCalls),
     };
-    (Routing, ServerTools, Plugins, ReasoningSummaryLevel? persistedSummary) = ParseProviderSettings(_live.ProviderSettings);
+    (ServerTools, Plugins, ReasoningSummaryLevel? persistedSummary) = ParseProviderSettings(_live.ProviderSettings);
     foreach (KnobEntry entry in Knobs.Values)
     {
       entry.PropertyChanged += (_, args) =>
@@ -884,11 +796,11 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     the defaults too — prefill is best effort, and the next save overwrites
   ///     the payload (the agent-turn path is where corrupt settings are a
   ///     structured error, not here).</summary>
-  private static (RoutingSection, ServerToolsSection, PluginsSection, ReasoningSummaryLevel?) ParseProviderSettings(string? json)
+  private static (ServerToolsSection, PluginsSection, ReasoningSummaryLevel?) ParseProviderSettings(string? json)
   {
     if (string.IsNullOrWhiteSpace(json))
     {
-      return (new RoutingSection(), new ServerToolsSection(), new PluginsSection(), null);
+      return (new ServerToolsSection(), new PluginsSection(), null);
     }
 
     // Named decision (CA1031): a corrupt preference must not crash the dialog.
@@ -896,12 +808,12 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     try
     {
       OpenRouterRequestSettings parsed = OpenRouterRequestSettings.Parse(json)!;
-      return (RoutingSection.From(parsed.Routing), ServerToolsSection.From(parsed.ServerTools),
+      return (ServerToolsSection.From(parsed.ServerTools),
           PluginsSection.From(parsed.Plugins), parsed.ReasoningSummary);
     }
     catch
     {
-      return (new RoutingSection(), new ServerToolsSection(), new PluginsSection(), null);
+      return (new ServerToolsSection(), new PluginsSection(), null);
     }
 #pragma warning restore CA1031
   }
@@ -1032,7 +944,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   {
     OpenRouterRequestSettings settings = new()
     {
-      Routing = Routing.ToRouting(),
       ServerTools = ServerTools.ToServerTools(),
       Plugins = Plugins.ToPlugins(),
       ReasoningSummary = SummaryLevel(),
@@ -1042,8 +953,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   }
 
   private static bool IsAllDefault(OpenRouterRequestSettings settings)
-      => settings.Routing == new Routing()
-          && settings.ServerTools == new ServerTools()
+      => settings.ServerTools == new ServerTools()
           && settings.Plugins == new Plugins()
           && settings.ReasoningSummary is null;
 

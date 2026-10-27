@@ -51,6 +51,7 @@ public static class ResponsesApiRequestCore
       Reasoning = reasoning.Length > 0 ? reasoning.ToString() : null,
       ServedModelId = ParseServedModelId(body),
       ServedProvider = ParseServedProvider(body),
+      ServedServiceTier = ParseServiceTier(body),
     });
   }
 
@@ -254,6 +255,31 @@ public static class ResponsesApiRequestCore
     return parent.TryGetProperty("model", out JsonElement model)
         && model.ValueKind == JsonValueKind.String
         && model.GetString() is { Length: > 0 } served
+        ? served
+        : null;
+  }
+
+  /// <summary>Reads the response object's top-level <c>service_tier</c> — the capacity tier
+  ///     the provider reports as having ACTUALLY served this response — or null when it
+  ///     reports none.
+  ///     <para>THE SMOKE TEST FOR A TIER PIN (OpenRouter service-tiers docs: "The API response
+  ///     includes a service_tier field that indicates which capacity tier was actually used";
+  ///     on the Responses API it sits at the TOP LEVEL of the response object). A session that
+  ///     pinned <c>deepinfra/fp8/flex</c> has no other way to confirm the flex endpoint served
+  ///     it: the request pin states an INTENTION, and this field is the only fact the wire
+  ///     returns. Documented values: default, flex, priority, ultrafast.</para>
+  ///     <para>NULL IS A REAL ANSWER, NEVER A FABRICATION: the docs state null means "no
+  ///     service tier is available from upstream", so an absent member and a JSON null both
+  ///     read as null. Coercing either onto the request's requested tier would repeat exactly
+  ///     the pin-as-proof mistake ParseServedProvider exists to prevent.</para>
+  ///     <para>Shared by both parse paths deliberately, for the same reason the sibling
+  ///     readers are: the non-streaming body and the streaming terminal event carry the same
+  ///     response object, so one reader keeps them from disagreeing.</para></summary>
+  public static string? ParseServiceTier(JsonElement parent)
+  {
+    return parent.TryGetProperty("service_tier", out JsonElement tier)
+        && tier.ValueKind == JsonValueKind.String
+        && tier.GetString() is { Length: > 0 } served
         ? served
         : null;
   }
