@@ -22,6 +22,18 @@ public sealed class SessionModelPreferences
   ///     away.)</summary>
   public string? ModelId { get; set; }
 
+  /// <summary>The provider that should SERVE <see cref="ModelId"/>, or null to let the
+  ///     provider's own routing decide (issue #296, D7).
+  ///     <para>THE PAIR IS THE DECISION. A model chosen for its cache economics is only the
+  ///     cheap choice on the provider whose cache prices make it so - picking the model and
+  ///     letting routing choose the provider is how a session ended up on the worst cache
+  ///     ratio on the model. This member is the carrier: the picker commits it, the status
+  ///     line names it, and the resolver pins it onto the request.</para>
+  ///     <para>Null means UNSET, never "no provider exists": a session that never committed a
+  ///     provider keeps the provider's routing, which is what every pre-existing session does.
+  ///     </para></summary>
+  public string? ProviderName { get; set; }
+
   /// <summary>Sampling temperature, or null to keep the resolved config's value.</summary>
   public float? Temperature { get; set; }
 
@@ -74,6 +86,7 @@ public sealed class SessionModelPreferences
     ArgumentNullException.ThrowIfNull(source);
     ReasoningEffort = source.ReasoningEffort;
     ModelId = source.ModelId;
+    ProviderName = source.ProviderName;
     Temperature = source.Temperature;
     MaxTokens = source.MaxTokens;
     TopP = source.TopP;

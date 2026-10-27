@@ -6,33 +6,97 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.ViewModels;
 
-/// <summary>The model confirmed in the model picker: a concrete model id. (A cancelled
-///     dialog closes with no result at all.)</summary>
-internal sealed record ModelChoice(string? ModelId);
+/// <summary>The pair confirmed in the picker: a concrete model id plus the provider that
+///     should serve it (null when the user picked a model without committing a provider,
+///     which leaves the provider unset rather than guessed). (A cancelled dialog closes with
+///     no result at all.)</summary>
+internal sealed record ModelChoice(string? ModelId, string? ProviderName = null);
 
-/// <summary>One choosable row of the model picker: a concrete model (deduped across the
-///     catalog's provider endpoints, represented by the cheapest pricing).</summary>
-internal sealed record ModelPickerRow(string? ModelId, string DisplayName, string Detail);
+/// <summary>One choosable row of the MODEL level (issue #296, D1): a concrete model, deduped
+///     across the catalog's provider endpoints, summarised by its best provider under the
+///     current preset.
+///     <para>WHY A SUMMARY ROW AND NOT ALL PROVIDERS EXPANDED (the design pass's first open
+///     question): a model with 35 endpoints expanded into a flat list is unreadable at any
+///     window width, and the user's first decision is which MODEL - the provider choice is a
+///     second, narrower decision that the detail level shows in full. The summary still names
+///     the provider and the effective price it is summarising, so the model level is never a
+///     price the user cannot trace.</para></summary>
+/// <param name="ModelId">The model this row stands for.</param>
+/// <param name="DisplayName">The row's caption (the model id).</param>
+/// <param name="Detail">The one-line summary: best provider, its effective price, and how
+///     many providers the model offers.</param>
+/// <param name="Endpoints">Every catalog row for this model (the provider level's input).
+///     </param>
+internal sealed record ModelPickerRow(
+    string? ModelId,
+    string DisplayName,
+    string Detail,
+    IReadOnlyList<ModelProviderEntry> Endpoints);
 
-/// <summary>View-model behind the model picker: a searchable, deduped list of the open
-///     session's provider catalog. Pure state and commands;
-///     window closing and applying the choice belong to the caller. The catalog load
-///     runs off the UI thread and populates the rows when it lands — the first open per
-///     session can take seconds (OpenRouter crawls per-model endpoints), so the list
-///     stays in loading state until then.</summary>
+/// <summary>One preset row of the picker's ordering control (issue #296, D4).</summary>
+internal sealed record PresetOption(string DisplayName, ProviderPreset Preset);
+
+/// <summary>Everything the embedded model + provider section needs from its host (issue
+///     #296), bundled so the settings view-model's constructor stays a readable list of
+///     concerns rather than a wall of delegates.
+///     <para>EVERY MEMBER IS A SEAM THE HOST OWNS: the catalog load and its revalidation join,
+///     the session's committed pair (to pre-select), and the ledger's observed performance.
+///     A host that supplies no performance loader renders every measurement as unavailable
+///     rather than failing the surface - a picker with no history is still a picker.</para>
+///     </summary>
+/// <param name="LoadCatalog">Loads the provider catalog. Required: without it there is no
+///     section at all.</param>
+/// <param name="CurrentModelId">The session's live model, to pre-select.</param>
+/// <param name="RefreshCatalog">Joins the catalog's source revalidation, or null to skip
+///     it.</param>
+/// <param name="CurrentProviderName">The session's committed provider, to pre-select in the
+///     provider level.</param>
+/// <param name="LoadPerformance">Loads the ledger's per-provider performance, or null when
+///     the host wired no read model.</param>
+internal sealed record ModelSectionSeams(
+    Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> LoadCatalog,
+    string? CurrentModelId = null,
+    Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? RefreshCatalog = null,
+    string? CurrentProviderName = null,
+    Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? LoadPerformance = null);
+
+/// <summary>View-model behind the model + provider picker (issue #296): a searchable model
+///     list, the selected model's provider rows with their evidence, the ordering preset, and
+///     the cache-hit-rate assumption the prices are projected at.
+///     <para>TWO LEVELS, NOT ONE FLAT LIST (D1). The previous surface deduped 35 provider rows
+///     into one model row and priced it by whichever endpoint sorted first - for
+///     <c>deepseek/deepseek-v4.1-flash-1017</c> that was Reka, the single worst cache ratio on
+///     the model, while a provider charging double the prompt price cost 5.2x less at a real
+///     hit rate. The user needs to see that a choice exists at BOTH levels, so this view-model
+///     keeps them apart: <see cref="FilteredRows"/> is the model level and
+///     <see cref="ProviderRows"/> is the provider level for the selected model.</para>
+///     <para>EVERY FIGURE COMES FROM THE DOMAIN. The rows are built by
+///     <see cref="ProviderComparison.Rows"/>, which ranks through
+///     <see cref="ProviderRanking"/> and renders through <see cref="ProviderPerformanceText"/>,
+///     so no view-model (and no view) can invent a second ordering or print a zero where a
+///     measurement is missing (D5).</para>
+///     <para>THE CATALOG AND THE LEDGER LOAD OFF THE UI THREAD and the list stays in its
+///     loading state until they land: the first open per session can take seconds (OpenRouter
+///     crawls per-model endpoints), and the ledger read is a database query.</para></summary>
 internal sealed partial class ModelPickerViewModel : ObservableObject
 {
   private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> _loadCatalog;
+  private readonly Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? _loadPerformance;
   private readonly string? _currentModelId;
+  private readonly string? _currentProviderName;
   private IReadOnlyList<ModelPickerRow> ModelRows { get; set; } = [];
   private IReadOnlyList<ModelPickerRow> FilteredRowsList { get; set; } = [];
+  private IReadOnlyList<ModelProviderEntry> CatalogEntries { get; set; } = [];
+  private ProviderPerformanceReport? _report;
   private bool _loaded;
 
-  /// <summary>Raised when the user confirms a row; carries the choice. The view closes
-  ///     the dialog with it.</summary>
+  /// <summary>Raised when the user confirms a row; carries the pair. The view closes the
+  ///     dialog with it.</summary>
   public event EventHandler<ModelChoice>? ConfirmRequested;
 
   public IRelayCommand ConfirmCommand { get; }
+
+  public IRelayCommand ApplyHitRateCommand { get; }
 
   [ObservableProperty]
   public partial string SearchText { get; set; }
@@ -43,56 +107,128 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   [ObservableProperty]
   public partial string? LoadError { get; set; }
 
-  /// <summary>The filtered list is rebuilt ONLY here — selection changes must never
-  ///     swap ItemsSource (see <see cref="FilteredRows"/>).</summary>
+  /// <summary>The filtered list is rebuilt ONLY here - selection changes must never swap
+  ///     ItemsSource (see <see cref="FilteredRows"/>).</summary>
   partial void OnSearchTextChanged(string value) => RebuildFilteredRows();
 
   [ObservableProperty]
   [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
   public partial ModelPickerRow? SelectedRow { get; set; }
 
-  /// <summary>The models matching the search text, case-insensitive on the model id.
-  ///     The list identity
-  ///     is STABLE between rebuilds: <see cref="SelectedRow"/> deliberately does not
-  ///     raise it — swapping ItemsSource on every selection change would reset the
-  ///     ListBox mid-click, lose the row the user just picked, and write a stale
-  ///     selection back into this property (the click-twice desync, headless-tested
-  ///     in ModelPickerWindowTests).</summary>
+  /// <summary>The models matching the search text, case-insensitive on the model id. The
+  ///     list identity is STABLE between rebuilds: <see cref="SelectedRow"/> deliberately does
+  ///     not raise it - swapping ItemsSource on every selection change would reset the ListBox
+  ///     mid-click, lose the row the user just picked, and write a stale selection back into
+  ///     this property (the click-twice desync, headless-tested in ModelPickerWindowTests).
+  ///     </summary>
   public IReadOnlyList<ModelPickerRow> FilteredRows => FilteredRowsList;
 
-  private void RebuildFilteredRows()
+  /// <summary>The selected model's provider rows, best first under the current preset
+  ///     (issue #296, D1/B1). Empty until a model is selected - the provider level exists
+  ///     only for a model.</summary>
+  public IReadOnlyList<ProviderEvidenceRow> ProviderRows
   {
-    string needle = SearchText.Trim();
-    List<ModelPickerRow> rows = [];
-    rows.AddRange(needle.Length == 0
-        ? ModelRows
-        : ModelRows.Where(r => r.ModelId!.Contains(needle, StringComparison.OrdinalIgnoreCase)));
-    FilteredRowsList = rows;
-    OnPropertyChanged(nameof(FilteredRows));
-  }
+    get;
+    private set
+    {
+      if (field == value)
+      {
+        return;
+      }
 
-  /// <param name="loadCatalog">Loads the open session's provider catalog (UI thread
-  ///     escape handled here — the delegate itself may block on HTTP).</param>
-  /// <param name="currentModelId">The session's live model choice to pre-select
-  ///     (null pre-selects nothing).</param>
+      field = value;
+      OnPropertyChanged();
+      OnPropertyChanged(nameof(HasProviderRows));
+      OnPropertyChanged(nameof(ProviderLevelCaption));
+    }
+  } = [];
+
+  /// <summary>True when the selected model has provider rows to show.</summary>
+  public bool HasProviderRows => ProviderRows.Count > 0;
+
+  /// <summary>The provider level's caption: which model it belongs to and how many providers
+  ///     it offers. Empty before a model is selected.</summary>
+  public string ProviderLevelCaption => SelectedRow is null
+      ? string.Empty
+      : $"{ProviderRows.Count} provider(s) for {SelectedRow.ModelId}";
+
+  /// <summary>The preset rows in display order (the ordering control's ItemsSource).</summary>
+  public IReadOnlyList<PresetOption> PresetOptions { get; } =
+  [
+    .. Enum.GetValues<ProviderPreset>().Select(preset =>
+        new PresetOption(ProviderPresets.DisplayName(preset), preset)),
+  ];
+
+  /// <summary>The selected ordering preset (two-way bound). Changing it reorders the provider
+  ///     level and never removes a row (D4/B5).</summary>
+  [ObservableProperty]
+  public partial PresetOption SelectedPresetOption { get; set; }
+
+  partial void OnSelectedPresetOptionChanged(PresetOption value) => RebuildProviderRows();
+
+  /// <summary>The dimension the current preset orders by, spelled out so the user can see
+  ///     WHY the list is in this order (D4/B5: 'the dimension that drove the order is
+  ///     visible').</summary>
+  public string OrderingCaption => SelectedPresetOption is null
+      ? string.Empty
+      : $"ordered by {DimensionName(ProviderPresets.Highlighted(SelectedPresetOption.Preset))}";
+
+  /// <summary>The cache-hit-rate assumption as editable whole-percent text (D6). Editing it
+  ///     and pressing Apply re-projects every price and re-ranks the provider level at the
+  ///     user's rate - the most instructive interaction this surface offers.</summary>
+  [ObservableProperty]
+  public partial string HitRateText { get; set; }
+
+  /// <summary>Why the last Apply was refused, or null. A malformed rate is a visible
+  ///     refusal, never a silent clamp.</summary>
+  [ObservableProperty]
+  public partial string? HitRateError { get; set; }
+
+  /// <summary>The provenance line for the rate in force (D6/B4): <c>session measured 97.7%</c>,
+  ///     <c>default 50% (nothing measured yet)</c>, <c>manual 40%</c>. Always shown, because a
+  ///     projection built on an unstated assumption is a guess wearing a decimal point.
+  ///     </summary>
+  public string HitRateSourceText => Assumption.Describe();
+
+  /// <summary>The hit rate the prices are currently projected at. Never read without its
+  ///     provenance: <see cref="HitRateSourceText"/> states where it came from.</summary>
+  public HitRateAssumption Assumption { get; private set; } = HitRateAssumption.Fallback;
+
+  /// <param name="loadCatalog">Loads the open session's provider catalog (UI thread escape
+  ///     handled here - the delegate itself may block on HTTP).</param>
+  /// <param name="currentModelId">The session's live model choice to pre-select (null
+  ///     pre-selects nothing).</param>
+  /// <param name="currentProviderName">The session's live provider choice to pre-select in
+  ///     the provider level (null pre-selects nothing).</param>
+  /// <param name="loadPerformance">Loads the ledger's observed per-provider performance
+  ///     (issue #295). Null - a headless host or a host with no read model - renders every
+  ///     measurement as unavailable rather than failing the surface: a picker with no history
+  ///     is still a picker.</param>
   public ModelPickerViewModel(
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> loadCatalog,
-      string? currentModelId)
+      string? currentModelId,
+      string? currentProviderName = null,
+      Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? loadPerformance = null)
   {
     _loadCatalog = loadCatalog ?? throw new ArgumentNullException(nameof(loadCatalog));
+    _loadPerformance = loadPerformance;
     _currentModelId = currentModelId;
+    _currentProviderName = currentProviderName;
 
-    // The command exists before the observable properties: setting those raises the
+    // The commands exist before the observable properties: setting those raises the
     // changed hooks, which requery command availability. The guard in the action is
-    // load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
-    // button is only one of several ways this command can be invoked.
+    // load-bearing: ICommand.Execute does not consult CanExecute, and a disabled button is
+    // only one of several ways this command can be invoked.
     ConfirmCommand = new RelayCommand(Confirm, () => SelectedRow is not null);
-    SearchText = string.Empty; // raises OnSearchTextChanged → initial (auto-only) list
+    ApplyHitRateCommand = new RelayCommand(ApplyHitRate);
+    SelectedPresetOption = PresetOptions[0];
+    HitRateText = FormatPercent(Assumption.Rate);
+    SearchText = string.Empty; // raises OnSearchTextChanged → initial list
   }
 
-  /// <summary>Fetches the catalog off the UI thread and fills the rows. A failure lands
-  ///     in <see cref="LoadError"/> (the dialog stays open; the user can cancel). Only
-  ///     the first call loads.</summary>
+  /// <summary>Fetches the catalog and the ledger's performance report off the UI thread and
+  ///     fills both levels. A failure lands in <see cref="LoadError"/> (the dialog stays open;
+  ///     the user can cancel). Only the first call loads.</summary>
   public async Task LoadAsync()
   {
     if (IsLoading || _loaded)
@@ -102,14 +238,14 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 
     _loaded = true;
     IsLoading = true;
-    // Named decision (CA1031): a loader fault must land in the dialog's error state,
-    // never escape — the fire-and-forget caller cannot observe it.
+    // Named decision (CA1031): a loader fault must land in the dialog's error state, never
+    // escape - the fire-and-forget caller cannot observe it.
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      // HTTP plus (for OpenRouter) a per-model endpoint crawl — never on the UI
-      // thread. Context flow is suppressed alongside the thread switch, mirroring
-      // MainViewModel's session-open schedule.
+      // HTTP plus (for OpenRouter) a per-model endpoint crawl - never on the UI thread.
+      // Context flow is suppressed alongside the thread switch, mirroring MainViewModel's
+      // session-open schedule.
       Task<Result<IReadOnlyList<ModelProviderEntry>>> scheduled;
       using (ExecutionContext.SuppressFlow())
       {
@@ -123,10 +259,14 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
         return;
       }
 
+      CatalogEntries = catalog.Value;
       ModelRows = BuildRows(catalog.Value);
       RebuildFilteredRows();
-      // Pre-select the session's live choice, when it is in the list.
+      // Pre-select the session's live choice, when it is in the list. The provider level
+      // then pre-selects the session's provider, so a reopened picker shows the pair it
+      // committed.
       SelectedRow = FilteredRows.FirstOrDefault(r => r.ModelId == _currentModelId);
+      await LoadPerformanceAsync();
     }
     catch (Exception ex)
     {
@@ -139,6 +279,52 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
+  /// <summary>Reads the performance report and adopts the measured hit rate it supports.
+  ///     Best effort: a failed read leaves the report null (every measurement unavailable) and
+  ///     the documented default assumption in force, which is exactly what a session with no
+  ///     history renders anyway.</summary>
+  private async Task LoadPerformanceAsync()
+  {
+    if (_loadPerformance is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): a read-model fault must not fail the picker.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      Task<Result<ProviderPerformanceReport>> scheduled;
+      using (ExecutionContext.SuppressFlow())
+      {
+        scheduled = Task.Run(() => _loadPerformance(CancellationToken.None));
+      }
+
+      Result<ProviderPerformanceReport> report = await scheduled;
+      if (report.IsSuccess)
+      {
+        _report = report.Value;
+        AdoptAssumption(HitRateAssumption.From(report.Value));
+      }
+      else
+      {
+        // A read-model failure is SURFACED, never swallowed: the prices still render (they
+        // come from the catalog) but every measurement says it is unavailable, and the
+        // dialog states why rather than letting the user read silence as "nothing measured".
+        LoadError = $"Provider history unavailable ({report.Error.Code}); measurements show as "
+            + $"{ProviderPerformanceText.NotMeasured}. {report.Error.Message}";
+      }
+    }
+    catch (Exception ex)
+    {
+      LoadError ??= $"Provider history unavailable; measurements show as {ProviderPerformanceText.NotMeasured}. {ex.Message}";
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Applies a catalog refresh (the settings dialog's revalidation join): the rows
+  ///     are rebuilt and the selection preserved, so a refresh never invents a user edit.
+  ///     </summary>
   internal void ApplyRefresh(Result<IReadOnlyList<ModelProviderEntry>> result)
   {
     if (!result.IsSuccess)
@@ -146,7 +332,9 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       LoadError = $"Catalog refresh failed; showing cached models. {result.Error.Message}";
       return;
     }
+
     ModelPickerRow? selected = SelectedRow;
+    CatalogEntries = result.Value;
     ModelRows = BuildRows(result.Value);
     RebuildFilteredRows();
     SelectedRow = selected is null ? null
@@ -154,59 +342,180 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     LoadError = null;
   }
 
+  /// <summary>Parses the editable rate and re-projects at it. A malformed or out-of-range
+  ///     value is a visible refusal that changes nothing - never a silent clamp, which would
+  ///     rank providers at a rate the user did not type.</summary>
+  private void ApplyHitRate()
+  {
+    if (!TryParsePercent(HitRateText, out decimal rate))
+    {
+      HitRateError = $"'{HitRateText}' is not a cache-hit rate. Enter a whole-percent figure between 0 and 100.";
+      return;
+    }
+
+    HitRateError = null;
+    AdoptAssumption(HitRateAssumption.Manual(rate));
+  }
+
+  /// <summary>Adopts a new assumption: the text follows it, the provenance line changes, and
+  ///     both levels re-render (the model summaries are priced too, so a rate change is
+  ///     visible one level up as well).</summary>
+  private void AdoptAssumption(HitRateAssumption assumption)
+  {
+    Assumption = assumption;
+    HitRateText = FormatPercent(assumption.Rate);
+    OnPropertyChanged(nameof(HitRateSourceText));
+    OnPropertyChanged(nameof(Assumption));
+    ModelRows = BuildRows(CatalogEntries);
+    RebuildFilteredRows();
+    RebuildProviderRows();
+  }
+
   private void Confirm()
   {
-    if (SelectedRow is not null)
+    if (SelectedRow is not { } row)
     {
-      ConfirmRequested?.Invoke(this, new ModelChoice(SelectedRow.ModelId));
+      return;
     }
+
+    // The committed provider is the one the user selected in the provider level. When the
+    // model has no provider rows at all (an empty catalog slice) the provider stays unset
+    // rather than guessed - the same rule the model choice follows.
+    ConfirmRequested?.Invoke(this, new ModelChoice(row.ModelId, SelectedProviderRow?.Ranked.Entry.ProviderName));
   }
 
-  private static IReadOnlyList<ModelPickerRow> BuildRows(IReadOnlyList<ModelProviderEntry> entries)
+  [ObservableProperty]
+  public partial ProviderEvidenceRow? SelectedProviderRow { get; set; }
+
+  partial void OnSelectedRowChanged(ModelPickerRow? value)
   {
-    return [.. entries
+    RebuildProviderRows();
+    // Pre-select the committed provider when the model is the one it was committed for.
+    SelectedProviderRow = value?.ModelId == _currentModelId
+        ? ProviderRows.FirstOrDefault(row => row.Ranked.Entry.ProviderName == _currentProviderName)
+        : null;
+  }
+
+  /// <summary>Re-ranks the selected model's provider rows at the current assumption and
+  ///     preset. Nothing is filtered (D4): every endpoint of the model stays in the list.
+  ///     </summary>
+  private void RebuildProviderRows()
+  {
+    if (SelectedRow is not { } row || SelectedPresetOption is null)
+    {
+      ProviderRows = [];
+      return;
+    }
+
+    ProviderEvidenceRow? keep = SelectedProviderRow;
+    ProviderRows = ProviderComparison.Rows(row.Endpoints, _report, Assumption,
+        SelectedPresetOption.Preset);
+    OnPropertyChanged(nameof(OrderingCaption));
+    // A preset or rate change reorders; it must not lose the row the user was looking at.
+    SelectedProviderRow = keep is null
+        ? null
+        : ProviderRows.FirstOrDefault(candidate =>
+            candidate.Ranked.Entry.ProviderName == keep.Ranked.Entry.ProviderName);
+  }
+
+  private void RebuildFilteredRows()
+  {
+    string needle = SearchText.Trim();
+    List<ModelPickerRow> rows = [];
+    rows.AddRange(needle.Length == 0
+        ? ModelRows
+        : ModelRows.Where(r => r.ModelId!.Contains(needle, StringComparison.OrdinalIgnoreCase)));
+    FilteredRowsList = rows;
+    OnPropertyChanged(nameof(FilteredRows));
+  }
+
+  /// <summary>The model level, deduped by model id. Each row is summarised by its best
+  ///     provider under the current preset and assumption, so the model level answers 'which
+  ///     model, and what would it cost me' without a drill-in.</summary>
+  private IReadOnlyList<ModelPickerRow> BuildRows(IReadOnlyList<ModelProviderEntry> entries)
+  {
+    ProviderPreset preset = SelectedPresetOption?.Preset ?? ProviderPreset.Cheapest;
+    return
+    [
+      .. entries
         .GroupBy(e => e.ModelId, StringComparer.Ordinal)
-        .Select(g => new ModelPickerRow(g.Key, g.Key, FormatDetail(Representative(g))))
-        .OrderBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase)];
+        .Select(group =>
+        {
+          IReadOnlyList<ModelProviderEntry> endpoints = [.. group];
+          IReadOnlyList<ProviderEvidenceRow> ranked = ProviderComparison.Rows(
+              endpoints, _report, Assumption, preset);
+          return new ModelPickerRow(group.Key, group.Key,
+              FormatDetail(ranked, endpoints.Count), endpoints);
+        })
+        .OrderBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase),
+    ];
   }
 
-  /// <summary>The endpoint a model's row is priced by: the cheapest normally-priced
-  ///     one. OpenRouter reports -1 per-token prices on routing pseudo-models
-  ///     (openrouter/auto) and the occasional endpoint — meaning "set at routing
-  ///     time" — so a negative price must never win the cheapest comparison, and an
-  ///     ABSENT price (issue #289: the catalog now says "unknown" instead of "free")
-  ///     never wins it either — unknown is not cheapest.</summary>
-  private static ModelProviderEntry Representative(IEnumerable<ModelProviderEntry> endpoints)
+  /// <summary>The model row's one-line summary: the best provider under the current preset,
+  ///     its effective price, and how many providers the model offers.
+  ///     <para>THREE PRICING STATES STAY DISTINCT (issue #289): a price the catalog
+  ///     advertises, a price set at routing time (negative), and a price nobody advertised
+  ///     (null). Rendering an unknown price as $0 would tell the user a paid model is free,
+  ///     and rendering a negative one as dollars would invent a price the router decides.
+  ///     </para></summary>
+  private static string FormatDetail(IReadOnlyList<ProviderEvidenceRow> ranked, int providerCount)
   {
-    List<ModelProviderEntry> priced = [.. endpoints
-        .Where(e => e.PromptPricePerToken is >= 0m && e.CompletionPricePerToken is >= 0m)];
-    return priced.Count > 0
-        ? priced.OrderBy(e => e.PromptPricePerToken)
-            .ThenBy(e => e.CompletionPricePerToken).First()
-        : endpoints.First();
-  }
+    if (ranked.Count == 0)
+    {
+      return $"{ProviderEvidenceRow.PricingUnknown} · {providerCount} provider(s)";
+    }
 
-  /// <summary>The row's one-line detail. Three pricing states are deliberately distinct:
-  ///     a price the catalog advertises, a price set at routing time (negative), and a
-  ///     price nobody advertised (null). Rendering an unknown price as $0 would tell the
-  ///     user a paid model is free.</summary>
-  private static string FormatDetail(ModelProviderEntry entry)
-  {
+    ProviderEvidenceRow best = ranked[0];
+    ModelProviderEntry entry = best.Ranked.Entry;
     string pricing = (entry.PromptPricePerToken, entry.CompletionPricePerToken) switch
     {
-      (null, _) or (_, null) => "pricing unknown",
+      (null, _) or (_, null) => ProviderEvidenceRow.PricingUnknown,
       ( < 0m, _) or (_, < 0m) => "pricing varies",
-      ({ } prompt, { } completion) =>
-          $"{FormatPrice(prompt * 1_000_000m)} in / {FormatPrice(completion * 1_000_000m)} out per M tokens",
+      _ => best.EffectivePriceText,
     };
-    return $"{pricing} · {FormatContext(entry.ContextLength)} ctx";
+    string provider = entry.PromptPricePerToken is null or < 0m
+        ? ""
+        : best.ProviderName + " · ";
+    return $"{provider}{pricing} · {FormatContext(entry.ContextLength)} · {providerCount} provider(s)";
   }
-
-  private static string FormatPrice(decimal perMillion)
-      => perMillion.ToString("$0.##", CultureInfo.InvariantCulture);
 
   private static string FormatContext(int tokens)
       => tokens >= 1_000_000
           ? (tokens / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "M"
           : (tokens / 1_000d).ToString("0", CultureInfo.InvariantCulture) + "K";
+
+  /// <summary>A rate as editable whole-percent text: one decimal, so 97.7 survives the round
+  ///     trip through the box.</summary>
+  private static string FormatPercent(decimal rate)
+      => (rate * 100m).ToString("0.#", CultureInfo.InvariantCulture);
+
+  /// <summary>Parses whole-percent text into a rate in [0,1]. Strict: a trailing percent sign
+  ///     is accepted because users type one, anything else that is not a number in range is
+  ///     refused rather than coerced.</summary>
+  private static bool TryParsePercent(string? text, out decimal rate)
+  {
+    rate = 0m;
+    string trimmed = (text ?? string.Empty).Trim().TrimEnd('%').Trim();
+    if (!decimal.TryParse(trimmed, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal percent)
+        || percent is < 0m or > 100m)
+    {
+      return false;
+    }
+
+    rate = percent / 100m;
+    return true;
+  }
+
+  /// <summary>The display name of a sort dimension, for the ordering caption.</summary>
+  private static string DimensionName(ProviderDimension dimension) => dimension switch
+  {
+    ProviderDimension.EffectiveInputPrice => "effective price",
+    ProviderDimension.Latency => "latency",
+    ProviderDimension.Throughput => "throughput",
+    ProviderDimension.Reliability => "reliability",
+    ProviderDimension.Intelligence => "intelligence",
+    ProviderDimension.Coding => "coding score",
+    ProviderDimension.Agentic => "agentic score",
+    _ => dimension.ToString(),
+  };
 }

@@ -180,6 +180,68 @@ public class RootAgentResolverTests
   }
 
   [Fact]
+  public async Task TheCommittedProvider_RidesTheResolvedConfig()
+  {
+    // Issue #296, D7: the pair is the decision. The resolver used to pass null for the
+    // provider on EVERY resolution, so a session whose status line named a provider sent a
+    // request that pinned none - a display claiming something the wire never carried.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new()
+    {
+      ModelId = "deepseek/deepseek-v4.1-flash-1017",
+      ProviderName = "DeepInfra",
+    };
+    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("deepseek/deepseek-v4.1-flash-1017", resolution.Value.Config.ModelId);
+    Assert.Equal("DeepInfra", resolution.Value.Config.Provider);
+  }
+
+  [Fact]
+  public async Task AnUncommittedProvider_LeavesTheConfigUnpinned()
+  {
+    // Null means UNSET, never "no provider exists": a session that committed no provider
+    // keeps the provider's own routing, exactly as every pre-existing session does.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new() { ModelId = "alpha/model" };
+    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Null(resolution.Value.Config.Provider);
+  }
+
+  [Fact]
+  public async Task APinnedSession_AlsoCarriesTheCommittedProvider()
+  {
+    // The pin path (no live preference) must not drop the provider: a resumed session serves
+    // the same model ON the same provider.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
+    Assert.True(root.IsSuccess);
+    _ = await store.UpdateAsync(root.Value with { ModelUsed = "alpha/model" },
+        TestContext.Current.CancellationToken);
+    SessionModelPreferences preferences = new() { ProviderName = "DeepInfra" };
+    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
+    Assert.Equal("DeepInfra", resolution.Value.Config.Provider);
+  }
+
+  [Fact]
   public async Task PinnedModelWithUnknownWindow_FailsUnknownModelWindow()
   {
     FakeAgentStore store = new();

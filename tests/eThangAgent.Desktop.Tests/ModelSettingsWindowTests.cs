@@ -25,9 +25,8 @@ public class ModelSettingsWindowTests
     ModelSettingsViewModel vm = new(
         new SessionModelPreferences(), "openrouter",
         persist: _ => { },
-        loadCatalog: _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
-            [Entry("alpha/model")])),
-        currentModelId: null);
+        modelSection: new ModelSectionSeams(_ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
+            [Entry("alpha/model")]))));
     Views.ModelSettingsWindow window = new(vm);
 
     window.Show();

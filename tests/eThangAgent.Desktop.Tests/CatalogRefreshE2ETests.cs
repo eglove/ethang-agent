@@ -45,7 +45,9 @@ public class CatalogRefreshE2ETests
         services.GetRequiredService<IAgentInbox>(), services.GetRequiredService<IAgentRuntime>());
     MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session);
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), Providers.OpenRouter, _ => { },
-        loadCatalog: shell.SelectedTabCatalogLoader, refreshCatalog: shell.SelectedTabCatalogRefresher);
+        modelSection: new ModelSectionSeams(shell.SelectedTabCatalogLoader!,
+            RefreshCatalog: shell.SelectedTabCatalogRefresher,
+            LoadPerformance: shell.SelectedTabPerformanceLoader));
     Task load = vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     try
     {

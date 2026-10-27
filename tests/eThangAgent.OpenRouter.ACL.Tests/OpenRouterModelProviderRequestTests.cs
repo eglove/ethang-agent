@@ -134,6 +134,19 @@ public class OpenRouterModelProviderRequestTests
   }
 
   [Fact]
+  public async Task Body_ACommittedProviderPin_ReachesTheWire()
+  {
+    // Issue #296, D7/B2: the pair the user committed is what the request pins. The resolver
+    // now carries it onto ModelConfig.Provider, and this is the wire end of that path.
+    string body = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings(),
+        provider: "DeepInfra")).ConfigureAwait(true);
+
+    using JsonDocument doc = JsonDocument.Parse(body);
+    JsonElement only = doc.RootElement.GetProperty("provider").GetProperty("only");
+    Assert.Equal("DeepInfra", Assert.Single(only.EnumerateArray()).GetString());
+  }
+
+  [Fact]
   public async Task Body_ProviderPinningPreserved_WithoutRouting()
   {
     string body = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings(), provider: "openai")).ConfigureAwait(true);

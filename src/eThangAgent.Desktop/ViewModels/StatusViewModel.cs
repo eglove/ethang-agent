@@ -55,6 +55,28 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     }
   } = modelId;
 
+  /// <summary>The provider committed to serve the session's model (issue #296, D7/B6), or
+  ///     empty when no provider was pinned and the provider's own routing decides.
+  ///     <para>THE PAIR IS THE DECISION, so the status line names both halves: a bar that showed
+  ///     only the model would leave the user unable to tell which of a model's providers is
+  ///     actually serving, which is the fact the picker's whole evidence surface exists to
+  ///     choose. Empty renders nothing - a session that never committed a provider must not
+  ///     display a fabricated one.</para></summary>
+  public string ServingProvider
+  {
+    get;
+    set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(ServingProvider));
+    }
+  } = "";
+
   /// <summary>The session's current reasoning effort as a display string — "Model default"
   ///     when no level is set. Updated by the effort picker and the shell's restore-on-open
   ///     (callers own the display-name vocabulary, <see cref="EffortLevels"/>).</summary>

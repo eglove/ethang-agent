@@ -13,8 +13,8 @@ namespace eThangAgent.Desktop.Tests;
 ///     single surface.</summary>
 public class ModelSettingsModelSectionTests
 {
-  private static ModelProviderEntry Entry(string modelId) => new(
-      modelId, "ProviderA", 0.000003m, null, 0.000015m, 200_000, 8192,
+  private static ModelProviderEntry Entry(string modelId, string providerName = "ProviderA") => new(
+      modelId, providerName, 0.000003m, null, 0.000015m, 200_000, 8192,
       SupportsToolUse: true, SupportsVision: false, SupportsTextOutput: true,
       IntelligenceScore: null, CodingScore: null, AgenticScore: null, LatencyMs: null,
       ThroughputTokensPerSec: null, Description: null);
@@ -30,8 +30,9 @@ public class ModelSettingsModelSectionTests
   {
     ModelSettingsViewModel vm = new(
         new SessionModelPreferences(), ProvidersOpenRouter,
-        persist: _ => { }, loadCatalog: Loader(Entry("alpha/model"), Entry("zeta/model")),
-        currentModelId: "zeta/model");
+        persist: _ => { },
+        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model"), Entry("zeta/model")),
+            "zeta/model"));
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
@@ -48,8 +49,9 @@ public class ModelSettingsModelSectionTests
   {
     ModelSettingsViewModel vm = new(
         new SessionModelPreferences(), ProvidersOpenRouter,
-        persist: _ => { }, loadCatalog: _ => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
-            new DomainError("Catalog", "down"))), currentModelId: null);
+        persist: _ => { },
+        modelSection: new ModelSectionSeams(_ => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
+            new DomainError("Catalog", "down")))));
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
@@ -63,7 +65,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
-        loadCatalog: Loader(Entry("alpha/model")), currentModelId: "alpha/model");
+        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), "alpha/model"));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     bool saved = vm.TrySave(out string? error);
@@ -82,8 +84,8 @@ public class ModelSettingsModelSectionTests
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
-        loadCatalog: Loader(Entry("alpha/model"), Entry("beta/model")),
-        currentModelId: "alpha/model");
+        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model"), Entry("beta/model")),
+            "alpha/model"));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     vm.ModelSection!.SelectedRow = vm.ModelSection.FilteredRows.First(r => r.ModelId == "beta/model");
 
@@ -96,6 +98,35 @@ public class ModelSettingsModelSectionTests
     Assert.Equal("beta/model", live.ModelId); // applied to the live preferences
   }
 
+  [Fact]
+  public async Task Save_WithAPinnedPair_CarriesBothHalves()
+  {
+    // Issue #296, D7/B6: the save carries the PAIR. A model without its provider is half a
+    // decision, and the provider is what the picker's evidence surface exists to choose.
+    SessionModelPreferences live = new();
+    ModelSettingsSnapshot? received = null;
+    ModelSettingsViewModel vm = new(
+        live, ProvidersOpenRouter, persist: s => received = s,
+        modelSection: new ModelSectionSeams(
+            Loader(Entry("alpha/model", "ProviderA"), Entry("alpha/model", "ProviderB")),
+            "alpha/model"));
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+    // The model pre-selects from the session's live choice; the provider level then offers
+    // both endpoints and the user switches to the one they want.
+    Assert.Equal(2, vm.ModelSection!.ProviderRows.Count);
+    vm.ModelSection.SelectedProviderRow = vm.ModelSection.ProviderRows
+        .First(row => row.ProviderName == "ProviderB");
+
+    bool saved = vm.TrySave(out string? error);
+
+    Assert.True(saved, error ?? "no error");
+    Assert.NotNull(received);
+    Assert.Equal(ModelChoiceKind.Pinned, received.Model!.Kind);
+    Assert.Equal("alpha/model", received.Model.ModelId);
+    Assert.Equal("ProviderB", received.Model.ProviderName);
+    Assert.Equal("ProviderB", live.ProviderName); // applied to the live preferences
+  }
+
   [Theory]
   [InlineData(false)]
   [InlineData(true)]
@@ -105,12 +136,12 @@ public class ModelSettingsModelSectionTests
     TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     ModelSettingsSnapshot? saved = null;
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, s => saved = s,
-        loadCatalog: Loader(Entry("alpha/model"), Entry("beta/model")),
-        currentModelId: "alpha/model", refreshCatalog: ct =>
-        {
-          _ = ready.TrySetResult();
-          return refresh.Task.WaitAsync(ct);
-        });
+        modelSection: new ModelSectionSeams(
+            Loader(Entry("alpha/model"), Entry("beta/model")), "alpha/model", ct =>
+            {
+              _ = ready.TrySetResult();
+              return refresh.Task.WaitAsync(ct);
+            }));
     Task load = vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     await ready.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
     if (changeSelection)

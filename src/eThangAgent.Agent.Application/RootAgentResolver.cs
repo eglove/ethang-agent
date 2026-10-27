@@ -32,14 +32,25 @@ public sealed class RootAgentResolver(
 
   /// <summary>Resolves the model to serve the upcoming turn. Returns the config and a
   /// notice (null when nothing notable happened), or a named failure when no model can be
-  /// served - never a substituted one.</summary>
+  /// served - never a substituted one.
+  ///     <para>THE COMMITTED PROVIDER RIDES THE RESOLUTION (issue #296, D7). A model chosen for
+  ///     its cache economics is only the cheap choice on the provider whose cache prices make
+  ///     it so, and the status line names the pair - so the pair must be what SERVES. Passing
+  ///     null here, as this resolver did on every resolution, would leave the display claiming
+  ///     a provider the request never pinned: the same class of lie as the 2026-10-22 model
+  ///     substitution. A null preference still means UNSET (the provider's own routing), which
+  ///     is what every session that committed no provider does.</para>
+  ///     <para>WHAT THIS DOES NOT DO (issue #297): the pin does not yet carry
+  ///     <c>allow_fallbacks: false</c>, a configured routing that would replace it is not yet
+  ///     a named error, and children do not yet inherit it. Those are #297's decisions, not
+  ///     this one's.</para></summary>
   public async Task<Result<(ModelConfig Config, string? Notice)>> ResolveAsync(CancellationToken ct = default)
   {
     // 0. The user's live model choice wins over everything static. Runtime
     //    preferences (reasoning effort, sampling knobs) still apply.
     if (_preferences?.ModelId is { } preferred)
     {
-      Result<ModelConfig> resolved = await MakeAsync(preferred, null, ct).ConfigureAwait(false);
+      Result<ModelConfig> resolved = await MakeAsync(preferred, _preferences.ProviderName, ct).ConfigureAwait(false);
       if (!resolved.IsSuccess)
       {
         return Result.Failure<(ModelConfig, string?)>(resolved.Error);
@@ -55,7 +66,7 @@ public sealed class RootAgentResolver(
     string? pinned = await PinnedModelAsync(ct).ConfigureAwait(false);
     if (pinned is not null)
     {
-      Result<ModelConfig> resolved = await MakeAsync(pinned, null, ct).ConfigureAwait(false);
+      Result<ModelConfig> resolved = await MakeAsync(pinned, _preferences?.ProviderName, ct).ConfigureAwait(false);
       return resolved.IsSuccess
           ? Result.Success<(ModelConfig, string?)>((resolved.Value, null))
           : Result.Failure<(ModelConfig, string?)>(resolved.Error);

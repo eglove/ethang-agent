@@ -568,11 +568,19 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
 {
   /// <summary>The model section's choice state, tri-state at save time: the user
   ///     never touched the list (Unchanged - the shell's model persistence is
-  ///     untouched) or pinned a concrete model id (Pinned, carrying the id).</summary>
-  internal sealed record ModelChoice(ModelChoiceKind Kind, string? ModelId)
+  ///     untouched) or pinned a concrete pair (Pinned, carrying the model id and the
+  ///     provider that should serve it).
+  ///     <para>THE PAIR TRAVELS TOGETHER (issue #296, D7): a model without its provider is
+  ///     half a decision, and the provider is what the picker's whole evidence surface exists
+  ///     to choose. <see cref="ProviderName"/> is null when the user pinned a model without
+  ///     committing a provider - the provider is then unset rather than guessed, the same rule
+  ///     the model choice follows.</para></summary>
+  internal sealed record ModelChoice(ModelChoiceKind Kind, string? ModelId, string? ProviderName = null)
   {
     public static readonly ModelChoice Unchanged = new(ModelChoiceKind.Unchanged, null);
-    public static ModelChoice Pinned(string modelId) => new(ModelChoiceKind.Pinned, modelId);
+
+    public static ModelChoice Pinned(string modelId, string? providerName = null)
+        => new(ModelChoiceKind.Pinned, modelId, providerName);
   }
   // Knob name constants — the single vocabulary shared by tests, the AXAML keys,
   // and the snapshot's knob-text map.
@@ -636,6 +644,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     {
       await ModelSection.LoadAsync();
       _preselectedRow = ModelSection.SelectedRow;
+      _preselectedProviderName = ModelSection.SelectedProviderRow?.Ranked.Entry.ProviderName;
     }
 
     if (_refreshCatalog is not null)
@@ -656,13 +665,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
             "CatalogUnavailable", ex.Message));
       }
 #pragma warning restore CA1031
-      ModelPickerRow? before = ModelSection?.SelectedRow;
-      bool unchanged = ReferenceEquals(before, _preselectedRow);
-      ModelSection?.ApplyRefresh(refreshed);
-      if (unchanged)
-      {
-        _preselectedRow = ModelSection?.SelectedRow;
-      }
+      ApplyCatalogRefresh(refreshed);
     }
   }
 
@@ -785,14 +788,12 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   public ModelSettingsViewModel(SessionModelPreferences current, string providerName,
       Action<ModelSettingsSnapshot> persist,
       IReadOnlyDictionary<string, string>? persistedKnobTexts = null,
-      Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? loadCatalog = null,
-      string? currentModelId = null,
-      Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? refreshCatalog = null)
+      ModelSectionSeams? modelSection = null)
   {
     ArgumentNullException.ThrowIfNull(current);
     ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
     ArgumentNullException.ThrowIfNull(persist);
-    _refreshCatalog = refreshCatalog;
+    _refreshCatalog = modelSection?.RefreshCatalog;
     _live = current;
     _persist = persist;
     IsOpenRouter = string.Equals(providerName, ProvidersOpenRouter, StringComparison.Ordinal);
@@ -857,10 +858,17 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     // is load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
     // button is only one of several ways this command can be invoked.
     SaveCommand = new RelayCommand(Save, () => CanSave);
-    ModelSection = loadCatalog is null
-        ? null
-        : new ModelPickerViewModel(loadCatalog, currentModelId);
+    ModelSection = BuildModelSection(modelSection);
   }
+
+  /// <summary>The embedded model + provider section, or null when the host supplied no
+  ///     catalog loader (the section then never renders and saves always carry Unchanged).
+  ///     Kept out of the constructor so its own complexity stays flat.</summary>
+  private static ModelPickerViewModel? BuildModelSection(ModelSectionSeams? seams)
+      => seams is null
+          ? null
+          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelId,
+              seams.CurrentProviderName, seams.LoadPerformance);
 
   /// <summary>Prefills the summary picker from the persisted level: the matching
   ///     row when the level is known, the provider-default row otherwise. Kept out
@@ -924,6 +932,22 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     change notification already requeries save availability.</summary>
   public void SetKnob(string knob, string text) => Knobs[knob].Text = text;
 
+  /// <summary>Applies a catalog refresh to the embedded section without inventing a user
+  ///     edit: the preselected PAIR follows the refresh only while the user has not moved off
+  ///     it (issue #296), so a refresh never turns an untouched window into a Pinned save.
+  ///     </summary>
+  private void ApplyCatalogRefresh(Result<IReadOnlyList<ModelProviderEntry>> refreshed)
+  {
+    ModelPickerRow? before = ModelSection?.SelectedRow;
+    bool unchanged = ReferenceEquals(before, _preselectedRow);
+    ModelSection?.ApplyRefresh(refreshed);
+    if (unchanged)
+    {
+      _preselectedRow = ModelSection?.SelectedRow;
+      _preselectedProviderName = ModelSection?.SelectedProviderRow?.Ranked.Entry.ProviderName;
+    }
+  }
+
   /// <summary>The model choice the save carries, derived from the section: no
   ///     section, or no row picked, means Unchanged; the auto row means Auto;
   ///     any other selected row means Pinned with its model id. Derived at save
@@ -934,6 +958,13 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     Unchanged — the user opened the window and changed nothing.</summary>
   private ModelPickerRow? _preselectedRow;
 
+  /// <summary>The provider the section pre-selected when it loaded (issue #296, D7).
+  ///     <para>THE PAIR IS THE DECISION, so "nothing changed" must mean BOTH halves are
+  ///     unchanged. A user who keeps the model and switches the provider has made a real
+  ///     choice, and reporting it as Unchanged would silently discard it - the same class of
+  ///     defect as a status line naming a provider the request never pinned.</para></summary>
+  private string? _preselectedProviderName;
+
   private ModelChoice ModelChoiceFromSection()
   {
     if (ModelSection?.SelectedRow is not { } row)
@@ -941,9 +972,12 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       return ModelChoice.Unchanged; // nothing picked — the shell's model state is untouched
     }
 
-    return ReferenceEquals(row, _preselectedRow)
-        ? ModelChoice.Unchanged // opened on this model, still on it
-        : ModelChoice.Pinned(row.ModelId!);
+    string? providerName = ModelSection.SelectedProviderRow?.Ranked.Entry.ProviderName;
+    bool sameModel = ReferenceEquals(row, _preselectedRow);
+    bool sameProvider = string.Equals(providerName, _preselectedProviderName, StringComparison.Ordinal);
+    return sameModel && sameProvider
+        ? ModelChoice.Unchanged // opened on this pair, still on it
+        : ModelChoice.Pinned(row.ModelId!, providerName);
   }
 
   /// <summary>The all-or-nothing save: validate every knob, then apply to the
@@ -963,7 +997,13 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     ModelChoice modelChoice = ModelChoiceFromSection();
     if (modelChoice.Kind != ModelChoiceKind.Unchanged)
     {
+      // BOTH halves land on the live preferences (issue #296, D7): the resolver reads the
+      // pair from here, so applying only the model would leave the turn serving unpinned
+      // while the dialog reported a committed provider. A null provider CLEARS it - the user
+      // moved to a model with no provider selected, and keeping the old one would silently
+      // serve a provider they just moved away from.
       _live.ModelId = modelChoice.ModelId;
+      _live.ProviderName = modelChoice.ProviderName;
     }
 
     string? serialized = ShowOpenRouterSection ? SerializeSectionOrNull() : null;

@@ -79,7 +79,13 @@
           <TextBlock x:Name="CostText" Text="{Binding Status.CostDisplay}" ToolTip.Tip="{Binding Status.CostBreakdownText}" IsVisible="{Binding Status.CostDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock Text="{Binding Status.Provider}"/>
-          <TextBlock Text="{Binding Status.ModelId}"/>
+          <TextBlock x:Name="ModelIdText" Text="{Binding Status.ModelId}"/>
+          <!-- The committed provider (issue #296, D7/B6): the pair is the decision, so the
+               bar names both halves. Hidden when no provider was pinned, so a session that
+               never committed one shows exactly the pre-#296 line. -->
+          <TextBlock x:Name="ServingProviderText" Text="{Binding Status.ServingProvider}"
+                     ToolTip.Tip="The provider committed for this session"
+                     IsVisible="{Binding Status.ServingProvider, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
         </StackPanel>
       </DockPanel>

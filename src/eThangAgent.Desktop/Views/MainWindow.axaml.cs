@@ -180,14 +180,20 @@ internal partial class MainWindow : Window
       return; // host composed the session without model preferences — nothing to edit
     }
 
+    // The model section's seams are bundled (issue #296): the catalog load and its
+    // revalidation join, the session's committed pair to pre-select, and the ledger's
+    // observed performance. A host with no catalog loader supplies no section at all.
+    ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
+        ? new ModelSectionSeams(loadCatalog, preferences.ModelId,
+            _vm.SelectedTabCatalogRefresher, preferences.ProviderName,
+            _vm.SelectedTabPerformanceLoader)
+        : null;
     ModelSettingsViewModel vm = new(
         preferences,
         tab.Container.ProviderName,
         persist: snapshot => _ = _vm.ApplySamplingSettingsAsync(snapshot),
         await _vm.ReadSamplingPrefsForSelectedTabAsync(),
-        loadCatalog: _vm.SelectedTabCatalogLoader,
-        currentModelId: preferences.ModelId,
-        refreshCatalog: _vm.SelectedTabCatalogRefresher);
+        modelSection);
     ModelSettingsWindow dialog = new(vm);
     _ = await dialog.ShowDialog<ModelSettingsSnapshot?>(this);
   }

@@ -728,11 +728,20 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>
-  /// Applies the user's model picker choice: pins the session's model, updates the
-  /// status bar, and announces the change. Applies from the next turn, root and
-  /// children alike; persisted per workspace by the shell.
+  /// Applies the user's picker choice: pins the session's MODEL AND PROVIDER pair, updates
+  /// the status bar, and announces the change. Applies from the next turn, root and children
+  /// alike; persisted per workspace by the shell.
+  /// <para>THE PAIR IS THE DECISION (issue #296, D7). A model chosen for its cache economics
+  /// is only the cheap choice on the provider whose cache prices make it so, so the provider
+  /// travels with the model rather than being left to routing. A null
+  /// <paramref name="providerName"/> CLEARS the committed provider - it does not inherit the
+  /// previous one, which would silently keep serving a provider the user just moved away
+  /// from.</para>
   /// </summary>
-  public void ApplyModelChoice(string? modelId)
+  /// <param name="modelId">The model to serve, or null for the session's default model.</param>
+  /// <param name="providerName">The provider to serve it, or null for the provider's own
+  ///     routing.</param>
+  public void ApplyModelChoice(string? modelId, string? providerName = null)
   {
     if (_modelPreferences is null)
     {
@@ -745,9 +754,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // the status bar would name a model that never serves. The default model id is
     // therefore what the session states - the same id the status bar shows.
     string chosen = string.IsNullOrWhiteSpace(modelId) ? _sessionDefaultModelId : modelId;
+    string? chosenProvider = string.IsNullOrWhiteSpace(providerName) ? null : providerName;
     _modelPreferences.ModelId = chosen;
+    _modelPreferences.ProviderName = chosenProvider;
     Status.ModelId = chosen;
-    Transcript.AddNotice($"Model set to {chosen}; applies from the next turn.");
+    Status.ServingProvider = chosenProvider ?? string.Empty;
+    Transcript.AddNotice(chosenProvider is null
+        ? $"Model set to {chosen}; applies from the next turn."
+        : $"Model set to {chosen} on {chosenProvider}; applies from the next turn.");
   }
 
   /// <summary>Awaits the in-flight turn task. Returns a completed task if no turn is running.</summary>
