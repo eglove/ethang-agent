@@ -9,6 +9,6 @@ internal sealed class FixedWindowSource : IContextWindowSource
 {
   public const int DefaultWindow = 128_000;
 
-  public Task<int?> WindowForAsync(string modelId, string? providerName, CancellationToken ct = default)
+  public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
       => Task.FromResult<int?>(DefaultWindow);
 }

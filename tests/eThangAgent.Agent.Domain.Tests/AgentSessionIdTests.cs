@@ -14,7 +14,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentSessionIdTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   [Fact]
   public async Task SendMessage_WithSessionIdOption_StampsEveryRequest()

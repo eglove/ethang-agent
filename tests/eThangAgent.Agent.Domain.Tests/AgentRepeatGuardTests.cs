@@ -11,7 +11,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentRepeatGuardTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   private const string Error = "Error [MissingParameter]: Missing required parameter 'timeoutSeconds'.";
 

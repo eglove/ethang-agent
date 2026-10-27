@@ -119,9 +119,9 @@ public class PriceTierTests
     FakeCatalog catalog = new([Entry(tiers: [Tier(200_000, 0.000006m, 0.0000006m, 0.0000225m)])]);
     CatalogUsagePriceSource source = new(catalog);
 
-    UsagePrices shortCall = await source.PricesForAsync("m", "p", 1_000,
+    UsagePrices shortCall = await source.PricesForAsync("m", 1_000,
         TestContext.Current.CancellationToken);
-    UsagePrices longCall = await source.PricesForAsync("m", "p", 300_000,
+    UsagePrices longCall = await source.PricesForAsync("m", 300_000,
         TestContext.Current.CancellationToken);
 
     Assert.Equal(0.000003m, shortCall.PromptPricePerToken);
@@ -136,7 +136,7 @@ public class PriceTierTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry(tiers: [Tier(200_000, 0.000006m, 0.0000006m, 0.0000225m)])]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "p", ct: TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(0.000003m, prices.PromptPricePerToken);
   }

@@ -48,7 +48,7 @@ public sealed record AgentReasoningRecorded(AgentId AgentId, DateTimeOffset Occu
 ///     request, so the next request's bytes are unchanged by it.</para></summary>
 public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset OccurredAt, Guid TurnId, int Iteration,
     int InputTokens, int OutputTokens, int? CachedInputTokens, int? ReasoningTokens,
-    UsageCallClass? CallClass = null, string? WorkspaceId = null, string? Provider = null,
+    UsageCallClass? CallClass = null, string? WorkspaceId = null, string? PricingProvider = null,
     decimal? PromptPricePerToken = null, decimal? PromptCacheReadPricePerToken = null,
     decimal? CompletionPricePerToken = null, string? ModelId = null,
     string? RequestedModelId = null, string? ServedModelId = null,
@@ -95,7 +95,7 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
   ///     the loop can hand a live call to the status bar without the Model Domain ever
   ///     learning what a usage EVENT is. The class's wire name travels verbatim: the closed
   ///     set stays owned here, and the read model treats the name as opaque.</summary>
-  public UsageRow ToUsageRow() => new(EffectiveCallClass.WireName, ModelId, Provider, WorkspaceId,
+  public UsageRow ToUsageRow() => new(EffectiveCallClass.WireName, ModelId, PricingProvider, WorkspaceId,
       InputTokens, OutputTokens, CachedInputTokens, ReasoningTokens,
       PromptPricePerToken, PromptCacheReadPricePerToken, CompletionPricePerToken,
       RequestedModelId, ServedModelId, DurationMs, FirstTokenMs, ServedProvider);

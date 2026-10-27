@@ -65,16 +65,15 @@ public class OpenRouterModelProviderRequestTests
     return capturedBody!;
   }
 
-  private static ModelConfig WithSettings(OpenRouterRequestSettings? settings, string? provider = null)
-    => ModelConfig.Create(
-        "openai/gpt-5", provider, 64, 0.7f, 4096,
+  private static ModelConfig WithSettings(OpenRouterRequestSettings? settings)
+    => ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096,
         providerSettings: OpenRouterRequestSettings.Serialize(settings)).Value!;
 
   [Fact]
   public async Task Body_OmitsEveryNullKnob()
   {
     string body = await CaptureBodyAsync(
-        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")])).ConfigureAwait(true);
 
     foreach (string key in KnobWireKeys)
@@ -87,18 +86,7 @@ public class OpenRouterModelProviderRequestTests
   public async Task Body_SendsEverySetKnob()
   {
     string body = await CaptureBodyAsync(
-        ModelConfig.Create(
-            "openai/gpt-5", null, 64, 0.7f, 4096,
-            topP: 0.9f,
-            topK: 40,
-            frequencyPenalty: 0.5f,
-            presencePenalty: -0.5f,
-            repetitionPenalty: 1.1f,
-            minP: 0.05f,
-            topA: 0.8f,
-            seed: 42,
-            verbosity: VerbosityLevel.High,
-            parallelToolCalls: false).Value!,
+        ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096, topP: 0.9f, topK: 40, frequencyPenalty: 0.5f, presencePenalty: -0.5f, repetitionPenalty: 1.1f, minP: 0.05f, topA: 0.8f, seed: 42, verbosity: VerbosityLevel.High, parallelToolCalls: false).Value!,
         new ModelRequest([UserMsg("hi")])).ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);
@@ -116,87 +104,32 @@ public class OpenRouterModelProviderRequestTests
   }
 
   [Fact]
-  public async Task Body_APinnedVariantSlug_ReachesTheWireVerbatim()
+  public async Task Body_ALegacyRoutingPayload_CannotResurrectAProviderObject()
   {
-    // Issue #296 follow-up: the pin carries the ENDPOINT slug, not the provider name. OpenRouter
-    // documents an endpoint slug as provider[/variant][/region][/tier] and accepts the full slug
-    // in provider.only, so this is what reaches ONE endpoint of "xAI" - the $4 priority variant
-    // the user chose rather than whichever of the five the router prefers.
-    string body = await CaptureBodyAsync(WithSettings(null, provider: "xai/zdr/priority"))
-        .ConfigureAwait(true);
-
-    using JsonDocument doc = JsonDocument.Parse(body);
-    JsonElement provider = doc.RootElement.GetProperty("provider");
-    string[] only = [.. provider.GetProperty("only").EnumerateArray().Select(e => e.GetString()!)];
-    Assert.Equal(["xai/zdr/priority"], only);
-    // The lock still rides with it: a pin that permits fallbacks is a preference, not a pin.
-    Assert.False(provider.GetProperty("allow_fallbacks").GetBoolean());
-  }
-
-  [Fact]
-  public async Task Body_ALegacyRoutingPayload_IsIgnored_AndThePinStillWins()
-  {
-    // ROUTING IS DELETED. The user now commits ONE model/provider pair and nothing else
-    // writes the request's "provider" key. The risk this test guards is the transition:
-    // persisted ProviderSettings written before the removal still carry a "routing"
-    // object, and OpenRouterRequestSettings skips unknown members on read - so an old
-    // payload must not resurrect routing behaviour, and it must never win over the pin.
+    // ROUTING AND THE PROVIDER PIN ARE BOTH DELETED. Nothing in the harness writes the request's
+    // "provider" key any more: the whole routing decision is the model id's variant suffix.
+    // The risk this guards is the transition - persisted ProviderSettings written before the
+    // removals still carry a "routing" object, and OpenRouterRequestSettings skips unknown
+    // members on read, so an old payload must not resurrect routing behaviour either.
     OpenRouterRequestSettings settings = OpenRouterRequestSettings.Parse(
-        /*lang=json,strict*/"""{"routing":{"data_collection":"deny","only":["someone-else"]}}""")!;
-    string body = await CaptureBodyAsync(WithSettings(settings, provider: "deepinfra/fp8/flex"))
-        .ConfigureAwait(true);
+        /*lang=json,strict*/ """{"routing":{"data_collection":"deny","only":["someone-else"]}}""")!;
+    string body = await CaptureBodyAsync(WithSettings(settings)).ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);
-    JsonElement provider = doc.RootElement.GetProperty("provider");
-    // The pin is the ONLY content of the provider object: no order, sort, only-override,
-    // quantizations, or data_collection survived from the dead payload.
-    Assert.Equal(
-        ["allow_fallbacks", "only"],
-        provider.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
-    Assert.Equal("deepinfra/fp8/flex", Assert.Single(provider.GetProperty("only").EnumerateArray()).GetString());
-    Assert.False(provider.GetProperty("allow_fallbacks").GetBoolean());
+    Assert.False(doc.RootElement.TryGetProperty("provider", out _));
+    Assert.DoesNotContain("someone-else", body, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task Body_NoPinAndNoRouting_SendsNoProviderObjectAtAll()
+  public async Task Body_NoSettings_SendsNoProviderObjectAtAll()
   {
-    // With routing gone, a session that pinned nothing sends NO provider key: the
-    // provider's own load balancing decides. This is the state the settings dialog now
-    // produces for a user who never picked a provider row.
+    // A session sends NO provider key: the variant suffix in "model" is the entire routing
+    // decision, and the provider's own load balancing does the rest.
     string body = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings()))
         .ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);
     Assert.False(doc.RootElement.TryGetProperty("provider", out _));
-  }
-
-  [Fact]
-  public async Task Body_ACommittedProviderPin_ReachesTheWire_AsALock()
-  {
-    // Issue #296, D7/B2 and #297, D2: the pair the user committed is what the request pins,
-    // and the pin is a HARD constraint - allow_fallbacks:false rides with it. A pin that
-    // permitted fallbacks would be a preference the router may ignore, which is the silent
-    // substitution the harness refuses everywhere else.
-    string body = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings(),
-        provider: "DeepInfra")).ConfigureAwait(true);
-
-    using JsonDocument doc = JsonDocument.Parse(body);
-    JsonElement provider = doc.RootElement.GetProperty("provider");
-    JsonElement only = provider.GetProperty("only");
-    Assert.Equal("DeepInfra", Assert.Single(only.EnumerateArray()).GetString());
-    Assert.False(provider.GetProperty("allow_fallbacks").GetBoolean());
-  }
-
-  [Fact]
-  public async Task Body_ProviderPinningPreserved_WithoutRouting()
-  {
-    string body = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings(), provider: "openai")).ConfigureAwait(true);
-
-    using JsonDocument doc = JsonDocument.Parse(body);
-    JsonElement provider = doc.RootElement.GetProperty("provider");
-    JsonElement only = provider.GetProperty("only");
-    _ = Assert.Single(only.EnumerateArray());
-    Assert.Equal("openai", only[0].GetString());
   }
 
   [Fact]
@@ -319,8 +252,7 @@ public class OpenRouterModelProviderRequestTests
     // the provider and never a silently dropped filter.
     const string settingsJson = /*lang=json,strict*/
         """{"server_tools":{"stop_server_tools_when":[{"type":"has_tool_call","tool_name":""}]}}""";
-    ModelConfig config = ModelConfig.Create(
-        "openai/gpt-5", null, 64, 0.7f, 4096, providerSettings: settingsJson).Value!;
+    ModelConfig config = ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096, providerSettings: settingsJson).Value!;
     FakeHttpMessageHandler handler = new(_ => throw new InvalidOperationException(
         "the turn must fail before any HTTP send, not here"));
     using HttpClient http = new(handler);
@@ -357,7 +289,7 @@ public class OpenRouterModelProviderRequestTests
   {
     string withDefaults = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings())).ConfigureAwait(true);
     string withoutSettings = await CaptureBodyAsync(
-        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!).ConfigureAwait(true);
+        ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096).Value!).ConfigureAwait(true);
 
     Assert.Equal(withoutSettings, withDefaults);
   }
@@ -376,7 +308,7 @@ public class OpenRouterModelProviderRequestTests
     OpenRouterModelProvider provider = new(http, Config);
 
     _ = await provider.SendStreamingAsync(
-        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.NotNull(capturedBody);
@@ -392,7 +324,7 @@ public class OpenRouterModelProviderRequestTests
   private const string CorruptSettings = "{not json";
 
   private static ModelConfig WithCorruptSettings() =>
-      ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096, providerSettings: CorruptSettings).Value!;
+      ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096, providerSettings: CorruptSettings).Value!;
 
   [Fact]
   public async Task Send_CorruptSettings_FailsThroughResultContract()

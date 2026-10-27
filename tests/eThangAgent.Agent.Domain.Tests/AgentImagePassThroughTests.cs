@@ -12,7 +12,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentImagePassThroughTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   /// <summary>A tool whose result carries images, counting how often it ran.</summary>
   private sealed class ImagingTool : ITool

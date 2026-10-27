@@ -193,46 +193,29 @@ public class StartSpawnHandlerTests
   }
 
   [Fact]
-  public async Task Execute_SessionProviderCommitted_ChildResolvesOnIt_AndFailsWhenTheCatalogLacksIt()
+  public async Task Execute_TheSessionVariant_DoesNotChangeWhichModelAChildRuns()
   {
-    // Issue #297, D4/D5 at the spawn boundary: the session's pin rides the child's resolution,
-    // and a pinned provider the catalog does not offer for the child's model fails the spawn
-    // by name instead of quietly dropping the pin (which would split the subtree's cost across
-    // providers).
-    FakeAgentStore store = new();
-    FakeAgentRuntime runtime = new();
-    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ProviderName = "Reka" };
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null),
-        new SpawnOptions(FallbackModel, preferences), windowSource: new FixedWindowSource(),
-        catalog: new ListingCatalog(("alpha/model", "DeepInfra")));
+    // THE VARIANT IS NOT A MODEL DECISION. It sorts the endpoints of whatever model the child
+    // runs, so the spawn boundary must not consult it: a child's ModelUsed is the BASE model, and
+    // the suffix reaches its config later, through the overlay, applied to that same model.
+    // (The retired UnknownPinnedProvider failure lived here; a variant cannot produce it, because
+    // it never narrows the pool to a provider that could go missing.)
+    foreach (ModelVariant variant in ModelVariants.All)
+    {
+      FakeAgentStore store = new();
+      FakeAgentRuntime runtime = new();
+      SessionModelPreferences preferences = new() { ModelId = "alpha/model", ModelVariant = variant };
+      StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null),
+          new SpawnOptions(FallbackModel, preferences), windowSource: new FixedWindowSource(),
+          catalog: new ListingCatalog(("alpha/model", "DeepInfra")));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"),
-        ct: TestContext.Current.CancellationToken);
+      Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"),
+          ct: TestContext.Current.CancellationToken);
 
-    Assert.False(result.IsSuccess);
-    Assert.Equal("UnknownPinnedProvider", result.Error.Code);
-    Assert.Contains("Reka", result.Error.Message, StringComparison.Ordinal);
-    Assert.Empty(store.Saved);
-    Assert.Empty(runtime.Started);
+      Assert.True(result.IsSuccess, result.Error?.Message);
+      Assert.Equal("alpha/model", Assert.Single(store.Saved).ModelUsed);
+    }
   }
-
-  [Fact]
-  public async Task Execute_SessionProviderCommitted_ChildResolvesOnIt_WhenTheCatalogOffersIt()
-  {
-    FakeAgentStore store = new();
-    FakeAgentRuntime runtime = new();
-    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ProviderName = "DeepInfra" };
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null),
-        new SpawnOptions(FallbackModel, preferences), windowSource: new FixedWindowSource(),
-        catalog: new ListingCatalog(("alpha/model", "DeepInfra")));
-
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"),
-        ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsSuccess, result.Error?.Message);
-    Assert.Equal("alpha/model", Assert.Single(store.Saved).ModelUsed);
-  }
-
   [Fact]
   public async Task Execute_PreferenceMutatedBetweenExecutions_NextChildSeesNewChoice()
   {

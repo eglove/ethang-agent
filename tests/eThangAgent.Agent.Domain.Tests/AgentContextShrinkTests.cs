@@ -13,7 +13,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     Grand-plan: agent-triggered compaction at milestones.</summary>
 public class AgentContextShrinkTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   private sealed class ScriptedProvider(IReadOnlyList<ModelResponse> responses) : IModelProvider
   {

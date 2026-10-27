@@ -304,7 +304,7 @@ public class AgentSessionFactoryTests
 
         // The run-side seam: a persisted anchored child (exactly what the start command
         // writes when its anchor rule passes) runs through the container's REAL spawner.
-        ModelConfig childModel = ModelConfig.Create("test/model", null, 4096, 0.7f, 32 * 1024).Value!;
+        ModelConfig childModel = ModelConfig.Create("test/model", 4096, 0.7f, 32 * 1024).Value!;
         AgentRecord child = AgentRecord.Spawned(AgentId.NewId(), RootRecord(workspaceRoot).Id, 1,
             childModel.ModelId, "anchored", "resolve the anchor", DateTimeOffset.UtcNow,
             new SpawnContract(WorkspaceRoot: anchorPath));

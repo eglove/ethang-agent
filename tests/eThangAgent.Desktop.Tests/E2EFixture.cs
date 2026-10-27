@@ -88,7 +88,7 @@ internal static class E2E
 
       _services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.OpenRouter,
-              ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
+              ModelConfig.Create(SessionModel, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
                   new FixedWorkspaceContext(workspaceContextId),
                   new UnrootedPathResolver()))
@@ -126,7 +126,7 @@ internal static class E2E
       // uses: a MainViewModel whose single tab wraps the composed session.
       AgentSession session = new(
           _services, RootId, conversation, handler, lifecycle,
-          ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
+          ModelConfig.Create(SessionModel, 32 * 1024, 0.7f, 32 * 1024).Value!,
           WorkspaceRoot: effectiveWorkspaceRoot,
           ProviderName: Providers.OpenRouter,
           Inbox: _services.GetRequiredService<IAgentInbox>(),

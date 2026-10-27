@@ -12,7 +12,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     Everything here uses fakes only — the domain never knows HTTP or OpenRouter exist.</summary>
 public class AgentOverflowRecoveryTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   // Opaque to the domain: the message text is provider-wire detail the ACL attached.
   private static readonly DomainError Overflow = new("ContextWindowExceeded",

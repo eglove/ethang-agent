@@ -17,7 +17,7 @@ public class SendMessageCommandHandlerTests
     StubModelProvider provider = new(
         Result.Success(new ModelResponse("response", [])));
     Ag agent = new(provider, new Conversation(),
-        ModelConfig.Create("m", null, 100, 0.5f, 8192).Value!, new ToolRegistry([]));
+        ModelConfig.Create("m", 100, 0.5f, 8192).Value!, new ToolRegistry([]));
     SendMessageCommandHandler handler = new(agent);
 
     Result<string> result = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
@@ -32,7 +32,7 @@ public class SendMessageCommandHandlerTests
     DomainError error = new("FAIL", "bad");
     StubModelProvider provider = new(Result.Failure<ModelResponse>(error));
     Ag agent = new(provider, new Conversation(),
-        ModelConfig.Create("m", null, 100, 0.5f, 8192).Value!, new ToolRegistry([]));
+        ModelConfig.Create("m", 100, 0.5f, 8192).Value!, new ToolRegistry([]));
     SendMessageCommandHandler handler = new(agent);
 
     Result<string> result = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);

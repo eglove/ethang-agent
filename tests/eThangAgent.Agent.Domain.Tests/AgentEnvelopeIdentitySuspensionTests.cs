@@ -15,7 +15,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentEnvelopeIdentitySuspensionTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   private sealed class ScriptedModelProvider(params Result<ModelResponse>[] responses) : IModelProvider
   {

@@ -7,7 +7,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class DefaultContextCompactorTests
 {
   private static readonly DateTimeOffset T = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-  private static readonly ModelConfig Serving = ModelConfig.Create("serving", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Serving = ModelConfig.Create("serving", 100, 0.5f, 1000).Value!;
 
   private sealed class RecordingFactory(ModelConfig? served) : IModelProviderFactory
   {
@@ -69,7 +69,7 @@ public class DefaultContextCompactorTests
     conversation.AddUserMessage(new string('x', 1500));
     conversation.AddAssistantMessage(new string('y', 1500));
 
-    ModelConfig unknownWindow = ModelConfig.Create("serving", null, 100, 0.5f, null).Value!;
+    ModelConfig unknownWindow = ModelConfig.Create("serving", 100, 0.5f, null).Value!;
     RecordingFactory factory = new(null);
     DefaultContextCompactor compactor = new(factory, () => null);
 
@@ -359,7 +359,7 @@ public class DefaultContextCompactorTests
   public async Task CompactAsync_SummarizerResolved_OutcomeNamesTheSummarizerModel()
   {
     Conversation conversation = ConversationWithEvictableMiddle();
-    ModelConfig summarizer = ModelConfig.Create("summarizer-model", "openrouter", 100, 0.5f, 1000).Value!;
+    ModelConfig summarizer = ModelConfig.Create("summarizer-model", 100, 0.5f, 1000, pricingProvider: "openrouter").Value!;
     RecordingFactory factory = new(summarizer);
     DefaultContextCompactor compactor = new(factory, () => summarizer);
 
@@ -378,7 +378,7 @@ public class DefaultContextCompactorTests
   public async Task CompactAsync_SummarizerServedByADifferentModel_CarriesTheServedId()
   {
     Conversation conversation = ConversationWithEvictableMiddle();
-    ModelConfig summarizer = ModelConfig.Create("openrouter/free", "openrouter", 100, 0.5f, 1000).Value!;
+    ModelConfig summarizer = ModelConfig.Create("openrouter/free", 100, 0.5f, 1000).Value!;
     RecordingFactory factory = new(summarizer);
     ((ScriptedProvider)factory.Provider).Enqueue(Result.Success(new ModelResponse("a summary", [])
     {
@@ -401,7 +401,7 @@ public class DefaultContextCompactorTests
   public async Task CompactAsync_SummarizerReportsNoModel_LeavesServedIdNull()
   {
     Conversation conversation = ConversationWithEvictableMiddle();
-    ModelConfig summarizer = ModelConfig.Create("summarizer-model", "openrouter", 100, 0.5f, 1000).Value!;
+    ModelConfig summarizer = ModelConfig.Create("summarizer-model", 100, 0.5f, 1000, pricingProvider: "openrouter").Value!;
     RecordingFactory factory = new(summarizer);
     ((ScriptedProvider)factory.Provider).Enqueue(Result.Success(new ModelResponse("a summary", [])
     {
@@ -440,7 +440,7 @@ public class DefaultContextCompactorTests
   public async Task CompactAsync_HandoffOutcome_CarriesTheSummarizerIdentity()
   {
     Conversation conversation = ConversationWithEvictableMiddle();
-    ModelConfig summarizer = ModelConfig.Create("summarizer-model", "openrouter", 100, 0.5f, 1000).Value!;
+    ModelConfig summarizer = ModelConfig.Create("summarizer-model", 100, 0.5f, 1000, pricingProvider: "openrouter").Value!;
     RecordingFactory factory = new(summarizer);
     DefaultContextCompactor compactor = new(factory, () => summarizer, handoffEnabled: () => Result.Success(true));
 

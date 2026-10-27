@@ -13,7 +13,7 @@ public class UsageTimingTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");
   private static OpenRouterConfiguration Config => new("test-key", BaseUrl);
-  private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f, 4096).Value!;
+  private static ModelConfig Model => ModelConfig.Create("m", 256, 0.7f, 4096).Value!;
 
   [Fact]
   public async Task NonStreaming_SuccessfulCall_StampsDurationMs()
@@ -117,7 +117,7 @@ public class UsageTimingTests
         "data: [DONE]\n\n")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
-    ModelConfig pinned = ModelConfig.Create("m", "DeepInfra", 256, 0.7f, 4096).Value!;
+    ModelConfig pinned = ModelConfig.Create("m", 256, 0.7f, 4096).Value!;
 
     Result<ModelResponse> result = await provider.SendStreamingAsync(pinned, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
 

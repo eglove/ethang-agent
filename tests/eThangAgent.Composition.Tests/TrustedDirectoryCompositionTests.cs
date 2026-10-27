@@ -202,7 +202,7 @@ public sealed class TrustedDirectoryCompositionTests
     using TestAppDatabase db = TestAppDatabase.Create();
     return new ServiceCollection()
         .AddEThangAgentCore(Settings(), Providers.OpenRouter,
-            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+            ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(new FixedWorkspaceContext(workspace), new WorkspacePathResolver(workspace)),
             db.Database)
         // The factory normally REPLACES this registration after reading the store; here

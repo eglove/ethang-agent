@@ -41,7 +41,7 @@ public class ChildHostSessionResponseTests
     // The container needs the handler the turn resolves: the REAL SendMessageCommandHandler
     // over the rig's scripted provider and THIS conversation, so the turn streams and parks
     // exactly like a production turn while the channel rides it.
-    ModelConfig config = ModelConfig.Create("scripted/model", null, 4096, 0f, 200_000).Value!;
+    ModelConfig config = ModelConfig.Create("scripted/model", 4096, 0f, 200_000).Value!;
     _ = services.AddSingleton<IModelProvider>(host.Provider);
     _ = services.AddSingleton(config);
     _ = services.AddSingleton(new SendMessageCommandHandler(
@@ -105,7 +105,7 @@ public class ChildHostSessionResponseTests
     // The container needs the handler the turn resolves: the REAL SendMessageCommandHandler
     // over the rig's scripted provider and THIS conversation, so the turn streams and parks
     // exactly like a production turn while the channel rides it.
-    ModelConfig config = ModelConfig.Create("scripted/model", null, 4096, 0f, 200_000).Value!;
+    ModelConfig config = ModelConfig.Create("scripted/model", 4096, 0f, 200_000).Value!;
     _ = services.AddSingleton<IModelProvider>(host.Provider);
     _ = services.AddSingleton(config);
     _ = services.AddSingleton(new SendMessageCommandHandler(

@@ -21,7 +21,7 @@ public class McpCompositionTests
     AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+            ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
                 new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()), database)
         .BuildServiceProvider();
@@ -122,7 +122,7 @@ public class McpCompositionTests
     AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+            ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
                 new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()), database)
         .AddSingleton<ToolDomain.Mcp.IMcpServerStore>(store)

@@ -257,29 +257,23 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
         : Result.Success(bodyDict);
   }
 
-  /// <summary>Stamps the provider pin (when one is configured), parses the
-  ///     provider settings, and applies them to the body; a parse fault or a
-  ///     malformed stop condition surfaces as the returned DomainError — never
-  ///     silently dropped.
-  ///     <para>THE PIN IS A LOCK, NOT A SUGGESTION (issue #297, D2): <c>allow_fallbacks: false</c>
-  ///     rides with <c>only</c>. A pin that permits fallbacks is a preference the router may
-  ///     ignore, which is the silent substitution this harness refuses everywhere else — the
-  ///     user's committed provider either serves or the call fails.</para></summary>
+  /// <summary>Parses the provider settings and applies them to the body; a parse fault or a
+  ///     malformed stop condition surfaces as the returned DomainError — never silently
+  ///     dropped.
+  ///     <para>THERE IS NO PROVIDER BLOCK. The retired pin wrote
+  ///     <c>provider: { only: [...], allow_fallbacks: false }</c>, narrowing the request to
+  ///     one endpoint. Routing is now expressed entirely by the model id's VARIANT SUFFIX
+  ///     (<c>:nitro</c> / <c>:floor</c> / none), which sorts the whole eligible pool rather
+  ///     than restricting it — so a <c>provider</c> key here would OVERRIDE the user's chosen
+  ///     tradeoff instead of refining it, and the user would be billed for a tradeoff they did
+  ///     not pick.</para></summary>
   private static DomainError? ParseAndApplySettings(Dictionary<string, object?> bodyDict,
       ModelConfig config, ModelRequest request)
   {
     Result<OpenRouterRequestSettings?> settingsResult = ParseSettings(config.ProviderSettings);
-    if (!settingsResult.IsSuccess)
-    {
-      return settingsResult.Error;
-    }
-
-    if (!string.IsNullOrWhiteSpace(config.Provider))
-    {
-      bodyDict["provider"] = new { only = new[] { config.Provider }, allow_fallbacks = false };
-    }
-
-    return ApplyProviderSettings(bodyDict, settingsResult.ValueOrNull, request, config);
+    return settingsResult.IsSuccess
+        ? ApplyProviderSettings(bodyDict, settingsResult.ValueOrNull, request, config)
+        : settingsResult.Error;
   }
 
   /// <summary>The base body fields; the system prompt rides the responses API's

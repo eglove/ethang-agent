@@ -26,7 +26,7 @@ public class ChildHostHandoffEmitTests
   private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
 
   private static readonly ModelConfig Config =
-      ModelConfig.Create("scripted/model", null, 4096, 0f, 1000).Value!;
+      ModelConfig.Create("scripted/model", 4096, 0f, 1000).Value!;
 
   /// <summary>Answers in queued order: the turn's first (tool-call) response, the
   ///     summarizer call, then the turn's final answer.</summary>

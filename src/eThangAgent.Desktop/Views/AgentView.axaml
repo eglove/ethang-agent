@@ -83,9 +83,9 @@
           <!-- The committed provider (issue #296, D7/B6): the pair is the decision, so the
                bar names both halves. Hidden when no provider was pinned, so a session that
                never committed one shows exactly the pre-#296 line. -->
-          <TextBlock x:Name="ServingProviderText" Text="{Binding Status.ServingProvider}"
+          <TextBlock x:Name="ServingVariantText" Text="{Binding Status.ServingVariant}"
                      ToolTip.Tip="The provider committed for this session"
-                     IsVisible="{Binding Status.ServingProvider, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                     IsVisible="{Binding Status.ServingVariant, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
         </StackPanel>
       </DockPanel>

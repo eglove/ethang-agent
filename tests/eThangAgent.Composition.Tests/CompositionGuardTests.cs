@@ -24,7 +24,7 @@ public class CompositionGuardTests
     using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = new ServiceCollection()
     .AddEThangAgentCore(settings, Providers.OpenRouter,
-        ModelConfig.Create("root/model", null, 512, 0.5f, 8192).Value!,
+        ModelConfig.Create("root/model", 512, 0.5f, 8192).Value!,
         new AgentHostOptions(
             new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
     .BuildServiceProvider();
@@ -53,7 +53,7 @@ public class CompositionGuardTests
     using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!, host, db.Database)
+            ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!, host, db.Database)
         .BuildServiceProvider();
 
     object?[] resolutions =
@@ -102,7 +102,7 @@ public class CompositionGuardTests
     using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = new ServiceCollection()
     .AddEThangAgentCore(Settings(), Providers.OpenRouter,
-        ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+        ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
         new AgentHostOptions(
             new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
     .BuildServiceProvider();
@@ -118,7 +118,7 @@ public class CompositionGuardTests
     using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider openRouterServices = new ServiceCollection()
     .AddEThangAgentCore(Settings(), Providers.OpenRouter,
-        ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+        ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
         new AgentHostOptions(
             new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
     .BuildServiceProvider();
@@ -133,7 +133,7 @@ public class CompositionGuardTests
     using TestAppDatabase db = TestAppDatabase.Create();
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+            ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database));
 
@@ -148,7 +148,7 @@ public class CompositionGuardTests
     using TestAppDatabase db = TestAppDatabase.Create();
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, "anthropic",
-            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+            ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database));
 
@@ -165,7 +165,7 @@ public class CompositionGuardTests
     using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(Settings(), Providers.OpenRouter,
-            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+            ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(new FixedWorkspaceContext("app"), new UnrootedPathResolver()),
             db.Database)
         .BuildServiceProvider();

@@ -8,7 +8,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class ToolResultCallbackTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   [Fact]
   public async Task OnToolResult_CarriesFullContent_AndErrorFlag_ForFailedTool()

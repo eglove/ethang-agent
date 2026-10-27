@@ -3,8 +3,8 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.ModelDomain;
 
 /// <summary>The three per-token prices a usage row stamps at write time (issue #22), all
-/// nullable: a null price means the price is unknown, so the row contributes tokens but no
-/// cost — cost reads as null, never fabricated.</summary>
+///     nullable: a null price means the price is unknown, so the row contributes tokens but no
+///     cost — cost reads as null, never fabricated.</summary>
 public sealed record UsagePrices(decimal? PromptPricePerToken, decimal? PromptCacheReadPricePerToken,
     decimal? CompletionPricePerToken)
 {
@@ -12,9 +12,15 @@ public sealed record UsagePrices(decimal? PromptPricePerToken, decimal? PromptCa
   public static UsagePrices Unknown { get; } = new(null, null, null);
 }
 
-/// <summary>Resolves the prices to stamp on a usage row for one model (issue #22). A
-/// missing model, a model with no advertised prices, or a failed catalog read all yield
-/// <see cref="UsagePrices.Unknown"/> — cost is never fabricated from a guess.</summary>
+/// <summary>Resolves the prices to stamp on a usage row for one model (issue #22). A missing
+///     model, a model with no advertised prices, or a failed catalog read all yield
+///     <see cref="UsagePrices.Unknown"/> — cost is never fabricated from a guess.
+///     <para>THE KEY IS THE BASE MODEL, and there is deliberately no provider parameter: the
+///     catalog serves one row per ROUTABLE ENDPOINT of a model, all sharing the model id, so a
+///     model id alone identifies the price table. The routing variant (<c>:nitro</c> /
+///     <c>:floor</c>) is a SUFFIX on that id and is stripped before this call, because it names
+///     a routing intent rather than a different model — the prices that apply are the served
+///     endpoint's, which the response itself reports.</para></summary>
 public interface IUsagePriceSource
 {
   /// <remarks><c>promptTokens</c> is the call's PROMPT SIZE, which decides which rung of a
@@ -24,41 +30,45 @@ public interface IUsagePriceSource
   ///     not know the size passes 0, which selects the base prices - the honest reading for a
   ///     call whose size is unknown, never the most expensive rung. Defaulted so an existing
   ///     caller that cannot supply a size keeps its previous (base-price) behavior.</remarks>
-  Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+  Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
       CancellationToken ct = default);
 }
 
 /// <summary>Catalog-backed <see cref="IUsagePriceSource"/>: resolves the three prices from
-/// the provider catalog supplied by <see cref="IModelCatalog"/>, memoized for the process
-/// lifetime so a per-call stamp costs one dictionary read rather than a catalog walk.
-///     <para>Memoization is safe because the catalog's price for a (model, provider) pair
-///     is itself a cached current row — the catalog does not carry price history, so a
-///     re-resolve within one process cannot produce a different answer for a call that
-///     already happened. A FAILED catalog read is NOT memoized: a transient failure must
-///     not poison every later stamp with nulls for the process lifetime.</para>
-///     <para>WHAT IS MEMOIZED IS THE ENTRY, NOT THE PRICE (issue #293): the answer now
-///     depends on the call's prompt size, so caching a resolved <see cref="UsagePrices"/>
-///     per (model, provider) would serve the first call's tier to every later call - a
-///     long-context call billed at the short-context rate, silently. The catalog walk is
-///     what memoization exists to avoid, and that is what is cached.</para>
-///     <para>Selection matches <see cref="CatalogContextWindowSource"/>: the first entry
-///     with the same model id whose provider name is null or equal. A model whose entry
-///     advertises no usable prices (the routing pseudo-models' -1, "set at routing time")
-///     resolves to <see cref="UsagePrices.Unknown"/>.</para></summary>
+///     the provider catalog supplied by <see cref="IModelCatalog"/>, memoized for the process
+///     lifetime so a per-call stamp costs one dictionary read rather than a catalog walk.
+///     <para>Memoization is safe because the catalog's price for a model is itself a cached
+///     current row — the catalog does not carry price history, so a re-resolve within one
+///     process cannot produce a different answer for a call that already happened. A FAILED
+///     catalog read is NOT memoized: a transient failure must not poison every later stamp
+///     with nulls for the process lifetime.</para>
+///     <para>WHAT IS MEMOIZED IS THE ENTRY, NOT THE PRICE (issue #293): the answer depends on
+///     the call's prompt size, so caching a resolved <see cref="UsagePrices"/> per model would
+///     serve the first call's tier to every later call - a long-context call billed at the
+///     short-context rate, silently. The catalog walk is what memoization exists to avoid, and
+///     that is what is cached.</para>
+///     <para>WHICH ENDPOINT OF A MODEL ANSWERS: the CHEAPEST one that advertises prices,
+///     because that is the row the picker summarises the model by and the row a request with no
+///     pin can actually be served from. Measured live, a model's endpoints differ in price, so
+///     picking arbitrarily (the first row the API happened to list) would stamp a different
+///     endpoint's prices on every call and make the ledger's effective pricing meaningless. A
+///     model whose rows advertise no usable prices (the routing pseudo-models' -1, "set at
+///     routing time") resolves to <see cref="UsagePrices.Unknown"/>.</para></summary>
 public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePriceSource
 {
   private readonly IModelCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
-  private readonly Dictionary<(string ModelId, string? Provider), ModelProviderEntry> _memo = [];
+  private readonly Dictionary<string, ModelProviderEntry> _memo = new(StringComparer.Ordinal);
   private readonly Lock _memoLock = new();
 
-  public async Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+  public async Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
       CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
-    (string ModelId, string? Provider) key = (modelId, providerName);
+    // The routing variant is a suffix on the id; the catalog key is the bare model.
+    string baseModel = ModelVariants.BaseOf(modelId);
     lock (_memoLock)
     {
-      if (_memo.TryGetValue(key, out ModelProviderEntry? memoized))
+      if (_memo.TryGetValue(baseModel, out ModelProviderEntry? memoized))
       {
         return From(memoized, promptTokens);
       }
@@ -70,19 +80,11 @@ public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePrice
       return UsagePrices.Unknown;
     }
 
-    // MATCHING IS BY THE ROUTING SLUG, not the provider name (issue #296 follow-up): the
-    // caller passes the slug the pin carries, and several entries share one provider name
-    // (five grok-4.7 endpoints are all "xAI"), so a name match would stamp one endpoint's
-    // prices on a call another endpoint served.
-    //
-    // A NAME IS NOT AN ENDPOINT, and taking the first name match is how this went wrong
-    // (measured 2026-10-27: a bare "DeepInfra" pin stamped the flex price on 93 rows spanning
-    // flex, fp8 and priority). The slug rung is therefore tried FIRST and on its own; the name
-    // rung answers only when no entry carries that slug, and then only when exactly ONE entry
-    // shares the name - because with several, no answer is the honest one. Stamping a price
-    // nobody can attribute is the same class of lie as stamping the wrong one, and the ledger
-    // reports an unknown price as unpriced rather than priced-at-a-guess.
-    ModelProviderEntry? entry = Resolve(entries.Value, modelId, providerName);
+    ModelProviderEntry? entry = entries.Value
+        .Where(e => e.ModelId == baseModel)
+        .Where(e => e.PromptPricePerToken is >= 0m)
+        .OrderBy(e => e.PromptPricePerToken ?? decimal.MaxValue)
+        .FirstOrDefault();
     if (entry is null)
     {
       return UsagePrices.Unknown;
@@ -90,36 +92,10 @@ public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePrice
 
     lock (_memoLock)
     {
-      _memo[key] = entry;
+      _memo[baseModel] = entry;
     }
 
     return From(entry, promptTokens);
-  }
-
-  /// <summary>The catalog entry a call's prices come from, or null when no entry can be
-  ///     attributed to it. Slug first (unambiguous - one endpoint), then a name that identifies
-  ///     exactly one entry, and otherwise NOTHING: an ambiguous name must leave the call
-  ///     unpriced rather than priced from whichever variant happened to sort first.</summary>
-  private static ModelProviderEntry? Resolve(IReadOnlyList<ModelProviderEntry> entries,
-      string modelId, string? providerName)
-  {
-    if (providerName is null)
-    {
-      return entries.FirstOrDefault(e => e.ModelId == modelId);
-    }
-
-    if (entries.FirstOrDefault(e => e.ModelId == modelId
-        && string.Equals(e.RoutingSlug, providerName, StringComparison.Ordinal)) is { } bySlug)
-    {
-      return bySlug;
-    }
-
-    List<ModelProviderEntry> byName =
-    [
-        .. entries.Where(e => e.ModelId == modelId
-            && string.Equals(e.ProviderName, providerName, StringComparison.Ordinal)),
-    ];
-    return byName.Count == 1 ? byName[0] : null;
   }
 
   /// <summary>The entry's prices for a call of this prompt size (issue #293): the applicable

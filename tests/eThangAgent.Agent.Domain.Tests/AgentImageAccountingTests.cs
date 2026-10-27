@@ -10,7 +10,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     decision input; this only sizes the displayed composition buckets.</summary>
 public class AgentImageAccountingTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   private const string Payload = "aGVsbG8="; // 8 chars
 

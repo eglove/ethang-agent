@@ -31,7 +31,7 @@ public class SessionIdWireTests
     OpenRouterModelProvider provider = new(http, new OpenRouterConfiguration("test-key", BaseUrl));
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096).Value!,
         request, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     return capturedBody!;
@@ -65,7 +65,7 @@ public class SessionIdWireTests
     Result<ModelResponse> result = await new OpenRouterModelProvider(
         new HttpClient(new FakeHttpMessageHandler(_ => Task.FromResult(Wire.Ok()))),
         new OpenRouterConfiguration("test-key", BaseUrl)).SendAsync(
-            ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!,
+            ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096).Value!,
             new ModelRequest([UserMsg("hi")], SessionId: new string('x', 257)),
             TestContext.Current.CancellationToken).ConfigureAwait(true);
 
@@ -87,7 +87,7 @@ public class SessionIdWireTests
     OpenRouterModelProvider provider = new(http, new OpenRouterConfiguration("test-key", BaseUrl));
 
     Result<ModelResponse> result = await provider.SendStreamingAsync(
-        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")], SessionId: "sess-123"),
         ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 

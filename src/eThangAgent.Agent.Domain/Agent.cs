@@ -606,8 +606,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // price would understate exactly the calls that cost most.
       UsagePrices prices = _usagePrices is null
           ? UsagePrices.Unknown
-          : await _usagePrices.PricesForAsync(pricingModelId, outcome.SummarizerProvider,
-              usage.InputTokens, CancellationToken.None).ConfigureAwait(false);
+          : await _usagePrices.PricesForAsync(pricingModelId, usage.InputTokens,
+              CancellationToken.None).ConfigureAwait(false);
       Result<AgentUsageRecorded> record = AgentUsageRecorded.Create(Id, DateTimeOffset.UtcNow,
           state.TurnId, state.Iteration, usage,
           new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices,
@@ -662,7 +662,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
             DurationMs: timing.DurationMs, FirstTokenMs: timing.FirstTokenMs,
             ServedProvider: response.ServedProvider))
         : AgentUsageRecorded.Create(Id, at, state.TurnId, state.Iteration, usage,
-            new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.Provider,
+            new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.PricingProvider,
                 await ResolvePricesAsync(response, usage).ConfigureAwait(false),
                 Config.ModelId, response.ServedModelId, timing, response.ServedProvider));
   }
@@ -676,8 +676,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private async Task<UsagePrices> ResolvePricesAsync(ModelResponse response, TokenUsage usage) =>
       _usagePrices is null
           ? UsagePrices.Unknown
-          : await _usagePrices.PricesForAsync(PricingModelId(response), Config.Provider,
-              usage.InputTokens, CancellationToken.None).ConfigureAwait(false);
+          : await _usagePrices.PricesForAsync(PricingModelId(response), usage.InputTokens,
+              CancellationToken.None).ConfigureAwait(false);
 
   /// <summary>The model whose price table applies to this response (issue #290): the SERVED
   ///     model when the provider named one, the requested model only as the fallback. Pricing

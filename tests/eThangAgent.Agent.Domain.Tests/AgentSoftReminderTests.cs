@@ -12,7 +12,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     context shrink starts a new cycle; a FAILED compaction does not.</summary>
 public class AgentSoftReminderTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   /// <summary>Monitor whose pressure report the test drives directly: window 1_000_000
   ///     resolves the Large policy (soft 50, ceiling 60).</summary>

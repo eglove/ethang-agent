@@ -4,7 +4,6 @@ namespace eThangAgent.ModelDomain;
 
 public sealed record ModelConfig(
     string ModelId,
-    string? Provider,
     int MaxTokens,
     float Temperature,
     int? ContextWindow,
@@ -20,11 +19,11 @@ public sealed record ModelConfig(
     VerbosityLevel? Verbosity = null,
     bool? ParallelToolCalls = null,
     string? ProviderSettings = null,
-    bool AcceptsImageInput = false)
+    bool AcceptsImageInput = false,
+    string? PricingProvider = null)
 {
   public static Result<ModelConfig> Create(
       string modelId,
-      string? provider,
       int maxTokens,
       float temperature,
       int? contextWindow,
@@ -40,7 +39,8 @@ public sealed record ModelConfig(
       VerbosityLevel? verbosity = null,
       bool? parallelToolCalls = null,
       string? providerSettings = null,
-      bool acceptsImageInput = false)
+      bool acceptsImageInput = false,
+      string? pricingProvider = null)
   {
     if (ValidateBasics(modelId, maxTokens) is { } basicsError)
     {
@@ -58,9 +58,9 @@ public sealed record ModelConfig(
     }
 
     ModelConfig config = new(
-        modelId, provider, maxTokens, temperature, contextWindow, effort,
+        modelId, maxTokens, temperature, contextWindow, effort,
         topP, topK, frequencyPenalty, presencePenalty, repetitionPenalty, minP, topA,
-        seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput);
+        seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput, pricingProvider);
     return Result.Success(config);
   }
 

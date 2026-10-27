@@ -11,7 +11,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentUsageTimingTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", "openrouter", 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192, pricingProvider: "openrouter").Value!;
 
   private sealed class ScriptedProvider(params Result<ModelResponse>[] responses) : IModelProvider
   {
@@ -31,7 +31,7 @@ public class AgentUsageTimingTests
   {
     private static readonly UsagePrices Prices = new(0.000003m, 0.0000003m, 0.000015m);
 
-    public Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+    public Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
         CancellationToken ct = default)
         => Task.FromResult(Prices);
   }
@@ -111,16 +111,16 @@ public class AgentUsageTimingTests
     Assert.Equal("DeepInfra", row.ServedProvider);
     // The PRICED provider is a different member and stays what the config named: the price
     // table that applied is "openrouter"'s, while the vendor that answered was DeepInfra.
-    Assert.Equal("openrouter", row.Provider);
+    Assert.Equal("openrouter", row.PricingProvider);
   }
 
   [Fact]
   public async Task SendMessage_WireNamesNoProvider_ServedProviderIsNullNotThePin()
   {
-    // B3's second half, and the one that matters: the config PINS "openrouter", and the
-    // wire named nothing. Backfilling the pin would turn a request's intention into a
-    // claim about what served - exactly the confident-wrong record this member exists to
-    // prevent.
+    // B3's second half, and the one that matters: the config names a PRICE BASIS
+    // ("openrouter"), and the wire named nothing. Backfilling the price basis would turn a
+    // request's intention into a claim about what served - exactly the confident-wrong record
+    // this member exists to prevent.
     ScriptedProvider provider = new(Result.Success(new ModelResponse("done", [])
     {
       Usage = new TokenUsage(10, 2),
@@ -134,9 +134,9 @@ public class AgentUsageTimingTests
     Assert.True(result.IsSuccess);
     AgentUsageRecorded row = Assert.Single(log.Events.OfType<AgentUsageRecorded>());
     Assert.Null(row.ServedProvider);
-    // The pin is still visible where it belongs — as the PRICED provider, not as a claim
-    // about who served.
-    Assert.Equal("openrouter", row.Provider);
+    // The price basis is still visible where it belongs - as the PRICED provider, not as a
+    // claim about who served.
+    Assert.Equal("openrouter", row.PricingProvider);
   }
 
   [Fact]

@@ -1,12 +1,12 @@
 namespace eThangAgent.ModelDomain;
 
 /// <summary>Session-scoped model preferences the user can change at runtime through the
-///     host's left-menu pickers (model, reasoning effort, and the sampling knobs the
-///     provider surface exposes). The root resolver and the child spawner read the
-///     current values when building each turn's <see cref="ModelConfig"/>, so changes
-///     take effect from the next turn without rebuilding the session. Every knob is
-///     nullable: null means "no runtime preference — keep what resolution produced";
-///     the overlay in <see cref="ModelPreferencesOverlay"/> applies the non-null ones.</summary>
+///     host's left-menu pickers (model, routing variant, reasoning effort, and the sampling
+///     knobs the provider surface exposes). The root resolver and the child spawner read the
+///     current values when building each turn's <see cref="ModelConfig"/>, so changes take
+///     effect from the next turn without rebuilding the session. Every knob is nullable: null
+///     means "no runtime preference — keep what resolution produced"; the overlay in
+///     <see cref="ModelPreferencesOverlay"/> applies the non-null ones.</summary>
 public sealed class SessionModelPreferences
 {
   /// <summary>Current reasoning effort, or null for the provider's own default. Overlaid
@@ -14,25 +14,25 @@ public sealed class SessionModelPreferences
   public ReasoningEffort? ReasoningEffort { get; set; }
 
   /// <summary>The user's live model choice, or null to follow the session's normal
-  ///     resolution (intelligent selection, or the provider fallback when no selector is
-  ///     wired). Set exclusively through the host's model picker, which validates the id
-  ///     against the provider's catalog at pick time, so consumers trust it without
-  ///     re-validating. (Choices restored from a persisted per-workspace preference are
-  ///     NOT re-validated — a stale id surfaces as a provider error the user re-picks
-  ///     away.)</summary>
+  ///     resolution. Stored as the BASE catalog id; the routing variant is carried separately
+  ///     in <see cref="ModelVariant"/> and combined onto the wire by the overlay. Set
+  ///     exclusively through the host's model picker, which validates the id against the
+  ///     provider's catalog at pick time, so consumers trust it without re-validating.
+  ///     (Choices restored from a persisted per-workspace preference are NOT re-validated — a
+  ///     stale id surfaces as a provider error the user re-picks away.)</summary>
   public string? ModelId { get; set; }
 
-  /// <summary>The provider that should SERVE <see cref="ModelId"/>, or null to let the
-  ///     provider's own routing decide (issue #296, D7).
-  ///     <para>THE PAIR IS THE DECISION. A model chosen for its cache economics is only the
-  ///     cheap choice on the provider whose cache prices make it so - picking the model and
-  ///     letting routing choose the provider is how a session ended up on the worst cache
-  ///     ratio on the model. This member is the carrier: the picker commits it, the status
-  ///     line names it, and the resolver pins it onto the request.</para>
-  ///     <para>Null means UNSET, never "no provider exists": a session that never committed a
-  ///     provider keeps the provider's routing, which is what every pre-existing session does.
-  ///     </para></summary>
-  public string? ProviderName { get; set; }
+  /// <summary>The routing variant the session's model should be served under, or null when no
+  ///     variant was committed (which resolves to <see cref="ModelVariant.Standard"/>).
+  ///     <para>THIS REPLACED THE PROVIDER PIN. Choosing the provider and the endpoint was a
+  ///     decision the harness could already rank from measured price, latency, and cache
+  ///     economics; what it cannot infer is the tradeoff the user wants, which OpenRouter
+  ///     publishes as three routing variants. The variant is a SUFFIX ON THE MODEL ID, so the
+  ///     whole selection is one value on the wire.</para>
+  ///     <para>Null means UNSET, never "standard was chosen": a session that never committed a
+  ///     variant keeps the provider's own routing, which is what every pre-existing session
+  ///     does.</para></summary>
+  public ModelVariant? ModelVariant { get; set; }
 
   /// <summary>Sampling temperature, or null to keep the resolved config's value.</summary>
   public float? Temperature { get; set; }
@@ -86,7 +86,7 @@ public sealed class SessionModelPreferences
     ArgumentNullException.ThrowIfNull(source);
     ReasoningEffort = source.ReasoningEffort;
     ModelId = source.ModelId;
-    ProviderName = source.ProviderName;
+    ModelVariant = source.ModelVariant;
     Temperature = source.Temperature;
     MaxTokens = source.MaxTokens;
     TopP = source.TopP;

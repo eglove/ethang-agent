@@ -21,7 +21,7 @@ public class SubAgentSpawnerProviderInheritanceTests
 
   private sealed class FixedSource : IContextWindowSource
   {
-    public Task<int?> WindowForAsync(string modelId, string? providerName, CancellationToken ct = default)
+    public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
         => Task.FromResult<int?>(128_000);
   }
 
@@ -31,30 +31,53 @@ public class SubAgentSpawnerProviderInheritanceTests
           preferences, windowSource: new FixedSource());
 
   [Fact]
-  public async Task RunAsync_SessionProviderCommitted_ChildConfigCarriesIt()
+  public async Task RunAsync_SessionVariantCommitted_ChildConfigCarriesItOnItsOwnModel()
   {
+    // THE VARIANT IS A PROPERTY OF THE CONVERSATION, not of the root agent: a child must route
+    // the same way its parent does, or the session's cost and cache ratio describe a mixture
+    // nobody chose. It is applied to the CHILD'S OWN model - the overlay writes the suffix onto
+    // whatever model the child config names, which is why the assertion names 'alpha/model'
+    // rather than the session's model.
     FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
     SubAgentSpawner spawner = Spawner(factory, new SessionModelPreferences
     {
       ModelId = "alpha/model",
-      ProviderName = "DeepInfra",
+      ModelVariant = ModelVariant.Nitro,
     });
 
     _ = await spawner.RunAsync(Child(), CancellationToken.None);
 
-    Assert.Equal("DeepInfra", factory.LastConfig!.Provider);
+    Assert.Equal("alpha/model:nitro", factory.LastConfig!.ModelId);
   }
 
   [Fact]
-  public async Task RunAsync_NoProviderCommitted_ChildConfigStaysUnpinned()
+  public async Task RunAsync_NoVariantCommitted_ChildConfigKeepsTheBareModel()
   {
-    // Null means UNSET, never 'no provider exists': a session that committed no provider keeps
+    // Null means UNSET, never 'standard was chosen': a session that committed no variant keeps
     // the provider's own routing, exactly as every pre-existing session does.
     FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
     SubAgentSpawner spawner = Spawner(factory, new SessionModelPreferences { ModelId = "alpha/model" });
 
     _ = await spawner.RunAsync(Child(), CancellationToken.None);
 
-    Assert.Null(factory.LastConfig!.Provider);
+    Assert.Equal("alpha/model", factory.LastConfig!.ModelId);
+  }
+
+  [Fact]
+  public async Task RunAsync_TheChildWindowLookup_IsKeyedOnTheBaseModelNotTheWireId()
+  {
+    // A catalog knows 'alpha/model' while the wire carries 'alpha/model:nitro'. Looking up the
+    // suffixed id would find no window and fail every child of a nitro session - the regression
+    // this pins, since the failure would read as a broken model rather than a broken key.
+    FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
+    SubAgentSpawner spawner = Spawner(factory, new SessionModelPreferences
+    {
+      ModelId = "alpha/model",
+      ModelVariant = ModelVariant.Floor,
+    });
+
+    _ = await spawner.RunAsync(Child("alpha/model:floor"), CancellationToken.None);
+
+    Assert.Equal("alpha/model:floor", factory.LastConfig!.ModelId);
   }
 }

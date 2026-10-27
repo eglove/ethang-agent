@@ -15,7 +15,7 @@ public class AgentReadFreshnessTests
   private static readonly DateTime Mtime = new(638000000000000000, DateTimeKind.Utc);
   private static readonly FileVersion V1 = new(100, Mtime);
 
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   // ---- dispatch binds the agent's ledger ----
 

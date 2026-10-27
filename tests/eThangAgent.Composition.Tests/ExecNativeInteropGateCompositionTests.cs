@@ -31,7 +31,7 @@ public class ExecNativeInteropGateCompositionTests
   private static ServiceProvider Build(bool computerUse) =>
       new ServiceCollection()
           .AddEThangAgentCore(Settings(computerUse), Providers.OpenRouter,
-              ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+              ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
               new AgentHostOptions(
                   new FixedWorkspaceContext("ws"), new UnrootedPathResolver()))
           .BuildServiceProvider();

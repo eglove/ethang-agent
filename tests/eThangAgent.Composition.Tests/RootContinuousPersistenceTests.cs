@@ -27,9 +27,9 @@ public sealed class RootContinuousPersistenceTests
             : Result.Success(new ModelResponse("done", [])));
   }
 
-  private static ModelConfig Config => ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!;
+  private static ModelConfig Config => ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!;
 
-  private static ModelConfig OtherConfig => ModelConfig.Create("other/model", null, 512, 0.5f, 8192).Value!;
+  private static ModelConfig OtherConfig => ModelConfig.Create("other/model", 512, 0.5f, 8192).Value!;
 
   private static async Task<(TestAppDatabase Db, SqliteAgentStore Store, AgentId RootId)> SeedAsync()
   {

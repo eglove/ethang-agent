@@ -10,7 +10,7 @@ public class ModelConfigVisionFlagTests
   [Fact]
   public void Create_DefaultsAcceptsImageInputToFalse()
   {
-    ModelConfig config = ModelConfig.Create("m", "openrouter", 100, 0.5f, 2048).Value!;
+    ModelConfig config = ModelConfig.Create("m", 100, 0.5f, 2048).Value!;
 
     Assert.False(config.AcceptsImageInput);
   }
@@ -18,7 +18,7 @@ public class ModelConfigVisionFlagTests
   [Fact]
   public void Create_ExplicitTrue_IsCarried()
   {
-    ModelConfig config = ModelConfig.Create("m", "openrouter", 100, 0.5f, 2048, acceptsImageInput: true).Value!;
+    ModelConfig config = ModelConfig.Create("m", 100, 0.5f, 2048, acceptsImageInput: true).Value!;
 
     Assert.True(config.AcceptsImageInput);
   }
@@ -26,7 +26,7 @@ public class ModelConfigVisionFlagTests
   [Fact]
   public void Overlay_PreservesAcceptsImageInput()
   {
-    ModelConfig config = ModelConfig.Create("m", "openrouter", 512, 0.5f, 8192, acceptsImageInput: true).Value!;
+    ModelConfig config = ModelConfig.Create("m", 512, 0.5f, 8192, acceptsImageInput: true).Value!;
     SessionModelPreferences prefs = new() { Temperature = 0.2f, Seed = 7 };
 
     ModelConfig applied = ModelPreferencesOverlay.Apply(config, prefs);

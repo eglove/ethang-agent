@@ -110,7 +110,7 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
     Assert.Equal(recorded, reloaded);
     Assert.Same(UsageCallClass.Compaction, reloaded.CallClass);
     Assert.Equal("ws-root", reloaded.WorkspaceId);
-    Assert.Equal("openrouter", reloaded.Provider);
+    Assert.Equal("openrouter", reloaded.PricingProvider);
     Assert.Equal(0.000003m, reloaded.PromptPricePerToken);
     Assert.Equal(0.0000003m, reloaded.PromptCacheReadPricePerToken);
     Assert.Equal(0.000015m, reloaded.CompletionPricePerToken);
@@ -207,7 +207,7 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
     AgentUsageRecorded reloaded = Assert.IsType<AgentUsageRecorded>(Assert.Single(events.Value));
     Assert.Null(reloaded.CallClass);
     Assert.Null(reloaded.WorkspaceId);
-    Assert.Null(reloaded.Provider);
+    Assert.Null(reloaded.PricingProvider);
     Assert.Null(reloaded.PromptPricePerToken);
     Assert.Null(reloaded.PromptCacheReadPricePerToken);
     Assert.Null(reloaded.CompletionPricePerToken);

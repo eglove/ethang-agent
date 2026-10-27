@@ -18,7 +18,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     one turn, and the NEXT turn must observe the change (the deliberate boundary).</para></summary>
 public class AgentRequestPrefixStabilityTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   /// <summary>A provider that is DELIBERATELY impure: every Build() call returns
   ///     different text. This is the worst case the fix must absorb - it stands in for a

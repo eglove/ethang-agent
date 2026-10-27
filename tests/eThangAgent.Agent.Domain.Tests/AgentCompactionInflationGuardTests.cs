@@ -13,7 +13,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     fails with CompactionImpossible (observed in the field, 2026-09-26).</summary>
 public class AgentCompactionInflationGuardTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   private sealed class ThresholdMonitor(double utilization) : IContextMonitor
   {

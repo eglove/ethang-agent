@@ -37,7 +37,7 @@ public class RootAgentHolderSessionIdTests
     Conversation conversation = new();
     AgentId sessionId = AgentId.NewId();
     RootAgentHolder holder = new(provider, conversation, Tools, sessionId: sessionId.ToString());
-    ModelConfig config = ModelConfig.Create("first/model", null, 512, 0.5f, 8192).Value!;
+    ModelConfig config = ModelConfig.Create("first/model", 512, 0.5f, 8192).Value!;
 
     Ag agent = holder.Build(existing: null, config);
     _ = await agent.SendMessage("Hi", ct: TestContext.Current.CancellationToken);
@@ -51,7 +51,7 @@ public class RootAgentHolderSessionIdTests
   {
     RecordingProvider provider = new();
     RootAgentHolder holder = new(provider, new Conversation(), Tools);
-    ModelConfig config = ModelConfig.Create("first/model", null, 512, 0.5f, 8192).Value!;
+    ModelConfig config = ModelConfig.Create("first/model", 512, 0.5f, 8192).Value!;
 
     Ag agent = holder.Build(existing: null, config);
     _ = await agent.SendMessage("Hi", ct: TestContext.Current.CancellationToken);

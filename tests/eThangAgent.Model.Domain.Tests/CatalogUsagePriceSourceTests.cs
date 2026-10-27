@@ -34,7 +34,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("m", "openrouter", 0.000001m, 0.0000001m, 0.000002m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(0.000001m, prices.PromptPricePerToken);
     Assert.Equal(0.0000001m, prices.PromptCacheReadPricePerToken);
@@ -49,7 +49,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("m", "openrouter", 0.000001m, null, 0.000002m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(0.000001m, prices.PromptPricePerToken);
     Assert.Null(prices.PromptCacheReadPricePerToken);
@@ -61,7 +61,7 @@ public class CatalogUsagePriceSourceTests
   {
     CatalogUsagePriceSource source = new(new FakeCatalog([Entry("other", "openrouter", 1m, 1m, 1m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(UsagePrices.Unknown, prices);
   }
@@ -74,9 +74,9 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FailingCatalog());
 
     Assert.Equal(UsagePrices.Unknown,
-        await source.PricesForAsync("m", null, 0, TestContext.Current.CancellationToken));
+        await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken));
     Assert.Equal(UsagePrices.Unknown,
-        await source.PricesForAsync("m", null, 0, TestContext.Current.CancellationToken));
+        await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
@@ -87,7 +87,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("openrouter/auto", null, -1m, -1m, -1m)]));
 
-    UsagePrices prices = await source.PricesForAsync("openrouter/auto", null, 0, TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("openrouter/auto", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(UsagePrices.Unknown, prices);
   }
@@ -98,21 +98,38 @@ public class CatalogUsagePriceSourceTests
     FakeCatalog catalog = new([Entry("m", "openrouter", 0.000001m, 0.0000001m, 0.000002m)]);
     CatalogUsagePriceSource source = new(catalog);
 
-    _ = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
-    _ = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
+    _ = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
+    _ = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(1, catalog.Calls);
   }
 
   [Fact]
-  public async Task PricesFor_ProviderGiven_MatchesOnlyThatProvider()
+  public async Task PricesFor_AModelWithSeveralEndpoints_StampsTheCheapestPricedOne()
   {
+    // WHICH ENDPOINT ANSWERS. The catalog serves one row per routable endpoint, each with its own
+    // price, so "the first row" would stamp a different endpoint's prices on every call and make
+    // the ledger's effective pricing meaningless. The cheapest advertised row is the one a
+    // request with no pin can actually be served from, and it is deterministic.
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("m", "a", 0.000001m, null, 0.000002m), Entry("m", "b", 0.000009m, null, 0.000010m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "b", 0, TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal(0.000009m, prices.PromptPricePerToken);
+    Assert.Equal(0.000001m, prices.PromptPricePerToken);
+  }
+
+  [Fact]
+  public async Task PricesFor_ARoutingVariantSuffix_ResolvesTheBaseModel()
+  {
+    // The wire id carries the variant; the catalog is keyed on the bare model. Looking the
+    // suffixed id up would find no row and silently leave every nitro or floor call unpriced.
+    CatalogUsagePriceSource source = new(new FakeCatalog(
+        [Entry("m", "a", 0.000001m, null, 0.000002m)]));
+
+    UsagePrices prices = await source.PricesForAsync("m:nitro", ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(0.000001m, prices.PromptPricePerToken);
   }
 
   [Fact]
@@ -122,7 +139,7 @@ public class CatalogUsagePriceSourceTests
     CatalogUsagePriceSource source = new(new FakeCatalog(
         [Entry("m", "openrouter", 0.000001m, 0m, 0.000002m)]));
 
-    UsagePrices prices = await source.PricesForAsync("m", "openrouter", 0, TestContext.Current.CancellationToken);
+    UsagePrices prices = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(0m, prices.PromptCacheReadPricePerToken);
   }

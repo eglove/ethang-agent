@@ -46,8 +46,7 @@ public class ReasoningSummaryWireTests
   }
 
   private static ModelConfig ConfigWithSummary(ReasoningSummaryLevel? summary) =>
-      ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096,
-          providerSettings: OpenRouterRequestSettings.Serialize(
+      ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096, providerSettings: OpenRouterRequestSettings.Serialize(
               new OpenRouterRequestSettings { ReasoningSummary = summary })).Value!;
 
   [Theory]
@@ -74,9 +73,7 @@ public class ReasoningSummaryWireTests
   [Fact]
   public async Task EffortAndSummary_BothSet_EmitOneWellFormedReasoningObject()
   {
-    ModelConfig config = ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096,
-        ReasoningEffort.High,
-        providerSettings: OpenRouterRequestSettings.Serialize(
+    ModelConfig config = ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096, ReasoningEffort.High, providerSettings: OpenRouterRequestSettings.Serialize(
             new OpenRouterRequestSettings { ReasoningSummary = ReasoningSummaryLevel.Concise })).Value!;
 
     using JsonDocument doc = await SendAsync(config, new ModelRequest([UserMsg("hi")]));
@@ -89,7 +86,7 @@ public class ReasoningSummaryWireTests
   [Fact]
   public async Task EffortOnly_StillEmitsReasoningObjectWithoutSummary()
   {
-    ModelConfig config = ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096, ReasoningEffort.Low).Value!;
+    ModelConfig config = ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096, ReasoningEffort.Low).Value!;
 
     using JsonDocument doc = await SendAsync(config, new ModelRequest([UserMsg("hi")]));
 

@@ -61,7 +61,7 @@ public class VerificationTurnGateTests
           new VerificationFreshnessSpecification(new VerificationCommandSpecification(["dotnet test"])),
           enabled);
       Ag agent = new(Model, Conversation,
-          ModelConfig.Create("m", null, 100, 0.5f, 8192).Value!,
+          ModelConfig.Create("m", 100, 0.5f, 8192).Value!,
           new ToolRegistry([new FillerTool()]));
       return new SendMessageCommandHandler(
           agent,

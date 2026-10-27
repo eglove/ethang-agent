@@ -484,17 +484,16 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     never touched the list (Unchanged - the shell's model persistence is
   ///     untouched) or pinned a concrete pair (Pinned, carrying the model id and the
   ///     provider that should serve it).
-  ///     <para>THE PAIR TRAVELS TOGETHER (issue #296, D7): a model without its provider is
-  ///     half a decision, and the provider is what the picker's whole evidence surface exists
-  ///     to choose. <see cref="ProviderName"/> is null when the user pinned a model without
-  ///     committing a provider - the provider is then unset rather than guessed, the same rule
-  ///     the model choice follows.</para></summary>
-  internal sealed record ModelChoice(ModelChoiceKind Kind, string? ModelId, string? ProviderName = null)
+  ///     <para>THE PAIR TRAVELS TOGETHER: a model without its routing variant is half a
+  ///     decision, because the variant is what states the tradeoff the user chose it for. An
+  ///     uncommitted variant travels as null (UNSET, resolved to Standard) rather than being
+  ///     guessed - the same rule the model choice follows.</para></summary>
+  internal sealed record ModelChoice(ModelChoiceKind Kind, string? ModelId, ModelVariant? Variant = null)
   {
     public static readonly ModelChoice Unchanged = new(ModelChoiceKind.Unchanged, null);
 
-    public static ModelChoice Pinned(string modelId, string? providerName = null)
-        => new(ModelChoiceKind.Pinned, modelId, providerName);
+    public static ModelChoice Pinned(string modelId, ModelVariant? variant = null)
+        => new(ModelChoiceKind.Pinned, modelId, variant);
   }
   // Knob name constants — the single vocabulary shared by tests, the AXAML keys,
   // and the snapshot's knob-text map.
@@ -778,8 +777,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   private static ModelPickerViewModel? BuildModelSection(ModelSectionSeams? seams)
       => seams is null
           ? null
-          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelId,
-              seams.CurrentProviderName, seams.LoadPerformance, seams.LoadPublished);
+          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelId, seams.CurrentVariant);
 
   /// <summary>Prefills the summary picker from the persisted level: the matching
   ///     row when the level is known, the provider-default row otherwise. Kept out
@@ -858,13 +856,13 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     }
   }
 
-  /// <summary>Records the pair the section is showing as the one it opened on, so a save
+  /// <summary>Records the choice the section is showing as the one it opened on, so a save
   ///     that still has it selected carries Unchanged. Called once after the load, and again
   ///     after a catalog refresh that did not move the selection.</summary>
   private void CapturePreselection()
   {
     _preselectedModelId = ModelSection?.SelectedRow?.ModelId;
-    _preselectedProviderSlug = ModelSection?.SelectedProviderRow?.Ranked.Entry.RoutingSlug;
+    _preselectedVariant = ModelSection?.SelectedVariantOption?.Variant;
   }
 
   /// <summary>The MODEL ID the section pre-selected when it loaded: the session's live
@@ -877,35 +875,33 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     actually is.</para></summary>
   private string? _preselectedModelId;
 
-  /// <summary>The provider the section pre-selected when it loaded (issue #296, D7).
+  /// <summary>The routing VARIANT the section pre-selected when it loaded.
   ///     <para>THE PAIR IS THE DECISION, so "nothing changed" must mean BOTH halves are
-  ///     unchanged. A user who keeps the model and switches the provider has made a real
-  ///     choice, and reporting it as Unchanged would silently discard it - the same class of
-  ///     defect as a status line naming a provider the request never pinned.</para>
-  ///     <para>It carries the ROUTING SLUG, not the provider name: a provider does not serve
-  ///     one endpoint, so the name pins whichever variant the router prefers. The picker's
-  ///     own confirm path already commits the slug; this path committed the name and quietly
-  ///     re-opened the substitution the pin exists to prevent.</para></summary>
-  private string? _preselectedProviderSlug;
+  ///     unchanged. A user who keeps the model and switches the variant has made a real choice,
+  ///     and reporting it as Unchanged would silently discard it - the same class of defect as a
+  ///     status line naming a routing the request never carried.</para>
+  ///     <para>It is the VARIANT, not an endpoint slug: the retired provider level committed a
+  ///     specific endpoint, which is the decision the variant dropdown replaced. Null means the
+  ///     session committed no variant (UNSET, resolved to Standard).</para></summary>
+  private ModelVariant? _preselectedVariant;
 
-  /// <summary>The model choice the save carries, derived from the section: no section, or no
-  ///     row picked, means Unchanged; any other selected row means Pinned with its pair.
-  ///     Derived at save time — the picker view-model keeps no separate dirty flag.</summary>
+  /// <summary>The model choice the save carries, derived from the section: no section, or no row
+  ///     picked, means Unchanged; any other selected row means Pinned with its pair. Derived at
+  ///     save time - the picker view-model keeps no separate dirty flag.</summary>
   private ModelChoice ModelChoiceFromSection()
   {
     if (ModelSection?.SelectedRow is not { } row)
     {
-      return ModelChoice.Unchanged; // nothing picked — the shell's model state is untouched
+      return ModelChoice.Unchanged; // nothing picked - the shell's model state is untouched
     }
 
-    string? providerSlug = ModelSection.SelectedProviderRow?.Ranked.Entry.RoutingSlug;
+    ModelVariant? variant = ModelSection.SelectedVariantOption?.Variant;
     bool sameModel = string.Equals(row.ModelId, _preselectedModelId, StringComparison.Ordinal);
-    bool sameProvider = string.Equals(providerSlug, _preselectedProviderSlug, StringComparison.Ordinal);
-    return sameModel && sameProvider
-        ? ModelChoice.Unchanged // opened on this pair, still on it
-        : ModelChoice.Pinned(row.ModelId!, providerSlug);
+    bool sameVariant = variant == _preselectedVariant;
+    return sameModel && sameVariant
+        ? ModelChoice.Unchanged // opened on this choice, still on it
+        : ModelChoice.Pinned(row.ModelId!, variant);
   }
-
   /// <summary>The all-or-nothing save: validate every knob, then apply to the
   ///     live preferences, serialize the OpenRouter section (null when hidden or
   ///     all-default), and hand the snapshot to the persistence seam. Returns
@@ -923,13 +919,13 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     ModelChoice modelChoice = ModelChoiceFromSection();
     if (modelChoice.Kind != ModelChoiceKind.Unchanged)
     {
-      // BOTH halves land on the live preferences (issue #296, D7): the resolver reads the
-      // pair from here, so applying only the model would leave the turn serving unpinned
-      // while the dialog reported a committed provider. A null provider CLEARS it - the user
-      // moved to a model with no provider selected, and keeping the old one would silently
-      // serve a provider they just moved away from.
+      // BOTH halves land on the live preferences: the resolver reads the choice from here, so
+      // applying only the model would leave the turn routing on Standard while the dialog
+      // reported a tradeoff the user chose. A null variant CLEARS it - the user moved to a model
+      // with no variant selected, and keeping the old one would silently keep routing under a
+      // tradeoff they just moved away from.
       _live.ModelId = modelChoice.ModelId;
-      _live.ProviderName = modelChoice.ProviderName;
+      _live.ModelVariant = modelChoice.Variant;
     }
 
     string? serialized = ShowOpenRouterSection ? SerializeSectionOrNull() : null;

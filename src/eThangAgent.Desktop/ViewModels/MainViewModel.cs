@@ -651,47 +651,6 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>Loads the selected tab's observed per-provider performance from the usage
-  ///     ledger (issue #295/#296), or null when no tab is selected or the host wired no read
-  ///     model. The picker renders every measurement as unavailable when this is null rather
-  ///     than failing: a picker with no history is still a picker.
-  ///     <para>THE SCOPE IS THE SESSION'S OWN, falling back to its workspace and then the
-  ///     whole ledger — and the report NAMES the rung that answered, which is the fact the
-  ///     picker's hit-rate provenance line reports (D6).</para></summary>
-  public Func<CancellationToken, Task<Result<ProviderPerformanceReport>>>? SelectedTabPerformanceLoader
-  {
-    get
-    {
-      AgentTabViewModel? tab = SelectedTab;
-      if (tab?.Container.Services.GetService<IUsageQueries>() is not { } queries)
-      {
-        return null;
-      }
-
-      string sessionId = tab.Container.RootId.Value.ToString();
-      string workspaceId = tab.Container.WorkspaceRoot;
-      return ct => queries.ProviderPerformanceAsync(
-          ProviderPerformanceRequest.ForSession(sessionId, workspaceId), ct);
-    }
-  }
-
-  /// <summary>Loads the cache-hit rates providers publish for their endpoints (issue #296
-  ///     follow-up), or null when no tab is selected or its catalog cannot publish any.
-  ///     <para>THIS IS THE RUNG THAT ANSWERS FOR A PAIR THE LEDGER HAS NEVER SEEN: a user who
-  ///     has never called a model+provider pair has no measurement of their own, and the
-  ///     provider's published rate is strictly better evidence than a constant. A catalog that
-  ///     does not implement it (a test double, a different provider) simply yields nothing and
-  ///     the documented default applies.</para></summary>
-  public Func<CancellationToken, Task<IReadOnlyDictionary<string, PublishedProviderStats>>>? SelectedTabPublishedRateLoader
-  {
-    get
-    {
-      AgentTabViewModel? tab = SelectedTab;
-      return tab is null
-          ? null
-          : ct => tab.Container.Services.GetRequiredService<IModelCatalog>().GetPublishedStatsAsync(ct);
-    }
-  }
 
   /// <summary>Joins source revalidation for the selected tab's settings dialog.</summary>
   public Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogRefresher
@@ -708,13 +667,12 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     workspace + provider (best effort — the same named decision as the other
   ///     preferences). Null means the session default and clears the persisted
   ///     preference, so future opens of the same directory start on it.
-  ///     <para>THE PAIR PERSISTS TOGETHER (issue #296, D7): a model without its provider is
-  ///     half a decision, so the stored value carries both and a later open restores both.
-  ///     </para></summary>
+  ///     <para>THE CHOICE PERSISTS TOGETHER: a model without its routing variant is half a
+  ///     decision, so the stored value carries both and a later open restores both.</para>
+  ///     </summary>
   /// <param name="modelId">The model to serve, or null for the session's default model.</param>
-  /// <param name="providerName">The provider to serve it, or null for the provider's own
-  ///     routing.</param>
-  public async Task ApplyModelChoiceAsync(string? modelId, string? providerName = null)
+  /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
+  public async Task ApplyModelChoiceAsync(string? modelId, ModelVariant? variant = null)
   {
     AgentTabViewModel? tab = SelectedTab;
     if (tab is null)
@@ -722,9 +680,9 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    tab.ViewModel.ApplyModelChoice(modelId, providerName);
+    tab.ViewModel.ApplyModelChoice(modelId, variant);
     await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot,
-        modelId, providerName);
+        modelId, variant);
   }
 
   /// <summary>Applies an effort-picker choice to the selected tab and persists it per
@@ -774,9 +732,9 @@ internal sealed partial class MainViewModel : ObservableObject
     if (snapshot.Model is { } model && model.Kind != ModelChoiceKind.Unchanged)
     {
       string? modelId = model.Kind == ModelChoiceKind.Pinned ? model.ModelId : null;
-      string? providerName2 = model.Kind == ModelChoiceKind.Pinned ? model.ProviderName : null;
-      tab.ViewModel.ApplyModelChoice(modelId, providerName2);
-      await PersistModelChoiceAsync(providerName, workspaceRoot, modelId, providerName2);
+      ModelVariant? variant = model.Kind == ModelChoiceKind.Pinned ? model.Variant : null;
+      tab.ViewModel.ApplyModelChoice(modelId, variant);
+      await PersistModelChoiceAsync(providerName, workspaceRoot, modelId, variant);
     }
 
     await PersistEffortChoiceAsync(providerName, workspaceRoot, snapshot.Preferences.ReasoningEffort);
@@ -1785,15 +1743,19 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    ModelProviderChoice? restoredChoice = await ReadModelChoiceAsync(session.ProviderName, session.WorkspaceRoot);
+    ModelVariantChoice? restoredChoice = await ReadModelChoiceAsync(session.ProviderName, session.WorkspaceRoot);
     if (restoredChoice is not null)
     {
       // The pair restores together (issue #296, D7/B1): a reopened workspace serves the same
       // model ON the same provider, and the status line names both.
       preferences.ModelId = restoredChoice.ModelId;
-      preferences.ProviderName = restoredChoice.ProviderName;
+      preferences.ModelVariant = restoredChoice.Variant == ModelVariant.Standard
+          ? null
+          : restoredChoice.Variant;
       sessionVm.Status.ModelId = restoredChoice.ModelId;
-      sessionVm.Status.ServingProvider = restoredChoice.ProviderName ?? string.Empty;
+      sessionVm.Status.ServingVariant = restoredChoice.Variant == ModelVariant.Standard
+          ? string.Empty
+          : ModelVariants.Describe(restoredChoice.Variant);
     }
 
     ReasoningEffort? restoredEffort = await ReadEffortChoiceAsync(session.ProviderName, session.WorkspaceRoot);
@@ -1905,14 +1867,15 @@ internal sealed partial class MainViewModel : ObservableObject
   private static string LegacyModelChoiceKey(string providerName, string workspaceRoot)
       => $"model_choice:{providerName}:{workspaceRoot}";
 
-  /// <summary>Reads the per-workspace model + provider choice, or null when unset (or the
-  ///     store is unavailable — a failed read degrades to the session default, never fails
+  /// <summary>Reads the per-workspace model + routing-variant choice, or null when unset (or
+  ///     the store is unavailable - a failed read degrades to the session default, never fails
   ///     the open; named decision, CA1031).
   ///     <para>THE LEGACY KEY IS THE FALLBACK, NOT A SECOND SOURCE: a workspace that has not
-  ///     committed a pair since this change still restores its MODEL from the retired key, and
-  ///     the provider stays unset (issue #296, D7). Refusing the legacy value outright would
-  ///     silently drop a model the user did choose.</para></summary>
-  private async Task<ModelProviderChoice?> ReadModelChoiceAsync(string providerName, string workspaceRoot)
+  ///     committed a choice since this change still restores its MODEL from the retired key. The
+  ///     codec drops the retired provider member and reads a variant suffix on the id, so an old
+  ///     row comes back as a model on Standard - never a resurrected pin, and never a silently
+  ///     dropped model.</para></summary>
+  private async Task<ModelVariantChoice?> ReadModelChoiceAsync(string providerName, string workspaceRoot)
   {
     if (_preferences is null)
     {
@@ -1930,7 +1893,7 @@ internal sealed partial class MainViewModel : ObservableObject
         return null;
       }
 
-      Result<ModelProviderChoice> parsed = ModelProviderChoice.Parse(stored);
+      Result<ModelVariantChoice> parsed = ModelVariantChoice.Parse(stored);
       return parsed.IsSuccess ? parsed.Value : null;
     }
     catch (Exception ex)
@@ -1941,14 +1904,14 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
-  /// <summary>Persists (or, for the default choice, clears) the per-workspace model +
-  ///     provider pair. Best effort — a failed write logs to stderr and never fails the pick
+  /// <summary>Persists (or, for the default choice, clears) the per-workspace model + routing-
+  ///     variant choice. Best effort - a failed write logs to stderr and never fails the pick
   ///     (named decision, CA1031; same reasoning as the provider preference).
   ///     <para>THE RETIRED KEY IS DROPPED ON EVERY COMMIT: leaving it behind would let a
   ///     cleared choice come back from the legacy value on the next open, which is the silent
   ///     resurrection the null-deletes contract exists to prevent.</para></summary>
   private async Task PersistModelChoiceAsync(string providerName, string workspaceRoot,
-      string? modelId, string? servingProviderName)
+      string? modelId, ModelVariant? variant)
   {
     if (_preferences is null)
     {
@@ -1963,7 +1926,7 @@ internal sealed partial class MainViewModel : ObservableObject
       bool landed = modelId is null
           ? await _preferences.DeleteAsync(key)
           : await _preferences.SetAsync(key,
-              new ModelProviderChoice(modelId, servingProviderName).Serialize());
+              new ModelVariantChoice(modelId, variant ?? ModelVariant.Standard).Serialize());
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"model choice preference write failed for '{key}'");

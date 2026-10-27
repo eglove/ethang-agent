@@ -23,7 +23,7 @@ public class RootAgentResolverTests
   /// <summary>A window source that knows NO model - the degraded catalog shape.</summary>
   private sealed class UnknownWindowSource : IContextWindowSource
   {
-    public Task<int?> WindowForAsync(string modelId, string? providerName, CancellationToken ct = default)
+    public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
         => Task.FromResult<int?>(null);
   }
 
@@ -180,17 +180,18 @@ public class RootAgentResolverTests
   }
 
   [Fact]
-  public async Task TheCommittedProvider_RidesTheResolvedConfig()
+  public async Task TheCommittedVariant_CarriesTheSuffixOnTheWireModelId()
   {
-    // Issue #296, D7: the pair is the decision. The resolver used to pass null for the
-    // provider on EVERY resolution, so a session whose status line named a provider sent a
-    // request that pinned none - a display claiming something the wire never carried.
+    // THE VARIANT IS THE ROUTING DECISION, and it reaches the config as a suffix on the model id
+    // - the one field the provider routes on. A resolver that returned the bare model while the
+    // status line promised nitro would be the same class of lie the 2026-10-22 substitution was:
+    // the display naming something the wire never carried.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     SessionModelPreferences preferences = new()
     {
       ModelId = "deepseek/deepseek-v4.1-flash-1017",
-      ProviderName = "DeepInfra",
+      ModelVariant = ModelVariant.Nitro,
     };
     RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
 
@@ -198,15 +199,14 @@ public class RootAgentResolverTests
         await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
-    Assert.Equal("deepseek/deepseek-v4.1-flash-1017", resolution.Value.Config.ModelId);
-    Assert.Equal("DeepInfra", resolution.Value.Config.Provider);
+    Assert.Equal("deepseek/deepseek-v4.1-flash-1017:nitro", resolution.Value.Config.ModelId);
   }
 
   [Fact]
-  public async Task AnUncommittedProvider_LeavesTheConfigUnpinned()
+  public async Task AnUncommittedVariant_LeavesTheWireModelIdBare()
   {
-    // Null means UNSET, never "no provider exists": a session that committed no provider
-    // keeps the provider's own routing, exactly as every pre-existing session does.
+    // Null means UNSET, never 'standard was chosen': a session that committed no variant keeps
+    // the provider's own routing, exactly as every pre-existing session does.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     SessionModelPreferences preferences = new() { ModelId = "alpha/model" };
@@ -216,62 +216,65 @@ public class RootAgentResolverTests
         await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
-    Assert.Null(resolution.Value.Config.Provider);
+    Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
   }
 
   [Fact]
-  public async Task APinnedSession_AlsoCarriesTheCommittedProvider()
+  public async Task APinnedSession_AlsoCarriesTheCommittedVariant()
   {
-    // The pin path (no live preference) must not drop the provider: a resumed session serves
-    // the same model ON the same provider.
+    // The pin path (no live model preference) must not drop the variant: a resumed session
+    // serves the same model under the same tradeoff. This is ALSO the regression guard for the
+    // catalog lookup - the persisted pin may carry the suffix, and looking the suffixed id up
+    // would fail the turn with 'no catalog context window' for a model that plainly exists.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(root.IsSuccess);
-    _ = await store.UpdateAsync(root.Value with { ModelUsed = "alpha/model" },
+    _ = await store.UpdateAsync(root.Value with { ModelUsed = "alpha/model:nitro" },
         TestContext.Current.CancellationToken);
-    SessionModelPreferences preferences = new() { ProviderName = "DeepInfra" };
+    SessionModelPreferences preferences = new() { ModelVariant = ModelVariant.Nitro };
     RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
 
     Result<(ModelConfig Config, string? Notice)> resolution =
         await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
-    Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
-    Assert.Equal("DeepInfra", resolution.Value.Config.Provider);
+    Assert.Equal("alpha/model:nitro", resolution.Value.Config.ModelId);
   }
 
   [Fact]
-  public async Task APinnedProviderTheCatalogNoLongerOffers_FailsNamingTheProvider()
+  public async Task EveryVariant_ServesAModelTheCatalogLists()
   {
-    // Issue #297, D5/B5: the pin is a HARD constraint, so a provider that has disappeared from
-    // the catalog cannot be served and must not be swapped for one that can. The message names
-    // the provider AND the model, because the user has to know which half of the pair to change.
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ProviderName = "Reka" };
-    RootAgentResolver resolver = new(
-        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
-            new ListingCatalog(("alpha/model", "DeepInfra"))),
-        preferences);
+    // THE RETIRED UnknownPinnedProvider HAS NOTHING LEFT TO CHECK. A variant sorts the model's
+    // whole eligible pool and never narrows it, so a model the catalog lists is servable under
+    // all three variants - there is no 'the provider you chose no longer serves this model'
+    // state for a turn to fail on.
+    foreach (ModelVariant variant in ModelVariants.All)
+    {
+      FakeAgentStore store = new();
+      AgentId rootId = await SeedRootAsync(store);
+      SessionModelPreferences preferences = new() { ModelId = "alpha/model", ModelVariant = variant };
+      RootAgentResolver resolver = new(
+          new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
+              new ListingCatalog(("alpha/model", "DeepInfra"))),
+          preferences);
 
-    Result<(ModelConfig Config, string? Notice)> resolution =
-        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+      Result<(ModelConfig Config, string? Notice)> resolution =
+          await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.False(resolution.IsSuccess);
-    Assert.Equal("UnknownPinnedProvider", resolution.Error.Code);
-    Assert.Contains("Reka", resolution.Error.Message, StringComparison.Ordinal);
-    Assert.Contains("alpha/model", resolution.Error.Message, StringComparison.Ordinal);
+      Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    }
   }
 
   [Fact]
-  public async Task AnUnreadableCatalog_DoesNotFailAPinnedTurn()
+  public async Task AnUnreadableCatalog_DoesNotFailTheTurn()
   {
-    // A failed catalog fetch is an ENVIRONMENTAL fault, never proof that the pin vanished:
-    // failing here would tell the user their chosen provider is gone because a fetch timed out.
+    // A failed catalog fetch is an ENVIRONMENTAL fault. The window comes from the injected
+    // source here, so the turn commits; the catalog's only remaining role is the vision
+    // capability, which resolves false rather than failing anything.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ProviderName = "DeepInfra" };
+    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ModelVariant = ModelVariant.Nitro };
     RootAgentResolver resolver = new(
         new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
             ListingCatalog.Unavailable()),
@@ -281,9 +284,8 @@ public class RootAgentResolverTests
         await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
-    Assert.Equal("DeepInfra", resolution.Value.Config.Provider);
+    Assert.Equal("alpha/model:nitro", resolution.Value.Config.ModelId);
   }
-
   [Fact]
   public async Task PinnedModelWithUnknownWindow_FailsUnknownModelWindow()
   {

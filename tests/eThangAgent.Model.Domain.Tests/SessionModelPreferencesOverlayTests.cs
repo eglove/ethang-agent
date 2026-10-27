@@ -10,7 +10,7 @@ public class SessionModelPreferencesOverlayTests
   [Fact]
   public void Apply_ReplacesSetKnobs_PreservesUnset()
   {
-    ModelConfig config = ModelConfig.Create("m", "openrouter", 512, 0.5f, 8192, topP: 0.9f, seed: 7).Value!;
+    ModelConfig config = ModelConfig.Create("m", 512, 0.5f, 8192, topP: 0.9f, seed: 7).Value!;
     SessionModelPreferences prefs = new()
     {
       FrequencyPenalty = 0.5f,
@@ -28,7 +28,7 @@ public class SessionModelPreferencesOverlayTests
   [Fact]
   public void Apply_CarriesProviderSettingsVerbatim()
   {
-    ModelConfig config = ModelConfig.Create("m", "openrouter", 512, 0.5f, 8192).Value!;
+    ModelConfig config = ModelConfig.Create("m", 512, 0.5f, 8192).Value!;
     string json = """
         {"reasoning":{"exclude":true},"provider":{"order":["zai"]}}
         """;
@@ -44,7 +44,7 @@ public class SessionModelPreferencesOverlayTests
   [Fact]
   public void Apply_OverlaysTemperatureAndMaxTokens()
   {
-    ModelConfig config = ModelConfig.Create("m", "openrouter", 512, 0.5f, 8192, topK: 40).Value!;
+    ModelConfig config = ModelConfig.Create("m", 512, 0.5f, 8192, topK: 40).Value!;
     SessionModelPreferences prefs = new() { Temperature = 0.2f, MaxTokens = 1024 };
 
     ModelConfig replaced = ModelPreferencesOverlay.Apply(config, prefs);
@@ -60,7 +60,7 @@ public class SessionModelPreferencesOverlayTests
   [Fact]
   public void Apply_DoesNotTouchEffort()
   {
-    ModelConfig config = ModelConfig.Create("m", "openrouter", 512, 0.5f, 8192, ReasoningEffort.High, topK: 40).Value!;
+    ModelConfig config = ModelConfig.Create("m", 512, 0.5f, 8192, ReasoningEffort.High, topK: 40).Value!;
     SessionModelPreferences prefs = new() { ReasoningEffort = ReasoningEffort.Low, TopK = 80 };
 
     ModelConfig applied = ModelPreferencesOverlay.Apply(config, prefs);

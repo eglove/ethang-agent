@@ -11,7 +11,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     (ceiling 60), where the former fixed 80% trigger waited far too long.</summary>
 public class AgentCompactionTriggerTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   private sealed class ThresholdMonitor(double utilization, int window = 1000) : IContextMonitor
   {

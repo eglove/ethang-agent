@@ -39,7 +39,7 @@ public class LinkRestartE2ETests
                   new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
                   new SubAgentOptions(null, 2)),
               Providers.OpenRouter,
-              ModelConfig.Create(E2E.SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
+              ModelConfig.Create(E2E.SessionModel, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
                   new FixedWorkspaceContext("app"),
                   new UnrootedPathResolver()))

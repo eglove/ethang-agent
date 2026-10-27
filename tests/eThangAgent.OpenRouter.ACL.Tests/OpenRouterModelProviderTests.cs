@@ -22,7 +22,7 @@ public class OpenRouterModelProviderTests
     FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Ok()));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
-    ModelConfig config = ModelConfig.Create("openai/gpt-4o-mini", null, 256, 0.7f, 4096).Value!;
+    ModelConfig config = ModelConfig.Create("openai/gpt-4o-mini", 256, 0.7f, 4096).Value!;
 
     Result<ModelResponse> result = await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
@@ -48,7 +48,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-4o-mini", null, 128, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-4o-mini", 128, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
@@ -73,7 +73,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-4o-mini", null, 128, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-4o-mini", 128, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.Equal("https://proxy.test/openrouter/api/v1/responses", captured!.RequestUri!.ToString());
@@ -102,7 +102,7 @@ public class OpenRouterModelProviderTests
         ];
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest([UserMsg("hi")], tools), TestContext.Current.CancellationToken);
 
     Assert.Contains("\"required\":[\"path\",\"startLine\",\"endLine\"]", capturedBody, StringComparison.Ordinal);
@@ -120,7 +120,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
@@ -153,7 +153,7 @@ public class OpenRouterModelProviderTests
         ];
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest(messages), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);
@@ -177,7 +177,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -193,7 +193,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -209,7 +209,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -229,7 +229,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -248,7 +248,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -267,7 +267,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -276,8 +276,11 @@ public class OpenRouterModelProviderTests
   }
 
   [Fact]
-  public async Task SendAsync_WithProvider_SendsProviderOnlyInBody()
+  public async Task SendAsync_SendsNoProviderObjectAtAll()
   {
+    // THE PROVIDER PIN IS DELETED. Routing is the model id's VARIANT SUFFIX now, and a leftover
+    // "provider" object would OVERRIDE that suffix's own sorting - a floor request pinned to one
+    // expensive endpoint would pay that endpoint's price while the user asked for the cheapest.
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
@@ -289,12 +292,14 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-4o", "OpenAI", 128, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-4o:nitro", 128, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
-    Assert.Contains("provider", capturedBody!, StringComparison.Ordinal);
-    Assert.Contains("only", capturedBody!, StringComparison.Ordinal);
-    Assert.Contains("OpenAI", capturedBody!, StringComparison.Ordinal);
+    Assert.NotNull(capturedBody);
+    Assert.DoesNotContain("\"provider\"", capturedBody, StringComparison.Ordinal);
+    Assert.DoesNotContain("allow_fallbacks", capturedBody, StringComparison.Ordinal);
+    // The routing intent reaches the wire only as the model id.
+    Assert.Contains("\"model\":\"openai/gpt-4o:nitro\"", capturedBody, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -311,7 +316,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-4o", null, 128, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-4o", 128, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);

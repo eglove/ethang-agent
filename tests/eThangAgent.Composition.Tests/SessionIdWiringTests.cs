@@ -45,7 +45,7 @@ public class SessionIdWiringTests
           // The container's provider is the real OpenRouter one; assert the wiring
           // instead: the holder's built agent carries the root id as its session id.
           RootAgentHolder holder = created.Value.Services.GetRequiredService<RootAgentHolder>();
-          ModelConfig config = ModelConfig.Create("test/model", null, 64, 0.5f, 4096).Value!;
+          ModelConfig config = ModelConfig.Create("test/model", 64, 0.5f, 4096).Value!;
           _ = holder.Build(existing: null, config);
 
           Assert.Equal(rootId.ToString(), holder.CurrentSessionId);

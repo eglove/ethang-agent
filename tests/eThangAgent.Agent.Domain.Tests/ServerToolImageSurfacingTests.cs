@@ -15,10 +15,10 @@ public class ServerToolImageSurfacingTests
   private const string PngBase64 = "iVBORw0KGgoAAQI=";
 
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   private static ModelConfig VisionConfig =>
-      ModelConfig.Create("vision-model", null, 100, 0.5f, 8192, acceptsImageInput: true).Value!;
+      ModelConfig.Create("vision-model", 100, 0.5f, 8192, acceptsImageInput: true).Value!;
 
   private static Agent BuildAgent(IServerToolImageStore store, ModelConfig config) =>
       new(new ScriptedProvider(new ModelResponse("done", [],

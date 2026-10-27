@@ -41,7 +41,7 @@ public class RootAgentIdentityWiringTests
           AgentId rootId = created.Value.RootId;
 
           RootAgentHolder holder = created.Value.Services.GetRequiredService<RootAgentHolder>();
-          ModelConfig config = ModelConfig.Create("test/model", null, 64, 0.5f, 4096).Value!;
+          ModelConfig config = ModelConfig.Create("test/model", 64, 0.5f, 4096).Value!;
           AgentDomain.Agent agent = holder.Build(existing: null, config);
 
           Assert.Equal(rootId, agent.Id);

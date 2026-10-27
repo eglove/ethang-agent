@@ -150,27 +150,29 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     source wired (legacy wiring, tests) the config carries the unbounded legacy sentinel
   ///     and the child simply runs without accounting. Returns the config and the resolved
   ///     window (the accountant's budget).
-  ///     <para>THE PROVIDER IS INHERITED, NOT RE-DECIDED (issue #297, D4). This method passed
-  ///     <c>null</c>, so every child fell back to the provider's own routing while the parent
-  ///     ran on the pinned provider — the session's cost, cache ratio, and reliability would
-  ///     then describe a mixture nobody chose. Per-child provider choice is out of scope, so
-  ///     the session's pin applies to the whole tree.</para>
-  ///     <para>The window lookup takes the provider too, because a window is a fact about the
-  ///     (model, provider) pair: looking it up unpinned could resolve a different provider's
-  ///     window and budget the child against a limit it will never be served under.</para>
+  ///     <para>THE ROUTING VARIANT IS INHERITED, NOT RE-DECIDED. It is a property of the
+  ///     conversation rather than of the root agent, so the session's tradeoff applies to the
+  ///     whole tree — applied to the CHILD'S OWN model, not the root's: the overlay writes the
+  ///     suffix onto whatever model this config names. A child that silently routed
+  ///     differently from its parent would make the session's cost, cache ratio, and
+  ///     reliability describe a mixture nobody chose.</para>
+  ///     <para>The window lookup takes the BASE model (the catalog key), never the variant:
+  ///     the catalog knows <c>alpha/model</c> while the wire carries <c>alpha/model:nitro</c>,
+  ///     and looking up the wire id would find nothing and fail every child of a nitro
+  ///     session.</para>
   ///     </summary>
   private async Task<(ModelConfig Config, int Window)> ChildConfigAsync(AgentRecord child, CancellationToken ct)
   {
-    string? providerName = _preferences?.ProviderName;
+    string baseModel = ModelVariants.BaseOf(child.ModelUsed);
     int? window = _windowSource is null
         ? ChildLegacyWindowFallback
-        : await _windowSource.WindowForAsync(child.ModelUsed, providerName, ct).ConfigureAwait(false)
+        : await _windowSource.WindowForAsync(baseModel, ct).ConfigureAwait(false)
           ?? throw new InvalidOperationException(
-              $"Child model '{child.ModelUsed}' has no catalog context window (catalog unavailable or model unknown); the child run cannot proceed. "
+              $"Child model '{baseModel}' has no catalog context window (catalog unavailable or model unknown); the child run cannot proceed. "
               + "This is a composition wiring fault: every spawnable model must have a catalog-known window.");
     ModelConfig config = ModelPreferencesOverlay.Apply(ModelConfig.Create(
-        child.ModelUsed, providerName, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort,
-        acceptsImageInput: await AcceptsImagesAsync(child.ModelUsed, ct).ConfigureAwait(false)).Value!,
+        baseModel, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort,
+        acceptsImageInput: await AcceptsImagesAsync(baseModel, ct).ConfigureAwait(false)).Value!,
         _preferences);
     return (config, window.Value);
   }

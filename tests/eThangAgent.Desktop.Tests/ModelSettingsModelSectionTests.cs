@@ -99,10 +99,11 @@ public class ModelSettingsModelSectionTests
   }
 
   [Fact]
-  public async Task Save_WithAPinnedPair_CarriesBothHalves()
+  public async Task Save_WithAPinnedChoice_CarriesBothHalves()
   {
-    // Issue #296, D7/B6: the save carries the PAIR. A model without its provider is half a
-    // decision, and the provider is what the picker's evidence surface exists to choose.
+    // THE CHOICE IS THE MODEL PLUS THE ROUTING VARIANT. A model without its variant is half a
+    // decision - the model name says nothing about whether the turn should route for speed or
+    // for price - so the save must carry both, and both must land on the live preferences.
     SessionModelPreferences live = new();
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
@@ -111,11 +112,9 @@ public class ModelSettingsModelSectionTests
             Loader(Entry("alpha/model", "ProviderA"), Entry("alpha/model", "ProviderB")),
             "alpha/model"));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
-    // The model pre-selects from the session's live choice; the provider level then offers
-    // both endpoints and the user switches to the one they want.
-    Assert.Equal(2, vm.ModelSection!.ProviderRows.Count);
-    vm.ModelSection.SelectedProviderRow = vm.ModelSection.ProviderRows
-        .First(row => row.ProviderName == "ProviderB");
+    // The model pre-selects from the session's live choice; the user then states the tradeoff.
+    vm.ModelSection!.SelectedVariantOption = vm.ModelSection.VariantOptions
+        .First(option => option.Variant == ModelVariant.Floor);
 
     bool saved = vm.TrySave(out string? error);
 
@@ -123,61 +122,71 @@ public class ModelSettingsModelSectionTests
     Assert.NotNull(received);
     Assert.Equal(ModelChoiceKind.Pinned, received.Model!.Kind);
     Assert.Equal("alpha/model", received.Model.ModelId);
-    Assert.Equal("ProviderB", received.Model.ProviderName);
-    Assert.Equal("ProviderB", live.ProviderName); // applied to the live preferences
+    Assert.Equal(ModelVariant.Floor, received.Model.Variant);
+    Assert.Equal(ModelVariant.Floor, live.ModelVariant); // applied to the live preferences
   }
 
   [Fact]
-  public async Task Save_WithAVariantEndpoint_CarriesTheRoutingSlug_NotTheProviderName()
+  public async Task Save_ChangingOnlyTheVariant_IsARealChoice()
   {
-    // A provider does not serve one endpoint: five grok-4.7 endpoints are all named "xAI" and
-    // differ in region, ZDR, tier, and price. Committing the NAME pins whichever variant the
-    // router prefers - the silent substitution the pin exists to prevent - so the save carries
-    // the SLUG. The picker's own confirm path always did; this path did not, and it is the one
-    // the Model Settings window actually uses.
+    // Tri-state is on the PAIR: a user who keeps the model and switches the variant has made a
+    // real choice, and reporting it as Unchanged would silently discard it - the same class of
+    // defect as a status line naming a routing the request never carried.
     SessionModelPreferences live = new();
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
-            Loader(Variant("alpha/model", "xAI", "xai"), Variant("alpha/model", "xAI", "xai/zdr/priority")),
-            CurrentModelId: "alpha/model", CurrentProviderName: "xai"));
+            Loader(Entry("alpha/model")),
+            CurrentModelId: "alpha/model", CurrentVariant: ModelVariant.Standard));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
-    Assert.Equal("xai", vm.ModelSection!.SelectedProviderRow!.Ranked.Entry.RoutingSlug);
 
-    // The user moves to the ZDR variant of the same provider: same NAME, different endpoint.
-    vm.ModelSection.SelectedProviderRow = vm.ModelSection.ProviderRows
-        .First(row => row.Ranked.Entry.RoutingSlug == "xai/zdr/priority");
+    vm.ModelSection!.SelectedVariantOption = vm.ModelSection.VariantOptions
+        .First(option => option.Variant == ModelVariant.Nitro);
     Assert.True(vm.TrySave(out string? error), error);
 
     Assert.Equal(ModelChoiceKind.Pinned, received!.Model!.Kind);
-    Assert.Equal("xai/zdr/priority", received.Model.ProviderName);
-    Assert.Equal("xai/zdr/priority", live.ProviderName); // the slug, never the name
+    Assert.Equal("alpha/model", received.Model.ModelId);
+    Assert.Equal(ModelVariant.Nitro, received.Model.Variant);
+    Assert.Equal(ModelVariant.Nitro, live.ModelVariant);
   }
 
   [Fact]
-  public async Task Save_WithAnUntouchedWindow_StaysUnchanged_EvenWhenTheLedgerRerenders()
+  public async Task Save_OnAnUntouchedVariant_StaysUnchanged()
   {
-    // The rows are REBUILT whenever the rates are re-resolved - the catalog landing, then the
-    // ledger landing. Reference-equality on the row object therefore reported "changed" for a
-    // window nobody touched, turning an open-and-save into a Pinned write. Identity is the
-    // model id and the routing slug, which survive a re-render.
+    // Opening the window and pressing Save must not invent an edit: the same model AND the same
+    // variant means Unchanged, so a session that never committed a variant keeps its plain
+    // routing instead of having Standard written over it.
     SessionModelPreferences live = new();
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
-            Loader(Entry("alpha/model"), Entry("beta/model")), CurrentModelId: "alpha/model",
-            LoadPerformance: _ => Task.FromResult(Result.Success(
-                ProviderPerformanceReport.Empty(UsageScope.Session)))));
+            Loader(Entry("alpha/model")),
+            CurrentModelId: "alpha/model", CurrentVariant: ModelVariant.Nitro));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(vm.TrySave(out string? error), error);
+
+    Assert.Equal(ModelChoiceKind.Unchanged, received!.Model!.Kind);
+    Assert.Null(live.ModelVariant); // untouched means untouched
+  }
+
+  [Fact]
+  public void Save_WithAnUntouchedChoice_StaysUnchanged_WhenTheListRerenders()
+  {
+    // The rows are REBUILT whenever the rates are re-resolved - the catalog landing, then the
+    // model id and the variant, which survive a re-render.
+    SessionModelPreferences live = new();
+    ModelSettingsSnapshot? received = null;
+    ModelSettingsViewModel vm = new(
+        live, ProvidersOpenRouter, persist: s => received = s,
+        modelSection: new ModelSectionSeams(
+            Loader(Entry("alpha/model"), Entry("beta/model")), CurrentModelId: "alpha/model"));
 
     Assert.True(vm.TrySave(out string? error), error);
     Assert.Equal(ModelChoiceKind.Unchanged, received!.Model!.Kind);
   }
-
-  private static ModelProviderEntry Variant(string modelId, string providerName, string slug) =>
-      Entry(modelId, providerName) with { Variant = new EndpointVariant(slug) };
 
   [Theory]
   [InlineData(false)]

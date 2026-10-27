@@ -17,18 +17,18 @@ public class AgentServedModelTests
   private const string ServedModel = "cohere/north-mini-code:free";
 
   private static ModelConfig Config =>
-      ModelConfig.Create(RequestedModel, "openrouter", 100, 0.5f, 8192).Value!;
+      ModelConfig.Create(RequestedModel, 100, 0.5f, 8192).Value!;
 
   /// <summary>Prices keyed by model id, so a row priced from the wrong table is visible
   ///     as the wrong numbers rather than as an opaque count.</summary>
   private sealed class ModelKeyedPriceSource : IUsagePriceSource
   {
-    public List<(string ModelId, string? Provider)> Asked { get; } = [];
+    public List<string> Asked { get; } = [];
 
-    public Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+    public Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
         CancellationToken ct = default)
     {
-      Asked.Add((modelId, providerName));
+      Asked.Add(modelId);
       return Task.FromResult(modelId == ServedModel
           ? new UsagePrices(0.0000002m, 0.0000001m, 0.0000008m)
           : new UsagePrices(0.000003m, 0.0000003m, 0.000015m));
@@ -88,7 +88,7 @@ public class AgentServedModelTests
     Assert.Equal(0.0000001m, row.PromptCacheReadPricePerToken);
     Assert.Equal(0.0000008m, row.CompletionPricePerToken);
     Assert.False(row.PricedOnRequestedModel);
-    Assert.Equal([(ServedModel, (string?)"openrouter")], prices.Asked);
+    Assert.Equal([ServedModel], prices.Asked);
   }
 
   [Fact]
@@ -115,7 +115,7 @@ public class AgentServedModelTests
     Assert.Null(row.ServedModelId);
     Assert.Equal(RequestedModel, row.ModelId);
     Assert.True(row.PricedOnRequestedModel);
-    Assert.Equal([(RequestedModel, (string?)"openrouter")], prices.Asked);
+    Assert.Equal([RequestedModel], prices.Asked);
   }
 
   [Fact]
@@ -144,7 +144,7 @@ public class AgentServedModelTests
     Assert.Equal(0.000003m, row.PromptPricePerToken);
     Assert.Equal(0.0000003m, row.PromptCacheReadPricePerToken);
     Assert.Equal(0.000015m, row.CompletionPricePerToken);
-    Assert.Equal([(RequestedModel, (string?)"openrouter")], prices.Asked);
+    Assert.Equal([RequestedModel], prices.Asked);
   }
 
   [Fact]
@@ -208,8 +208,8 @@ public class AgentServedModelTests
     Assert.Equal(ServedModel, row.ModelId);
     Assert.False(row.PricedOnRequestedModel);
     Assert.Equal(0.0000002m, row.PromptPricePerToken);
-    Assert.Contains((ServedModel, (string?)"openrouter"), prices.Asked);
-    Assert.DoesNotContain((RequestedModel, (string?)"openrouter"), prices.Asked);
+    Assert.Contains(ServedModel, prices.Asked);
+    Assert.DoesNotContain(RequestedModel, prices.Asked);
   }
 
   /// <summary>A monitor parked above the ceiling so the compaction path runs.</summary>

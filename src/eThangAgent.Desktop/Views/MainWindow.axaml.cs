@@ -180,13 +180,14 @@ internal partial class MainWindow : Window
       return; // host composed the session without model preferences — nothing to edit
     }
 
-    // The model section's seams are bundled (issue #296): the catalog load and its
-    // revalidation join, the session's committed pair to pre-select, and the ledger's
-    // observed performance. A host with no catalog loader supplies no section at all.
+    // The model section's seams are bundled: the catalog load and its revalidation join, and
+    // the session's committed choice to pre-select. A host with no catalog loader supplies no
+    // section at all. The ledger's observed-performance loader is gone with the provider level -
+    // nothing renders per-endpoint comparison now, so wiring it would be a database query with
+    // no consumer.
     ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
         ? new ModelSectionSeams(loadCatalog, preferences.ModelId,
-            _vm.SelectedTabCatalogRefresher, preferences.ProviderName,
-            _vm.SelectedTabPerformanceLoader, _vm.SelectedTabPublishedRateLoader)
+            _vm.SelectedTabCatalogRefresher, preferences.ModelVariant)
         : null;
     ModelSettingsViewModel vm = new(
         preferences,

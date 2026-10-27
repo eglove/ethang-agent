@@ -49,42 +49,16 @@
                      IsVisible="{Binding ModelSection.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
         </StackPanel>
 
-        <!-- The cache-hit rate is NOT a user setting: it is a property of the model, the
-             provider, and the workload, so the harness resolves it from evidence and each
-             provider row states the rate its own price was projected at. This caption only
-             explains the fallback for rows with no evidence of their own. -->
-        <TextBlock Text="{Binding ModelSection.RateCaption}" FontSize="11" Opacity="0.6"
-                   TextWrapping="Wrap"
-                   IsVisible="{Binding ModelSection, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-
-        <!-- Provider level (D1/B1): every endpoint of the selected model, with the evidence
-             D3 names. Presets REORDER and never hide (D4), and the caption states which
-             dimension drove the order. -->
-        <StackPanel Spacing="4" IsVisible="{Binding ModelSection.HasProviderRows}">
-          <TextBlock Text="Provider" FontWeight="SemiBold"/>
-          <TextBlock Text="{Binding ModelSection.ProviderLevelCaption}" FontSize="11" Opacity="0.7"/>
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <ComboBox x:Name="PresetBox" ItemsSource="{Binding ModelSection.PresetOptions}"
-                      SelectedItem="{Binding ModelSection.SelectedPresetOption}"
-                      DisplayMemberBinding="{Binding DisplayName}" MinWidth="150"/>
-            <TextBlock Text="{Binding ModelSection.OrderingCaption}" VerticalAlignment="Center"
-                       FontSize="11" Opacity="0.7"/>
-          </StackPanel>
-          <ListBox x:Name="ProviderList" ItemsSource="{Binding ModelSection.ProviderRows}"
-                   SelectedItem="{Binding ModelSection.SelectedProviderRow}" MaxHeight="220">
-            <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="md:ProviderEvidenceRow">
-                <StackPanel Margin="2,4">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="{Binding ProviderName}" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding EffectivePriceText}"/>
-                  </StackPanel>
-                  <TextBlock Text="{Binding Evidence}" Opacity="0.6" FontSize="11" TextWrapping="Wrap"/>
-                  <TextBlock Text="{Binding CapabilityText}" Opacity="0.5" FontSize="11" TextWrapping="Wrap"/>
-                </StackPanel>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+        <!-- The routing VARIANT: the whole second half of the model decision. OpenRouter
+             expresses 'fastest' and 'cheapest' as suffixes on the model id, so this one
+             dropdown replaces the retired provider/endpoint level and its ordering presets. -->
+        <StackPanel Spacing="4">
+          <TextBlock Text="Routing" FontWeight="SemiBold"/>
+          <ComboBox x:Name="VariantBox" ItemsSource="{Binding ModelSection.VariantOptions}"
+                    SelectedItem="{Binding ModelSection.SelectedVariantOption}"
+                    DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
+          <TextBlock Text="{Binding ModelSection.VariantCaption}" FontSize="11" Opacity="0.6"
+                     TextWrapping="Wrap"/>
         </StackPanel>
 
         <!-- Reasoning effort: the same vocabulary the old effort picker offered. -->

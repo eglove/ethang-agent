@@ -14,7 +14,7 @@ namespace eThangAgent.OpenRouter.ACL.Tests;
 public class ContextWindowOverflowClassificationTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");
-  private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f, 4096).Value!;
+  private static ModelConfig Model => ModelConfig.Create("m", 256, 0.7f, 4096).Value!;
 
   private static OpenRouterModelProvider Provider(Func<HttpResponseMessage> respond)
   {

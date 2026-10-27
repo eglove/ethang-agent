@@ -271,7 +271,7 @@ public sealed class NewAgentLaunchGuardTests
           new ConversationDomain.Conversation(),
           Handler: null!,
           Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
-          Model: ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
+          Model: ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
           WorkspaceRoot: root,
           ProviderName: provider,
           Inbox: new AgentDomain.BoundedAgentMailbox(),

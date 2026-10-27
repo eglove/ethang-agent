@@ -22,7 +22,7 @@ public class MessageContentPassthroughWireTests
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, new OpenRouterConfiguration("test-key", BaseUrl));
-    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!;
+    ModelConfig config = ModelConfig.Create("m", 100, 0.5f, 4096).Value!;
 
     Result<ModelResponse> result = await provider.SendAsync(
         config, new ModelRequest(messages, SystemPrompt: systemPrompt),

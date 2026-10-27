@@ -51,17 +51,10 @@ public class ModelSettingsWindowTests
     _ = Assert.Single(vm.ModelSection!.FilteredRows); // the loaded entry
   }
 
-  /// <summary>The window opens ON the pair the session is serving. The catalog load
-  ///     pre-selects it, then the ledger read lands and re-renders both levels — and that
-  ///     second render must not drop the selection the user is looking at.
-  ///     <para>Regression: the re-render swapped ItemsSource, the ListBox cleared its
-  ///     selection, the two-way binding wrote null back into the view-model, and the window
-  ///     opened with NO model highlighted and NO provider level at all — while the status
-  ///     bar beside it named the model and provider that were serving.</para></summary>
+  /// <summary>The window opens ON the choice the session is serving, and a re-render must not drop it.</summary>
   [AvaloniaFact]
-  public async Task TheWindow_OpensOnTheServedPair_EvenAfterTheLedgerLands()
+  public async Task TheWindow_OpensOnTheServedChoice_EvenAfterTheListRerenders()
   {
-    ProviderPerformanceReport report = ProviderPerformanceReport.Empty(UsageScope.Session);
     ModelSettingsViewModel vm = new(
         new SessionModelPreferences(), "openrouter",
         persist: _ => { },
@@ -73,14 +66,13 @@ public class ModelSettingsWindowTests
               Entry("zeta/model", "ProviderB"),
             ])),
             CurrentModelId: "zeta/model",
-            CurrentProviderName: "ProviderB",
-            LoadPerformance: _ => Task.FromResult(Result.Success(report))));
+            CurrentVariant: ModelVariant.Nitro));
     Views.ModelSettingsWindow window = new(vm);
 
     window.Show();
-    // Pump until the WHOLE load has landed: the catalog, the published rates, and then the
-    // ledger read that re-renders both levels. That last re-render is the one that used to
-    // drop the selection, so stopping at the first non-null selection would miss the defect.
+    // Pump until the WHOLE load has landed: the catalog, then the rebuild that re-renders the
+    // list. That last re-render is the one that used to drop the selection, so stopping at the
+    // first non-null selection would miss the defect.
     DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
     while (DateTimeOffset.UtcNow < deadline && vm.ModelSection!.IsLoading)
     {
@@ -89,10 +81,8 @@ public class ModelSettingsWindowTests
     window.Close();
 
     Assert.Equal("zeta/model", vm.ModelSection!.SelectedRow?.ModelId);
-    // The provider level renders for the served model, with the served endpoint selected -
-    // this is the half the user could not see at all.
-    Assert.True(vm.ModelSection.HasProviderRows);
-    Assert.Equal("ProviderB", vm.ModelSection.SelectedProviderRow?.ProviderName);
+    // The variant dropdown shows the tradeoff the session committed.
+    Assert.Equal(ModelVariant.Nitro, vm.ModelSection.SelectedVariantOption.Variant);
     // ...and the list the user is looking at actually highlights it. The view-model state
     // alone is not the claim: the defect was a binding round trip (ItemsSource swap -> the
     // control clears its selection -> writes null back), so the control is where it has to

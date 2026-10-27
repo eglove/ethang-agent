@@ -110,7 +110,7 @@ internal sealed class ScriptedRootHost : IDisposable
         : new EmptyToolRegistry();
     ScriptedProvider provider = new(answer, deltas, betweenDeltas, providerError, park?.BetweenDeltas,
         options ?? new ScriptedOptions());
-    ModelConfig config = ModelConfig.Create("scripted/model", null, 4096, 0f, 200_000).Value!;
+    ModelConfig config = ModelConfig.Create("scripted/model", 4096, 0f, 200_000).Value!;
     AgentId rootId = AgentId.NewId();
     // The context accountant is wired exactly as production wires it (RootAgentHolder
     // builds one per resolved window): the loop's OnContextUpdate only fires when a

@@ -31,7 +31,7 @@ public class ShellUiPolishTests
           new ConversationDomain.Conversation(),
           Handler: null!,
           Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
-          Model: ModelDomain.ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
+          Model: ModelDomain.ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
           WorkspaceRoot: root,
           ProviderName: "openrouter",
           Inbox: new AgentDomain.BoundedAgentMailbox(),

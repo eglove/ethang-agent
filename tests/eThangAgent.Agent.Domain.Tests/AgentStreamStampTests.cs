@@ -36,7 +36,7 @@ public class AgentStreamStampTests
   }
 
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   [Fact]
   public async Task ContentDelta_InvokesOnStreamActivityWithContent()

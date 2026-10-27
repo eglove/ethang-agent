@@ -55,14 +55,14 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     }
   } = modelId;
 
-  /// <summary>The provider committed to serve the session's model (issue #296, D7/B6), or
-  ///     empty when no provider was pinned and the provider's own routing decides.
-  ///     <para>THE PAIR IS THE DECISION, so the status line names both halves: a bar that showed
-  ///     only the model would leave the user unable to tell which of a model's providers is
-  ///     actually serving, which is the fact the picker's whole evidence surface exists to
-  ///     choose. Empty renders nothing - a session that never committed a provider must not
-  ///     display a fabricated one.</para></summary>
-  public string ServingProvider
+  /// <summary>The routing variant committed for the session's model, or empty when none was
+  ///     committed and the provider's own routing decides.
+  ///     <para>THE VARIANT IS THE DECISION'S SECOND HALF, so the status line names it: a bar
+  ///     that showed only the model would leave the user unable to tell whether their turns are
+  ///     routing for throughput or for price - the tradeoff they explicitly chose. Empty renders
+  ///     nothing, because Standard is the absence of a decision rather than one, and a session
+  ///     that never committed a variant must not display a fabricated one.</para></summary>
+  public string ServingVariant
   {
     get;
     set
@@ -73,7 +73,7 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
       }
 
       field = value;
-      Raise(nameof(ServingProvider));
+      Raise(nameof(ServingVariant));
     }
   } = "";
 

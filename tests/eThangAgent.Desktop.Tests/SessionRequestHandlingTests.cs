@@ -70,7 +70,7 @@ public class SessionRequestHandlingTests
           new Conversation(),
           Handler: null!,
           Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
-          Model: ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
+          Model: ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
           WorkspaceRoot: root,
           ProviderName: provider,
           Inbox: new BoundedAgentMailbox(),
@@ -205,7 +205,7 @@ public class SessionRequestHandlingTests
       return Task.FromResult(Result.Success(new AgentSession(
           services, AgentId.NewId(), new Conversation(), Handler: null!,
           Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
-          Model: ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
+          Model: ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
           WorkspaceRoot: root, ProviderName: provider,
           Inbox: new BoundedAgentMailbox(),
           ChildRuntime: new TestFixtures.StubAgentRuntime())));

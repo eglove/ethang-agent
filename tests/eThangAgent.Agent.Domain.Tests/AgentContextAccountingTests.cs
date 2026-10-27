@@ -7,7 +7,7 @@ namespace eThangAgent.AgentDomain.Tests;
 
 public class AgentContextAccountingTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   private sealed class RecordingMonitor : IContextMonitor
   {

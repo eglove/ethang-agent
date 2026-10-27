@@ -12,7 +12,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentUsageLedgerTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", "openrouter", 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192, pricingProvider: "openrouter").Value!;
 
   private static readonly UsagePrices Known = new(0.000003m, 0.0000003m, 0.000015m);
 
@@ -20,12 +20,12 @@ public class AgentUsageLedgerTests
   ///     records what it was asked for.</summary>
   private sealed class FixedPriceSource(UsagePrices prices) : IUsagePriceSource
   {
-    public List<(string ModelId, string? Provider)> Asked { get; } = [];
+    public List<string> Asked { get; } = [];
 
-    public Task<UsagePrices> PricesForAsync(string modelId, string? providerName, int promptTokens = 0,
+    public Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
         CancellationToken ct = default)
     {
-      Asked.Add((modelId, providerName));
+      Asked.Add(modelId);
       return Task.FromResult(prices);
     }
   }
@@ -106,12 +106,12 @@ public class AgentUsageLedgerTests
     Assert.True(result.IsSuccess);
     AgentUsageRecorded row = Assert.Single(log.Events.OfType<AgentUsageRecorded>());
     Assert.Same(UsageCallClass.MainLoop, row.CallClass);
-    Assert.Equal("openrouter", row.Provider);
+    Assert.Equal("openrouter", row.PricingProvider);
     Assert.Equal("ws-1", row.WorkspaceId);
     Assert.Equal(0.000003m, row.PromptPricePerToken);
     Assert.Equal(0.0000003m, row.PromptCacheReadPricePerToken);
     Assert.Equal(0.000015m, row.CompletionPricePerToken);
-    Assert.Equal([("test-model", (string?)"openrouter")], prices.Asked);
+    Assert.Equal(["test-model"], prices.Asked);
   }
 
   [Fact]
@@ -208,7 +208,7 @@ public class AgentUsageLedgerTests
     AgentUsageRecorded row = Assert.Single(log.Events.OfType<AgentUsageRecorded>());
     Assert.Null(row.CallClass);
     Assert.Null(row.WorkspaceId);
-    Assert.Null(row.Provider);
+    Assert.Null(row.PricingProvider);
     Assert.Null(row.PromptPricePerToken);
     Assert.Null(row.PromptCacheReadPricePerToken);
     Assert.Null(row.CompletionPricePerToken);
@@ -288,10 +288,10 @@ public class AgentUsageLedgerTests
         row => row.EffectiveCallClass.WireName == UsageCallClass.CompactionWire);
     Assert.Equal(50, row.InputTokens);
     Assert.Equal(100, row.OutputTokens);
-    Assert.Equal("openrouter", row.Provider);
+    Assert.Equal("openrouter", row.PricingProvider);
     Assert.Equal("ws-1", row.WorkspaceId);
     // Priced against the SUMMARIZER's model, not the serving one.
-    Assert.Contains(("summarizer", (string?)"openrouter"), prices.Asked);
+    Assert.Contains("summarizer", prices.Asked);
   }
 
   [Fact]
@@ -372,7 +372,7 @@ public class AgentUsageLedgerTests
         row => row.EffectiveCallClass.WireName == UsageCallClass.CompactionWire);
     Assert.Null(row.PromptPricePerToken);
     Assert.Null(row.WorkspaceId);
-    Assert.Equal("openrouter", row.Provider); // the summarizer's own provider still travels
+    Assert.Equal("openrouter", row.PricingProvider); // the summarizer's own provider still travels
   }
 
   [Fact]
@@ -408,7 +408,7 @@ public class AgentUsageLedgerTests
     AgentUsageRecorded row = result.Value;
     Assert.Same(UsageCallClass.Compaction, row.CallClass);
     Assert.Equal("ws-1", row.WorkspaceId);
-    Assert.Equal("openrouter", row.Provider);
+    Assert.Equal("openrouter", row.PricingProvider);
     Assert.Equal(0.0000003m, row.PromptCacheReadPricePerToken);
     Assert.Equal(3, row.Iteration);
   }

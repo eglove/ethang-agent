@@ -6,7 +6,7 @@ namespace eThangAgent.AgentDomain.Tests;
 
 public class DefaultContextCompactorTailTests
 {
-  private static readonly ModelConfig Serving = ModelConfig.Create("serving", null, 1000, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Serving = ModelConfig.Create("serving", 1000, 0.5f, 1000).Value!;
 
   private sealed class RecordingFactory : IModelProviderFactory
   {

@@ -39,11 +39,11 @@ public class StatusBarOrderTests
   }
 
   [AvaloniaFact]
-  public void TheStatusBar_NamesTheCommittedProvider_BesideTheModel()
+  public void TheStatusBar_NamesTheCommittedVariant_BesideTheModel()
   {
-    // Issue #296, D7/B6: the pair is the decision, so the bar names both halves. A bar that
-    // showed only the model would leave the user unable to tell which of a model's providers
-    // is serving - the fact the picker's evidence surface exists to choose.
+    // THE VARIANT IS THE DECISION'S SECOND HALF, so the bar names both. A bar that showed only
+    // the model would leave the user unable to tell whether their turns are routing for
+    // throughput or for price - the tradeoff they explicitly chose.
     AgentSessionViewModel vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
     Window window = new() { Content = new AgentView { DataContext = vm } };
     window.Show();
@@ -57,8 +57,8 @@ public class StatusBarOrderTests
         .Where(name => name.Length > 0)];
 
     int model = names.IndexOf("ModelIdText");
-    int provider = names.IndexOf("ServingProviderText");
-    Assert.True(provider > 0, $"the committed provider must appear in the bar, got: {string.Join(",", names)}");
-    Assert.True(provider > model, $"the provider must follow the model it serves, got: {string.Join(",", names)}");
+    int variant = names.IndexOf("ServingVariantText");
+    Assert.True(variant > 0, $"the committed variant must appear in the bar, got: {string.Join(",", names)}");
+    Assert.True(variant > model, $"the variant must follow the model it routes, got: {string.Join(",", names)}");
   }
 }

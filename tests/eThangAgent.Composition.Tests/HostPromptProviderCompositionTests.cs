@@ -17,7 +17,7 @@ public class HostPromptProviderCompositionTests
     using TestAppDatabase db = TestAppDatabase.Create();
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!, host, db.Database)
+            ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!, host, db.Database)
         .BuildServiceProvider();
   }
 

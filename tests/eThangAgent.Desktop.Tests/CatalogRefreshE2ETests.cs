@@ -37,7 +37,7 @@ public class CatalogRefreshE2ETests
     _ = await store.WriteAsync(key, new ModelCatalogSnapshot([Cached("old/model")], DateTimeOffset.UtcNow), TestContext.Current.CancellationToken);
     AgentSettings settings = new(new OpenRouterSettings("test-key", server.BaseUrl), new SubAgentOptions(null, 1));
     using ServiceProvider services = new ServiceCollection().AddEThangAgentCore(settings, Providers.OpenRouter,
-        ModelConfig.Create("openrouter/auto", null, 256, 0.2f, 200_000).Value!,
+        ModelConfig.Create("openrouter/auto", 256, 0.2f, 200_000).Value!,
         new AgentHostOptions(new FixedWorkspaceContext("test"), new UnrootedPathResolver()), database.Database).BuildServiceProvider();
     AgentSession session = new(services, AgentId.NewId(), services.GetRequiredService<Conversation>(),
         services.GetRequiredService<SendMessageCommandHandler>(), services.GetRequiredService<RootSessionLifecycle>(),
@@ -46,8 +46,7 @@ public class CatalogRefreshE2ETests
     MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session);
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), Providers.OpenRouter, _ => { },
         modelSection: new ModelSectionSeams(shell.SelectedTabCatalogLoader!,
-            RefreshCatalog: shell.SelectedTabCatalogRefresher,
-            LoadPerformance: shell.SelectedTabPerformanceLoader));
+            RefreshCatalog: shell.SelectedTabCatalogRefresher));
     Task load = vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     try
     {

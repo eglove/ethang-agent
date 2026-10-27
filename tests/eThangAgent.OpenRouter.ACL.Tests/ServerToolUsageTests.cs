@@ -13,7 +13,7 @@ public class ServerToolUsageTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");
   private static OpenRouterConfiguration Config => new("test-key", BaseUrl);
-  private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f, 4096).Value!;
+  private static ModelConfig Model => ModelConfig.Create("m", 256, 0.7f, 4096).Value!;
 
   [Fact]
   public async Task NonStreaming_ServerToolUse_PopulatesServerToolCalls()

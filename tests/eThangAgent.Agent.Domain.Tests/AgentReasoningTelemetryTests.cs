@@ -11,7 +11,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentReasoningTelemetryTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   /// <summary>Scripted provider reporting a reasoning trace per response.</summary>
   private sealed class ReasoningProvider(params Result<ModelResponse>[] responses) : IModelProvider

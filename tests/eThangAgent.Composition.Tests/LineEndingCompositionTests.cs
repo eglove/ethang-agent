@@ -45,7 +45,7 @@ public sealed class LineEndingCompositionTests : IDisposable
     using TestAppDatabase db = TestAppDatabase.Create();
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+            ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(new FixedWorkspaceContext(_root), new WorkspacePathResolver(_root)),
             db.Database)
         .BuildServiceProvider();

@@ -11,7 +11,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     shape that used to make every trim fail with UnansweredToolCall.</summary>
 public class AgentContextTrimTests
 {
-  private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
+  private static readonly ModelConfig Config = ModelConfig.Create("test-model", 100, 0.5f, 1000).Value!;
 
   private sealed class ScriptedProvider(IReadOnlyList<ModelResponse> responses) : IModelProvider
   {

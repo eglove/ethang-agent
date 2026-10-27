@@ -23,7 +23,7 @@ public class WaitWakeWiringTests
               new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
               new SubAgentOptions(null, 2)),
           Providers.OpenRouter,
-          ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+          ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
           new AgentHostOptions(
               new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
       .BuildServiceProvider();

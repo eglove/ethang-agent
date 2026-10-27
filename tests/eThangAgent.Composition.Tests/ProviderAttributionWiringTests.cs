@@ -114,7 +114,7 @@ public class ProviderAttributionWiringTests
       using TestAppDatabase db = TestAppDatabase.Create();
       using ServiceProvider services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.OpenRouter,
-              ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+              ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
               new AgentHostOptions(
                   new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
           .BuildServiceProvider();
@@ -122,7 +122,7 @@ public class ProviderAttributionWiringTests
       IModelProvider provider = services.GetRequiredService<IModelProvider>();
 
       Result<ModelResponse> result = await provider.SendAsync(
-          ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+          ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
           new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
 

@@ -23,7 +23,7 @@ public sealed class ReadToolPathPolicyCompositionTests
       using TestAppDatabase db = TestAppDatabase.Create();
       using ServiceProvider services = new ServiceCollection()
           .AddEThangAgentCore(Settings(), Providers.OpenRouter,
-              ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+              ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
               new AgentHostOptions(
                   new FixedWorkspaceContext(Path.GetTempPath()), new WorkspacePathResolver(Path.GetTempPath())),
               db.Database)
@@ -59,7 +59,7 @@ public sealed class ReadToolPathPolicyCompositionTests
     using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(Settings(), Providers.OpenRouter,
-            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+            ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
                 new FixedWorkspaceContext(Path.GetTempPath()), new WorkspacePathResolver(Path.GetTempPath())),
             db.Database)

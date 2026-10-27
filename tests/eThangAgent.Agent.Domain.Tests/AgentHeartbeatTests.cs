@@ -8,7 +8,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentHeartbeatTests
 {
   private static ModelConfig Config() =>
-      ModelConfig.Create("test-model", null, 1024, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 1024, 0.5f, 8192).Value!;
 
   private static AgentOptions Options(IAgentHeartbeat heartbeat) => new() { Heartbeat = heartbeat };
 

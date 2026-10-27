@@ -45,7 +45,7 @@ public class ShellViewModelTests
         new ConversationDomain.Conversation(),
         Handler: null!,
         Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
-        Model: ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
+        Model: ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
         WorkspaceRoot: root,
         ProviderName: provider,
         Inbox: new AgentDomain.BoundedAgentMailbox(),
@@ -385,36 +385,36 @@ public class ShellViewModelTests
   //    applies a saved snapshot's model choice through the same paths) ────────
 
   [Fact]
-  public async Task ApplyModelChoice_Updates_Session_And_PersistsThePair_Per_Workspace()
+  public async Task ApplyModelChoice_Updates_Session_And_PersistsTheChoice_Per_Workspace()
   {
-    // Issue #296, D7: the model and its provider persist TOGETHER. A model without its
-    // provider is half a decision - the provider is what the picker's evidence surface
-    // exists to choose.
+    // THE CHOICE PERSISTS TOGETHER: the model and the routing variant it was chosen for. A model
+    // without its variant is half a decision - the model name says nothing about whether the
+    // turn should route for throughput or for price.
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(
         root, provider, new SessionModelPreferences()), preferences);
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    await vm.ApplyModelChoiceAsync("anthropic/claude", "DeepInfra");
+    await vm.ApplyModelChoiceAsync("anthropic/claude", ModelVariant.Nitro);
 
     AgentSessionViewModel tab = vm.SelectedTab!.ViewModel;
     Assert.Equal("anthropic/claude", tab.Status.ModelId);
-    Assert.Equal("DeepInfra", tab.Status.ServingProvider);
+    Assert.Equal(ModelVariants.Describe(ModelVariant.Nitro), tab.Status.ServingVariant);
     Assert.Contains(tab.Transcript.Entries.OfType<NoticeEntry>(),
         n => n.Text.Contains("anthropic/claude", StringComparison.Ordinal));
     (string key, string value) = Assert.Single(preferences.Writes,
         w => w.Key.StartsWith("model_provider_choice:", StringComparison.Ordinal));
     Assert.Equal($"model_provider_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}", key);
-    ModelProviderChoice stored = ModelProviderChoice.Parse(value).Value!;
+    ModelVariantChoice stored = ModelVariantChoice.Parse(value).Value!;
     Assert.Equal("anthropic/claude", stored.ModelId);
-    Assert.Equal("DeepInfra", stored.ProviderName);
+    Assert.Equal(ModelVariant.Nitro, stored.Variant);
   }
 
   [Fact]
-  public async Task ApplyModelChoice_WithoutAProvider_LeavesTheProviderUnset()
+  public async Task ApplyModelChoice_WithoutAVariant_LeavesRoutingsDefaultInPlace()
   {
-    // A model committed without a provider keeps the provider's own routing, and the status
-    // line shows no provider rather than a fabricated one.
+    // A model committed without a variant keeps the provider's own routing, and the status line
+    // shows NOTHING rather than naming a Standard nobody chose.
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(
         root, provider, new SessionModelPreferences()), preferences);
@@ -422,46 +422,52 @@ public class ShellViewModelTests
 
     await vm.ApplyModelChoiceAsync("anthropic/claude");
 
-    Assert.Equal(string.Empty, vm.SelectedTab!.ViewModel.Status.ServingProvider);
+    Assert.Equal(string.Empty, vm.SelectedTab!.ViewModel.Status.ServingVariant);
     (string _, string value) = Assert.Single(preferences.Writes,
         w => w.Key.StartsWith("model_provider_choice:", StringComparison.Ordinal));
-    Assert.Null(ModelProviderChoice.Parse(value).Value!.ProviderName);
+    Assert.Equal(ModelVariant.Standard, ModelVariantChoice.Parse(value).Value!.Variant);
   }
 
   [Fact]
-  public async Task OpeningAWorkspace_RestoresThePersistedPair()
+  public async Task OpeningAWorkspace_RestoresThePersistedChoice()
   {
-    // B1: a committed pair restores on the next open - the same model ON the same provider.
+    // A committed choice restores on the next open - the same model under the same tradeoff.
     FakePreferenceStore preferences = new();
     string root = Path.GetFullPath(@"C:\work\alpha");
     preferences.Stored[$"model_provider_choice:openrouter:{root}"] =
-        new ModelProviderChoice("anthropic/claude", "DeepInfra").Serialize();
+        new ModelVariantChoice("anthropic/claude", ModelVariant.Floor).Serialize();
     SessionModelPreferences live = new();
     MainViewModel vm = CreateShell((r, provider) => FakeSession(r, provider, live), preferences);
 
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
     Assert.Equal("anthropic/claude", live.ModelId);
-    Assert.Equal("DeepInfra", live.ProviderName);
-    Assert.Equal("DeepInfra", vm.SelectedTab!.ViewModel.Status.ServingProvider);
+    Assert.Equal(ModelVariant.Floor, live.ModelVariant);
+    Assert.Equal(ModelVariants.Describe(ModelVariant.Floor), vm.SelectedTab!.ViewModel.Status.ServingVariant);
   }
 
-  [Fact]
-  public async Task ALegacyModelChoice_RestoresTheModel_AndLeavesTheProviderUnset()
+  [Theory]
+  // The two shapes a stored choice can have from before the variant existed. BOTH restore the
+  // model and leave the variant UNSET: the retired provider pin cannot be resurrected as a
+  // routing intent the user never picked, and refusing the value outright would drop a model
+  // they did choose.
+  [InlineData("model_choice")]
+  [InlineData("model_provider_choice")]
+  public async Task ALegacyStoredChoice_RestoresTheModel_AndLeavesTheVariantUnset(string keyKind)
   {
-    // D7's legacy rule: the retired key holds a bare model id. The model comes back and the
-    // provider stays UNSET - a provider the user never chose is never invented for them.
     FakePreferenceStore preferences = new();
     string root = Path.GetFullPath(@"C:\work\alpha");
-    preferences.Stored[$"model_choice:openrouter:{root}"] = "anthropic/claude";
+    preferences.Stored[$"{keyKind}:openrouter:{root}"] = keyKind == "model_choice"
+        ? "anthropic/claude"
+        : /*lang=json,strict*/ """{"ModelId":"anthropic/claude","ProviderName":"DeepInfra"}""";
     SessionModelPreferences live = new();
     MainViewModel vm = CreateShell((r, provider) => FakeSession(r, provider, live), preferences);
 
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
     Assert.Equal("anthropic/claude", live.ModelId);
-    Assert.Null(live.ProviderName);
-    Assert.Equal(string.Empty, vm.SelectedTab!.ViewModel.Status.ServingProvider);
+    Assert.Null(live.ModelVariant);
+    Assert.Equal(string.Empty, vm.SelectedTab!.ViewModel.Status.ServingVariant);
   }
 
   [Fact]
@@ -481,7 +487,7 @@ public class ShellViewModelTests
     AgentTabViewModel tab = vm.SelectedTab!;
     Assert.Equal("test/model", tab.Container.Preferences!.ModelId); // the session's bootstrap model, named
     Assert.Equal("test/model", tab.ViewModel.Status.ModelId); // the session's bootstrap model
-    Assert.Equal(string.Empty, tab.ViewModel.Status.ServingProvider); // no provider committed
+    Assert.Equal(string.Empty, tab.ViewModel.Status.ServingVariant); // no variant committed
     string expectedKey = $"model_provider_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}";
     Assert.Contains(expectedKey, preferences.Deletions);
     // The open persisted the provider preference; the auto choice added NO model write.

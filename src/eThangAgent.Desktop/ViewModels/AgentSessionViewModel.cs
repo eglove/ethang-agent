@@ -728,20 +728,18 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>
-  /// Applies the user's picker choice: pins the session's MODEL AND PROVIDER pair, updates
-  /// the status bar, and announces the change. Applies from the next turn, root and children
-  /// alike; persisted per workspace by the shell.
-  /// <para>THE PAIR IS THE DECISION (issue #296, D7). A model chosen for its cache economics
-  /// is only the cheap choice on the provider whose cache prices make it so, so the provider
-  /// travels with the model rather than being left to routing. A null
-  /// <paramref name="providerName"/> CLEARS the committed provider - it does not inherit the
-  /// previous one, which would silently keep serving a provider the user just moved away
-  /// from.</para>
+  /// Applies the user's picker choice: pins the session's MODEL AND ROUTING VARIANT, updates the
+  /// status bar, and announces the change. Applies from the next turn, root and children alike;
+  /// persisted per workspace by the shell.
+  /// <para>THE VARIANT IS THE SECOND HALF OF THE DECISION. It is a suffix on the model id, so it
+  /// is what the provider routes on - committing only the model would leave the turn on Standard
+  /// routing while the dialog reported the tradeoff the user chose. A null
+  /// <paramref name="variant"/> CLEARS it rather than inheriting the previous one, which would
+  /// silently keep routing under a tradeoff the user just moved away from.</para>
   /// </summary>
   /// <param name="modelId">The model to serve, or null for the session's default model.</param>
-  /// <param name="providerName">The provider to serve it, or null for the provider's own
-  ///     routing.</param>
-  public void ApplyModelChoice(string? modelId, string? providerName = null)
+  /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
+  public void ApplyModelChoice(string? modelId, ModelVariant? variant = null)
   {
     if (_modelPreferences is null)
     {
@@ -754,14 +752,18 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // the status bar would name a model that never serves. The default model id is
     // therefore what the session states - the same id the status bar shows.
     string chosen = string.IsNullOrWhiteSpace(modelId) ? _sessionDefaultModelId : modelId;
-    string? chosenProvider = string.IsNullOrWhiteSpace(providerName) ? null : providerName;
     _modelPreferences.ModelId = chosen;
-    _modelPreferences.ProviderName = chosenProvider;
+    _modelPreferences.ModelVariant = variant;
     Status.ModelId = chosen;
-    Status.ServingProvider = chosenProvider ?? string.Empty;
-    Transcript.AddNotice(chosenProvider is null
-        ? $"Model set to {chosen}; applies from the next turn."
-        : $"Model set to {chosen} on {chosenProvider}; applies from the next turn.");
+    // The status line names the routing the request will actually carry. Standard renders as
+    // nothing: the default is not a decision the user made, and a bar labeling every session
+    // 'Standard' would be noise.
+    Status.ServingVariant = variant is { } committed && committed != ModelVariant.Standard
+        ? ModelVariants.Describe(committed)
+        : string.Empty;
+    Transcript.AddNotice(variant is { } served && served != ModelVariant.Standard
+        ? $"Model set to {chosen} with {ModelVariants.Describe(served)}; applies from the next turn."
+        : $"Model set to {chosen}; applies from the next turn.");
   }
 
   /// <summary>Awaits the in-flight turn task. Returns a completed task if no turn is running.</summary>

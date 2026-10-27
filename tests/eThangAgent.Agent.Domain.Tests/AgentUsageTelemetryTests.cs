@@ -12,7 +12,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentUsageTelemetryTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
+      ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
   /// <summary>Scripted provider returning one response per call.</summary>
   private sealed class ScriptedProvider(params Result<ModelResponse>[] responses) : IModelProvider

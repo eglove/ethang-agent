@@ -24,7 +24,7 @@ public class SystemPromptTests
         new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        ModelConfig.Create("m", 100, 0.5f, 4096).Value!,
         request, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.True(result.IsSuccess);

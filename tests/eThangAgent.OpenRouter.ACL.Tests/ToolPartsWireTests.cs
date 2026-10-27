@@ -33,7 +33,7 @@ public class ToolPartsWireTests
       new(Role.Tool, "see attached", sentAt, ToolCallId: "call-1",
           Parts: [new MessagePart.ImagePart("image/png", "aGVsbG8=")]),
     ];
-    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!;
+    ModelConfig config = ModelConfig.Create("m", 100, 0.5f, 4096).Value!;
 
     Result<ModelResponse> result = await provider.SendAsync(
         config, new ModelRequest(messages), TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -70,7 +70,7 @@ public class ToolPartsWireTests
     [
       new(Role.Tool, "plain result", sentAt, ToolCallId: "call-1"),
     ];
-    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!;
+    ModelConfig config = ModelConfig.Create("m", 100, 0.5f, 4096).Value!;
 
     _ = await provider.SendAsync(
         config, new ModelRequest(messages), TestContext.Current.CancellationToken).ConfigureAwait(true);

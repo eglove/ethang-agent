@@ -118,7 +118,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     return trimmed.Length == 0
         ? Result.Failure<SummaryResult>(new DomainError("EmptySummary",
             "The summarizer model returned no summary text."))
-        : Result.Success(new SummaryResult(trimmed, response.Value.Usage, writer.ModelId, writer.Provider,
+        : Result.Success(new SummaryResult(trimmed, response.Value.Usage, writer.ModelId, writer.PricingProvider,
             response.Value.ServedModelId, UsageTiming.From(response.Value), response.Value.ServedProvider));
   }
 

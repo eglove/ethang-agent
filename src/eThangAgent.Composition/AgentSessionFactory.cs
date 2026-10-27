@@ -361,10 +361,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     catalog resolves it (null); the resolver re-resolves with the real window on
   ///     every turn, so the bootstrap config never serves a turn itself.</summary>
   private static ModelConfig ResolveBootstrapModel(string providerName) =>
-      ModelConfig.Create(
-          Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
-          null,
-          acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.FallbackModelId(providerName))).Value!;
+      ModelConfig.Create(Providers.FallbackModelId(providerName), 32 * 1024, 0.7f, null, acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.FallbackModelId(providerName))).Value!;
 
   /// <summary>Reads the two stored session-file lists (global, workspace) for one
   ///     workspace. Both are optional: a store miss returns nulls and the session

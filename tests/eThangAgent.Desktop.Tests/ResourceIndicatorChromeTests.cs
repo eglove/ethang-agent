@@ -177,7 +177,7 @@ public sealed class ResourceIndicatorChromeTests
           new Conversation(),
           Handler: null!,
           Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
-          Model: ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
+          Model: ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
           WorkspaceRoot: root,
           ProviderName: "openrouter",
           Inbox: new BoundedAgentMailbox(),
