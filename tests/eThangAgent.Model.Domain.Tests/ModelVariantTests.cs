@@ -1,8 +1,9 @@
 namespace eThangAgent.ModelDomain.Tests;
 
-/// <summary>The three routing variants OpenRouter offers as MODEL-ID SUFFIXES (Standard,
-///     Nitro, Floor): the one model-selection decision the picker still asks, expressed as the
-///     wire id the provider itself routes on.
+/// <summary>The four routing variants the model domain offers (Standard, Nitro, Floor,
+///     Cache Floor): the one model-selection decision the picker still asks. Three travel as
+///     MODEL-ID SUFFIXES the provider itself routes on; Cache Floor has no suffix and rides the
+///     request body instead.
 ///     <para>WHY THE ID AND NOT A ROUTING OBJECT: OpenRouter documents <c>:nitro</c> and
 ///     <c>:floor</c> as suffixes on the model id - "Append :nitro to any model ID" - and the
 ///     suffix is what sorts the endpoint pool by throughput (admitting priority-tier
@@ -76,6 +77,32 @@ public class ModelVariantTests
     Assert.Equal("Nitro", ModelVariants.Describe(ModelVariant.Nitro));
     Assert.Equal("Floor", ModelVariants.Describe(ModelVariant.Floor));
   }
+
+  [Fact]
+  public void CacheFloor_HasNoWireSuffix_BecauseTheProviderDocumentsNone()
+      => Assert.Equal(string.Empty, ModelVariants.Suffix(ModelVariant.CacheFloor));
+
+  [Fact]
+  public void CacheFloor_ApplyTo_LeavesTheModelIdBare()
+      => Assert.Equal("alpha/model", ModelVariants.ApplyTo(ModelVariant.CacheFloor, "alpha/model"));
+
+  [Fact]
+  public void CacheFloor_ApplyTo_StripsAPreviousVariantRatherThanStacking()
+      => Assert.Equal("alpha/model", ModelVariants.ApplyTo(ModelVariant.CacheFloor, "alpha/model:nitro"));
+
+  [Fact]
+  public void CacheFloor_IsDescribedAsCacheFloor()
+      => Assert.Equal("Cache Floor", ModelVariants.Describe(ModelVariant.CacheFloor));
+
+  [Fact]
+  public void All_OffersCacheFloorAfterFloor()
+      => Assert.Equal(
+          [ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor, ModelVariant.CacheFloor],
+          ModelVariants.All);
+
+  [Fact]
+  public void FromModelId_NeverReadsCacheFloor_ItHasNoSuffix()
+      => Assert.Equal(ModelVariant.Standard, ModelVariants.FromModelId("alpha/model"));
 
   [Fact]
   public void TheVariantList_CoversEveryEnumMember_SoNoVariantIsUnreachableFromThePicker()

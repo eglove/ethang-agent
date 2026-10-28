@@ -9,7 +9,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     presets, the per-pair cache-hit-rate resolution, and the evidence rows. Those tested a
 ///     surface the user asked to remove - comparing endpoints was a decision the harness could
 ///     rank from measurements, and the user's real choice is the tradeoff (speed or price),
-///     which OpenRouter publishes as three routing variants. The stats behind that surface are
+///     which OpenRouter publishes as routing variants. The stats behind that surface are
 ///     untouched and still tested where they live (the usage ledger and the catalog ACLs).
 ///     </para></summary>
 public class ModelPickerViewModelTests
@@ -89,11 +89,12 @@ public class ModelPickerViewModelTests
   }
 
   [Fact]
-  public void VariantOptions_OffersExactlyStandardNitroFloorInThatOrder()
+  public void VariantOptions_OffersEveryVariantInPickerOrder()
   {
     ModelPickerViewModel vm = CreateVm([Entry()]);
 
-    Assert.Equal([ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor],
+    Assert.Equal(
+        [ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor, ModelVariant.CacheFloor],
         vm.VariantOptions.Select(o => o.Variant));
   }
 
