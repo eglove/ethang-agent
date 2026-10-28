@@ -99,6 +99,25 @@ public class ModelPickerViewModelTests
   }
 
   [Fact]
+  public void VariantOptions_OffersFourVariantsIncludingCacheFloor()
+  {
+    ModelPickerViewModel vm = CreateVm([Entry()]);
+
+    Assert.Equal(4, vm.VariantOptions.Count);
+    Assert.Contains(vm.VariantOptions, o => o.Variant == ModelVariant.CacheFloor);
+    Assert.Contains(vm.VariantOptions, o => o.DisplayName == "Cache Floor");
+  }
+
+  [Fact]
+  public void VariantCaption_NamesCacheFloorAndItsMechanism()
+  {
+    string caption = ModelPickerViewModel.VariantCaption;
+
+    Assert.Contains("Cache Floor", caption, StringComparison.Ordinal);
+    Assert.Contains("cache-read", caption, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void VariantOptions_DefaultToStandard()
     => Assert.Equal(ModelVariant.Standard, CreateVm([Entry()]).SelectedVariantOption.Variant);
 

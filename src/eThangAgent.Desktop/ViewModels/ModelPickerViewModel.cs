@@ -129,7 +129,9 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     dropdown is never a mystery box without lengthening every row and the status bar.</summary>
   public static string VariantCaption => "Nitro admits priority-tier endpoints (billed at priority "
       + "rates) and sorts by throughput; Floor admits flex-tier endpoints (billed at their "
-      + "discounted rate) and sorts by price. Billing always follows the tier that actually "
+      + "discounted rate) and sorts by price. Cache Floor admits flex-tier endpoints too, but "
+      + "orders them by advertised cache-read price, so a session whose prompts are cached "
+      + "heavily prefers the cheapest cache reads. Billing always follows the tier that actually "
       + "served, and the usage ledger records the prices it served at.";
 
   /// <param name="loadCatalog">Loads the open session's provider catalog (UI thread escape
