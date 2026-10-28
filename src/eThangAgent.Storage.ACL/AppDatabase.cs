@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 23;
+  public const int LatestSchemaVersion = 24;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -131,6 +131,7 @@ public sealed class AppDatabase
     (21, ApplyV21),
     (22, ApplyV22),
     (23, ApplyV23),
+    (24, ApplyV24),
   ];
 
   private void Migrate()
@@ -934,5 +935,50 @@ public sealed class AppDatabase
     command.CommandText = sql;
 #pragma warning restore CA2100
     _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V24 drops <c>plan_steps.todo_id</c>, the plan step's link into the retired todo
+  ///     list (issue #310).
+  ///     <para>The column could only ever be null once the todo tool was deleted, and a column
+  ///     that can only be null is a permanent reminder of a deleted concept: the step's shape
+  ///     should say what it means. The table is REBUILT rather than altered in place because
+  ///     SQLite cannot DROP a column without the same rewrite, and the rebuild is the existing
+  ///     V20/V21 idiom - the status CHECK is carried forward verbatim so the door V20 closed (a
+  ///     direct writer smuggling an out-of-enum value) stays closed, and rows, ids and versions
+  ///     are copied verbatim so no plan changes identity or CAS state. Foreign-key enforcement
+  ///     is suspended around the swap for the same reason V20 and V21 do it.</para>
+  ///     <para>V13/V20/V21 deliberately keep creating the column so a fresh database walks the
+  ///     same path an existing one did (the V4/V18 and V22 precedents) and the two cannot
+  ///     diverge.</para></summary>
+  private static void ApplyV24(SqliteConnection connection)
+  {
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE plan_steps_v24 (
+              plan_id INTEGER NOT NULL REFERENCES plans(id),
+              position INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              detail TEXT,
+              status TEXT NOT NULL CHECK (status IN ('Pending', 'InProgress', 'Done', 'Skipped')),
+              PRIMARY KEY (plan_id, position)
+          );
+          INSERT INTO plan_steps_v24 (plan_id, position, title, detail, status)
+              SELECT plan_id, position, title, detail, status FROM plan_steps;
+          DROP TABLE plan_steps;
+          ALTER TABLE plan_steps_v24 RENAME TO plan_steps;
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
   }
 }

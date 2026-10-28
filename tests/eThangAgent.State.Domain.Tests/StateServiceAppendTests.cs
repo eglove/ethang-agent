@@ -72,8 +72,9 @@ public class StateServiceAppendTests
   {
     Assert.Equal("InvalidKey", (await Service().DeletePrefixAsync("has/slash", ct: TestContext.Current.CancellationToken)).Error!.Code);
     Assert.Equal("InvalidKey", (await Service().DeletePrefixAsync("has space", ct: TestContext.Current.CancellationToken)).Error!.Code);
-    Assert.Equal("ReservedNamespace", (await Service().DeletePrefixAsync("todo", ct: TestContext.Current.CancellationToken)).Error!.Code);
+    // Issue #310 retired the 'todo' reservation with the todo tool; 'current' still holds.
     Assert.Equal("ReservedNamespace", (await Service().DeletePrefixAsync("current", ct: TestContext.Current.CancellationToken)).Error!.Code);
+    Assert.Equal(0, (await Service().DeletePrefixAsync("todo", ct: TestContext.Current.CancellationToken)).Value);
   }
 
   private sealed class FakeAppendStore : IStateStore

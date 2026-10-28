@@ -6,7 +6,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 ///     ScriptToolException) when a script violates a pre-dispatch contract — missing or
 ///     invalid timeoutSeconds, unknown action, malformed arguments — because batch
 ///     scripts routinely discard result strings, and an in-band error text silently
-///     buried among successes is how a five-Add todo batch lost every item without a
+///     buried among successes is how a five-call batch lost every item without a
 ///     trace. Post-dispatch outcomes (tool-level errors, elapsed budgets) stay in-band:
 ///     those are ordinary tool results the script is expected to read and branch on.</summary>
 public class ScriptToolsContractTests

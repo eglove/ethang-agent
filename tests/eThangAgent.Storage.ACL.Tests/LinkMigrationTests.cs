@@ -41,6 +41,8 @@ public sealed class LinkMigrationTests : IDisposable
     using SqliteCommand drop = connection.CreateCommand();
     drop.CommandText = "DROP TABLE IF EXISTS agent_links;";
     _ = await drop.ExecuteNonQueryAsync().ConfigureAwait(false);
+    // A V11 database still carried plan_steps.todo_id, which V24 drops.
+    LegacyPlanStepsShape.Restore(connection);
     using SqliteCommand version = connection.CreateCommand();
     version.CommandText = "PRAGMA user_version = 11;";
     _ = await version.ExecuteNonQueryAsync().ConfigureAwait(false);

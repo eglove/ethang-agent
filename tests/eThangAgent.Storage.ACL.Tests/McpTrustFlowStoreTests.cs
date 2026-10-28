@@ -121,6 +121,8 @@ public sealed class McpTrustFlowStoreTests : IDisposable
         using Microsoft.Data.Sqlite.SqliteCommand drop = c.CreateCommand();
         drop.CommandText = "DROP TABLE mcp_servers; DROP TABLE mcp_oauth_tokens; DROP TABLE mcp_decisions;";
         _ = await drop.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+        // A V15 database still carried plan_steps.todo_id, which V24 drops.
+        LegacyPlanStepsShape.Restore(c);
         using Microsoft.Data.Sqlite.SqliteCommand stamp = c.CreateCommand();
         stamp.CommandText = "PRAGMA user_version = 15;";
         _ = await stamp.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);

@@ -1,32 +1,7 @@
-using System.Collections.ObjectModel;
 using eThangAgent.SharedKernel;
 using Xunit;
 
 namespace eThangAgent.PlanDomain.Tests;
-
-/// <summary>Test double for the linked-todo cleanup port: records requests, can be
-///     told to fail, and removes only ids it was seeded with.</summary>
-internal sealed class RecordingCleaner : IPlanTodoCleaner
-{
-  public Collection<int> Requested { get; } = [];
-  public DomainError? FailWith { get; set; }
-  public HashSet<int> Existing { get; set; } = [];
-
-  public Task<Result<IReadOnlyList<int>>> RemoveLinkedAsync(IReadOnlyList<int> todoIds, CancellationToken ct = default)
-  {
-    foreach (int id in todoIds)
-    {
-      Requested.Add(id);
-    }
-    if (FailWith is not null)
-    {
-      return Task.FromResult(Result.Failure<IReadOnlyList<int>>(FailWith));
-    }
-
-    List<int> removed = [.. todoIds.Where(Existing.Contains)];
-    return Task.FromResult(Result.Success<IReadOnlyList<int>>(removed));
-  }
-}
 
 public class PlanServiceTests
 {
@@ -66,10 +41,10 @@ public class PlanServiceTests
     }
   }
 
-  private static (PlanService Service, FakeStore Store) New(RecordingCleaner? cleaner = null)
+  private static (PlanService Service, FakeStore Store) New()
   {
     FakeStore store = new();
-    return (new PlanService(store, cleaner), store);
+    return (new PlanService(store), store);
   }
 
   /// <summary>Marks every step Done, so a completion satisfies the invariant issue #271
@@ -96,7 +71,7 @@ public class PlanServiceTests
     int raised = 0;
     service.Created += _ => raised++;
     Result<Plan> r = await service.CreateAsync("T", "G", "sess-1",
-      [("a", null, null), ("b", "d", 4)], DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      [("a", null), ("b", "d")], DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(r.IsSuccess);
     Assert.Equal(2, r.Value.Steps.Count);
     Assert.Equal(1, raised);
@@ -107,7 +82,7 @@ public class PlanServiceTests
   {
     (PlanService service, _) = New();
     Plan p = (await service.CreateAsync("T", "G", "s", null, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    Result<Plan> r = await service.AddStepAsync(p.Id, "step", null, null, p.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Result<Plan> r = await service.AddStepAsync(p.Id, "step", null, p.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(r.IsSuccess);
     Assert.Equal(2, r.Value.Version);
     Result<Plan> fetched = await service.GetAsync(p.Id, TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -120,107 +95,52 @@ public class PlanServiceTests
   {
     (PlanService service, _) = New();
     Plan p = (await service.CreateAsync("T", "G", "s", null, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    _ = await service.AddStepAsync(p.Id, "one", null, null, p.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Result<Plan> stale = await service.AddStepAsync(p.Id, "two", null, null, p.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    _ = await service.AddStepAsync(p.Id, "one", null, p.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Result<Plan> stale = await service.AddStepAsync(p.Id, "two", null, p.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.False(stale.IsSuccess);
     Assert.Equal("VersionConflict", stale.Error.Code);
   }
 
+  /// <summary>The linked-todo cleanup this class used to exercise is gone with the todo list
+  ///     itself (issue #310): a terminal transition is a plain load-mutate-save now, so what
+  ///     is left to pin is that the transition lands, that Abandoned is still ungated, and
+  ///     that a stale version still fails closed.</summary>
   [Fact]
-  public async Task SetStatus_OnTerminal_FailsInvalidTransition()
+  public async Task SetStatus_OnCompleted_ReturnsTheSavedPlan()
+  {
+    (PlanService service, _) = New();
+    Plan p = (await service.CreateAsync("T", "G", "s", [("a", null), ("b", null)],
+      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
+    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
+    Result<Plan> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
+      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(r.IsSuccess);
+    Assert.Equal(PlanStatus.Completed, r.Value.Status);
+    Assert.Equal(p.Version + 1, r.Value.Version);
+  }
+
+  [Fact]
+  public async Task SetStatus_OnAbandoned_IsUngated()
+  {
+    // Abandoned is the named exit every completion refusal points at, so it stays
+    // reachable from a half-finished plan.
+    (PlanService service, _) = New();
+    Plan p = (await service.CreateAsync("T", "G", "s", [("a", null)],
+      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
+    Result<Plan> r = await service.SetStatusAsync(p.Id, PlanStatus.Abandoned, p.Version,
+      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(r.IsSuccess);
+    Assert.Equal(PlanStatus.Abandoned, r.Value.Status);
+  }
+
+  [Fact]
+  public async Task SetStatus_FailingSave_FailsClosed()
   {
     (PlanService service, _) = New();
     Plan p = (await service.CreateAsync("T", "G", "s", null, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    Result<PlanSetStatusResult> done = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = done;
-    Result<PlanSetStatusResult> again = await service.SetStatusAsync(p.Id, PlanStatus.Active, p.Version + 1, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.False(again.IsSuccess);
-    Assert.Equal("InvalidTransition", again.Error.Code);
-  }
-
-  [Fact]
-  public async Task SetStatus_OnCompleted_RemovesLinkedTodos_AndReturnsThem()
-  {
-    RecordingCleaner cleaner = new() { Existing = [3, 7] };
-    (PlanService service, _) = New(cleaner);
-    Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, 3), ("b", null, 7), ("c", null, 3), ("d", null, null)],
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
-    Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(r.IsSuccess);
-    Assert.Equal([3, 7], cleaner.Requested);
-    Assert.Equal([3, 7], r.Value.RemovedTodoIds);
-    Assert.Null(r.Value.CleanupError);
-  }
-
-  [Fact]
-  public async Task SetStatus_OnAbandoned_AlsoRemovesLinkedTodos()
-  {
-    RecordingCleaner cleaner = new() { Existing = [11] };
-    (PlanService service, _) = New(cleaner);
-    Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, 11)],
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Abandoned, p.Version,
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(r.IsSuccess);
-    Assert.Equal([11], cleaner.Requested);
-    Assert.Equal([11], r.Value.RemovedTodoIds);
-  }
-
-  [Fact]
-  public async Task SetStatus_WithoutCleaner_Succeeds_WithNoRemoved()
-  {
-    (PlanService service, _) = New();
-    Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, 5)],
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
-    Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(r.IsSuccess);
-    Assert.Empty(r.Value.RemovedTodoIds);
-    Assert.Null(r.Value.CleanupError);
-  }
-
-  [Fact]
-  public async Task SetStatus_WhenCleanupFails_StillSucceeds_AndSurfacesCleanupError()
-  {
-    RecordingCleaner cleaner = new() { FailWith = new DomainError("StorageWriteFailed", "disk full") };
-    (PlanService service, _) = New(cleaner);
-    Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, 2)],
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
-    Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(r.IsSuccess);
-    Assert.Equal("StorageWriteFailed", r.Value.CleanupError!.Code);
-    Assert.Empty(r.Value.RemovedTodoIds);
-  }
-
-  [Fact]
-  public async Task SetStatus_FailingSave_NeverCallsCleaner()
-  {
-    RecordingCleaner cleaner = new();
-    (PlanService service, _) = New(cleaner);
-    Plan p = (await service.CreateAsync("T", "G", "s", null, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, 999,
+    Result<Plan> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, 999,
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.False(r.IsSuccess);
-    Assert.Empty(cleaner.Requested);
-  }
-
-  [Fact]
-  public async Task SetStatus_NoTodoLinks_NeverCallsCleaner()
-  {
-    RecordingCleaner cleaner = new();
-    (PlanService service, _) = New(cleaner);
-    Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, null)],
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
-    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
-    Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
-      DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(r.IsSuccess);
-    Assert.Empty(cleaner.Requested);
-    Assert.Empty(r.Value.RemovedTodoIds);
+    Assert.Equal("VersionConflict", r.Error.Code);
   }
 }

@@ -273,13 +273,10 @@ public static class AgentComposition
           "Start a NEW session in this workspace with a given prompt; the current conversation completes gracefully and stays resumable."),
   ];
 
-  /// <summary>Context and git tool bindings: the workspace task list, the experiment
-  ///     ledger, context edit and trim, git status, diff, commit, and worktrees.</summary>
+  /// <summary>Context and git tool bindings: the experiment ledger, context edit and trim,
+  ///     git status, diff, commit, and worktrees.</summary>
   private static IReadOnlyList<AgentToolBinding> ContextAndGitToolBindings(IServiceProvider sp) =>
   [
-      new AgentToolBinding(
-          new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
-          "Track a workspace task list."),
       new AgentToolBinding(
           new ExperimentTool(sp.GetRequiredService<IExperimentLedgerStore>()),
           "Record the scientific loop's hypotheses, predictions, verdicts, observations, conclusions, and skips."),
@@ -427,7 +424,7 @@ public static class AgentComposition
             sp.GetRequiredService<Conversation>()))
         .AddSingleton<IUserCommandRunner>(sp => sp.GetRequiredService<UserCommandRunner>())
         // The cross-process change signal (issue #8): SQLite's data_version, which moves
-        // when ANOTHER connection commits. Every production plan and todo write is made by
+        // when ANOTHER connection commits. Every production plan write is made by
         // the ChildHost, so no in-process event can ever see it - this is the backstop that
         // re-reads the tables when the host commits. It was NEVER REGISTERED, so
         // MainViewModel's GetService<IChangeSignal>() returned null and the Plans view's
@@ -457,18 +454,15 @@ public static class AgentComposition
         // reference that keeps it alive.
         .AddSingleton(sp =>
         {
-          PlanService service = new(
-              sp.GetRequiredService<IPlanStore>(),
-              sp.GetRequiredService<IPlanTodoCleaner>());
+          PlanService service = new(sp.GetRequiredService<IPlanStore>());
           _ = new PlanChangePublisher(service, sp.GetRequiredService<IAgentEvents>(),
               () => SubAgentSpawner.RunningChild?.Id
                   ?? sp.GetRequiredService<RootSessionIdentity>().Id
                   ?? AgentId.NewId());
           return service;
         })
-        .AddSingleton<IPlanTodoCleaner>(sp => new StateServicePlanTodoCleaner(sp.GetRequiredService<IStateService>()))
-        // The experiment ledger rides state keys (append-only), exactly as the todo tool
-        // rides todo/list: the tool (a later task) resolves this port, never IStateService.
+        // The experiment ledger rides state keys (append-only): the tool resolves this
+        // port, never IStateService.
         .AddSingleton<IExperimentLedgerStore>(sp => new StateServiceExperimentLedgerStore(sp.GetRequiredService<IStateService>()))
         .AddSingleton<IAgentStore, SqliteAgentStore>()
         // The append-only event log (issue #263): the SAME store instance backs both

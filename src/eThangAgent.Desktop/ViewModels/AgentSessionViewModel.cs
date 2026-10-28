@@ -8,7 +8,6 @@ using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
-using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
@@ -102,16 +101,13 @@ internal sealed record AgentSessionViewModelOptions
   public IUsageQueries? UsageQueries { get; init; }
 
   /// <summary>The workbench's Plans view seams (issue #8): the plan service whose events
-  ///     announce in-process writes, the state service holding todo/list, and the
-  ///     cross-process change signal. All null = the workbench renders its unavailable
-  ///     state (headless stubs), never a blank pane.</summary>
+  ///     announce in-process writes, and the cross-process change signal. Null = the
+  ///     workbench renders its unavailable state (headless stubs), never a blank pane.
+  ///     <para>The state service and state bus were dropped here with the todo list
+  ///     (issue #310): the Plans view has no second collection to read.</para></summary>
   public PlanService? Plans { get; init; }
 
-  public IStateService? State { get; init; }
-
   public IChangeSignal? ChangeSignal { get; init; }
-
-  public IStateChangeBus? StateChanges { get; init; }
 
   /// <summary>The session's agent event stream: the workbench's Plans view subscribes it
   ///     for <see cref="PlanChangedEvent"/> facts, which is the
@@ -404,9 +400,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Workbench = new WorkbenchViewModel(
         new PlansViewViewModel(
             options.Plans,
-            options.State,
             options.ChangeSignal,
-            options.StateChanges,
             render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
             events: options.Events),
         // The git view watches the WORKSPACE ROOT (never .git): working-tree edits are

@@ -29,10 +29,10 @@ public sealed record Plan(
   }
 
   /// <summary>Appends a step; positions stay contiguous 1..n.</summary>
-  public Plan AddStep(string title, string? detail, int? todoId)
+  public Plan AddStep(string title, string? detail)
   {
     EnsureMutable();
-    PlanStep step = PlanStep.New(Steps.Count + 1, title, detail, todoId);
+    PlanStep step = PlanStep.New(Steps.Count + 1, title, detail);
     return this with { Steps = [.. Steps, step], UpdatedAt = DateTimeOffset.UtcNow };
   }
 

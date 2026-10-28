@@ -57,7 +57,7 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     PullRequests = pullRequests ?? throw new ArgumentNullException(nameof(pullRequests));
     Icons =
     [
-      new WorkbenchIconViewModel(WorkbenchView.Plans, "\U0001F4CB", "Plans and todos") { IsAvailable = true },
+      new WorkbenchIconViewModel(WorkbenchView.Plans, "\U0001F4CB", "Plans") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Git, "\U0001F33F", "Git status and diff") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Files, "\U0001F5C2", "File tree (not yet built)"),
       // The Progress view IS the subagent accordion this workbench generalizes (D5):

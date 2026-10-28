@@ -16,10 +16,10 @@ or `Tools.Invoke("spawn", new { taskPrompt = "..." })`:
 | Write / edit files | `write` / `edit` |
 | Run commands, tests, or git plumbing | `exec` — C# scripting through the exec engine (Roslyn); never shell scripts |
 | Dispatch a subagent | `spawn` — exec-bridge call: `Tools.Invoke("spawn", new { taskPrompt = "...", label = "..." })` (non-blocking, returns an id; await with `Tools.Invoke("agent.wait", ...)`; fetch the report with `agent.result`) |
-| Create/update todos | `todo` tool |
 | Invoke a skill / load its content | `skill_view` — exec-bridge call: `Tools.Invoke("skill_view", new { name = "<name>" })` (never read raw skill paths; the skill store IS the mechanism) |
 | List available skills | `skill_list` — exec-bridge call: `Tools.Invoke("skill_list", new { })` |
 | Store or read specs, plans, ledgers, briefs, reports | `state` tools — `state.get` / `state.set` / `state.append` (CAS ledger lines) / `state.list` / `state.find` (full-text search) / `state.prune` (SDD cleanup); design specs and implementation plans are plan records via the 'plan' provider (`plan.create`/`plan.show`) |
+| Track what is being worked on | plan steps — `plan.create` with a `steps` array, then `plan.update-step` (`status`: Pending / InProgress / Done / Skipped). There is no todo list: plan steps, chain records, and the experiment ledger are the units |
 | Inspect the agent's own database (sessions, transcripts, state, skills, preferences) | `db_schema` / `db_query` (read-only SQL; run `db_schema` first) |
 | Commit work | `git_commit` tool (never raw shell commits); the style is the user's host setting — follow the commit-style guidance in this bootstrap, not a parameter |
 

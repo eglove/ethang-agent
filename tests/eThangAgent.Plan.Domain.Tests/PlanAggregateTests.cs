@@ -27,11 +27,11 @@ public class PlanAggregateTests
   {
     DateTimeOffset t0 = DateTimeOffset.UtcNow;
     Plan p = NewPlan();
-    p = p.AddStep("first", null, null).AddStep("second", "detail", 3);
+    p = p.AddStep("first", null).AddStep("second", "detail");
     Assert.Equal(2, p.Steps.Count);
     Assert.Equal(1, p.Steps[0].Position);
     Assert.Equal(2, p.Steps[1].Position);
-    Assert.Equal(3, p.Steps[1].TodoId);
+    Assert.Equal("detail", p.Steps[1].Detail);
     Assert.True(p.UpdatedAt >= t0);
   }
 
@@ -39,13 +39,13 @@ public class PlanAggregateTests
   public void AddStep_OnCompletedPlan_Throws()
   {
     Plan p = NewPlan().SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow);
-    _ = Assert.Throws<PlanInputException>(() => p.AddStep("x", null, null));
+    _ = Assert.Throws<PlanInputException>(() => p.AddStep("x", null));
   }
 
   [Fact]
   public void RemoveStep_RenumbersTail()
   {
-    Plan p = NewPlan().AddStep("a", null, null).AddStep("b", null, null).AddStep("c", null, null);
+    Plan p = NewPlan().AddStep("a", null).AddStep("b", null).AddStep("c", null);
     p = p.RemoveStep(1);
     Assert.Equal(["b", "c"], [.. p.Steps.Select(s => s.Title)]);
     Assert.Equal([1, 2], [.. p.Steps.Select(s => s.Position)]);
@@ -58,10 +58,10 @@ public class PlanAggregateTests
   [Fact]
   public void UpdateStep_AppliesMutation()
   {
-    Plan p = NewPlan().AddStep("a", null, null);
-    p = p.UpdateStep(1, s => s with { Status = PlanStepStatus.Done, TodoId = 7 });
+    Plan p = NewPlan().AddStep("a", null);
+    p = p.UpdateStep(1, s => s with { Status = PlanStepStatus.Done });
     Assert.Equal(PlanStepStatus.Done, p.Steps[0].Status);
-    Assert.Equal(7, p.Steps[0].TodoId);
+    Assert.Equal(PlanStepStatus.Done, p.Steps[0].Status);
   }
 
   [Fact]
@@ -69,7 +69,7 @@ public class PlanAggregateTests
   {
     Plan p = NewPlan().SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow);
     Assert.Equal(PlanStatus.Completed, p.Status);
-    _ = Assert.Throws<PlanInputException>(() => p.AddStep("x", null, null));
+    _ = Assert.Throws<PlanInputException>(() => p.AddStep("x", null));
     _ = Assert.Throws<PlanInputException>(() => p.SetStatus(PlanStatus.Active, DateTimeOffset.UtcNow));
   }
 
@@ -89,7 +89,7 @@ public class PlanAggregateTests
   [Fact]
   public void SetStatus_Completed_WithPendingStep_Throws_NamingPositionAndStatus()
   {
-    Plan p = NewPlan().AddStep("a", null, null).AddStep("b", null, null)
+    Plan p = NewPlan().AddStep("a", null).AddStep("b", null)
       .UpdateStep(1, s => s with { Status = PlanStepStatus.Done });
     PlanInputException ex = Assert.Throws<PlanInputException>(
       () => p.SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow));
@@ -101,7 +101,7 @@ public class PlanAggregateTests
   [Fact]
   public void SetStatus_Completed_WithInProgressStep_Throws()
   {
-    Plan p = NewPlan().AddStep("a", null, null)
+    Plan p = NewPlan().AddStep("a", null)
       .UpdateStep(1, s => s with { Status = PlanStepStatus.InProgress });
     PlanInputException ex = Assert.Throws<PlanInputException>(
       () => p.SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow));
@@ -111,7 +111,7 @@ public class PlanAggregateTests
   [Fact]
   public void SetStatus_Completed_WhenEveryStepDoneOrSkipped_Succeeds()
   {
-    Plan p = NewPlan().AddStep("a", null, null).AddStep("b", null, null)
+    Plan p = NewPlan().AddStep("a", null).AddStep("b", null)
       .UpdateStep(1, s => s with { Status = PlanStepStatus.Done })
       .UpdateStep(2, s => s with { Status = PlanStepStatus.Skipped });
     Plan completed = p.SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow);
@@ -121,7 +121,7 @@ public class PlanAggregateTests
   [Fact]
   public void SetStatus_Abandoned_WithPendingSteps_StillSucceeds()
   {
-    Plan p = NewPlan().AddStep("a", null, null);
+    Plan p = NewPlan().AddStep("a", null);
     Plan abandoned = p.SetStatus(PlanStatus.Abandoned, DateTimeOffset.UtcNow);
     Assert.Equal(PlanStatus.Abandoned, abandoned.Status);
   }
@@ -129,7 +129,7 @@ public class PlanAggregateTests
   [Fact]
   public void TransitionSpecification_RejectsCompletion_WhileAStepIsUnfinished()
   {
-    Plan p = NewPlan().AddStep("a", null, null);
+    Plan p = NewPlan().AddStep("a", null);
     Assert.False(new PlanStatusTransition(PlanStatus.Completed).IsSatisfiedBy(p));
     Assert.True(new PlanStatusTransition(PlanStatus.Abandoned).IsSatisfiedBy(p));
   }

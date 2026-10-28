@@ -29,26 +29,29 @@ public class StateServiceTests
     Assert.Equal("KeyNotFound", result.Error.Code);
   }
 
+  /// <summary>Issue #310: the todo tool's namespace is gone, so its reservation is too.
+  ///     These two tests now pin the ORDINARY namespace contract at the service, which is
+  ///     what any other caller gets.</summary>
   [Fact]
-  public async Task Set_AllowsTodoNamespace_ForInternalComposition()
+  public async Task Set_AllowsAnOrdinaryNamespace()
   {
-    Result<StateKeyValue> result = await Create().SetAsync("todo/list", "[]", null, ct: TestContext.Current.CancellationToken);
+    Result<StateKeyValue> result = await Create().SetAsync("notes/scratch", "[]", null, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("todo", result.Value.Ns);
+    Assert.Equal("notes", result.Value.Ns);
     Assert.Equal(1, result.Value.Version);
   }
 
   [Fact]
-  public async Task Delete_AllowsTodoNamespace_AfterSet()
+  public async Task Delete_AllowsAnOrdinaryNamespace_AfterSet()
   {
     StateService service = Create();
-    _ = await service.SetAsync("todo/list", "[]", null, ct: TestContext.Current.CancellationToken);
+    _ = await service.SetAsync("notes/scratch", "[]", null, ct: TestContext.Current.CancellationToken);
 
-    Result<string> deleted = await service.DeleteAsync("todo/list", 1, ct: TestContext.Current.CancellationToken);
+    Result<string> deleted = await service.DeleteAsync("notes/scratch", 1, ct: TestContext.Current.CancellationToken);
 
     Assert.True(deleted.IsSuccess);
-    Assert.Equal("deleted todo/list", deleted.Value);
+    Assert.Equal("deleted notes/scratch", deleted.Value);
   }
 
   [Fact]

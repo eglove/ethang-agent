@@ -113,23 +113,6 @@ public class ToolContractAdvertisementTests
     Assert.Equal(ToolParameterType.TextArray, p.Type);
   }
 
-  // ── todo ─────────────────────────────────────────────────────────────────
-
-  [Fact]
-  public void Todo_OnlyAction_IsUnconditionallyRequired()
-  {
-    TodoTool tool = new(new StubTodoStore());
-    Assert.Equal(["timeoutSeconds", "action"], tool.Definition.RequiredParameters);
-  }
-
-  [Fact]
-  public void Todo_Description_DocumentsExactActionAndStatusValues()
-  {
-    TodoTool tool = new(new StubTodoStore());
-    Assert.Contains("Add", Param(tool, "action").Description, StringComparison.Ordinal);
-    Assert.Contains("InProgress", Param(tool, "status").Description, StringComparison.Ordinal);
-  }
-
   // ── db_query ─────────────────────────────────────────────────────────────
 
   [Fact]
@@ -247,14 +230,6 @@ internal sealed class StubWriteAccess : IFileWriteAccess
   public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(string path, byte[] bytes,
       bool overwrite, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<FileWriteOutcome>(new DomainError("Unused", "not exercised")));
-}
-
-internal sealed class StubTodoStore : ITodoListStore
-{
-  public Task<Result<string>> GetValueAsync(string key, CancellationToken ct = default) =>
-      Task.FromResult(Result.Failure<string>(new DomainError("KeyNotFound", "empty")));
-  public Task<Result<int>> WriteValueAsync(string key, string value, int? expectedVersion, CancellationToken ct = default) =>
-      Task.FromResult(Result.Success(1));
 }
 
 /// <summary>Advertisement tests never fetch; the seam stays untouched.</summary>

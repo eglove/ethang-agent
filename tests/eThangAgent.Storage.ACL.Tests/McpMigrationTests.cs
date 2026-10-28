@@ -52,6 +52,8 @@ public sealed class McpMigrationTests : IDisposable
       dropTokens.CommandText = "DROP TABLE IF EXISTS mcp_oauth_tokens;";
       _ = await dropTokens.ExecuteNonQueryAsync().ConfigureAwait(false);
     }
+    // A V14 database still carried plan_steps.todo_id, which V24 drops.
+    LegacyPlanStepsShape.Restore(connection);
     using SqliteCommand version = connection.CreateCommand();
     version.CommandText = "PRAGMA user_version = 14;";
     _ = await version.ExecuteNonQueryAsync().ConfigureAwait(false);

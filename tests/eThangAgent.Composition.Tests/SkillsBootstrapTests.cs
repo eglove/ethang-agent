@@ -47,7 +47,7 @@ public class SkillsBootstrapTests
     foreach (string? key in new[]
              {
                      "read", "write", "edit", "exec",
-                     "spawn", "todo", "skill_view", "skill_list",
+                     "spawn", "plan", "skill_view", "skill_list",
                  })
     {
       Assert.Contains(key, output, StringComparison.Ordinal);

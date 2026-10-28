@@ -4,7 +4,7 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>
 /// Headless end-to-end coverage ported from the retired piped-CLI suite:
-/// durable-state discipline and the todo/reserved-namespace boundary through
+/// durable-state discipline and the retired-todo boundary through
 /// the real composition against the mock provider.
 /// </summary>
 [Collection("Desktop E2E")]
@@ -61,42 +61,40 @@ public class DesktopAgentCapabilityE2ETests
     Assert.Contains("boom", toolContent, StringComparison.Ordinal);
   }
 
-  /// <summary>Boundary honesty E2E over the composed stack: the todo tool's own writes
-  ///     flow through StateServiceTodoListStore → StateService → SqliteStateStore and
-  ///     succeed, while model-invoked state.set/state.delete against the reserved
-  ///     'todo' namespace are rejected at the capability boundary with ReservedNamespace
-  ///     and leave the persisted todo document untouched.</summary>
+  /// <summary>Issue #310: the todo tool is retired, so the composed stack no longer binds
+  ///     a 'todo' action at all — a script that calls one is told the action is unknown, and
+  ///     the retired namespace is no longer reserved. Both facts are pinned here over the
+  ///     real composition, because the reservation used to live at the capability boundary
+  ///     and a deletion that left it behind would keep an 80 KB stale row unwritable.</summary>
   [Fact]
-  public async Task TodoToolWritesFlow_ButModelStateWritesOnTodoNs_AreRejected()
+  public async Task RetiredTodoAction_IsUnknown_AndItsNamespaceIsNoLongerReserved()
   {
     using E2E.HostHarness host = new();
     _ = await host.StartAsync();
 
     _ = host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("Tools.Invoke(\"todo\", new { timeoutSeconds = 120, action = \"Add\", description = \"ship it\" })")));
-    _ = host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("Tools.Invoke(\"state.set\", new { timeoutSeconds = 60, key = \"todo/list\", value = \"hijack\" })")));
-    _ = host.Mock.Returns(E2E.ExecToolCall("call_3", E2E.ExecProgram("Tools.Invoke(\"state.delete\", new { timeoutSeconds = 60, key = \"todo/list\" })")));
-    _ = host.Mock.Returns(E2E.ExecToolCall("call_4", E2E.ExecProgram("Tools.Invoke(\"todo\", new { timeoutSeconds = 120, action = \"List\" })")));
+    _ = host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("Tools.Invoke(\"state.set\", new { timeoutSeconds = 60, key = \"todo/list\", value = \"now an ordinary key\" })")));
     _ = host.Mock.Returns(RawCompletion("done"));
 
-    await host.Vm.RunTurnAsync("track one task, then try to write todo state directly");
+    await host.Vm.RunTurnAsync("the todo tool is gone; its namespace is not special any more");
 
-    Assert.True(host.Mock.RequestBodies.Count >= 5,
-        $"expected at least 5 scripted requests, got {host.Mock.RequestBodies.Count}");
+    Assert.True(host.Mock.RequestBodies.Count >= 3,
+        $"expected at least 3 scripted requests, got {host.Mock.RequestBodies.Count}");
 
-    // (a) Composed flow: the todo tool's own adapter write landed in durable state.
-    Assert.Contains("[todo] added #1",
-        E2E.GetLastToolMessage(host.Mock.RequestBodies[1]), StringComparison.Ordinal);
+    // (a) No 'todo' capability is bound: the dispatch fails naming the action.
+    string todoCall = E2E.GetLastToolMessage(host.Mock.RequestBodies[1]);
+    Assert.Contains("todo", todoCall, StringComparison.Ordinal);
+    Assert.True(
+        todoCall.Contains("Unknown", StringComparison.OrdinalIgnoreCase)
+        || todoCall.Contains("not granted", StringComparison.OrdinalIgnoreCase)
+        || todoCall.Contains("Error [", StringComparison.Ordinal),
+        $"expected a dispatch refusal naming 'todo', got: {todoCall}");
+    Assert.DoesNotContain("[todo] added", todoCall, StringComparison.Ordinal);
 
-    // (b) Boundary gate: model-invoked writes to the reserved namespace are rejected
-    //     with ReservedNamespace, never reaching the service.
-    Assert.Contains("ReservedNamespace",
-        E2E.GetLastToolMessage(host.Mock.RequestBodies[2]), StringComparison.Ordinal);
-    Assert.Contains("ReservedNamespace",
-        E2E.GetLastToolMessage(host.Mock.RequestBodies[3]), StringComparison.Ordinal);
-
-    // (c) The rejected foreign writes left the persisted todo document untouched.
-    Assert.Contains("#1 [Pending] ship it",
-        E2E.GetLastToolMessage(host.Mock.RequestBodies[4]), StringComparison.Ordinal);
+    // (b) The retired namespace is an ORDINARY key now: no ReservedNamespace refusal.
+    string stateCall = E2E.GetLastToolMessage(host.Mock.RequestBodies[2]);
+    Assert.DoesNotContain("ReservedNamespace", stateCall, StringComparison.Ordinal);
+    Assert.Contains("saved todo/list", stateCall, StringComparison.Ordinal);
 
     string assistant = string.Join("", host.Vm.Transcript.Entries
         .OfType<AssistantTextEntry>().Select(a => a.Text));

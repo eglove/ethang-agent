@@ -153,12 +153,6 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
 
   private async Task<Result<int>> ValidateAndDelete(string nsPrefix, CancellationToken ct)
   {
-    if (nsPrefix == "todo" || nsPrefix.StartsWith("todo.", StringComparison.Ordinal))
-    {
-      return Result.Failure<int>(new DomainError("ReservedNamespace",
-            "'todo' namespaces are owned by the todo tool and cannot be bulk-deleted."));
-    }
-
     if (nsPrefix == CurrentPrefix)
     {
       return Result.Failure<int>(new DomainError("ReservedNamespace",

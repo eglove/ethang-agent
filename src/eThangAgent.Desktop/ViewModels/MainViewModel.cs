@@ -1671,13 +1671,11 @@ internal sealed partial class MainViewModel : ObservableObject
           // rollup at tab open, so a resumed session starts from its real spend.
           UsageQueries = session.Services.GetService<IUsageQueries>(),
           // Issue #8: the workbench's Plans view reads plans through the session's own
-          // store, todos through the state service, and detects the ChildHost's writes
-          // through the cross-process change signal. A container missing any of them
-          // (a headless stub) renders the view's unavailable state, never a blank pane.
+          // store and detects the ChildHost's writes through the cross-process change
+          // signal. A container missing either (a headless stub) renders the view's
+          // unavailable state, never a blank pane.
           Plans = session.Services.GetService<PlanService>(),
-          State = session.Services.GetService<IStateService>(),
           ChangeSignal = session.Services.GetService<IChangeSignal>(),
-          StateChanges = session.Services.GetService<IStateChangeBus>(),
           // The INSTANT path for the Plans view: plan-change facts ride the session's
           // event stream, which the ChildHost forwards over the wire.
           Events = session.Services.GetService<IAgentEvents>(),

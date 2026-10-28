@@ -134,6 +134,41 @@ public sealed class PlanStepStatusRepairMigrationTests : IDisposable
         "UPDATE plan_steps SET status = 'Completed' WHERE plan_id = 31 AND position = 2;"));
   }
 
+  /// <summary>Issue #310: V24 drops the retired <c>todo_id</c> column and carries the
+  ///     step-status CHECK forward verbatim. Both halves are pinned here, because the
+  ///     rebuild is the one place a constraint could silently be lost.</summary>
+  [Fact]
+  public async Task V24_DropsTodoId_KeepsRowsAndTheStatusCheck()
+  {
+    SeedV19WithCorruptRows();
+    AppDatabase db = new(_dbPath); // migrates through V20, V21 and V24
+    SqlitePlanStore store = new(db, "C:\\ws\\alpha");
+
+    Result<PlanCatalog> listed = await store.ListAsync(null, TestContext.Current.CancellationToken);
+    Assert.True(listed.IsSuccess, listed.Error?.Message ?? "expected the listing to succeed");
+    // Every row survived the rebuild: the plan ids and their steps are all still there.
+    Assert.Equal([30, 31], listed.Value.Plans.Select(p => p.Id));
+    Assert.Equal(2, listed.Value.Plans.Single(p => p.Id == 31).Steps.Count);
+
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using SqliteConnection connection = new($"Data Source={_dbPath}");
+#pragma warning restore CA2007
+    await connection.OpenAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.Equal(0L, Scalar(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('plan_steps') WHERE name='todo_id';"));
+    string sql = (string)Scalar(connection, "SELECT sql FROM sqlite_master WHERE name='plan_steps';");
+    Assert.Contains("CHECK", sql, StringComparison.Ordinal);
+    Assert.Contains("Skipped", sql, StringComparison.Ordinal);
+    // The constraint is still a closed set after the rebuild.
+    _ = Assert.Throws<SqliteException>(() => Scalar(connection,
+        "UPDATE plan_steps SET status = 'Completed' WHERE plan_id = 31 AND position = 2;"));
+    // The rebuild leaves no scaffolding behind.
+    Assert.Equal(0L, Scalar(connection,
+        "SELECT COUNT(*) FROM sqlite_master WHERE name='plan_steps_v24';"));
+  }
+
   private static object Scalar(SqliteConnection connection, string sql)
   {
     using SqliteCommand command = connection.CreateCommand();

@@ -229,14 +229,13 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
     using SqliteCommand insert = connection.CreateCommand();
     insert.Transaction = transaction;
     insert.CommandText = """
-        INSERT INTO plan_steps (plan_id, position, title, detail, todo_id, status)
-        VALUES (@planId, @position, @title, @detail, @todoId, @status);
+        INSERT INTO plan_steps (plan_id, position, title, detail, status)
+        VALUES (@planId, @position, @title, @detail, @status);
         """;
     Add(insert, "@planId", planId);
     Add(insert, "@position", step.Position);
     Add(insert, "@title", step.Title);
     Add(insert, "@detail", step.Detail);
-    Add(insert, "@todoId", step.TodoId);
     Add(insert, "@status", step.Status.ToString());
     _ = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
   }
@@ -267,15 +266,14 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
       SqliteConnection connection, int planId, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
-    command.CommandText = "SELECT position, title, detail, todo_id, status FROM plan_steps WHERE plan_id=@planId ORDER BY position;";
+    command.CommandText = "SELECT position, title, detail, status FROM plan_steps WHERE plan_id=@planId ORDER BY position;";
     Add(command, "@planId", planId);
     List<PlanStep> steps = [];
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
     while (await reader.ReadAsync(ct).ConfigureAwait(false))
     {
-      int? todoId = await reader.IsDBNullAsync(3, ct).ConfigureAwait(false) ? null : reader.GetInt32(3);
       string? detail = await reader.IsDBNullAsync(2, ct).ConfigureAwait(false) ? null : reader.GetString(2);
-      string rawStatus = reader.GetString(4);
+      string rawStatus = reader.GetString(3);
       if (!TryParseStepStatus(rawStatus, out PlanStepStatus stepStatus))
       {
         // Stop materializing this plan: the caller reports it as a corrupt row and
@@ -287,7 +285,6 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
           reader.GetInt32(0),
           reader.GetString(1),
           detail,
-          todoId,
           stepStatus));
     }
 

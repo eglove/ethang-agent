@@ -18,7 +18,7 @@ public interface IStateService
   Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(
       string query, int limit, CancellationToken ct = default);
   /// <summary>Bulk-deletes every key under namespaces starting with the prefix.
-  ///     The todo namespace is rejected. Returns the count removed.</summary>
+  ///     The reserved 'current' namespace is rejected. Returns the count removed.</summary>
   Task<Result<int>> DeletePrefixAsync(string nsPrefix, CancellationToken ct = default);
   Task<Result<string>> TransitionAsync(string from, string toState, string summary,
       IReadOnlyList<string> evidence, CancellationToken ct = default);

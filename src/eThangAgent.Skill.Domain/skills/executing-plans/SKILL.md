@@ -20,7 +20,7 @@ Load plan, review critically, execute all tasks, report when complete.
 2. Read plan file
 3. Review critically - identify any questions or concerns about the plan
 4. If concerns: Raise them with your human partner before starting
-5. If no concerns: Create todos for the plan items and proceed
+5. If no concerns: create a plan record whose steps are the plan's items and proceed
 
 ### Step 2: Execute Tasks
 

@@ -67,7 +67,7 @@ evidence: remove it manually with the worktree tool after review.
 Conversation memory does not survive compaction. In real sessions, controllers
 that lost their place have re-dispatched entire completed task sequences — the
 single most expensive failure observed. Track progress in the ledger, not only
-in todos.
+in plan steps.
 
 - Each plan owns a state namespace: `sdd.<plan-slug>` where `<plan-slug>` is
   derived from the plan record's title (plan record titled
@@ -92,7 +92,7 @@ in todos.
   respected), keeping the ledger itself.
 
 Read the plan once (`plan.show <plan-id>`), note its context and Global
-Constraints, and create a todo per task. The plan's Spec may be the plan
+Constraints, and mark the task's plan step InProgress. The plan's Spec may be the plan
 record's goal body — read it from there. The spec is the authority the plan
 argues from, and conflicts inside the plan resolve against it. A plan with no
 reachable spec gets a ledger note saying so — rulings made without one are
@@ -292,7 +292,7 @@ the cap — append the completion line:
 - `Task <N>: complete (commits <base7>..<head7>, review clean)`
 - `Task <N>: complete (commits <base7>..<head7>, <K> parked)` after a breaker
 
-Then mark the todo complete and move on. Never advance while open
+Then mark the plan step Done and move on. Never advance while open
 Critical/Important findings are neither fixed nor parked-with-ruling at the cap.
 
 ## Final Review
@@ -350,7 +350,7 @@ You: I'm using Experiment-Driven Development to execute this plan.
 [plan.show <plan-id> once; note Global Constraints]
 [state.get sdd.<slug>/ledger — none; create with identity line]
 [Pre-flight scan table written to ledger]
-[Create todos for all tasks]
+[plan.show <plan-id> - steps are the task list]
 
 Task 1: Hook installation script
 

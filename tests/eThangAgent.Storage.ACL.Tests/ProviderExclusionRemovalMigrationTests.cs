@@ -39,6 +39,7 @@ public sealed class ProviderExclusionRemovalMigrationTests : IDisposable
     using SqliteCommand command = connection.CreateCommand();
     // Named decision (CA2100): the SQL is a literal fixture, not user input.
 #pragma warning disable CA2100
+    LegacyPlanStepsShape.Restore(connection);
     command.CommandText = string.Join('\n',
         "CREATE TABLE provider_exclusions (",
         "    model_provider_key TEXT NOT NULL,",

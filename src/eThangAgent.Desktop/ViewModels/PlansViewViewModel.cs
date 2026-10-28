@@ -4,9 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using eThangAgent.AgentDomain;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
-using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -49,28 +47,11 @@ internal sealed record PlanStepRowViewModel(int Position, string Marker, string 
   }
 }
 
-/// <summary>One todo line in the workbench's todo list.</summary>
-internal sealed record TodoRowViewModel(int Id, string Marker, string Text, bool IsDone)
-{
-  public static TodoRowViewModel For(TodoItem item)
-  {
-    ArgumentNullException.ThrowIfNull(item);
-    string marker = item.Status switch
-    {
-      TodoStatus.Completed => "\u2713",
-      TodoStatus.InProgress => "\u25B6",
-      TodoStatus.Pending => "\u25CB",
-      _ => "\u25CB",
-    };
-    return new TodoRowViewModel(item.Id, marker, item.Description, item.Status == TodoStatus.Completed);
-  }
-}
-
-/// <summary>The workbench's Plans view (issue #8): this session's plan records and the
-///     workspace todo list, refreshing as the agent changes them.
+/// <summary>The workbench's Plans view (issue #8): this session's plan records, refreshing
+///     as the agent changes them.
 ///     <para>THREE sources, because the writer can be in either process. In-process writes
-///     raise <see cref="PlanService"/> events and <see cref="IStateChangeBus"/> state
-///     changes; a plan the agent writes is written by the ChildHost, so the view also
+///     raise <see cref="PlanService"/> events; a plan the agent writes is written by the
+///     ChildHost, so the view also
 ///     subscribes the session's agent event stream for <see cref="PlanChangedEvent"/> —
 ///     the INSTANT path, because the host already forwards those facts over the wire —
 ///     and keeps an <see cref="IChangeSignal"/> (SQLite's data_version) as a backstop that
@@ -81,22 +62,23 @@ internal sealed record TodoRowViewModel(int Id, string Marker, string Text, bool
 ///     the same <see cref="PlanChangedEvent"/> a parent agent watches with
 ///     <c>wakeOn=plan</c> is what refreshes this view, so a subagent marking a step done
 ///     is visible here without a polling interval.</para>
-///     <para>Read-only by design (D4): the view never mutates a plan or a todo. A
-///     corrupt plan row renders as a named marker instead of blanking the list (#279).</para></summary>
+///     <para>Read-only by design (D4): the view never mutates a plan. A corrupt plan row
+///     renders as a named marker instead of blanking the list (#279).</para>
+///     <para>The todo list this view used to render beside the plans is gone (issue #310):
+///     the todo tool was retired in favour of plan steps, chain records, and the scientific
+///     ledger, so there is no second collection to read and no state-bus branch to
+///     subscribe. #312 puts the chain view BESIDE this view, so this one got smaller
+///     rather than broken.</para></summary>
 internal sealed partial class PlansViewViewModel(
     PlanService? plans,
-    IStateService? state,
     IChangeSignal? signal,
-    IStateChangeBus? stateChanges,
     Action<Action> marshal,
     TimeSpan? pollInterval = null,
     IAgentEvents? events = null) : ObservableObject, IDisposable
 {
   private readonly PlanService? _plans = plans;
   private readonly IAgentEvents? _events = events;
-  private readonly IStateService? _state = state;
   private readonly IChangeSignal? _signal = signal;
-  private readonly IStateChangeBus? _stateChanges = stateChanges;
   private readonly Action<Action> _marshal = marshal ?? throw new ArgumentNullException(nameof(marshal));
   private readonly TimeSpan _pollInterval = pollInterval ?? TimeSpan.FromSeconds(1);
   private readonly CancellationTokenSource _cts = new();
@@ -112,9 +94,6 @@ internal sealed partial class PlansViewViewModel(
 
   /// <summary>The rendered plan cards, newest first. Empty renders the empty state.</summary>
   public ObservableCollection<PlanCardViewModel> Plans { get; } = [];
-
-  /// <summary>The workspace todo list, open items first.</summary>
-  public ObservableCollection<TodoRowViewModel> Todos { get; } = [];
 
   /// <summary>The header's right-hand status: 'live · N active', or the load failure.
   ///     A view that cannot read must SAY so rather than look empty.</summary>
@@ -162,20 +141,7 @@ internal sealed partial class PlansViewViewModel(
     _eventsSubscription = _events?.Subscribe(new PlanChangeSubscriber(
         () => _ = RefreshAsync(CancellationToken.None)));
 
-    // Source C: in-process state writes (todo/list rides the state bus).
-    IDisposable? stateSubscription = _stateChanges?.Subscribe(change =>
-    {
-      if (change.Key == TodoTool.StoreKey)
-      {
-        _ = RefreshAsync(CancellationToken.None);
-      }
-    });
-    if (stateSubscription is not null)
-    {
-      _stateSubscription = stateSubscription;
-    }
-
-    // Source D: cross-process commits, discovered by polling data_version. A BACKSTOP,
+    // Source C: cross-process commits, discovered by polling data_version. A BACKSTOP,
     // not the primary mechanism: the event stream above delivers a plan change instantly,
     // while this catches anything that did not publish a fact (a direct SQL write, a
     // future writer that forgets the event). The baseline is seeded HERE, not on the
@@ -187,8 +153,6 @@ internal sealed partial class PlansViewViewModel(
       _ = PollAsync(_cts.Token);
     }
   }
-
-  private IDisposable? _stateSubscription;
 
   /// <summary>The agent event stream lease (the instant path). Disposed with the view, so
   ///     a closed tab cannot keep re-reading the database from a dead view.</summary>
@@ -208,7 +172,7 @@ internal sealed partial class PlansViewViewModel(
     }
   }
 
-  /// <summary>Re-reads both sources and re-renders. Concurrent calls collapse: a refresh
+  /// <summary>Re-reads the plan store and re-renders. Concurrent calls collapse: a refresh
   ///     already in flight means the next one would read the same state, and the poller
   ///     will catch anything newer.</summary>
   public async Task RefreshAsync(CancellationToken ct)
@@ -233,7 +197,6 @@ internal sealed partial class PlansViewViewModel(
       {
         _refreshAgain = false;
         await LoadPlansAsync(ct).ConfigureAwait(false);
-        await LoadTodosAsync(ct).ConfigureAwait(false);
       }
       while (_refreshAgain && !_disposed);
     }
@@ -289,54 +252,7 @@ internal sealed partial class PlansViewViewModel(
     });
   }
 
-  private async Task LoadTodosAsync(CancellationToken ct)
-  {
-    if (_state is null)
-    {
-      return;
-    }
-
-    Result<string> stored = await _state.GetAsync(TodoTool.StoreKey, ct).ConfigureAwait(false);
-    // A missing key is an EMPTY list, not a failure - most workspaces have no todos.
-    if (!stored.IsSuccess)
-    {
-      Apply(() =>
-      {
-        Todos.Clear();
-        UpdateEmpty();
-      });
-      return;
-    }
-
-    Result<IReadOnlyList<TodoItem>> parsed = TodoDocument.Parse(stored.Value);
-    if (!parsed.IsSuccess)
-    {
-      Apply(() =>
-      {
-        LoadError = $"todos unavailable: {parsed.Error.Message}";
-        StatusLine = "error";
-      });
-      return;
-    }
-
-    // Open items first, then by id: what is LEFT to do is the question this pane answers.
-    List<TodoRowViewModel> rows = [.. parsed.Value
-        .OrderBy(t => t.Status == TodoStatus.Completed)
-        .ThenBy(t => t.Id)
-        .Select(TodoRowViewModel.For)];
-    Apply(() =>
-    {
-      Todos.Clear();
-      foreach (TodoRowViewModel row in rows)
-      {
-        Todos.Add(row);
-      }
-
-      UpdateEmpty();
-    });
-  }
-
-  private void UpdateEmpty() => IsEmpty = Plans.Count == 0 && Todos.Count == 0;
+  private void UpdateEmpty() => IsEmpty = Plans.Count == 0;
 
   private static PlanCardViewModel ToCard(Plan plan)
   {
@@ -405,7 +321,6 @@ internal sealed partial class PlansViewViewModel(
     _cts.Cancel();
     _cts.Dispose();
     _planSubscription?.Dispose();
-    _stateSubscription?.Dispose();
     _eventsSubscription?.Dispose();
     // The change signal holds a live database connection for its whole lifetime (that
     // persistence is what makes data_version meaningful), so it must be released with

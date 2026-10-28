@@ -29,14 +29,14 @@ public sealed class SqlitePlanStoreTests : IDisposable
   public async Task Create_AssignsGlobalIds_AndRoundTripsSteps()
   {
     Plan draft = Plan.New("T1", "G1", "sess-a", DateTimeOffset.UtcNow)
-      .AddStep("one", null, null).AddStep("two", "d", 9);
+      .AddStep("one", null).AddStep("two", "d");
     Result<Plan> r = await _store.CreateAsync(draft, TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess, r.Error?.Message ?? "expected success");
     Assert.True(r.Value.Id > 0);
     Result<Plan> back = await _store.GetAsync(r.Value.Id, TestContext.Current.CancellationToken);
     Assert.True(back.IsSuccess, back.Error?.Message ?? "expected success");
     Assert.Equal(2, back.Value.Steps.Count);
-    Assert.Equal(9, back.Value.Steps[1].TodoId);
+    Assert.Equal("d", back.Value.Steps[1].Detail);
     Assert.Equal(PlanStepStatus.Pending, back.Value.Steps[1].Status);
   }
 
@@ -44,7 +44,7 @@ public sealed class SqlitePlanStoreTests : IDisposable
   public async Task Save_RoundTripsSkippedStepStatus()
   {
     Plan created = (await _store.CreateAsync(
-      Plan.New("T", "G", "s", DateTimeOffset.UtcNow).AddStep("a", null, null),
+      Plan.New("T", "G", "s", DateTimeOffset.UtcNow).AddStep("a", null),
       TestContext.Current.CancellationToken)).Value!;
     Plan skipped = created.UpdateStep(1, s => s with { Status = PlanStepStatus.Skipped });
     Result<Plan> saved = await _store.SaveAsync(skipped, created.Version, TestContext.Current.CancellationToken);
@@ -62,7 +62,7 @@ public sealed class SqlitePlanStoreTests : IDisposable
     Plan created = (await _store.CreateAsync(draft, TestContext.Current.CancellationToken)).Value!;
     SqlitePlanStore other = new(new AppDatabase(_dbPath), "C:\\ws\\beta");
     Assert.False((await other.GetAsync(created.Id, TestContext.Current.CancellationToken)).IsSuccess);
-    Result<Plan> crossSave = await other.SaveAsync(created.AddStep("x", null, null), 1, TestContext.Current.CancellationToken);
+    Result<Plan> crossSave = await other.SaveAsync(created.AddStep("x", null), 1, TestContext.Current.CancellationToken);
     Assert.False(crossSave.IsSuccess);
     Assert.Equal("PlanNotFound", crossSave.Error.Code);
   }
@@ -72,7 +72,7 @@ public sealed class SqlitePlanStoreTests : IDisposable
   {
     Plan draft = Plan.New("T", "G", "s", DateTimeOffset.UtcNow);
     Plan created = (await _store.CreateAsync(draft, TestContext.Current.CancellationToken)).Value!;
-    Result<Plan> stale = await _store.SaveAsync(created.AddStep("x", null, null), 0, TestContext.Current.CancellationToken);
+    Result<Plan> stale = await _store.SaveAsync(created.AddStep("x", null), 0, TestContext.Current.CancellationToken);
     Assert.False(stale.IsSuccess);
     Assert.Equal("VersionConflict", stale.Error.Code);
   }

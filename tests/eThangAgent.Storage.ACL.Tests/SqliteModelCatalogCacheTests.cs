@@ -246,6 +246,8 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
       seed.CommandText = "INSERT INTO state_keys (workspace_id, ns, name, value, version, updated_at) " +
           "VALUES ('ws', 'ns', 'seed', 'v', 1, '2026-01-01T00:00:00Z');";
       _ = await seed.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+      // A V16 database still carried plan_steps.todo_id, which V24 drops.
+      LegacyPlanStepsShape.Restore(connection);
       using SqliteCommand drop = connection.CreateCommand();
       drop.CommandText = "DROP TABLE IF EXISTS model_catalog_cache; PRAGMA user_version = 16;";
       _ = await drop.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);

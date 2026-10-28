@@ -53,8 +53,16 @@ public class StateCapabilityProviderTests
     Assert.Equal(2, service.LastExpectedVersion);
   }
 
+  /// <summary>Issue #310: the 'todo' namespace reservation went with the todo tool, so a
+  ///     model-invoked write under that namespace is now an ORDINARY write. What still
+  ///     matters is that the capability boundary does not invent a refusal for a namespace
+  ///     nobody owns - the stale row the startup sweep deletes must not become unwritable
+  ///     storage.
+  ///     <para>Note this does NOT weaken the 'current' reservation: that one is enforced by
+  ///     the service (StateService.ValidateAndDelete) and covers bulk deletes only, exactly
+  ///     as before.</para></summary>
   [Fact]
-  public async Task Set_ReservedTodoNamespace_Rejected_AtBoundary()
+  public async Task Set_FormerTodoNamespace_IsNoLongerReserved()
   {
     FakeStateService service = new();
 
@@ -62,29 +70,12 @@ public class StateCapabilityProviderTests
                                  /*lang=json,strict*/
                                  """{"key":"todo/list","value":"[]"}""", ct: TestContext.Current.CancellationToken);
 
-    Assert.True(result.IsError);
-    Assert.Contains("Error [ReservedNamespace]:", result.Content, StringComparison.Ordinal);
-    Assert.Contains("'todo'", result.Content, StringComparison.Ordinal);
-    Assert.Null(service.LastKey); // never reached the service
+    Assert.False(result.IsError);
+    Assert.Equal("todo/list", service.LastKey);
   }
 
   [Fact]
-  public async Task Delete_ReservedTodoNamespace_Rejected_AtBoundary()
-  {
-    FakeStateService service = new();
-
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("delete",
-                                 /*lang=json,strict*/
-                                 """{"key":"todo/list","expectedVersion":1}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Contains("Error [ReservedNamespace]:", result.Content, StringComparison.Ordinal);
-    Assert.Contains("'todo'", result.Content, StringComparison.Ordinal);
-    Assert.Null(service.LastKey); // never reached the service
-  }
-
-  [Fact]
-  public async Task ReservedTodoNamespace_DoesNotAffectOtherNamespaces()
+  public async Task ReservedNamespace_DoesNotAffectOtherNamespaces()
   {
     FakeStateService service = new();
 

@@ -5,12 +5,13 @@ using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
 
-/// <summary>One-time startup sweep for preference rows whose feature was deleted (issue #298).
-///     <para>Dead preferences are key-value strings with no schema, so they cannot be removed by
-///     a migration the way a table can: the sweep deletes the rows whose keys match a named
-///     prefix and reports what it removed. It runs on every app start rather than once, because
-///     a delete leaves no marker to remember — the second run simply finds nothing, which is the
-///     cheapest correct answer and needs no extra state.</para>
+/// <summary>One-time startup sweep for durable rows whose feature was deleted (issue #298,
+///     extended to state rows by issue #310).
+///     <para>Dead preferences and dead state keys are key-value strings with no schema, so they
+///     cannot be removed by a migration the way a table can: the sweep deletes the rows whose
+///     keys match a named prefix or namespace and reports what it removed. It runs on every app
+///     start rather than once, because a delete leaves no marker to remember — the second run
+///     simply finds nothing, which is the cheapest correct answer and needs no extra state.</para>
 ///     <para>PREFIXES ARE NAMED EXPLICITLY (D3): a pattern like <c>%selection%</c> would
 ///     eventually eat a live key. Every entry here is a key whose reader and writer are both
 ///     deleted, so nothing can recreate it.</para></summary>
@@ -34,6 +35,15 @@ public static class DeadPreferenceSweep
   ///     on. Every conversation runs in its own child host unconditionally (spec D6/D7), so
   ///     the toggle and its key are deleted; zero references remain in <c>src/</c>.</summary>
   public static IReadOnlyList<string> DeadKeys { get; } = ["subagent_remote_host"];
+
+  /// <summary>STATE namespaces whose feature is deleted (issue #310). The todo list was the
+  ///     only writer of the <c>todo</c> namespace - one whole-document key per workspace,
+  ///     measured at 80,726 characters - and the tool, its document types, and its storage
+  ///     adapter are gone, so nothing can recreate it. Reported as <c>state:todo/list</c>.
+  ///     <para>A namespace rather than a key: the reservation that protected it is deleted
+  ///     too, so a stale row is the only thing left and every row under it is dead by
+  ///     construction.</para></summary>
+  public static IReadOnlyList<string> DeadStateNamespaces { get; } = ["todo"];
 
   /// <summary>Deletes every preference row whose key starts with a dead prefix. Returns the
   ///     removed keys in ordinal order so the caller can log them; an empty result means there
@@ -100,6 +110,11 @@ public static class DeadPreferenceSweep
       // the row stays because it still carries live sections, so the dead member is
       // stripped from the JSON in place and the key is reported as '<key>#routing'.
       await StripDeadMembersAsync(connection, transaction, removed, ct).ConfigureAwait(false);
+
+      // STATE rows whose whole namespace is dead (issue #310): reported as
+      // 'state:<ns>/<name>' so a workspace whose todos vanish is announced, never a
+      // silent data loss.
+      await SweepDeadStateNamespacesAsync(connection, transaction, removed, ct).ConfigureAwait(false);
 
       await transaction.CommitAsync(ct).ConfigureAwait(false);
       return Result.Success<IReadOnlyList<string>>(removed);
@@ -173,6 +188,45 @@ public static class DeadPreferenceSweep
     }
   }
 
+  /// <summary>Deletes every <c>state_keys</c> row whose namespace is one of
+  ///     <see cref="DeadStateNamespaces"/>, reporting each as <c>state:&lt;ns&gt;/&lt;name&gt;</c>.
+  ///     <para>This is a STATE sweep, not a preference one: the todo document lived in the
+  ///     State Domain's key-value table, so removing the tool without this would leave an
+  ///     80 KB row that nothing can read and nothing can delete. The namespace match is an
+  ///     EQUALITY test - a prefix test would eat a hypothetical <c>todos</c> namespace, and
+  ///     the whole point of naming namespaces is that nothing unintended goes.</para></summary>
+  private static async Task SweepDeadStateNamespacesAsync(SqliteConnection connection,
+      SqliteTransaction transaction, List<string> removed, CancellationToken ct)
+  {
+    foreach (string ns in DeadStateNamespaces)
+    {
+      List<(string WorkspaceId, string Name)> rows = [];
+      using (SqliteCommand select = connection.CreateCommand())
+      {
+        select.Transaction = transaction;
+        select.CommandText = "SELECT workspace_id, name FROM state_keys WHERE ns = $ns ORDER BY workspace_id, name;";
+        _ = select.Parameters.AddWithValue("$ns", ns);
+        using SqliteDataReader reader = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+          rows.Add((reader.GetString(0), reader.GetString(1)));
+        }
+      }
+
+      foreach ((string workspaceId, string name) in rows)
+      {
+        using SqliteCommand delete = connection.CreateCommand();
+        delete.Transaction = transaction;
+        delete.CommandText = "DELETE FROM state_keys WHERE workspace_id = $w AND ns = $ns AND name = $n;";
+        _ = delete.Parameters.AddWithValue("$w", workspaceId);
+        _ = delete.Parameters.AddWithValue("$ns", ns);
+        _ = delete.Parameters.AddWithValue("$n", name);
+        _ = await delete.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        removed.Add("state:" + ns + "/" + name);
+      }
+    }
+  }
+
   /// <summary>Removes the named members from one JSON object payload. Returns null when
   ///     nothing was removed (so a clean row is never rewritten), or the stripped JSON plus
   ///     the member names actually removed. Unparseable JSON or a non-object payload returns
@@ -219,7 +273,7 @@ public static class DeadPreferenceSweep
     return removed.Count == 0
         ? null
         : string.Format(CultureInfo.InvariantCulture,
-            "dead preference sweep removed {0} row(s): {1}",
+            "dead feature sweep removed {0} row(s): {1}",
             removed.Count,
             string.Join(", ", removed));
   }

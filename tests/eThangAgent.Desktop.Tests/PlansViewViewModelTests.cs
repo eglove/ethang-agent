@@ -3,9 +3,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
-using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -65,63 +63,15 @@ public sealed class PlansViewViewModelTests : IDisposable
         => Task.FromResult(Result.Success(plan));
   }
 
-  private sealed class FakeStateService : IStateService
-  {
-    public Dictionary<string, string> Values { get; } = new(StringComparer.Ordinal);
-
-    public Task<Result<string>> GetAsync(string key, CancellationToken ct = default) =>
-        Task.FromResult(Values.TryGetValue(key, out string? value)
-            ? Result.Success(value)
-            : Result.Failure<string>(new DomainError("StateKeyNotFound", $"no key {key}")));
-
-    public Task<Result<StateKeyValue>> SetAsync(string key, string value, int? expectedVersion, CancellationToken ct = default)
-    {
-      Values[key] = value;
-      return Task.FromResult(Result.Success(new StateKeyValue("", key, value, 1)));
-    }
-
-    public Task<Result<string>> DeleteAsync(string key, int? expectedVersion, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(key));
-
-    public Task<Result<IReadOnlyList<string>>> ListAsync(string? ns, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<string>>([.. Values.Keys]));
-
-    public Task<Result<StateKeyValue>> AppendAsync(string key, string text, int? expectedVersion, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(new StateKeyValue("", key, text, 1)));
-
-    public Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(string query, int limit, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<StateSearchHit>>([]));
-
-    public Task<Result<int>> DeletePrefixAsync(string nsPrefix, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(0));
-
-    public Task<Result<string>> TransitionAsync(string from, string toState, string summary,
-        IReadOnlyList<string> evidence, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(toState));
-
-    public Task<CertificationReport> VerifyAsync(IReadOnlyList<string>? ids, CancellationToken ct = default)
-        => Task.FromResult(new CertificationReport(true, false, [], []));
-
-    public Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)
-        => Task.FromResult(new CertificationReport(true, false, [], []));
-
-    public Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<string>>([]));
-  }
-
-  private PlansViewViewModel Build(
-      FakePlanStore store,
-      FakeStateService? state = null,
-      IChangeSignal? signal = null,
-      IStateChangeBus? bus = null)
-    => Own(new PlansViewViewModel(new PlanService(store), state, signal, bus, render => render()));
+  private PlansViewViewModel Build(FakePlanStore store, IChangeSignal? signal = null)
+    => Own(new PlansViewViewModel(new PlanService(store), signal, render => render()));
 
   [Fact]
   public async Task Refresh_RendersPlansAndSteps()
   {
     FakePlanStore store = new();
     _ = await store.CreateAsync(Plan.New("Issue #8", "ship the view", "sess-abcdef12", DateTimeOffset.UtcNow)
-        .AddStep("build the shell", null, null).AddStep("wire realtime", null, null),
+        .AddStep("build the shell", null).AddStep("wire realtime", null),
         TestContext.Current.CancellationToken);
     PlansViewViewModel vm = Build(store);
 
@@ -140,7 +90,7 @@ public sealed class PlansViewViewModelTests : IDisposable
   {
     FakePlanStore store = new();
     _ = await store.CreateAsync(Plan.New("#271", "g", "sess-abcdef12", DateTimeOffset.UtcNow)
-        .AddStep("done", null, null).AddStep("skipped", null, null).AddStep("pending", null, null)
+        .AddStep("done", null).AddStep("skipped", null).AddStep("pending", null)
         .UpdateStep(1, s => s with { Status = PlanStepStatus.Done })
         .UpdateStep(2, s => s with { Status = PlanStepStatus.Skipped }),
         TestContext.Current.CancellationToken);
@@ -193,34 +143,18 @@ public sealed class PlansViewViewModelTests : IDisposable
     Assert.Equal("error", vm.StatusLine);
   }
 
+  /// <summary>Issue #310: the todo list is retired, so the view's empty state is a
+  ///     question about plans ALONE. The todo rows this test used to seed are gone with
+  ///     the tool that produced them.</summary>
   [Fact]
-  public async Task Refresh_NoPlansAndNoTodos_ReportsEmpty()
+  public async Task Refresh_NoPlans_ReportsEmpty()
   {
-    PlansViewViewModel vm = Build(new FakePlanStore(), new FakeStateService());
+    PlansViewViewModel vm = Build(new FakePlanStore());
 
     await vm.RefreshAsync(TestContext.Current.CancellationToken);
 
     Assert.True(vm.IsEmpty);
     Assert.Null(vm.LoadError);
-  }
-
-  [Fact]
-  public async Task Refresh_RendersTodos_OpenItemsFirst()
-  {
-    FakeStateService state = new();
-    state.Values[TodoTool.StoreKey] = TodoDocument.Serialize(
-    [
-      new TodoItem(1, "done thing", TodoStatus.Completed),
-      new TodoItem(2, "open thing", TodoStatus.Pending),
-    ]);
-    PlansViewViewModel vm = Build(new FakePlanStore(), state);
-
-    await vm.RefreshAsync(TestContext.Current.CancellationToken);
-
-    Assert.Equal(2, vm.Todos.Count);
-    Assert.Equal("open thing", vm.Todos[0].Text);
-    Assert.False(vm.Todos[0].IsDone);
-    Assert.True(vm.Todos[1].IsDone);
   }
 
   [Fact]
@@ -231,7 +165,7 @@ public sealed class PlansViewViewModelTests : IDisposable
     // the plan capability provider and the workbench).
     FakePlanStore store = new();
     PlanService service = new(store);
-    PlansViewViewModel vm = Own(new PlansViewViewModel(service, null, null, null, render => render()));
+    PlansViewViewModel vm = Own(new PlansViewViewModel(service, null, render => render()));
     vm.Start();
     await vm.RefreshAsync(TestContext.Current.CancellationToken);
     Assert.True(vm.IsEmpty);
@@ -251,28 +185,6 @@ public sealed class PlansViewViewModelTests : IDisposable
   }
 
   [Fact]
-  public async Task StateChangeOnTodoKey_RefreshesTheTodoList()
-  {
-    FakeStateService state = new();
-    InProcessStateChangeBus bus = new();
-    PlansViewViewModel vm = Build(new FakePlanStore(), state, signal: null, bus);
-    vm.Start();
-    await vm.RefreshAsync(TestContext.Current.CancellationToken);
-    Assert.Empty(vm.Todos);
-
-    state.Values[TodoTool.StoreKey] = TodoDocument.Serialize([new TodoItem(1, "from the agent", TodoStatus.Pending)]);
-    bus.Publish(new StateChange("ws", TodoTool.StoreKey, StateChangeKind.Set, "agent", DateTimeOffset.UtcNow));
-
-    // The subscription fires RefreshAsync fire-and-forget; poll until it lands.
-    for (int i = 0; i < 100 && vm.Todos.Count == 0; i++)
-    {
-      await Task.Delay(10, TestContext.Current.CancellationToken);
-    }
-
-    _ = Assert.Single(vm.Todos);
-  }
-
-  [Fact]
   public async Task PlanChangedEvent_RefreshesWithoutAManualCall()
   {
     // The INSTANT path (issue #8 follow-up). A plan write in production is dispatched by
@@ -283,7 +195,7 @@ public sealed class PlansViewViewModelTests : IDisposable
     FakePlanStore store = new();
     FakeEvents events = new();
     PlansViewViewModel vm = Own(new PlansViewViewModel(
-        new PlanService(store), null, null, null, render => render(),
+        new PlanService(store), null, render => render(),
         pollInterval: TimeSpan.FromHours(1), events: events));
     vm.Start();
     await vm.RefreshAsync(TestContext.Current.CancellationToken);
@@ -335,7 +247,7 @@ public sealed class PlansViewViewModelTests : IDisposable
     FakePlanStore store = new();
     CountingSignal signal = new();
     PlansViewViewModel vm = Own(new PlansViewViewModel(
-        new PlanService(store), null, signal, null, render => render(),
+        new PlanService(store), signal, render => render(),
         TimeSpan.FromMilliseconds(5)));
     vm.Start();
     await vm.RefreshAsync(TestContext.Current.CancellationToken);

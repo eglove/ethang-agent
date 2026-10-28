@@ -324,7 +324,9 @@
            region's star column, so the splitter resizes it and the strip keeps its 34. -->
       <Border Grid.Column="1" Name="WorkbenchContent" Background="#11000000" MinWidth="180">
         <Panel>
-          <!-- PLANS (issue #8): plans + todos, realtime. -->
+          <!-- PLANS (issue #8): plan records, realtime. The todo list this pane used to
+               render below the plans is gone (issue #310) - plan steps, chain records, and
+               the scientific ledger are the units now. -->
           <DockPanel IsVisible="{Binding Workbench.IsPlansSelected, Mode=OneWay}" Margin="8,8,8,0">
             <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
               <TextBlock Text="PLANS" FontWeight="SemiBold" Opacity="0.8"/>
@@ -338,7 +340,7 @@
                 <SelectableTextBlock Text="{Binding Workbench.Plans.LoadError, Mode=OneWay}"
                                      Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,0,0,6"
                                      IsVisible="{Binding Workbench.Plans.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                <TextBlock Text="No plans or todos yet." Opacity="0.55" Margin="0,4"
+                <TextBlock Text="No plans yet." Opacity="0.55" Margin="0,4"
                            IsVisible="{Binding Workbench.Plans.IsEmpty, Mode=OneWay}"/>
                 <ItemsControl x:Name="PlanCardList" ItemsSource="{Binding Workbench.Plans.Plans, Mode=OneWay}">
                   <ItemsControl.ItemTemplate>
@@ -369,19 +371,6 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Text="TODOS" FontWeight="SemiBold" Opacity="0.8" Margin="0,8,0,4"
-                           IsVisible="{Binding Workbench.Plans.Todos.Count, Converter={x:Static views:WorkbenchConverters.CountToVisibility}}"/>
-                <ItemsControl x:Name="TodoRowList" ItemsSource="{Binding Workbench.Plans.Todos, Mode=OneWay}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:TodoRowViewModel">
-                      <Grid ColumnDefinitions="Auto,*" Margin="4,1,0,1">
-                        <TextBlock Grid.Column="0" Text="{Binding Marker}" Margin="0,0,6,0"/>
-                        <SelectableTextBlock Grid.Column="1" Text="{Binding Text}"
-                                             TextWrapping="Wrap" FontSize="12"/>
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
               </StackPanel>
             </ScrollViewer>
           </DockPanel>

@@ -96,6 +96,39 @@ public sealed class DeadPreferenceSweepTests : IDisposable
     Assert.Empty(second.Value);
   }
 
+  /// <summary>Issue #310: the todo list's storage was a STATE key (<c>todo/list</c>), not a
+  ///     preference, so removing the tool without this sweep would leave an 80 KB row that
+  ///     nothing can read and nothing can delete. The removal is REPORTED, because a
+  ///     workspace whose todos vanish must not look like data loss.</summary>
+  [Fact]
+  public async Task Sweep_RemovesTheRetiredTodoStateKey_AndReportsIt()
+  {
+    CancellationToken ct = TestContext.Current.CancellationToken;
+    SqliteStateStore state = new(_db);
+    _ = await state.SetKeyCasAsync("ws-a", "todo", "list", "[]", null, ct);
+    _ = await state.SetKeyCasAsync("ws-b", "todo", "list", "[]", null, ct);
+    // A LIVE namespace that merely starts with the same letters must survive: the match is
+    // namespace EQUALITY, never a prefix.
+    _ = await state.SetKeyCasAsync("ws-a", "todos", "list", "keep me", null, ct);
+    _ = await state.SetKeyCasAsync("ws-a", "sdd.plan", "ledger", "keep me too", null, ct);
+
+    Result<IReadOnlyList<string>> swept = await DeadPreferenceSweep.SweepAsync(_db, ct);
+
+    Assert.True(swept.IsSuccess, $"[{swept.Error?.Code}] {swept.Error?.Message}");
+    Assert.Equal(
+        ["state:todo/list", "state:todo/list"],
+        swept.Value.Order(StringComparer.Ordinal));
+    Assert.Null(await state.GetKeyAsync("ws-a", "todo", "list", ct));
+    Assert.Null(await state.GetKeyAsync("ws-b", "todo", "list", ct));
+    Assert.NotNull(await state.GetKeyAsync("ws-a", "todos", "list", ct));
+    Assert.NotNull(await state.GetKeyAsync("ws-a", "sdd.plan", "ledger", ct));
+
+    // The report NAMES what went, so a human reading startup output can tell what happened.
+    string? message = DeadPreferenceSweep.DescribeOutcome(swept.Value);
+    Assert.NotNull(message);
+    Assert.Contains("state:todo/list", message, StringComparison.Ordinal);
+  }
+
   [Fact]
   public void DescribeOutcome_Names_Every_Removed_Key()
   {

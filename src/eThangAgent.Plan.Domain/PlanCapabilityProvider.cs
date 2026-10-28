@@ -25,7 +25,6 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   private const string Goal = "goal";
   private const string Steps = "steps";
   private const string Detail = "detail";
-  private const string TodoId = "todoId";
   private const string Position = "position";
   private const string Status = "status";
   private const string PlanStepNotFoundCode = "PlanStepNotFound";
@@ -37,7 +36,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   ///     are unfinished' from 'your gate is not current'.</summary>
   public const string CompletionGateCode = "CompletionGateNotFresh";
 
-  private static readonly HashSet<string> StepAllowed = new(StringComparer.Ordinal) { Title, Detail, TodoId };
+  private static readonly HashSet<string> StepAllowed = new(StringComparer.Ordinal) { Title, Detail };
 
   private readonly PlanService _service = service ?? throw new ArgumentNullException(nameof(service));
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
@@ -48,12 +47,12 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   public IReadOnlyList<ActionDescriptor> Actions { get; } =
   [
       new("create", "Create a new structured plan with an optional initial step list.",
-            "Creates an Active plan stamped with the current session id. Title and goal are required non-empty strings; steps is an optional array of step objects (each: required non-empty 'title', optional 'detail' string, optional 'todoId' integer >= 1). Output contract: '[plan] created #<id>' - and show renders the full plan with its session line. Errors: InvalidActionInput (bad params).",
+            "Creates an Active plan stamped with the current session id. Title and goal are required non-empty strings; steps is an optional array of step objects (each: required non-empty 'title', optional 'detail' string). Output contract: '[plan] created #<id>' - and show renders the full plan with its session line. Errors: InvalidActionInput (bad params).",
             [new ActionParameter(Title, ActionParameterTypes.StringType, "Required. Non-empty plan title."),
               new ActionParameter(Goal, ActionParameterTypes.StringType, "Required. Non-empty goal; may be multi-line."),
-              new ActionParameter(Steps, "Array", "Optional. Step objects: { 'title' (required non-empty), 'detail' (optional string), 'todoId' (optional integer >= 1). }")]),
+              new ActionParameter(Steps, "Array", "Optional. Step objects: { 'title' (required non-empty), 'detail' (optional string). }")]),
         new("show", "Display one plan: envelope line, goal, and every step.",
-            "Output contract:\n[plan #<id> v<version> | <status> | session <sid>] <title>\n<goal>\n<n> step(s):\n  <position>. [ <step-status> ] <title> (todo #<todoId>)? ( — <detail first line>)?\nThe goal may be multi-line; step lines are two-space indented; a plan with no steps prints '0 step(s):' and no step lines. Errors: InvalidActionInput (bad params), PlanNotFound.",
+            "Output contract:\n[plan #<id> v<version> | <status> | session <sid>] <title>\n<goal>\n<n> step(s):\n  <position>. [ <step-status> ] <title> ( — <detail first line>)?\nThe goal may be multi-line; step lines are two-space indented; a plan with no steps prints '0 step(s):' and no step lines. Errors: InvalidActionInput (bad params), PlanNotFound.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1.")],
             [IdParam]),
         new("index", "List plans, optionally filtered by status.",
@@ -63,16 +62,14 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
             "Appends at the next 1-based position. Output contract: '[plan] added step <position> to #<id>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Title, ActionParameterTypes.StringType, "Required. Non-empty step title."),
-              new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
-              new ActionParameter(TodoId, ActionParameterTypes.IntegerType, "Optional. Linked todo id, >= 1.")],
+              new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present.")],
             [IdParam, Title]),
-        new("update-step", "Change one step's title, detail, todo link, or status.",
+        new("update-step", "Change one step's title, detail, or status.",
             "At least one optional field is required. Output contract: '[plan] updated step <position> in #<id>'. status must be exactly Pending|InProgress|Done|Skipped. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. VersionConflict errors instruct re-get + reconcile + retry. Errors: InvalidActionInput, PlanNotFound, PlanStepNotFound, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position."),
               new ActionParameter(Title, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
               new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
-              new ActionParameter(TodoId, ActionParameterTypes.IntegerType, "Optional. Linked todo id, >= 1."),
               new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Pending|InProgress|Done|Skipped.")],
             [IdParam, Position]),
         new("remove-step", "Remove one step; the tail renumbers.",
@@ -81,7 +78,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position.")],
             [IdParam, Position]),
         new("set-status", "Move a plan between statuses.",
-            "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. COMPLETION REQUIRES A CONSISTENT PLAN: while any step is Pending or InProgress the move is refused with Error [InvalidTransition] naming the offending step positions and statuses, and the plan's stored status is unchanged - mark each step Done, or Skipped when you are deliberately not doing it, with update-step first. Abandoned is unaffected: dropping a half-finished plan stays possible. Completing or abandoning a plan whose steps carry todoId links also removes those todos from the shared todo list; output then appends '[plan] #<id> cleaned <n> linked todo(s)' (n >= 1), or '[plan] warning: todo cleanup failed (<code>)' when the todo store write failed after the transition landed (the transition itself still succeeded). Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition, VersionConflict.",
+            "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. COMPLETION REQUIRES A CONSISTENT PLAN: while any step is Pending or InProgress the move is refused with Error [InvalidTransition] naming the offending step positions and statuses, and the plan's stored status is unchanged - mark each step Done, or Skipped when you are deliberately not doing it, with update-step first. Abandoned is unaffected: dropping a half-finished plan stays possible. Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition, VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Status, ActionParameterTypes.StringType, "Required. Exactly Active|Completed|Abandoned.")],
             [IdParam, Status]),
@@ -117,7 +114,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(Title, Goal, Steps));
     string title = ReqString(args, Title);
     string goal = ReqString(args, Goal);
-    IReadOnlyList<(string Title, string? Detail, int? TodoId)>? steps = OptSteps(args);
+    IReadOnlyList<(string Title, string? Detail)>? steps = OptSteps(args);
     Result<Plan> created = await _service.CreateAsync(
         title, goal, _sessionId() ?? string.Empty, steps, DateTimeOffset.UtcNow).ConfigureAwait(false);
     return created.IsSuccess
@@ -162,11 +159,10 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
 
   private async Task<CapabilityInvocationResult> AddStepAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam, Title, Detail, TodoId));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam, Title, Detail));
     int id = ReqPlanId(args);
     string title = ReqString(args, Title);
     string? detail = OptString(args, Detail);
-    int? todoId = OptStepTodoId(args);
     Result<Plan> plan = await _service.GetAsync(id).ConfigureAwait(false);
     if (!plan.IsSuccess)
     {
@@ -175,7 +171,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
 
     int expected = plan.Value.Version;
     Result<Plan> added = await _service.AddStepAsync(
-        id, title, detail, todoId, expected, DateTimeOffset.UtcNow).ConfigureAwait(false);
+        id, title, detail, expected, DateTimeOffset.UtcNow).ConfigureAwait(false);
     return added.IsSuccess
         ? CapabilityInvocationResult.Ok($"[plan] added step {added.Value.Steps.Count} to #{id}")
         : await ResolveMutationErrorAsync(id, position: null, expected, added.Error).ConfigureAwait(false);
@@ -183,14 +179,13 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
 
   private async Task<CapabilityInvocationResult> UpdateStepAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam, Position, Title, Detail, TodoId, Status));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam, Position, Title, Detail, Status));
     int id = ReqPlanId(args);
     int position = ReqStepPosition(args);
     string? title = OptString(args, Title);
     string? detail = OptString(args, Detail);
-    int? todoId = OptStepTodoId(args);
     PlanStepStatus? stepStatus = OptStepStatus(args);
-    RequireAtLeastOneField(title, detail, todoId, stepStatus);
+    RequireAtLeastOneField(title, detail, stepStatus);
     Result<Plan> plan = await _service.GetAsync(id).ConfigureAwait(false);
     if (!plan.IsSuccess)
     {
@@ -202,7 +197,6 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     {
       Title = title ?? step.Title,
       Detail = detail ?? step.Detail,
-      TodoId = todoId ?? step.TodoId,
       Status = stepStatus ?? step.Status,
     }, expected, DateTimeOffset.UtcNow).ConfigureAwait(false);
     return updated.IsSuccess
@@ -210,12 +204,12 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
         : await ResolveMutationErrorAsync(id, position, expected, updated.Error).ConfigureAwait(false);
   }
 
-  private static void RequireAtLeastOneField(string? title, string? detail, int? todoId, PlanStepStatus? stepStatus)
+  private static void RequireAtLeastOneField(string? title, string? detail, PlanStepStatus? stepStatus)
   {
-    if (title is null && detail is null && todoId is null && stepStatus is null)
+    if (title is null && detail is null && stepStatus is null)
     {
       throw new PlanInputException(
-          "at least one of 'title', 'detail', 'todoId', or 'status' is required for update-step.");
+          "at least one of 'title', 'detail', or 'status' is required for update-step.");
     }
   }
 
@@ -259,26 +253,12 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       return refusal;
     }
 
-    Result<PlanSetStatusResult> saved = await _service.SetStatusAsync(
+    Result<Plan> saved = await _service.SetStatusAsync(
         id, target, plan.Value.Version, DateTimeOffset.UtcNow).ConfigureAwait(false);
-    if (!saved.IsSuccess)
-    {
-      return await ResolveMutationErrorAsync(id, position: null, plan.Value.Version, saved.Error).ConfigureAwait(false);
-    }
-
-    StringBuilder line = new();
-    _ = line.Append(CultureInfo.InvariantCulture, $"[plan] #{id} is now {saved.Value.Plan.Status}");
-    if (saved.Value.RemovedTodoIds.Count > 0)
-    {
-      _ = line.Append(CultureInfo.InvariantCulture, $"\n[plan] #{id} cleaned {saved.Value.RemovedTodoIds.Count} linked todo(s)");
-    }
-
-    if (saved.Value.CleanupError is { } cleanup)
-    {
-      _ = line.Append(CultureInfo.InvariantCulture, $"\n[plan] warning: todo cleanup failed ({cleanup.Code})");
-    }
-
-    return CapabilityInvocationResult.Ok(line.ToString());
+    return saved.IsSuccess
+        ? CapabilityInvocationResult.Ok(
+            string.Create(CultureInfo.InvariantCulture, $"[plan] #{id} is now {saved.Value.Status}"))
+        : await ResolveMutationErrorAsync(id, position: null, plan.Value.Version, saved.Error).ConfigureAwait(false);
   }
 
   /// <summary>Asks the completion gate; null means 'proceed'. A plan provider with no
@@ -307,11 +287,6 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     foreach (PlanStep step in plan.Steps)
     {
       _ = sb.Append("  ").Append(CultureInfo.InvariantCulture, $"{step.Position}. [ {step.Status} ] {step.Title}");
-      if (step.TodoId is { } todo)
-      {
-        _ = sb.Append(CultureInfo.InvariantCulture, $" (todo #{todo})");
-      }
-
       if (!string.IsNullOrEmpty(step.Detail))
       {
         _ = sb.Append(" — ").Append(step.Detail.Split('\n')[0].TrimEnd('\r'));
@@ -413,20 +388,6 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       : element.GetString()!.Trim();
   }
 
-  private static int? OptInt(Dictionary<string, JsonElement> args, string name)
-  {
-    return !args.TryGetValue(name, out JsonElement element) || element.ValueKind == JsonValueKind.Null
-      ? null
-      : ValidateOptionalInt(element, name);
-  }
-
-  private static int ValidateOptionalInt(JsonElement element, string name)
-  {
-    return element.ValueKind != JsonValueKind.Number || !element.TryGetInt32(out int value)
-      ? throw new PlanInputException($"'{name}' must be an integer when present.")
-      : value;
-  }
-
   private static int ReqInt(Dictionary<string, JsonElement> args, string name)
   {
     return !args.TryGetValue(name, out JsonElement element)
@@ -448,13 +409,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     return position >= 1 ? position : throw new PlanInputException("'position' must be >= 1.");
   }
 
-  private static int? OptStepTodoId(Dictionary<string, JsonElement> args)
-  {
-    int? todoId = OptInt(args, TodoId);
-    return todoId is < 1 ? throw new PlanInputException("'todoId' must be >= 1.") : todoId;
-  }
-
-  private static List<(string Title, string? Detail, int? TodoId)>? OptSteps(
+  private static List<(string Title, string? Detail)>? OptSteps(
       Dictionary<string, JsonElement> args)
   {
     return !args.TryGetValue(Steps, out JsonElement element)
@@ -462,14 +417,14 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       : ParseSteps(element);
   }
 
-  private static List<(string Title, string? Detail, int? TodoId)> ParseSteps(JsonElement element)
+  private static List<(string Title, string? Detail)> ParseSteps(JsonElement element)
   {
     if (element.ValueKind != JsonValueKind.Array)
     {
       throw new PlanInputException("'steps' must be an array of step objects.");
     }
 
-    List<(string Title, string? Detail, int? TodoId)> steps = [];
+    List<(string Title, string? Detail)> steps = [];
     int index = 0;
     foreach (JsonElement item in element.EnumerateArray())
     {
@@ -490,7 +445,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
         step[property.Name] = property.Value.Clone();
       }
 
-      steps.Add((ReqString(step, Title), OptString(step, Detail), OptStepTodoId(step)));
+      steps.Add((ReqString(step, Title), OptString(step, Detail)));
     }
 
     return steps;

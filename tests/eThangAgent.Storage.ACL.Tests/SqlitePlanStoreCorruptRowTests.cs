@@ -70,7 +70,9 @@ public sealed class SqlitePlanStoreCorruptRowTests : IDisposable
             status TEXT NOT NULL,
             PRIMARY KEY (plan_id, position)
         );
-        INSERT INTO plan_steps_legacy SELECT plan_id, position, title, detail, todo_id, status FROM plan_steps;
+        -- V24 dropped todo_id (issue #310); this legacy shape still carries it, NULL.
+        INSERT INTO plan_steps_legacy (plan_id, position, title, detail, todo_id, status)
+            SELECT plan_id, position, title, detail, NULL, status FROM plan_steps;
         DROP TABLE plan_steps;
         ALTER TABLE plan_steps_legacy RENAME TO plan_steps;
         """;
@@ -99,7 +101,9 @@ public sealed class SqlitePlanStoreCorruptRowTests : IDisposable
     for (int i = 0; i < stepStatuses.Length; i++)
     {
       using SqliteCommand step = connection.CreateCommand();
-      step.CommandText = "INSERT INTO plan_steps (plan_id, position, title, detail, todo_id, status) VALUES (@id, @pos, @title, NULL, NULL, @status);";
+      // todo_id is deliberately unnamed: it is NULL in the legacy shape and absent from
+      // the V24 shape (issue #310), so omitting it writes correctly into both.
+      step.CommandText = "INSERT INTO plan_steps (plan_id, position, title, detail, status) VALUES (@id, @pos, @title, NULL, @status);";
       _ = step.Parameters.AddWithValue("@id", id);
       _ = step.Parameters.AddWithValue("@pos", i + 1);
       _ = step.Parameters.AddWithValue("@title", $"step {i + 1}");

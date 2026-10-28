@@ -88,7 +88,7 @@ public static class ExecGuide
 
     Structured plans (design specs, implementation plans) are plan records in the app
     database, kept by the plan capability provider. plan.create makes one (title, goal,
-    optional steps array of {title, detail?, todoId?}), plan.show (id) retrieves it,
+    optional steps array of {title, detail?}), plan.show (id) retrieves it,
     plan.index lists (optional status filter), and plan.add-step / plan.update-step /
     plan.remove-step / plan.set-status mutate:
 
@@ -102,9 +102,6 @@ public static class ExecGuide
     fresh load — on VersionConflict, re-get (plan.show), reconcile, retry. Errors
     arrive as Error [PlanNotFound] / [InvalidTransition] / [PlanStepNotFound] /
     [InvalidActionInput].
-    Completing or abandoning a plan also removes its linked todos (step todoId
-    values) from the shared todo list; the set-status result then appends
-    `[plan] #<id> cleaned <n> linked todo(s)`.
 
     Errors are results, not script-fatal — with ONE exception, and the split is worth knowing:
 
@@ -131,7 +128,7 @@ public static class ExecGuide
     delimiter with same-line content, closing delimiter not starting its own line). In a batch
     that must not continue past a failure, wrap with Tools.Require:
 
-        var r = Tools.Require(Tools.Invoke("todo", new { timeoutSeconds = 30, action = "Add", description = "x" }));
+        var r = Tools.Require(Tools.Invoke("state.set", new { timeoutSeconds = 30, key = "current/head", value = "done" }));
         // Require throws on any 'Error [' result; without it, branch on r yourself.
 
     ### Running external commands

@@ -77,6 +77,8 @@ public sealed class CuratedMemoryRemovalMigrationTests : IDisposable
         "VALUES",
         "    ('row-1', 'ws-demo', 'Convention', '[]', 'a stale curated note', NULL, 'Workspace', NULL, 1, 't', 't');",
         "PRAGMA user_version = 17;");
+    // A V17 database still carried plan_steps.todo_id, which V24 drops.
+    LegacyPlanStepsShape.Restore(connection);
 #pragma warning restore CA2100
     _ = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
   }

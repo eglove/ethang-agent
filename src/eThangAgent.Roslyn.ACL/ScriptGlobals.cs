@@ -909,7 +909,6 @@ public sealed class ScriptTools
   public string db_schema(object? args = null) => Invoke("db_schema", args);
   public string db_query(object? args = null) => Invoke("db_query", args);
   public string sqlite_query(object? args = null) => Invoke("sqlite_query", args);
-  public string todo(object? args = null) => Invoke("todo", args);
   public string context_edit(object? args = null) => Invoke("context_edit", args);
   public string cycle_check(object? args = null) => Invoke("cycle_check", args);
   public string skill_list(object? args = null) => Invoke("skill_list", args);
