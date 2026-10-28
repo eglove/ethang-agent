@@ -10,7 +10,8 @@ namespace eThangAgent.OpenRouter.ACL;
 
 public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration config,
     Func<TimeSpan, CancellationToken, Task>? delay = null,
-    Func<double>? jitter = null) : IModelProvider
+    Func<double>? jitter = null,
+    IModelCatalog? catalog = null) : IModelProvider
 {
   private const string ProviderError = "ProviderError";
   private const string ContextWindowExceeded = "ContextWindowExceeded";
@@ -43,6 +44,11 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   private readonly OpenRouterConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
   private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((span, token) => Task.Delay(span, token));
   private readonly Func<double> _jitter = jitter ?? Random.Shared.NextDouble;
+
+  /// <summary>The catalog the Cache Floor order is computed from, or null when the caller wired
+  ///     none. OPTIONAL ON PURPOSE: the variant then degrades to the provider's own routing
+  ///     instead of failing a turn over a missing seam.</summary>
+  private readonly IModelCatalog? _catalog = catalog;
 
   public async Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
   {
@@ -84,7 +90,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   {
     try
     {
-      Result<Dictionary<string, object?>> built = BuildBodyOrFail(config, request, stream: false);
+      Result<Dictionary<string, object?>> built = await BuildBodyOrFailAsync(config, request, stream: false, ct).ConfigureAwait(false);
       if (!built.IsSuccess)
       {
         return AttemptOutcome.Final(Result.Failure<ModelResponse>(built.Error));
@@ -166,7 +172,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   {
     try
     {
-      Result<Dictionary<string, object?>> built = BuildBodyOrFail(config, request, stream: true);
+      Result<Dictionary<string, object?>> built = await BuildBodyOrFailAsync(config, request, stream: true, ct).ConfigureAwait(false);
       if (!built.IsSuccess)
       {
         return AttemptOutcome.Final(Result.Failure<ModelResponse>(built.Error));
@@ -209,14 +215,12 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
   }
 
-  /// <summary>Builds the request body and returns the failure when it cannot be built;
-  ///     the successful body is handed back so the CALLER constructs the
+  /// <summary>Builds the request body and returns the failure when it cannot be built; the
+  ///     successful body is handed back so the CALLER constructs the
   ///     <see cref="HttpRequestMessage"/> and owns its disposal.</summary>
-  private static Result<Dictionary<string, object?>> BuildBodyOrFail(ModelConfig config, ModelRequest request, bool stream)
-  {
-    Result<Dictionary<string, object?>> built = BuildRequestBody(config, request, stream);
-    return built;
-  }
+  private Task<Result<Dictionary<string, object?>>> BuildBodyOrFailAsync(ModelConfig config,
+      ModelRequest request, bool stream, CancellationToken ct)
+      => BuildRequestBodyAsync(config, request, stream, ct);
 
   /// <summary>Creates the outbound request for a built body. The caller owns the
   ///     returned instance and disposes it (its using statement).</summary>
@@ -230,12 +234,13 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     return httpRequest;
   }
 
-  /// <summary>Builds the responses-API body dictionary: the base fields, the system
-  ///     prompt and session id when present, the sampling knobs, then the OR-side
-  ///     provider settings. Every named failure (session id too long, malformed
-  ///     settings, malformed stop conditions) surfaces through the Result contract
-  ///     unchanged from the pre-extraction behavior.</summary>
-  private static Result<Dictionary<string, object?>> BuildRequestBody(ModelConfig config, ModelRequest request, bool stream)
+  /// <summary>Builds the responses-API body dictionary: the base fields, the system prompt and
+  ///     session id when present, the sampling knobs, the OR-side provider settings, then the
+  ///     Cache Floor order when that variant was chosen. Every named failure (session id too
+  ///     long, malformed settings, malformed stop conditions) surfaces through the Result
+  ///     contract unchanged from the pre-extraction behavior.</summary>
+  private async Task<Result<Dictionary<string, object?>>> BuildRequestBodyAsync(ModelConfig config,
+      ModelRequest request, bool stream, CancellationToken ct)
   {
     Dictionary<string, object?> bodyDict = BaseBody(config, request);
     DomainError? fault = AttachSessionId(bodyDict, request);
@@ -252,21 +257,73 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       fault = ParseAndApplySettings(bodyDict, config, request);
     }
 
+    fault ??= await ApplyCacheFloorOrderAsync(bodyDict, config, ct).ConfigureAwait(false);
+
     return fault is { } failure
         ? Result.Failure<Dictionary<string, object?>>(failure)
         : Result.Success(bodyDict);
   }
 
+  /// <summary>Writes the Cache Floor order onto the body's <c>provider</c> object: the model's
+  ///     endpoints sorted by advertised cache-read price, cheapest first, with fallbacks
+  ///     allowed so an unavailable endpoint falls through instead of failing the turn.
+  ///     <para>WHY <c>order</c> AND NOT <c>only</c>: measured 2026-10-28, a stale slug in
+  ///     <c>only</c> fails the entire request ("No allowed providers are available for the
+  ///     selected model"), while <c>order</c> tolerates it and falls back. A routing variant
+  ///     must never make a model unservable.</para>
+  ///     <para>WHY NO <c>sort</c> KEY: the provider's sort enum is closed to
+  ///     price/throughput/latency/exacto and rejects anything else with HTTP 400, so an
+  ///     explicit order list is the only expressible form.</para>
+  ///     <para>DEGRADES TO NO PROVIDER BLOCK when the catalog is unwired, the read fails, or no
+  ///     endpoint advertises a cache-read price: an empty order would be a routing instruction
+  ///     that names nothing.</para></summary>
+  private async Task<DomainError?> ApplyCacheFloorOrderAsync(Dictionary<string, object?> bodyDict,
+      ModelConfig config, CancellationToken ct)
+  {
+    if (config.Variant != ModelVariant.CacheFloor || _catalog is null)
+    {
+      return null;
+    }
+
+    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
+    if (!entries.IsSuccess)
+    {
+      return null;
+    }
+
+    string baseModel = ModelVariants.BaseOf(config.ModelId);
+    IReadOnlyList<ModelProviderEntry> rows = [.. entries.Value.Where(e => e.ModelId == baseModel)];
+
+    // NO ADVERTISED CACHE-READ PRICE MEANS NO ORDER. Slugs deliberately RETAINS a row whose
+    // cache-read price is unknown and sorts it last (an unknown price is a fact about the
+    // endpoint, not a reason to hide it), so a non-empty list does NOT prove a price was
+    // advertised. An order naming only unpriced endpoints would be a routing instruction the
+    // catalog never justified, so the variant degrades to the provider's own routing instead.
+    if (!rows.Any(e => e.Variant.Slug is { Length: > 0 } && e.PromptCacheReadPricePerToken is >= 0m))
+    {
+      return null;
+    }
+
+    IReadOnlyList<string> slugs = CacheFloorOrder.Slugs(rows);
+    if (slugs.Count == 0)
+    {
+      return null;
+    }
+
+    bodyDict["provider"] = new Dictionary<string, object?>
+    {
+      ["order"] = slugs,
+      ["allow_fallbacks"] = true,
+    };
+    return null;
+  }
+
   /// <summary>Parses the provider settings and applies them to the body; a parse fault or a
   ///     malformed stop condition surfaces as the returned DomainError — never silently
   ///     dropped.
-  ///     <para>THERE IS NO PROVIDER BLOCK. The retired pin wrote
-  ///     <c>provider: { only: [...], allow_fallbacks: false }</c>, narrowing the request to
-  ///     one endpoint. Routing is now expressed entirely by the model id's VARIANT SUFFIX
-  ///     (<c>:nitro</c> / <c>:floor</c> / none), which sorts the whole eligible pool rather
-  ///     than restricting it — so a <c>provider</c> key here would OVERRIDE the user's chosen
-  ///     tradeoff instead of refining it, and the user would be billed for a tradeoff they did
-  ///     not pick.</para></summary>
+  ///     <para>Provider settings do not write a routing block. Standard, Nitro and Floor use
+  ///     the model id; Cache Floor's preference order is attached separately after settings
+  ///     validation, without the retired restrictive <c>only</c> pin.</para></summary>
   private static DomainError? ParseAndApplySettings(Dictionary<string, object?> bodyDict,
       ModelConfig config, ModelRequest request)
   {

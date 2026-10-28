@@ -1190,7 +1190,8 @@ public static class AgentComposition
       Providers.OpenRouter => services
           .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
               sp.GetRequiredService<OpenRouterConfiguration>(),
-              sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
+              sp.GetRequiredService<IModelCatalog>()))
           // Management API client (the 'openrouter_management' tool's seam): the SAME
           // named HttpClient (attribution + timeouts) and the SAME configuration - the
           // management key rides OpenRouterConfiguration.ManagementKey.
