@@ -660,11 +660,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
             ModelId: response.ServedModelId ?? Config.ModelId,
             RequestedModelId: Config.ModelId, ServedModelId: response.ServedModelId,
             DurationMs: timing.DurationMs, FirstTokenMs: timing.FirstTokenMs,
-            ServedProvider: response.ServedProvider))
+            ServedProvider: response.ServedProvider, ReportedCost: usage.ReportedCost, ExpectsReportedCost: true,
+            ServedServiceTier: response.ServedServiceTier))
         : AgentUsageRecorded.Create(Id, at, state.TurnId, state.Iteration, usage,
             new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.PricingProvider,
                 await ResolvePricesAsync(response, usage).ConfigureAwait(false),
-                Config.ModelId, response.ServedModelId, timing, response.ServedProvider));
+                Config.ModelId, response.ServedModelId, timing, response.ServedProvider, response.ServedServiceTier));
   }
 
   /// <summary>The three prices to stamp on this call's row: the catalog's current prices

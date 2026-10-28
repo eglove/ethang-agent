@@ -34,7 +34,7 @@ public class SessionCostStatusTests
     status.AddUsage(Row(1000, 100, 900, 0.000002m, 0.0000002m, 0.000004m));
 
     // 100 x 0.000002 + 900 x 0.0000002 + 100 x 0.000004 = 0.00078.
-    Assert.Equal("$0.0008", status.CostDisplay);
+    Assert.Equal("~$0.0008", status.CostDisplay);
     Assert.Contains("1 call(s)", status.CostBreakdownText, StringComparison.Ordinal);
     Assert.DoesNotContain("unpriced", status.CostBreakdownText, StringComparison.Ordinal);
   }
@@ -61,7 +61,7 @@ public class SessionCostStatusTests
     status.AddUsage(Row(1000, 100, 900, 0.000002m, 0.0000002m, 0.000004m));
     status.AddUsage(Row(4000, 400, null, null, null, null));
 
-    Assert.Equal("$0.0008", status.CostDisplay);
+    Assert.Equal("~$0.0008", status.CostDisplay);
     Assert.Contains("1 unpriced call(s) not included", status.CostBreakdownText,
         StringComparison.Ordinal);
   }
@@ -88,8 +88,25 @@ public class SessionCostStatusTests
 
     status.AddUsage(Row(1000, 100, 900, 0.000002m, 0.0000002m, 0.000004m));
 
-    Assert.Equal("$0.0013", status.CostDisplay);
+    Assert.Equal("~$0.0013", status.CostDisplay);
     Assert.Contains("3 call(s)", status.CostBreakdownText, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ReportedCharge_IsNotAnEstimate()
+  {
+    StatusViewModel status = new("OpenRouter", "m", "Model default");
+    status.AddUsage(Row(100, 10, null, 0.1m, null, 0.1m) with { ReportedCost = 0.125m, ExpectsReportedCost = true });
+    Assert.Equal("$0.1250", status.CostDisplay);
+    Assert.DoesNotContain("estimated", status.CostBreakdownText, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void MissingReportedCharge_DoesNotUseCatalogEstimate()
+  {
+    StatusViewModel status = new("OpenRouter", "m", "Model default");
+    status.AddUsage(Row(100, 10, null, 0.1m, null, 0.1m) with { ExpectsReportedCost = true });
+    Assert.Equal("110 tok", status.CostDisplay);
   }
 
   [Fact]

@@ -1,7 +1,8 @@
 namespace eThangAgent.ModelDomain;
 
-/// <summary>The ledger's ONE cost formula (issue #24, parent decision 5), applied to the
-///     prices a row stamped at write time:
+/// <summary>Returns a provider-reported charge when available. New rows with no charge are
+///     unpriced; legacy rows use the estimate below and are labeled by the tally. The estimate
+///     applies the prices a row stamped at write time:
 ///     <c>uncached_input x prompt_price + cached_input x cache_read_price
 ///     + output x completion_price</c>.
 ///     <para>WHY CACHED TOKENS GET THEIR OWN PRICE: the catalog publishes a cache-read
@@ -20,6 +21,15 @@ public static class UsageCost
   public static decimal? Of(UsageRow row)
   {
     ArgumentNullException.ThrowIfNull(row);
+    if (row.ReportedCost is >= 0m)
+    {
+      return row.ReportedCost;
+    }
+
+    if (row.ExpectsReportedCost == true)
+    {
+      return null;
+    }
     // A provider's input count INCLUDES its cached share, so the uncached share is the
     // difference. A report claiming more cached than input tokens is nonsense; clamping
     // to zero keeps the arithmetic defined without inventing a negative charge.

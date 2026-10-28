@@ -19,8 +19,8 @@ public sealed record UsagePrices(decimal? PromptPricePerToken, decimal? PromptCa
 ///     catalog serves one row per ROUTABLE ENDPOINT of a model, all sharing the model id, so a
 ///     model id alone identifies the price table. The routing variant (<c>:nitro</c> /
 ///     <c>:floor</c>) is a SUFFIX on that id and is stripped before this call, because it names
-///     a routing intent rather than a different model — the prices that apply are the served
-///     endpoint's, which the response itself reports.</para></summary>
+///     a routing intent rather than a different model. These are catalog reference prices,
+///     not proof of the price actually charged; the response's reported cost is authoritative.</para></summary>
 public interface IUsagePriceSource
 {
   /// <remarks><c>promptTokens</c> is the call's PROMPT SIZE, which decides which rung of a

@@ -221,16 +221,20 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     // A priced session shows money; an unpriced one shows the tokens it did measure. The
     // two are never mixed into one number, because a partial cost presented as the total
     // is exactly the overstatement/understatement the ledger's null rules exist to avoid.
+    string estimatePrefix = totals.EstimatedCalls > 0 || totals.UnpricedCalls > 0 ? "~" : "";
     CostDisplay = totals.Cost is { } cost
-        ? FormatCost(cost)
+        ? estimatePrefix + FormatCost(cost)
         : $"{FormatTokens((int)Math.Min(totals.TotalTokens, int.MaxValue))} tok";
     string unpriced = totals.UnpricedCalls > 0
         ? $" · {totals.UnpricedCalls} unpriced call(s) not included"
         : "";
+    string estimates = totals.EstimatedCalls > 0
+        ? $" · {totals.EstimatedCalls} estimated call(s)"
+        : "";
     CostBreakdownText = $"{FormatTokens((int)Math.Min(totals.TotalTokens, int.MaxValue))} tokens "
         + $"({FormatTokens((int)Math.Min(totals.InputTokens, int.MaxValue))} in · "
         + $"{FormatTokens((int)Math.Min(totals.OutputTokens, int.MaxValue))} out) · "
-        + $"{totals.Calls} call(s){unpriced}";
+        + $"{totals.Calls} call(s){unpriced}{estimates}";
   }
 
   /// <summary>Formats a cost: cents and below keep four decimals so a single cheap call is

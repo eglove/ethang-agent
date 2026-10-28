@@ -39,7 +39,7 @@ public class ChildHostRootUsageTests
     // a `usage` event on the wire whose payload parses to the row the loop recorded.
     RecordingEventLog log = new();
     using ScriptedRootHost host = ScriptedRootHost.Start("the answer", ["the answer"],
-        options: new ScriptedOptions(Usage: new TokenUsage(1_500, 40, 1_200),
+        options: new ScriptedOptions(Usage: new TokenUsage(1_500, 40, 1_200, ReportedCost: 0.125m),
             EventLog: log,
             UsagePrices: new FixedPriceSource(new UsagePrices(0.000002m, 0.0000002m, 0.000004m))));
     List<RootTurnEvent> events = [];
@@ -55,6 +55,7 @@ public class ChildHostRootUsageTests
     Assert.Equal(1_200, payload.CachedInputTokens);
     Assert.Equal("scripted/model", payload.ModelId);
     Assert.Equal(0.000002m, payload.PromptPricePerToken);
+    Assert.Equal(0.125m, payload.ToRow().ReportedCost);
     Assert.Equal("turn-usage", usageEvent.TurnId);
     // The emitted row is the row that was PERSISTED: the displayed total can never count a
     // call the ledger dropped.

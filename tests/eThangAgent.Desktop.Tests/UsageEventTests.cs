@@ -31,7 +31,7 @@ public class UsageEventTests
 
     await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
 
-    Assert.Equal("$0.0008", session.ViewModel.Status.CostDisplay);
+    Assert.Equal("~$0.0008", session.ViewModel.Status.CostDisplay);
   }
 
   [Fact]

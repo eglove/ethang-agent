@@ -44,6 +44,8 @@ namespace eThangAgent.ModelDomain;
 ///     null when it named none (issue #292). Distinct from <paramref name="Provider"/>, which
 ///     is the provider whose PRICES were stamped: on this surface the wire names no serving
 ///     provider, so this is usually null while the priced provider is known.</param>
+/// <param name="ReportedCost">The charge reported by the response, or null when unavailable.</param>
+/// <param name="ExpectsReportedCost">True for records that require a reported charge; null for legacy estimated records.</param>
 public sealed record UsageRow(
     string CallClass,
     string? ModelId,
@@ -60,7 +62,9 @@ public sealed record UsageRow(
     string? ServedModelId = null,
     long? DurationMs = null,
     long? FirstTokenMs = null,
-    string? ServedProvider = null)
+    string? ServedProvider = null,
+    decimal? ReportedCost = null,
+    bool? ExpectsReportedCost = null)
 {
   /// <summary>True when this row's prices belong to the REQUESTED model because the
   ///     provider named no serving model (issue #290): the fallback, stated rather than
@@ -89,7 +93,8 @@ public sealed record UsageTotal(
     long ReasoningTokens,
     decimal? Cost,
     int PricedCalls,
-    int UnpricedCalls)
+    int UnpricedCalls,
+    int EstimatedCalls = 0)
 {
   /// <summary>Prompt plus completion tokens: what the group cost in throughput terms.</summary>
   public long TotalTokens => InputTokens + OutputTokens;

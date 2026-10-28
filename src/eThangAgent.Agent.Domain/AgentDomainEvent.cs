@@ -52,7 +52,8 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
     decimal? PromptPricePerToken = null, decimal? PromptCacheReadPricePerToken = null,
     decimal? CompletionPricePerToken = null, string? ModelId = null,
     string? RequestedModelId = null, string? ServedModelId = null,
-    long? DurationMs = null, long? FirstTokenMs = null, string? ServedProvider = null)
+    long? DurationMs = null, long? FirstTokenMs = null, string? ServedProvider = null,
+    decimal? ReportedCost = null, bool? ExpectsReportedCost = null, string? ServedServiceTier = null)
     : AgentDomainEvent(AgentId, OccurredAt)
 {
   /// <summary>The class this row belongs to, with the legacy rule applied: a null class
@@ -88,7 +89,7 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
             attribution.Prices.CompletionPricePerToken, attribution.ModelId,
             attribution.RequestedModelId, attribution.ServedModelId,
             attribution.Timing.DurationMs, attribution.Timing.FirstTokenMs,
-            attribution.ServedProvider));
+            attribution.ServedProvider, usage.ReportedCost, true, attribution.ServedServiceTier));
   }
 
   /// <summary>Projects this row onto the Model Domain's neutral read shape (issue #24), so
@@ -98,7 +99,7 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
   public UsageRow ToUsageRow() => new(EffectiveCallClass.WireName, ModelId, PricingProvider, WorkspaceId,
       InputTokens, OutputTokens, CachedInputTokens, ReasoningTokens,
       PromptPricePerToken, PromptCacheReadPricePerToken, CompletionPricePerToken,
-      RequestedModelId, ServedModelId, DurationMs, FirstTokenMs, ServedProvider);
+      RequestedModelId, ServedModelId, DurationMs, FirstTokenMs, ServedProvider, ReportedCost, ExpectsReportedCost);
   /// <summary>The name of the first negative count, or null when every count is sane.</summary>
   private static string? NegativeCount(TokenUsage usage) =>
       Counts(usage).FirstOrDefault(count => count.Value < 0).Key;
@@ -132,6 +133,7 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
 ///     (issue #292), or null when it named none — which, measured on this surface, is the
 ///     ordinary case. NEVER the requested pin: a request's intention is not a fact about
 ///     what served.</param>
+/// <param name="ServedServiceTier">The tier reported by the response, never inferred from the request.</param>
 /// <remarks>THE PRICING BASIS IS DERIVED, NOT PASSED (issue #290): <see cref="ModelId"/> is
 ///     <see cref="ServedModelId"/> when the provider named one, and <see cref="RequestedModelId"/>
 ///     only as the fallback. One derivation at the one write path keeps the per-model rollup
@@ -139,7 +141,7 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
 ///     is why the two source ids are the only model members a caller supplies.</remarks>
 public sealed record UsageAttribution(UsageCallClass CallClass, string? WorkspaceId, string? Provider,
     UsagePrices Prices, string? RequestedModelId = null, string? ServedModelId = null,
-    UsageTiming Timing = default, string? ServedProvider = null)
+    UsageTiming Timing = default, string? ServedProvider = null, string? ServedServiceTier = null)
 {
   /// <summary>The model whose prices were stamped and whose bucket the per-model rollup
   ///     groups on (issues #24, #290): the SERVED model when the provider named one, the

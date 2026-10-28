@@ -363,7 +363,10 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
           // written before it existed reads as unmeasured, never as zero.
           Long(root, "DurationMs"),
           Long(root, "FirstTokenMs"),
-          String(root, "ServedProvider"));
+          String(root, "ServedProvider"),
+          Decimal(root, "ReportedCost"),
+          root.TryGetProperty("ExpectsReportedCost", out JsonElement expects)
+              && expects.ValueKind is JsonValueKind.True or JsonValueKind.False ? expects.GetBoolean() : null);
     }
     catch (JsonException)
     {

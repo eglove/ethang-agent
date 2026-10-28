@@ -19,10 +19,11 @@ public sealed class UsageTally
   private decimal? _cost;
   private int _pricedCalls;
   private int _unpricedCalls;
+  private int _estimatedCalls;
 
   /// <summary>The accumulated totals.</summary>
   public UsageTotal Totals => new(_inputTokens, _outputTokens, _cachedInputTokens,
-      _reasoningTokens, _cost, _pricedCalls, _unpricedCalls);
+      _reasoningTokens, _cost, _pricedCalls, _unpricedCalls, _estimatedCalls);
 
   /// <summary>Replaces the accumulator with a persisted rollup (the tab-open seed).
   ///     Called before any turn runs, so no increment can be lost to it.</summary>
@@ -36,6 +37,7 @@ public sealed class UsageTally
     _cost = totals.Cost;
     _pricedCalls = totals.PricedCalls;
     _unpricedCalls = totals.UnpricedCalls;
+    _estimatedCalls = totals.EstimatedCalls;
   }
 
   /// <summary>Adds one recorded call. A row that cannot be priced contributes its tokens
@@ -51,6 +53,10 @@ public sealed class UsageTally
     {
       _cost = (_cost ?? 0m) + cost;
       _pricedCalls++;
+      if (row.ReportedCost is null)
+      {
+        _estimatedCalls++;
+      }
     }
     else
     {

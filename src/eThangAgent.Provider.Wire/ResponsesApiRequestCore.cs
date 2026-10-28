@@ -235,7 +235,10 @@ public static class ResponsesApiRequestCore
     int? cached = OptionalCount(u, "input_tokens_details", "cached_tokens");
     int? serverToolCalls = OptionalCount(u, "server_tool_use", "web_search_requests");
     int? reasoning = OptionalCount(u, "output_tokens_details", "reasoning_tokens");
-    return new TokenUsage(input, output, cached, serverToolCalls, reasoning);
+    decimal? cost = u.TryGetProperty("cost", out JsonElement costElement)
+        && costElement.ValueKind == JsonValueKind.Number
+        && costElement.TryGetDecimal(out decimal amount) && amount >= 0m ? amount : null;
+    return new TokenUsage(input, output, cached, serverToolCalls, reasoning, cost);
   }
 
   /// <summary>Reads the response object's <c>model</c> field — the model the provider
