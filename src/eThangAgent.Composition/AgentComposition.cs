@@ -441,6 +441,7 @@ public static class AgentComposition
         .AddSingleton<IPlanStore>(sp => new SqlitePlanStore(
             sp.GetRequiredService<AppDatabase>(),
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddChainServices()
         // The workbench's Plans view and a waiting parent agent both need to know a plan
         // moved (issue #8 follow-up). ONE subscribable serves both: the Plan Domain's
         // in-process events become PlanChangedEvent facts on the session's stream, which
@@ -477,6 +478,19 @@ public static class AgentComposition
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
             sp.GetRequiredService<AppDatabase>()));
+  }
+
+  /// <summary>The chain record (issue #300): the plan's SIBLING store and the application
+  ///     service over it. Same database, same workspace scoping, same CAS contract as the
+  ///     plan store - a different WRITER (the harness advancing a cursor), not a different
+  ///     persistence idiom.</summary>
+  private static IServiceCollection AddChainServices(this IServiceCollection wired)
+  {
+    return wired
+        .AddSingleton<IChainStore>(sp => new SqliteChainStore(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<ChainService>();
   }
 
   /// <summary>The composite skill catalog, its hot-reload watcher, the registry service and tools,

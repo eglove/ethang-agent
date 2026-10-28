@@ -62,7 +62,7 @@ public sealed class ProviderExclusionRemovalMigrationTests : IDisposable
     _ = new AppDatabase(_dbPath); // constructor migrates
 
     using SqliteConnection connection = Open();
-    Assert.Equal(22, Version(connection));
+    Assert.Equal(AppDatabase.LatestSchemaVersion, Version(connection));
     Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_exclusions';"));
     // Every earlier table and row is untouched.
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='app_preferences';"));
@@ -79,7 +79,7 @@ public sealed class ProviderExclusionRemovalMigrationTests : IDisposable
     _ = new AppDatabase(_dbPath); // reopen: no-op
 
     using SqliteConnection connection = Open();
-    Assert.Equal(22, Version(connection));
+    Assert.Equal(AppDatabase.LatestSchemaVersion, Version(connection));
     Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_exclusions';"));
   }
 
@@ -89,7 +89,7 @@ public sealed class ProviderExclusionRemovalMigrationTests : IDisposable
     _ = new AppDatabase(_dbPath);
 
     using SqliteConnection connection = Open();
-    Assert.Equal(22, Version(connection));
+    Assert.Equal(AppDatabase.LatestSchemaVersion, Version(connection));
     // V6 creates it and V22 drops it: a fresh database walks the same path an existing
     // one did and ends in the same place.
     Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_exclusions';"));

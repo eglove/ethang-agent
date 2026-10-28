@@ -94,6 +94,15 @@ public sealed class AppDatabase
     return connection;
   }
 
+  /// <summary>The schema version this build migrates a database TO: the version of the last
+  ///     entry in the migration table. Declared once so no surface has to re-derive it (the
+  ///     self-inspection tools report it, and the migration tests assert against it instead
+  ///     of a literal that every new migration would have to hunt down). <see cref="Migrate"/>
+  ///     refuses to run when it disagrees with the table, so adding a migration without
+  ///     updating this constant is a startup failure rather than a silently half-migrated
+  ///     database.</summary>
+  public const int LatestSchemaVersion = 23;
+
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
   ///     step so a partially-migrated database resumes at exactly the right step.</summary>
@@ -121,10 +130,19 @@ public sealed class AppDatabase
     (20, ApplyV20),
     (21, ApplyV21),
     (22, ApplyV22),
+    (23, ApplyV23),
   ];
 
   private void Migrate()
   {
+    // A programmer error, not an expected failure: the declared version and the table
+    // must agree, or a database would migrate to a version this build does not claim.
+    if (MigrationSteps[^1].Version != LatestSchemaVersion)
+    {
+      throw new InvalidOperationException(
+          $"the migration table ends at V{MigrationSteps[^1].Version} but LatestSchemaVersion is {LatestSchemaVersion}; update both in the same change.");
+    }
+
     using SqliteConnection connection = Open();
     foreach ((int version, Action<SqliteConnection> apply) in MigrationSteps)
     {
@@ -858,6 +876,58 @@ public sealed class AppDatabase
         DROP TABLE IF EXISTS curated_memories_fts;
         DROP INDEX IF EXISTS ix_curated_ws;
         DROP TABLE IF EXISTS curated_memories;
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V23 adds chains + chain_steps: the durable execution record the harness owns
+  ///     (issue #300). A chain is a SIBLING of the plan, not a field set on it - the plan's
+  ///     writer is a model judging what is done, the chain's writer is the harness advancing
+  ///     a cursor, and one table with two writers and one CAS version could not tell which
+  ///     refusal came from whom.
+  ///     <para>Both status columns carry CHECK constraints, following the V20/V21 precedent:
+  ///     the capability provider refuses bad input, but nothing stops a DIRECT writer (an
+  ///     exec script's SQL), and now SQLite itself refuses. The sets are exactly the domain's
+  ///     enums - a value outside them is a defect, never a forward-compatible unknown.</para>
+  ///     <para>chain_steps is keyed by (chain_id, position) and carries the EXECUTION facts:
+  ///     the assigned session, the attempt count, the outcome, the acting identity, and the
+  ///     claim clock <c>ChainClaimPolicy</c> reads. Titles and details are deliberately
+  ///     absent: the chain references the plan and never copies it.</para></summary>
+  private static void ApplyV23(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS chains (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id TEXT NOT NULL,
+            plan_id INTEGER NOT NULL,
+            plan_version INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('Running', 'Parked', 'Completed', 'Abandoned')),
+            park_reason TEXT,
+            parked_at_position INTEGER,
+            session_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            version INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_chains_ws ON chains (workspace_id, id);
+        CREATE INDEX IF NOT EXISTS ix_chains_plan ON chains (workspace_id, plan_id);
+        CREATE TABLE IF NOT EXISTS chain_steps (
+            chain_id INTEGER NOT NULL REFERENCES chains(id),
+            position INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('Pending', 'Running', 'Done', 'Failed', 'Skipped', 'Parked')),
+            session_id TEXT,
+            attempts INTEGER NOT NULL,
+            outcome TEXT,
+            actor TEXT NOT NULL,
+            claimed_at TEXT,
+            completed_at TEXT,
+            PRIMARY KEY (chain_id, position)
+        );
         """;
     using SqliteCommand command = connection.CreateCommand();
 #pragma warning disable CA2100
