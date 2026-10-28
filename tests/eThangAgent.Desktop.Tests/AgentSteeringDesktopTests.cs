@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
+using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 
@@ -120,6 +121,56 @@ public class AgentSteeringDesktopTests
 
   /// <summary>Issue #189 B4/B5: a refused post (full mailbox) renders a notice
   ///     naming the reason and produces NO user entry - nothing claims to be queued.</summary>
+  /// <summary>The user's reported scramble, driven through the SESSION surface rather than
+  ///     the transcript directly: a message typed mid-stream stays pinned at the bottom while
+  ///     the turn keeps streaming thoughts and running tools, and the turn's output lands
+  ///     ABOVE it in arrival order. Before the fix the tool cards appended BELOW the pinned
+  ///     echo while the next iteration's thoughts were inserted ABOVE it, so a later thought
+  ///     rendered above an earlier tool card.</summary>
+  [Fact]
+  public async Task MidStreamSteer_KeepsTurnOutputAboveThePinnedEcho_InArrivalOrder()
+  {
+    BoundedAgentMailbox inbox = new();
+    TestFixtures.ParkingRunner park = new();
+    (AgentSessionViewModel? vm, AgentId _, RecordingLifecycle _) =
+        Build(park.RunAsync, inbox, new TestFixtures.StubAgentRuntime());
+
+    Task turnTask = vm.SubmitAsync("first question");
+    await park.Started.ConfigureAwait(true);
+
+    // The turn streams a thought, then the user steers mid-stream.
+    await vm.ApplyUiStreamEventAsync(new UiStreamEvent.Reasoning("considering the config"));
+    _ = vm.SubmitAsync("also check the config");
+
+    // The turn keeps going: a tool call, its result, then the next iteration's thoughts.
+    await vm.ApplyUiStreamEventAsync(new UiStreamEvent.ToolCallEvent("read", /*lang=json,strict*/ "{\"path\":\"a.cs\"}"));
+    await vm.ApplyUiStreamEventAsync(new UiStreamEvent.ToolResultEvent("read", "12 lines", "1: first", false));
+    await vm.ApplyUiStreamEventAsync(new UiStreamEvent.Reasoning("now checking the next file"));
+    await vm.ApplyUiStreamEventAsync(new UiStreamEvent.Delta("more text"));
+
+    // The echo is still LAST and still pending - the model has not drained it.
+    UserMessageEntry pinned = Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[^1]);
+    Assert.True(pinned.Pending);
+    Assert.Equal("also check the config", pinned.Text);
+
+    // Everything above it is in ARRIVAL order: the tool call did not fall below the echo.
+    // The transcript always opens with the session's bootstrap context line, which is not
+    // turn output and is skipped here.
+    List<TranscriptEntry> above = [.. vm.Transcript.Entries.Skip(1).Take(vm.Transcript.Entries.Count - 2)];
+    _ = Assert.IsType<BootstrapEntry>(vm.Transcript.Entries[0]);
+    Assert.Collection(above,
+        e => Assert.Equal("first question", Assert.IsType<UserMessageEntry>(e).Text),
+        e => Assert.Equal("considering the config", Assert.IsType<ReasoningEntry>(e).Text),
+        e => Assert.Equal("read", Assert.IsType<ToolCallEntry>(e).Name),
+        e => Assert.Equal("read", Assert.IsType<ToolResultEntry>(e).Name),
+        e => Assert.Equal("now checking the next file", Assert.IsType<ReasoningEntry>(e).Text),
+        e => Assert.Equal("more text", Assert.IsType<AssistantTextEntry>(e).Text));
+
+    park.Release();
+    await turnTask.ConfigureAwait(true);
+    await vm.WaitForTurnAsync();
+  }
+
   [Fact]
   public async Task SteeringIntoFullInbox_ShowsRefusalNotice_AndNoUserEntry()
   {
