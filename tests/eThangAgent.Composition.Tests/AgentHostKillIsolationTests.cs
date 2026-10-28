@@ -33,11 +33,13 @@ public class AgentHostKillIsolationTests
       Guid agentB = Guid.NewGuid();
       RemoteHostSupervisor hostA = NewHost(agentA, root, settings, database);
       RemoteHostSupervisor hostB = NewHost(agentB, root, settings, database);
+      RemoteAgentRuntime runtimeA = new();
+      RemoteAgentRuntime runtimeB = new();
       try
       {
         // Attach both: this launches two REAL host processes and connects to each.
-        _ = await hostA.AttachAsync(new RemoteAgentRuntime(), ct).ConfigureAwait(true);
-        _ = await hostB.AttachAsync(new RemoteAgentRuntime(), ct).ConfigureAwait(true);
+        _ = await hostA.AttachAsync(runtimeA, ct).ConfigureAwait(true);
+        _ = await hostB.AttachAsync(runtimeB, ct).ConfigureAwait(true);
 
         int? pidA = hostA.HostProcessId;
         int? pidB = hostB.HostProcessId;
