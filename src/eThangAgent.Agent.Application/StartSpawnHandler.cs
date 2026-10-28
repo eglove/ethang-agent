@@ -216,9 +216,15 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     // knows the run actually began, and it owns the Queued -> Running transition. A
     // spawn parked at the concurrency boundary therefore never claims to be running, and
     // a reader can tell a parked child from a live one.
+    // The WORKSPACE stamp (issue #305 D5): the parent's own workspace, so orphan repair can
+    // SEE this row. A NULL-workspace child is skipped by OrphanRepairHandler's workspace
+    // filter on every session open, which is how 131 rows stayed Running with no run behind
+    // them. Inherited from the parent when it carries one, else the session workspace the
+    // handler was wired with — never left null when either is known.
     AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, modelConfig.ModelId,
         request.Label, request.TaskPrompt, DateTimeOffset.UtcNow, contract,
-        provider: _spawn.ProviderName) with
+        provider: _spawn.ProviderName,
+        workspaceId: parent.WorkspaceId ?? _spawn.WorkspaceRoot) with
     { Status = AgentStatus.Queued };
 
     Result<string> saved = await _store.SaveAsync(record, ct).ConfigureAwait(false);

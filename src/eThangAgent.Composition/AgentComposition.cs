@@ -1228,10 +1228,14 @@ public static class AgentComposition
   private static AgentRecord RootParentRecord(IServiceProvider sp)
   {
     AgentId? persisted = sp.GetRequiredService<RootSessionIdentity>().Id;
+    // The stand-in carries the session workspace for the same reason a real root row does
+    // (issue #305 D5): a child spawned from it INHERITS the stamp, and a child with no
+    // workspace is invisible to orphan repair.
     return AgentRecord.Spawned(
         persisted ?? AgentId.NewId(), null, 0,
         sp.GetRequiredService<ModelConfig>().ModelId, null,
-        "root session", DateTimeOffset.UtcNow);
+        "root session", DateTimeOffset.UtcNow,
+        workspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId);
   }
   /// <summary>Best-effort exec-path grant audit (R1.4): a denied dispatch lands as a
   ///     GrantViolation watchdog row; a failing write never blocks the denial.</summary>

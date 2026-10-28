@@ -32,9 +32,16 @@ public sealed record AgentRecord(
   /// <summary>Creates a freshly spawned child row. When a spawn contract is supplied it is
   ///     serialized into the Contract column so resume and audit see the agreement the run
   ///     started with. Attempts/Phase stay at their defaults: the RUNTIME writes them when it
-  ///     actually starts (or restarts) the run — records are born un-attempted (FR-L2).</summary>
-  public static AgentRecord Spawned(AgentId id, AgentId? parentId, int depth, string modelUsed, string? label, string taskPrompt, DateTimeOffset createdAt, SpawnContract? contract = null, string? provider = null)
-      => new(id, parentId, depth, AgentStatus.Running, null, modelUsed, label, taskPrompt, createdAt, null, null, Contract: SpawnContract.Encode(contract), Provider: provider ?? UnboundProvider);
+  ///     actually starts (or restarts) the run — records are born un-attempted (FR-L2).
+  ///     <para>THE WORKSPACE STAMP IS LOAD-BEARING (issue #305 D5). A child row that carries no
+  ///     workspace is INVISIBLE to orphan repair: <c>OrphanRepairHandler</c> filters
+  ///     <c>r.WorkspaceId == workspaceId</c>, so a NULL-workspace child is skipped on every
+  ///     session open, forever. Measured before this fix: 0 of 2,078 child rows carried a
+  ///     workspace, and 131 rows sat marked Running with <c>attempts = 0</c> and no run behind
+  ///     them. The stamp is therefore what makes repair structurally able to look, not a nicety
+  ///     for the Sessions catalog.</para></summary>
+  public static AgentRecord Spawned(AgentId id, AgentId? parentId, int depth, string modelUsed, string? label, string taskPrompt, DateTimeOffset createdAt, SpawnContract? contract = null, string? provider = null, string? workspaceId = null)
+      => new(id, parentId, depth, AgentStatus.Running, null, modelUsed, label, taskPrompt, createdAt, null, null, workspaceId, Contract: SpawnContract.Encode(contract), Provider: provider ?? UnboundProvider);
 
   /// <summary>Creates the persisted root session row: the host REPL conversation itself as an
   ///     ordinary depth-0 agent with no parent, Running from creation, bound to its workspace
