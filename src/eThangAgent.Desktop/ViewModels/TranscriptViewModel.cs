@@ -97,8 +97,8 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   {
     CloseOpen();
     ToolElapsedHandle elapsed = new(ToolElapsed.Format(0));
-    Entries.Add(new ToolCallEntry(name, arguments, elapsed));
-    _runningTool = (Entries.Count - 1, SecondsNow(), elapsed);
+    int index = Append(new ToolCallEntry(name, arguments, elapsed));
+    _runningTool = (index, SecondsNow(), elapsed);
   }
 
   public void AddToolResult(string name, string summary, string fullContent, bool isError, string? title = null,
@@ -107,13 +107,13 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     CloseOpen();
     double elapsed = _runningTool is { } running ? SecondsNow() - running.StartSeconds : 0;
     _runningTool = null;
-    Entries.Add(new ToolResultEntry(name, summary, fullContent, isError, ToolElapsed.Format(elapsed, isError), title, images));
+    _ = Append(new ToolResultEntry(name, summary, fullContent, isError, ToolElapsed.Format(elapsed, isError), title, images));
   }
 
   public void AddNotice(string text)
   {
     CloseOpen();
-    Entries.Add(new NoticeEntry(text));
+    _ = Append(new NoticeEntry(text));
   }
 
   /// <summary>Lands the session's bootstrap context entry — the transcript's first
@@ -121,7 +121,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   public void AddBootstrap(BootstrapEntry entry)
   {
     CloseOpen();
-    Entries.Add(entry);
+    _ = Append(entry);
   }
 
   /// <summary>Lands one system message the agent loop appended mid-turn (nudge,
@@ -130,7 +130,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   public void AddSystemMessage(string text)
   {
     CloseOpen();
-    Entries.Add(new SystemMessageEntry(text));
+    _ = Append(new SystemMessageEntry(text));
   }
 
   /// <summary>Echoes a ! command as the user typed it (before execution).
@@ -139,7 +139,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   public void AddCommandRun(string command)
   {
     CloseOpen();
-    Entries.Add(new CommandRunEntry(command));
+    _ = Append(new CommandRunEntry(command));
   }
 
   /// <summary>Lands one completed ! command's captured output: a bounded tail (the
@@ -153,7 +153,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
         : run.Output.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n').Split('\n');
     bool truncated = lines.Length > tailLines;
     string tail = truncated ? string.Join("\n", lines[^tailLines..]) : string.Join("\n", lines);
-    Entries.Add(new CommandResultEntry(run.Command, run.Id, run.ExitCode, run.TimedOut, tail, truncated));
+    _ = Append(new CommandResultEntry(run.Command, run.Id, run.ExitCode, run.TimedOut, tail, truncated));
   }
 
   public void EndIteration() => CloseOpen();
@@ -291,7 +291,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     }
 
     CloseOpen();
-    _openIndex = InsertEntry(new AssistantTextEntry(text, IsOpen: true));
+    _openIndex = Append(new AssistantTextEntry(text, IsOpen: true));
   }
 
   public void AppendReasoning(string text)
@@ -313,7 +313,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     StreamedTextNormalizer normalizer = new();
     normalizer.Append(text);
     _openReasoning = normalizer;
-    _openIndex = InsertEntry(new ReasoningEntry(normalizer.Text, IsOpen: true));
+    _openIndex = Append(new ReasoningEntry(normalizer.Text, IsOpen: true));
   }
 
   /// <summary>Abandons the running tool's timing at turn end: a call card left
@@ -338,11 +338,16 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     running.Elapsed.Display = ToolElapsed.Format(SecondsNow() - running.StartSeconds);
   }
 
-  /// <summary>Appends one entry, or inserts it BEFORE the first pending steering echo when
-  ///     one is pinned (issue #253 B3) - the pin is what keeps the echo at the bottom while
-  ///     the turn's own output keeps arriving above it. Returns the entry's index so the
-  ///     open-block bookkeeping stays correct either way.</summary>
-  private int InsertEntry(TranscriptEntry entry)
+  /// <summary>Appends one entry in arrival order, or inserts it BEFORE the first pending
+  ///     steering echo when one is pinned (issue #253 B3). THE PIN IS THE INVARIANT: while a
+  ///     steering echo is pending it stays the LAST entry, so EVERY append - streamed text
+  ///     and reasoning AND structural entries (tool calls, tool results, notices, system
+  ///     lines, command echoes and their output) - lands above it. Honoring the pin for text
+  ///     alone split the transcript in two: a tool call appended AFTER the echo while the
+  ///     next iteration's thoughts were inserted BEFORE it, so every later thought rendered
+  ///     above an earlier tool card. Returns the entry's index so open-block and
+  ///     running-tool bookkeeping stay correct either way.</summary>
+  private int Append(TranscriptEntry entry)
   {
     int pending = Entries.ToList().FindIndex(e => e is UserMessageEntry { Pending: true });
     if (pending < 0)

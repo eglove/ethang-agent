@@ -132,10 +132,19 @@ public class AgentSteeringDesktopTests
     _ = vm.SubmitAsync("queued once");   // accepted: 1/1
     _ = vm.SubmitAsync("overflow message"); // refused: full
 
-    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
-    Assert.Contains("Error [MailboxFull]", notice.Text, StringComparison.Ordinal);
+    // The refusal lands ABOVE the pinned echo, not at the end: while a steering echo is
+    // pending it stays the transcript's LAST entry so the turn's own output flows above it
+    // (issue #253 B3's pin invariant). The contract asserted here is the one the issue
+    // states - the refusal is VISIBLE and nothing claims the refused text was queued - so
+    // the assertion finds the notice wherever the pin put it instead of assuming the end.
+    NoticeEntry notice = Assert.Single(vm.Transcript.Entries.OfType<NoticeEntry>(),
+        e => e.Text.Contains("Error [MailboxFull]", StringComparison.Ordinal));
     Assert.Contains("not queued", notice.Text, StringComparison.Ordinal);
     Assert.DoesNotContain(vm.Transcript.Entries, e => e is UserMessageEntry u && u.Text == "overflow message");
+    // The accepted message is the one still pinned at the bottom.
+    UserMessageEntry pinned = Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[^1]);
+    Assert.True(pinned.Pending);
+    Assert.Equal("queued once", pinned.Text);
 
     park.Release();
     await turnTask.ConfigureAwait(true);
