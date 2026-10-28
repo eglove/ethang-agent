@@ -13,8 +13,8 @@ public static class ModelPreferencesOverlay
 {
   /// <summary>Applies the non-null preference knobs onto <paramref name="config"/>,
   ///     preserving every knob the preferences leave null.
-  ///     <para>THE ROUTING VARIANT IS APPLIED LAST, AFTER the model id is settled, because it
-  ///     is expressed as a suffix on that id. See <see cref="ApplyVariant"/>.</para></summary>
+  ///     <para>THE ROUTING VARIANT IS APPLIED LAST, AFTER the model id is settled, because
+  ///     part of its wire form is a suffix on that id. See <see cref="ApplyVariant"/>.</para></summary>
   public static ModelConfig Apply(ModelConfig config, SessionModelPreferences? prefs)
   {
     ArgumentNullException.ThrowIfNull(config);
@@ -23,12 +23,17 @@ public static class ModelPreferencesOverlay
         : ApplyVariant(OverlayMisc(OverlayPenalties(OverlayCore(config, prefs), prefs), prefs), prefs);
   }
 
-  /// <summary>Writes the session's routing variant onto the config's wire model id.
-  ///     <para>THE SUFFIX IS THE WHOLE ROUTING DECISION, so this is where a choice on the
-  ///     settings surface becomes the request the provider routes. <see
-  ///     cref="ModelVariants.ApplyTo"/> strips any existing suffix first, which is what makes
-  ///     switching back to Standard actually remove a previously written <c>:nitro</c> and
-  ///     what keeps a re-application from doubling the suffix.</para>
+  /// <summary>Carries the session's routing variant onto the config: the VARIANT FIELD plus
+  ///     the wire model id, which is only one of the variant's spellings.
+  ///     <para>THE FIELD IS THE DECISION AND THE SUFFIX IS ONE OF ITS WIRE FORMS. Three variants
+  ///     are expressed as a suffix on the model id; <see cref="ModelVariant.CacheFloor"/> has no
+  ///     documented suffix and travels on the request body as a provider order the ACL computes.
+  ///     Writing only the suffix would therefore drop a Cache Floor choice silently before the
+  ///     request was ever built, so the field is what survives that trip and the ACL reads it to
+  ///     decide whether a provider block is needed. <see cref="ModelVariants.ApplyTo"/> is
+  ///     <c>BaseOf + Suffix</c>, so it strips any existing suffix first and appends nothing for a
+  ///     suffixless variant - which is what makes switching back to Standard actually remove a
+  ///     previously written <c>:nitro</c> and what keeps a re-application from doubling it.</para>
   ///     <para>APPLIED ONLY WHEN A VARIANT WAS COMMITTED: with no preference the resolver's own
   ///     id passes through untouched, so a session that never opened the dropdown is
   ///     byte-identical to before this change.</para>
@@ -36,7 +41,7 @@ public static class ModelPreferencesOverlay
   ///     here resolve their model differently: the live-choice path has one in the preference,
   ///     and the SESSION-PIN path has only the persisted record while the preference carries
   ///     nothing but the variant. Gating on the preference's model would silently drop the
-  ///     tradeoff on every resumed session - the suffix would vanish from the wire while the
+  ///     tradeoff on every resumed session - the variant would vanish from the request while the
   ///     status line still named it.</para>
   ///     <para>A CHILD IS THE SAME RULE ON ITS OWN MODEL: the variant is a property of the
   ///     conversation, so a child config naming its own model gets that model's suffix rather
@@ -48,12 +53,12 @@ public static class ModelPreferencesOverlay
       return config;
     }
 
-    // A FULLY QUALIFIED CATALOG MODEL IS NEVER REROUTED BY A VARIANT. The catalog already
-    // names the exact endpoints the provider serves for such a model (the "variant" family of
-    // routing pseudo-models, whose ids must be taken literally), so appending a suffix would
-    // ask the provider to route on a model id that does not exist. The same guard protects any
-    // future id whose trailing colon means something other than routing.
-    return config with { ModelId = ModelVariants.ApplyTo(variant, config.ModelId) };
+    // THE VARIANT IS CARRIED AS A FIELD; the suffix is only one of its wire spellings.
+    // ApplyTo is BaseOf + Suffix, so a variant with no documented suffix (Cache Floor) strips
+    // any existing suffix and appends nothing - the base id. Nitro and Floor keep their
+    // documented suffixes so the provider's own sorting still applies to them. The ACL reads
+    // Variant to decide whether a provider block is needed.
+    return config with { ModelId = ModelVariants.ApplyTo(variant, config.ModelId), Variant = variant };
   }
 
   /// <summary>Core sampling knobs: temperature, max tokens, and the top-p/top-k

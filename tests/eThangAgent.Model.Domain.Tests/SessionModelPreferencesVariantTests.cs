@@ -100,4 +100,63 @@ public class SessionModelPreferencesVariantTests
 
     Assert.Equal("alpha/model:nitro", ModelPreferencesOverlay.Apply(Config("alpha/model:floor"), prefs).ModelId);
   }
+
+  [Fact]
+  public void ACacheFloorPreference_CarriesTheVariantAndLeavesTheModelIdBare()
+  {
+    SessionModelPreferences prefs = new()
+    {
+      ModelId = "alpha/model",
+      ModelVariant = ModelVariant.CacheFloor,
+    };
+
+    ModelConfig applied = ModelPreferencesOverlay.Apply(Config("alpha/model"), prefs);
+
+    Assert.Equal("alpha/model", applied.ModelId);
+    Assert.Equal(ModelVariant.CacheFloor, applied.Variant);
+  }
+
+  [Fact]
+  public void ACacheFloorPreference_StripsAPreviouslyWrittenSuffix()
+  {
+    // Switching from nitro to Cache Floor must not leave :nitro on the wire, which would keep
+    // routing on throughput while the dropdown reported a cache-read preference.
+    SessionModelPreferences prefs = new()
+    {
+      ModelId = "alpha/model",
+      ModelVariant = ModelVariant.CacheFloor,
+    };
+
+    Assert.Equal("alpha/model", ModelPreferencesOverlay.Apply(Config("alpha/model:nitro"), prefs).ModelId);
+  }
+
+  [Fact]
+  public void ANitroPreference_StillWritesTheSuffixAndCarriesTheVariant()
+  {
+    SessionModelPreferences prefs = new()
+    {
+      ModelId = "alpha/model",
+      ModelVariant = ModelVariant.Nitro,
+    };
+
+    ModelConfig applied = ModelPreferencesOverlay.Apply(Config("alpha/model"), prefs);
+
+    Assert.Equal("alpha/model:nitro", applied.ModelId);
+    Assert.Equal(ModelVariant.Nitro, applied.Variant);
+  }
+
+  [Fact]
+  public void AStandardPreference_CarriesStandardAndLeavesTheIdBare()
+  {
+    SessionModelPreferences prefs = new()
+    {
+      ModelId = "alpha/model",
+      ModelVariant = ModelVariant.Standard,
+    };
+
+    ModelConfig applied = ModelPreferencesOverlay.Apply(Config("alpha/model"), prefs);
+
+    Assert.Equal("alpha/model", applied.ModelId);
+    Assert.Equal(ModelVariant.Standard, applied.Variant);
+  }
 }

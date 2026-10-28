@@ -20,7 +20,8 @@ public sealed record ModelConfig(
     bool? ParallelToolCalls = null,
     string? ProviderSettings = null,
     bool AcceptsImageInput = false,
-    string? PricingProvider = null)
+    string? PricingProvider = null,
+    ModelVariant Variant = ModelVariant.Standard)
 {
   public static Result<ModelConfig> Create(
       string modelId,
@@ -40,7 +41,8 @@ public sealed record ModelConfig(
       bool? parallelToolCalls = null,
       string? providerSettings = null,
       bool acceptsImageInput = false,
-      string? pricingProvider = null)
+      string? pricingProvider = null,
+      ModelVariant variant = ModelVariant.Standard)
   {
     if (ValidateBasics(modelId, maxTokens) is { } basicsError)
     {
@@ -60,7 +62,7 @@ public sealed record ModelConfig(
     ModelConfig config = new(
         modelId, maxTokens, temperature, contextWindow, effort,
         topP, topK, frequencyPenalty, presencePenalty, repetitionPenalty, minP, topA,
-        seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput, pricingProvider);
+        seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput, pricingProvider, variant);
     return Result.Success(config);
   }
 
