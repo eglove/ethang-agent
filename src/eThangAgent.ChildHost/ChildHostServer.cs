@@ -227,12 +227,15 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // Enactment: the child's own container runtime owns the run's REAL cancellation
       // token — scoped interrupts must enact through it, not through the bookkeeping
       // CTS (whose cancellation only ends the settle WAIT, never the run).
-      _runtimes[command.RecordId] = host.Runtime;
+      _runtimes[command.RecordId] = host.LocalRunner;
 
-      // Route through the host's OWN runtime (not the raw spawner): children gain the
-      // host-side supervisors, budget ceilings, and mailbox lifecycle the app-side
-      // container enjoys. Start returns immediately (FR-L1); the settle is awaited.
-      Result<AgentId> started = await host.Runtime.Start(loaded.Value, CancellationToken.None).ConfigureAwait(false);
+      // Route through the host's LEAF EXECUTOR (issue #305 D1), not through host.Runtime: that
+      // seam LAUNCHES a host per agent, so using it here would launch a host for the agent this
+      // host already is — infinite recursion by construction. LocalRunner is the same runner
+      // every agent uses, so there is still one mechanism; the difference is only that this host
+      // is already the process for this agent. Children gain the host-side supervisors, budget
+      // ceilings, and mailbox lifecycle exactly as before. Start returns immediately (FR-L1).
+      Result<AgentId> started = await host.LocalRunner.Start(loaded.Value, CancellationToken.None).ConfigureAwait(false);
       if (!started.IsSuccess)
       {
         await SendAsync("error", JsonSerializer.Serialize(new HostError(command.RecordId, started.Error.Code,
@@ -254,7 +257,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // every event as a child-event envelope, so the panel, badge, and wake adapters
       // observe remote children exactly like in-process ones.
       AttachEventForwarder(host, loaded.Value.Id.Value);
-      Result<AgentRunOutcome> outcome = await host.Runtime.WhenSettledAsync(loaded.Value.Id, cts.Token).ConfigureAwait(false);
+      Result<AgentRunOutcome> outcome = await host.LocalRunner.WhenSettledAsync(loaded.Value.Id, cts.Token).ConfigureAwait(false);
       if (outcome.IsSuccess)
       {
         await SendAsync("settle", JsonSerializer.Serialize(new SettleNotice(command.RecordId,

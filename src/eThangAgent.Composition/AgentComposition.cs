@@ -1027,6 +1027,51 @@ public static class AgentComposition
           .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<InProcessAgentRuntime>());
   }
 
+  /// <summary>Registers the HOST's orchestration runtime (issue #305 D1/D2): the
+  ///     <see cref="IAgentRuntime"/> a conversation host resolves, which runs each agent in its
+  ///     OWN host process instead of sharing this one. PRODUCTION HOSTS CALL THIS —
+  ///     <c>SessionHost.Create</c> — because D1 retires the in-process child runtime as the
+  ///     orchestration mechanism rather than keeping two ways to run an agent. Test hosts that
+  ///     drive this composition without a ChildHost keep <see cref="AddInProcessAgentRuntime"/>.
+  ///     <para>The cap comes from <see cref="HostCapacity.ForMachine"/> over
+  ///     <see cref="IMachineResources"/> — a MEASUREMENT, never a setting (D2). A failed probe
+  ///     yields the floor and the host still runs one agent.</para>
+  ///     <para>Last registration wins, so call it AFTER <see cref="AddEThangAgentCore"/>; the
+  ///     root-turn channel is removed for the same reason <see cref="AddInProcessAgentRuntime"/>
+  ///     removes it — this container runs the turn locally.</para></summary>
+  public static IServiceCollection AddHostLaunchingAgentRuntime(this IServiceCollection services,
+      AgentSettings settings, string databasePath)
+  {
+    ArgumentNullException.ThrowIfNull(services);
+    ArgumentNullException.ThrowIfNull(settings);
+    ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+    _ = services.RemoveAll<IRootTurnChannel>();
+    return services
+        .AddSingleton(_ =>
+        {
+          // The machine probe is best-effort: an unreadable machine is a NAMED condition the
+          // cap reports by falling to its floor, never an exception that kills the host build.
+          Result<long> physical = new MachineResources().TotalPhysicalBytes();
+          int cap = HostCapacity.ForProbe(physical.IsSuccess, physical.IsSuccess ? physical.Value : 0);
+          return new HostAdmissionGate(cap);
+        })
+        .AddSingleton(sp =>
+        {
+          HostLaunchingRuntime runtime = new(
+              settings,
+              databasePath,
+              sp.GetRequiredService<HostAdmissionGate>(),
+              notice => sp.GetRequiredService<SessionNoticeSink>().Post(notice))
+          {
+            // Assigned after construction because the store is a sibling registration and the
+            // runtime must not capture a provider that may be disposed under it.
+            Store = sp.GetRequiredService<IAgentStore>(),
+          };
+          return runtime;
+        })
+        .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<HostLaunchingRuntime>());
+  }
+
   /// <summary>The out-of-process host supervisor and the wire runtime that IS this
   ///     container's <see cref="IAgentRuntime"/> (spec D6/D7): one supervisor per
   ///     conversation, keyed by the root session id, so two conversations in one workspace

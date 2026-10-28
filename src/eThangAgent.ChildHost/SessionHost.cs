@@ -1,6 +1,7 @@
 using System.Text.Json;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
@@ -18,11 +19,13 @@ namespace eThangAgent.ChildHost;
 public sealed class SessionHost
 {
   private SessionHost(IServiceProvider services, IAgentStore store, IAgentRuntime runtime,
-      ChildMailboxRegistry mailboxes, WatchdogSettings? watchdog, RootRunHost? rootRun)
+      InProcessAgentRuntime localRunner, ChildMailboxRegistry mailboxes, WatchdogSettings? watchdog,
+      RootRunHost? rootRun)
   {
     Services = services;
     Store = store;
     Runtime = runtime;
+    LocalRunner = localRunner;
     Mailboxes = mailboxes;
     Watchdog = watchdog;
     RootRun = rootRun;
@@ -32,7 +35,17 @@ public sealed class SessionHost
   ///     side does (heartbeat, event store, event stream, supervisor registry) from it.</summary>
   public IServiceProvider Services { get; }
   public IAgentStore Store { get; }
+
+  /// <summary>This container's orchestration runtime: it launches a HOST per agent (issue #305
+  ///     D1/D2), so a child started through it becomes its own process.</summary>
   public IAgentRuntime Runtime { get; }
+
+  /// <summary>The LEAF EXECUTOR for the one agent this host owns (issue #305 D1). The server runs
+  ///     a child through THIS rather than through <see cref="Runtime"/>, because <see cref="Runtime"/>
+  ///     launches a host: routing the agent this host already is back through it would recurse
+  ///     into launching a host for it. This is the same runner every agent uses — one way to run
+  ///     an agent, one mechanism — reached explicitly rather than through the orchestration seam.</summary>
+  public InProcessAgentRuntime LocalRunner { get; }
 
   /// <summary>The container's live-child mailbox registry — the delivery view the
   ///     server resolves 'deliver' envelopes through, so wire-delivered steering lands
@@ -89,11 +102,6 @@ public sealed class SessionHost
           $"host settings JSON is missing required member(s): {string.Join(", ", missing)}.");
     }
 
-    // The host ALWAYS runs the children it was handed in its OWN process: it is the
-    // bottom of the chain, and a second remote hop would have no supervisor to launch and
-    // fail every start HostUnavailable (observed: children stuck Running attempts=0
-    // forever). AddInProcessAgentRuntime below is what makes that explicit — the core
-    // composition wires the wire runtime for the app side.
     AgentSettings settings = deserialized;
 
     string providerName = Providers.OpenRouter;
@@ -129,6 +137,15 @@ public sealed class SessionHost
             // approved external roots must resolve here, not only in the app process.
             .AddSingleton(new ResolvedTrustedDirectories(
                 AgentComposition.ResolveTrustedDirectoriesFromSettings(settings)))
+            // ORCHESTRATION (issue #305 D1/D2): this host runs each agent in its OWN host
+            // process. The in-process runtime it used to register ran every child inside THIS
+            // process — one job object, one pipe, one scratch folder for all of them — which is
+            // the condition the direction exists to end. The leaf executor (LocalRunner below)
+            // is still the in-process runner: it runs the one agent this host owns, and every
+            // agent uses it, so there is one way to run an agent rather than two.
+            .AddHostLaunchingAgentRuntime(settings, databasePath)
+            // The LEAF executor, registered separately from the orchestration seam so the server
+            // can run this host's own agent without recursing into a host launch.
             .AddInProcessAgentRuntime(settings)
         .BuildServiceProvider();
 
@@ -142,6 +159,7 @@ public sealed class SessionHost
         services,
         services.GetRequiredService<IAgentStore>(),
         services.GetRequiredService<IAgentRuntime>(),
+        services.GetRequiredService<InProcessAgentRuntime>(),
         services.GetRequiredService<ChildMailboxRegistry>(),
         settings.Watchdog,
         BuildRootRun(services, settings.SessionId));
