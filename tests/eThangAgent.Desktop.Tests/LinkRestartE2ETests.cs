@@ -41,7 +41,7 @@ public class LinkRestartE2ETests
               Providers.OpenRouter,
               ModelConfig.Create(E2E.SessionModel, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
-                  new FixedWorkspaceContext("app"),
+                  FixedWorkspaceContext.ForPath("app"),
                   new UnrootedPathResolver()))
           .BuildServiceProvider();
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);

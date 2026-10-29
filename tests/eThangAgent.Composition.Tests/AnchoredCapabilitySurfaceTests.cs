@@ -19,7 +19,7 @@ public class AnchoredCapabilitySurfaceTests
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext(workspaceRoot), new UnrootedPathResolver()), db.Database)
+                FixedWorkspaceContext.ForPath(workspaceRoot), new UnrootedPathResolver()), db.Database)
         .BuildServiceProvider();
   }
 

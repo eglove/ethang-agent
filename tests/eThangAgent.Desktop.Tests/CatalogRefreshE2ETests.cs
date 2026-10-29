@@ -38,7 +38,7 @@ public class CatalogRefreshE2ETests
     AgentSettings settings = new(new OpenRouterSettings("test-key", server.BaseUrl), new SubAgentOptions(null, 1));
     using ServiceProvider services = new ServiceCollection().AddEThangAgentCore(settings, Providers.OpenRouter,
         ModelConfig.Create("openrouter/auto", 256, 0.2f, 200_000).Value!,
-        new AgentHostOptions(new FixedWorkspaceContext("test"), new UnrootedPathResolver()), database.Database).BuildServiceProvider();
+        new AgentHostOptions(FixedWorkspaceContext.ForPath("test"), new UnrootedPathResolver()), database.Database).BuildServiceProvider();
     AgentSession session = new(services, AgentId.NewId(), services.GetRequiredService<Conversation>(),
         services.GetRequiredService<SendMessageCommandHandler>(), services.GetRequiredService<RootSessionLifecycle>(),
         services.GetRequiredService<ModelConfig>(), Directory.GetCurrentDirectory(), Providers.OpenRouter,

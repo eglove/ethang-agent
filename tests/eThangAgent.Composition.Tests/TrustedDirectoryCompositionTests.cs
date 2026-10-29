@@ -203,7 +203,7 @@ public sealed class TrustedDirectoryCompositionTests
     return new ServiceCollection()
         .AddEThangAgentCore(Settings(), Providers.OpenRouter,
             ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(new FixedWorkspaceContext(workspace), new WorkspacePathResolver(workspace)),
+            new AgentHostOptions(FixedWorkspaceContext.ForPath(workspace), new WorkspacePathResolver(workspace)),
             db.Database)
         // The factory normally REPLACES this registration after reading the store; here
         // the stored value is supplied directly, which is the same seam and one

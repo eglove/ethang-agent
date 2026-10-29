@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 24;
+  public const int LatestSchemaVersion = 25;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -132,6 +132,7 @@ public sealed class AppDatabase
     (22, ApplyV22),
     (23, ApplyV23),
     (24, ApplyV24),
+    (25, ApplyV25),
   ];
 
   private void Migrate()
@@ -950,6 +951,66 @@ public sealed class AppDatabase
   ///     <para>V13/V20/V21 deliberately keep creating the column so a fresh database walks the
   ///     same path an existing one did (the V4/V18 and V22 precedents) and the two cannot
   ///     diverge.</para></summary>
+  /// <summary>V25 adds <c>workspace_identities</c>: the table that makes a workspace's
+  ///     <c>workspace_id</c> a STABLE IDENTITY rather than a directory path (issue #317 D5).
+  ///     <para>THE MIGRATION IS SMALL BECAUSE THE ID COLUMNS DO NOT CHANGE. Every scoped table
+  ///     already keys on an opaque string; what was wrong is that the string WAS the path, so
+  ///     <c>mv repo repo2</c> read as a brand-new workspace and orphaned everything. This table
+  ///     is the one place that maps an id to the path it currently lives at, so a move re-points
+  ///     ONE row and every plan, chain, state key, and session follows it with no row rewrites.
+  ///     </para>
+  ///     <para>The backfill is the honest one: every existing distinct <c>workspace_id</c> is
+  ///     bound to ITSELF as its root, because before #317 the id was the path. No record moves,
+  ///     no id is re-minted, and a workspace opened before this migration behaves exactly as it
+  ///     did - it simply now has a row saying where its id lives, which is what makes the next
+  ///     move detectable. <c>INSERT OR IGNORE</c> because several tables share one id.</para>
+  ///     <para>EACH BACKFILL IS CONDITIONAL ON ITS SOURCE TABLE EXISTING. A migration must run
+  ///     against every historical shape of this database, and a database stamped below the
+  ///     version that CREATED <c>state_keys</c> or <c>chains</c> does not have them yet - the
+  ///     unconditional form failed exactly there, on a legacy V7 fixture, with 'no such table'.
+  ///     Skipping an absent table loses nothing: it holds no rows to backfill.</para>
+  ///     <para><c>root</c> is UNIQUE: two identities must never claim one directory, or a copy
+  ///     would silently share the original's records (D6's whole point). <c>id</c> is the
+  ///     primary key for the same reason from the other side.</para></summary>
+  private static void ApplyV25(SqliteConnection connection)
+  {
+    Execute(connection, """
+        CREATE TABLE IF NOT EXISTS workspace_identities (
+            id       TEXT PRIMARY KEY,
+            root     TEXT NOT NULL UNIQUE,
+            bound_at TEXT NOT NULL
+        );
+        """);
+
+    foreach (string table in (string[])["plans", "chains", "state_keys", "agents"])
+    {
+      if (!TableExists(connection, table))
+      {
+        continue;
+      }
+
+      // Identifiers cannot be bound parameters; the list above is a call-site constant.
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+      Execute(connection, $"""
+          INSERT OR IGNORE INTO workspace_identities (id, root, bound_at)
+              SELECT DISTINCT workspace_id, workspace_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+              FROM {table} WHERE workspace_id IS NOT NULL AND workspace_id <> '';
+          """);
+#pragma warning restore CA2100 // Review SQL query for security vulnerabilities
+    }
+  }
+
+  /// <summary>True when the table exists in this database. A migration that backfills from a
+  ///     table must ask, because it also runs against databases stamped BELOW the version that
+  ///     created it.</summary>
+  private static bool TableExists(SqliteConnection connection, string table)
+  {
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@name;";
+    _ = command.Parameters.AddWithValue("@name", table);
+    return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+  }
+
   private static void ApplyV24(SqliteConnection connection)
   {
     Execute(connection, "PRAGMA foreign_keys = OFF;");

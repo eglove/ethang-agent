@@ -39,7 +39,7 @@ public class DesktopPipelineSmokeTests
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("mock/model", 256, 0.2f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("app"),
+                FixedWorkspaceContext.ForPath("app"),
                 new UnrootedPathResolver()), database.Database)
         // Spec D6: this test drives the REAL handler in this process, so it opts into the
         // in-process runtime explicitly (the same shape the E2E harness documents).

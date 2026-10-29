@@ -9,9 +9,13 @@ namespace eThangAgent.StateDomain.Tests;
 // made checkgoal report "The name 'dotnet' does not exist in the current context".
 public class CheckGoalCommandTests
 {
+  /// <summary>A workspace whose id IS its path - the pre-#317 shape, which is what a headless
+  ///     stub has (issue #317 D5 made the two separate facts on the real context).</summary>
   private sealed class StubWorkspace : IWorkspaceContext
   {
     public string WorkspaceId => "ws";
+
+    public string WorkspaceRoot => "ws";
   }
 
   /// <summary>Fails loudly if goal/check ever reaches the C# evidence runner again.</summary>

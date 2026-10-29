@@ -25,7 +25,7 @@ public sealed class ReadToolPathPolicyCompositionTests
           .AddEThangAgentCore(Settings(), Providers.OpenRouter,
               ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
               new AgentHostOptions(
-                  new FixedWorkspaceContext(Path.GetTempPath()), new WorkspacePathResolver(Path.GetTempPath())),
+                  FixedWorkspaceContext.ForPath(Path.GetTempPath()), new WorkspacePathResolver(Path.GetTempPath())),
               db.Database)
           .BuildServiceProvider();
 
@@ -61,7 +61,7 @@ public sealed class ReadToolPathPolicyCompositionTests
         .AddEThangAgentCore(Settings(), Providers.OpenRouter,
             ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext(Path.GetTempPath()), new WorkspacePathResolver(Path.GetTempPath())),
+                FixedWorkspaceContext.ForPath(Path.GetTempPath()), new WorkspacePathResolver(Path.GetTempPath())),
             db.Database)
         .BuildServiceProvider();
 

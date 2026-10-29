@@ -1594,6 +1594,10 @@ internal sealed partial class MainViewModel : ObservableObject
         id => sessionVmRef!.Status.ModelId = id,
         () => attachedTab);
     sessionVmRef = sessionVm;
+    // Notices from construction (issue #317 D5/D6): a workspace that moved or was copied is
+    // discovered before any sink existed. Deliver them now that one does - the user must learn
+    // why their chains are where they are, and a notice nobody delivered is a notice nobody saw.
+    session.DeliverPendingNotices();
 
     await RestorePinnedModelAsync(session, sessionVm);
     await RestoreSessionPreferencesAsync(session, sessionVm);

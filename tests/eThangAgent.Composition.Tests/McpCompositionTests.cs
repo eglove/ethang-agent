@@ -23,7 +23,7 @@ public class McpCompositionTests
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()), database)
+                FixedWorkspaceContext.ForPath("ws-mcp"), new UnrootedPathResolver()), database)
         .BuildServiceProvider();
   }
 
@@ -124,7 +124,7 @@ public class McpCompositionTests
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()), database)
+                FixedWorkspaceContext.ForPath("ws-mcp"), new UnrootedPathResolver()), database)
         .AddSingleton<ToolDomain.Mcp.IMcpServerStore>(store)
         .BuildServiceProvider();
   }

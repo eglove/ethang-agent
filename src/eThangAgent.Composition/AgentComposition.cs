@@ -124,7 +124,7 @@ public static class AgentComposition
         // a write by walking outward from the file's own directory, and the workspace root is
         // the anchor (the same identity seam state keys and plans scope to).
         .AddSingleton<ILineEndingPolicy>(sp =>
-            new EditorConfigLineEndingPolicy(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+            new EditorConfigLineEndingPolicy(sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
         .AddSingleton(sp => new DirectFileSystemAccess(sp.GetRequiredService<ILineEndingPolicy>()))
         .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<IFileSearchAccess, DirectFileSearchAccess>()
@@ -134,7 +134,7 @@ public static class AgentComposition
         // output is persisted into the workspace so the user can open it and the model can
         // read_image it later. Workspace-scoped like every other path-rooted seam.
         .AddSingleton<IServerToolImageStore>(sp => new ServerToolImageStore(
-            new WorkspacePathResolver(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
+            new WorkspacePathResolver(sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot),
             sp.GetRequiredService<IFileWriteAccess>()))
         .AddSingleton<DirectGitAccess>()
         .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
@@ -408,7 +408,7 @@ public static class AgentComposition
             sp.GetRequiredService<CompletionGate>(),
             sp.GetRequiredService<IStateService>(),
             () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
-                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
         .AddSingleton<ICommitCompletionNotice>(sp => new PlanCompletionGateCommitNotice(
             sp.GetRequiredService<IPlanCompletionGate>()))
         .AddSingleton<DirectShellAccess>()
@@ -418,7 +418,7 @@ public static class AgentComposition
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
 
         .AddSingleton(sp => new UserCommandRunner(
-            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
             sp.GetRequiredService<IShellCommandAccess>(),
             sp.GetRequiredService<ICommandRunStore>(),
             sp.GetRequiredService<Conversation>()))
@@ -439,6 +439,18 @@ public static class AgentComposition
             sp.GetRequiredService<AppDatabase>(),
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddChainServices()
+        // Workspace identity (issue #317 D5): the store that maps a stable id to the directory it
+        // currently lives at, and the marker-file resolver over it. Registered UNSCOPED on purpose
+        // - the identity table DEFINES the scopes, so binding it to one workspace would make it
+        // unable to answer the question it exists for.
+        .AddSingleton<IWorkspaceIdentityStore>(sp =>
+            new SqliteWorkspaceIdentityStore(sp.GetRequiredService<AppDatabase>()))
+        .AddSingleton<IWorkspaceIdentityResolver>(sp =>
+            new WorkspaceIdentityResolver(sp.GetRequiredService<IWorkspaceIdentityStore>()))
+        // The orphan check (issue #317 D7): a chain whose workspace directory is gone renders as
+        // ORPHANED rather than vanishing. The read crosses workspace boundaries by definition -
+        // that is the question - so it is its own read-only port, never a widening of IChainStore.
+        .AddChainOrphanServices()
         // The workbench's Plans view and a waiting parent agent both need to know a plan
         // moved (issue #8 follow-up). ONE subscribable serves both: the Plan Domain's
         // in-process events become PlanChangedEvent facts on the session's stream, which
@@ -485,6 +497,17 @@ public static class AgentComposition
             sp.GetRequiredService<AppDatabase>(),
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddSingleton<ChainService>();
+  }
+
+  /// <summary>The chain orphan check (issue #317 D7): a chain whose workspace directory is gone
+  ///     renders as ORPHANED rather than vanishing. The read crosses workspace boundaries by
+  ///     definition - that is the question it answers - so it is its own READ-ONLY port, never a
+  ///     widening of <see cref="IChainStore"/>, which is bound to one workspace on purpose.</summary>
+  private static IServiceCollection AddChainOrphanServices(this IServiceCollection wired)
+  {
+    return wired
+        .AddSingleton<IChainWorkspaceQuery, SqliteChainWorkspaceQuery>()
+        .AddSingleton<ChainOrphanQuery>();
   }
 
   /// <summary>The composite skill catalog, its hot-reload watcher, the registry service and tools,
@@ -679,7 +702,7 @@ public static class AgentComposition
                 Providers.FallbackModelId(providerName),
                 sp.GetRequiredService<SessionModelPreferences>(),
                 ChildToolSurface: ChildToolSurface(sp),
-                WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+                WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
                 ProviderName: providerName),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<IWorktreeProvisioner>(),
@@ -825,7 +848,7 @@ public static class AgentComposition
             // (T7), so its exec scripts resolve Workspace at the CHILD's anchor; the
             // session workspace is the fallback whenever no anchored run is ambient.
             () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
-                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
             // Verification sink (spec #24): every completed Shell run lands in the
             // session's ledger; resolved per execution like the workspace.
             () => sp.GetRequiredService<IVerificationLedger>(),
@@ -1085,7 +1108,11 @@ public static class AgentComposition
           .AddSingleton(sp => new RemoteHostSupervisor(
               ConversationIdOf(sp),
               Path.Combine(Path.GetTempPath(), "ethang-agent", RemoteHostSupervisor.ScratchFolderForConversation(ConversationIdOf(sp))),
-              settings.WithWorkspaceRoot(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
+              settings.WithWorkspaceRoot(sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot)
+                  // The IDENTITY rides beside the root (issue #317 D5): the host scopes its
+                  // durable rows to the id, and a host given only the path would fork a moved
+                  // workspace's records.
+                  .WithWorkspaceId(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
                   .WithSessionFiles(
                   sp.GetRequiredService<SessionFilesCarrier>().Global,
                   sp.GetRequiredService<SessionFilesCarrier>().Workspace)
@@ -1344,7 +1371,7 @@ public static class AgentComposition
   {
     Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>> status =
         sp.GetRequiredService<IGitCommitAccess>().StatusAsync(
-            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot)
             .GetAwaiter().GetResult();
     return status.IsSuccess ? status.Value : [];
   };
@@ -1371,7 +1398,7 @@ public static class AgentComposition
     yield return new AgentToolBinding(
         new ComputerTool(
             sp.GetRequiredService<IComputerAccessProvider>().ForWorkspace(
-                sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)!,
+                sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot)!,
             new SessionImageInputCapability(sp)),
         "Control the desktop (computer use): observe, click, type, and paste in apps.");
   }

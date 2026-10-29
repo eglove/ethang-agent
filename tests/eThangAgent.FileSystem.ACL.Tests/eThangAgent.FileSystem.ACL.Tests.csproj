@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../src/eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
+    <!-- The workspace-identity durability tests (issue #317) exercise the marker-file resolver
+         (FileSystem ACL) OVER the identity table (Storage ACL): a move is only recoverable if the
+         two agree, so the test that proves it needs both sides. -->
+    <ProjectReference Include="../../src/eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />
   </ItemGroup>
 </Project>

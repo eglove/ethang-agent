@@ -57,11 +57,19 @@ public class AgentSessionFactoryTests
           Assert.Equal(dirA.FullName, a.Value.WorkspaceRoot);
           Assert.Equal(dirB.FullName, b.Value.WorkspaceRoot);
 
-          // Each session's workspace context carries ITS OWN root path as identity.
+          // Each session's workspace context carries ITS OWN identity and root (issue #317 D5).
+          // The two are DIFFERENT facts now: the id is the stable scope every durable row keys
+          // on, the root is where that id currently lives. They used to be one value - the path -
+          // which is why a moved workspace orphaned everything.
           IWorkspaceContext ctxA = a.Value.Services.GetRequiredService<IWorkspaceContext>();
           IWorkspaceContext ctxB = b.Value.Services.GetRequiredService<IWorkspaceContext>();
-          Assert.Equal(dirA.FullName, ctxA.WorkspaceId);
-          Assert.Equal(dirB.FullName, ctxB.WorkspaceId);
+          Assert.Equal(dirA.FullName, ctxA.WorkspaceRoot);
+          Assert.Equal(dirB.FullName, ctxB.WorkspaceRoot);
+          Assert.NotEqual(ctxA.WorkspaceId, ctxB.WorkspaceId);
+
+          // The id is a STABLE identity, not the path: that is what makes a move recoverable.
+          Assert.NotEqual(dirA.FullName, ctxA.WorkspaceId);
+          Assert.StartsWith("ws-", ctxA.WorkspaceId, StringComparison.Ordinal);
 
           // Path resolution is jailed to each session's own root.
           IPathResolver resolver = a.Value.Services.GetRequiredService<IPathResolver>();

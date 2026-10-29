@@ -106,13 +106,18 @@ public sealed class SessionHost
 
     string providerName = Providers.OpenRouter;
     string workspace = ResolveWorkspace(settings.WorkspaceRoot, settingsJsonPath);
+    // The IDENTITY arrives beside the root (issue #317 D5): the app resolved it when the session
+    // opened, and the host scopes every durable row to it. Falling back to the path is the
+    // pre-#317 shape - correct for a workspace whose id IS its path, and the only honest answer
+    // when no identity was shipped.
+    string workspaceId = string.IsNullOrWhiteSpace(settings.WorkspaceId) ? workspace : settings.WorkspaceId;
     ModelConfig bootstrapModel = ModelConfig.Create(Providers.FallbackModelId(providerName), 32 * 1024, 0.7f, null, acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.FallbackModelId(providerName))).Value!;
 
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(
             settings, providerName, bootstrapModel,
             new AgentHostOptions(
-                new FixedWorkspaceContext(workspace),
+                new FixedWorkspaceContext(workspaceId, workspace),
                 new WorkspacePathResolver(workspace),
                 [new SessionFilesPromptProvider(workspace, settings.SessionFilesGlobal, settings.SessionFilesWorkspace)]),
             // The host is a GUEST in the app's database: the app owns the schema. A

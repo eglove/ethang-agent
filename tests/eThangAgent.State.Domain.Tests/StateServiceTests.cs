@@ -183,9 +183,13 @@ public class StateServiceTests
     _ = Assert.Single(result.Value);
   }
 
+  /// <summary>A workspace whose id IS its path - the pre-#317 shape, which is what a headless
+  ///     stub has (issue #317 D5 made the two separate facts on the real context).</summary>
   private sealed class StubWorkspace : IWorkspaceContext
   {
     public string WorkspaceId => "ws";
+
+    public string WorkspaceRoot => "ws";
   }
 
   private sealed class FakeRunner(Func<string, EvidenceResult>? respond = null) : IEvidenceRunner

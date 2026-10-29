@@ -33,7 +33,7 @@ public class ExecNativeInteropGateCompositionTests
           .AddEThangAgentCore(Settings(computerUse), Providers.OpenRouter,
               ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
               new AgentHostOptions(
-                  new FixedWorkspaceContext("ws"), new UnrootedPathResolver()))
+                  FixedWorkspaceContext.ForPath("ws"), new UnrootedPathResolver()))
           .BuildServiceProvider();
 
   /// <summary>The issue's exact reproduction: a script that declares user32 externs and

@@ -67,6 +67,33 @@ public sealed record AgentSession(
     }
   }
 
+  /// <summary>Notices produced while the session was being BUILT, before any sink existed
+  ///     (issue #317 D5/D6: a workspace that moved or was copied says so once, at open).
+  ///     <para>They cannot be posted at the moment they are discovered - the sink is attached by
+  ///     the host UI AFTER the session is constructed - so they are carried here and delivered by
+  ///     <see cref="DeliverPendingNotices"/> once a sink exists. A notice nobody delivered is a
+  ///     notice nobody saw, which for a moved workspace means the user never learns why their
+  ///     chains are where they are.</para></summary>
+  public IReadOnlyList<string> PendingNotices { get; internal set; } = [];
+
   /// <summary>Posts one out-of-band notice to the session surface.</summary>
   public void PostNotice(string message) => NoticeSink?.Invoke(message);
+
+  /// <summary>Delivers every notice held from construction, then clears the list so a second
+  ///     call cannot repeat them. Safe with no sink: the notices are KEPT (not dropped) so a
+  ///     later delivery still shows them.</summary>
+  public void DeliverPendingNotices()
+  {
+    if (NoticeSink is null || PendingNotices.Count == 0)
+    {
+      return;
+    }
+
+    foreach (string notice in PendingNotices)
+    {
+      NoticeSink(notice);
+    }
+
+    PendingNotices = [];
+  }
 }

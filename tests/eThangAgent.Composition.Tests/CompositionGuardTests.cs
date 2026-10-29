@@ -26,7 +26,7 @@ public class CompositionGuardTests
     .AddEThangAgentCore(settings, Providers.OpenRouter,
         ModelConfig.Create("root/model", 512, 0.5f, 8192).Value!,
         new AgentHostOptions(
-            new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
+            FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()), db.Database)
     .BuildServiceProvider();
 
     SubAgentOptions options = services.GetRequiredService<SubAgentOptions>();
@@ -37,10 +37,10 @@ public class CompositionGuardTests
   public static TheoryData<string, AgentHostOptions> BothHostShapes => new()
     {
         { "terminal-shaped", new AgentHostOptions(
-            new FixedWorkspaceContext(Path.GetFullPath(".")),
+            FixedWorkspaceContext.ForPath(Path.GetFullPath(".")),
             new WorkspacePathResolver(Path.GetFullPath("."))) },
         { "desktop-shaped", new AgentHostOptions(
-            new FixedWorkspaceContext("app"),
+            FixedWorkspaceContext.ForPath("app"),
             new UnrootedPathResolver()) },
     };
 
@@ -104,7 +104,7 @@ public class CompositionGuardTests
     .AddEThangAgentCore(Settings(), Providers.OpenRouter,
         ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
         new AgentHostOptions(
-            new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
+            FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()), db.Database)
     .BuildServiceProvider();
 
     AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
@@ -120,7 +120,7 @@ public class CompositionGuardTests
     .AddEThangAgentCore(Settings(), Providers.OpenRouter,
         ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
         new AgentHostOptions(
-            new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
+            FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()), db.Database)
     .BuildServiceProvider();
 
     Assert.NotNull(openRouterServices.GetRequiredService<RootAgentResolver>());
@@ -135,7 +135,7 @@ public class CompositionGuardTests
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database));
+                FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()), db.Database));
 
     InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
     Assert.Contains("API key", invalid.Message, StringComparison.Ordinal);
@@ -150,7 +150,7 @@ public class CompositionGuardTests
         .AddEThangAgentCore(settings, "anthropic",
             ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database));
+                FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()), db.Database));
 
     ArgumentException argument = Assert.IsType<ArgumentException>(ex);
     Assert.Contains("anthropic", argument.Message, StringComparison.Ordinal);
@@ -166,7 +166,7 @@ public class CompositionGuardTests
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(Settings(), Providers.OpenRouter,
             ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(new FixedWorkspaceContext("app"), new UnrootedPathResolver()),
+            new AgentHostOptions(FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()),
             db.Database)
         .BuildServiceProvider();
 

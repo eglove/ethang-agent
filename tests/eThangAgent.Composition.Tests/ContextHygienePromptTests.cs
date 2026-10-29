@@ -77,7 +77,7 @@ public class ContextHygienePromptTests
     // Pattern: HostPromptProviderCompositionTests - resolve the composite provider
     // from a built container and assert the composed prompt carries the guidance.
     using ServiceProvider services = BuildCore(new AgentHostOptions(
-        new FixedWorkspaceContext("app"),
+        FixedWorkspaceContext.ForPath("app"),
         new UnrootedPathResolver()));
 
     string prompt = services.GetRequiredService<ISystemPromptProvider>().Build();

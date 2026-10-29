@@ -90,7 +90,7 @@ internal static class E2E
           .AddEThangAgentCore(settings, Providers.OpenRouter,
               ModelConfig.Create(SessionModel, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
-                  new FixedWorkspaceContext(workspaceContextId),
+                  FixedWorkspaceContext.ForPath(workspaceContextId),
                   new UnrootedPathResolver()))
           // Computer-use E2E: tests register their fake access provider here before the
           // container seals (the composition resolves the seam lazily at tool-binding time).

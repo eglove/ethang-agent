@@ -25,7 +25,7 @@ public class HostPromptProviderCompositionTests
   public void Extra_Providers_Are_Merged_Into_The_Composite_System_Prompt()
   {
     using ServiceProvider services = BuildCore(new AgentHostOptions(
-        new FixedWorkspaceContext("app"),
+        FixedWorkspaceContext.ForPath("app"),
         new UnrootedPathResolver(),
         [new StaticPromptProvider("EXTRA-PROMPT-MARKER-123")]));
 
@@ -38,7 +38,7 @@ public class HostPromptProviderCompositionTests
   public void Core_Providers_Precede_Frontend_Providers()
   {
     using ServiceProvider services = BuildCore(new AgentHostOptions(
-        new FixedWorkspaceContext("app"),
+        FixedWorkspaceContext.ForPath("app"),
         new UnrootedPathResolver(),
         [new StaticPromptProvider("FRONTEND-TAIL-MARKER")]));
 
@@ -54,7 +54,7 @@ public class HostPromptProviderCompositionTests
   public void Default_Options_Carry_No_Extra_Providers()
   {
     AgentHostOptions options = new(
-        new FixedWorkspaceContext("app"),
+        FixedWorkspaceContext.ForPath("app"),
         new UnrootedPathResolver());
 
     Assert.Empty(options.ExtraPromptProviders);

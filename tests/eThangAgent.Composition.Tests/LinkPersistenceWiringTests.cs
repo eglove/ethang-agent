@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
@@ -32,10 +33,13 @@ public class LinkPersistenceWiringTests : SessionOwningTest
     Assert.True(linked.IsSuccess);
 
     // A SECOND AppDatabase instance over the same file - the next session's path - sees
-    // the consented row: the write went through to the shared database.
+    // the consented row: the write went through to the shared database. The row is scoped to
+    // the workspace IDENTITY, not the directory (issue #317 D5): since a move must follow the
+    // workspace, the scope cannot be the path.
     string dbPath = Environment.GetEnvironmentVariable("ETHANG_AGENT_DB")!;
+    string workspaceId = session.Services.GetRequiredService<IWorkspaceContext>().WorkspaceId;
     SqliteLinkStore verify = new(new AppDatabase(dbPath));
-    StoredLink row = Assert.Single(verify.List(session.WorkspaceRoot).Value!);
+    StoredLink row = Assert.Single(verify.List(workspaceId).Value!);
     Assert.Equal("researcher", row.Name);
     Assert.Equal(target.ToString("D"), row.AgentAddress);
   }

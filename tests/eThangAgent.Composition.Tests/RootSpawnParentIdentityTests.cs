@@ -36,7 +36,7 @@ public class RootSpawnParentIdentityTests
     ServiceCollection services = new();
     _ = services.AddEThangAgentCore(settings, Providers.OpenRouter,
         ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
-        new AgentHostOptions(new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database);
+        new AgentHostOptions(FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()), db.Database);
     CapturingSpawnCommand capture = new();
     _ = services.AddSingleton<IAgentSpawnCommand>(capture); // last registration wins
     using ServiceProvider provider = services.BuildServiceProvider();

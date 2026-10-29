@@ -70,7 +70,7 @@ public class McpServersDialogWiringTests
     ServiceProvider services = new ServiceCollection()
         .AddSingleton<IMcpServerStore>(store)
         .AddSingleton<IMcpServerAccess>(access)
-        .AddSingleton<IWorkspaceContext>(new FixedWorkspaceContext("ws-demo"))
+        .AddSingleton<IWorkspaceContext>(FixedWorkspaceContext.ForPath("ws-demo"))
         .BuildServiceProvider();
     return new AgentSession(
         services,

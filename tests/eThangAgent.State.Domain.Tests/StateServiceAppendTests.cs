@@ -147,8 +147,12 @@ public class StateServiceAppendTests
         => Task.FromResult(new EvidenceResult(command, true, ""));
   }
 
+  /// <summary>A workspace whose id IS its path - the pre-#317 shape, which is what a headless
+  ///     stub has (issue #317 D5 made the two separate facts on the real context).</summary>
   private sealed class FixedWs(string id) : IWorkspaceContext
   {
     public string WorkspaceId { get; } = id;
+
+    public string WorkspaceRoot { get; } = id;
   }
 }

@@ -37,7 +37,8 @@ public sealed record AgentSettings(
     string? SkillDirectoriesWorkspace = null,
     string? SkillRegistryDefaultTarget = null,
     string? SessionId = null,
-    string? TrustedDirectories = null)
+    string? TrustedDirectories = null,
+    string? WorkspaceId = null)
 {
   // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
   // runs WatchdogOptions.Default. The value travels to the child host inside the
@@ -101,6 +102,18 @@ public sealed record AgentSettings(
   public AgentSettings WithWorkspaceRoot(string? workspaceRoot) => this with
   {
     WorkspaceRoot = workspaceRoot,
+  };
+
+  /// <summary>Returns the same settings bound to the workspace's STABLE IDENTITY (issue #317 D5).
+  ///     <para>The root alone is not enough for the host: since #317 the id is what every durable
+  ///     row keys on and the root is merely where that id currently lives, so a host that received
+  ///     only the path would scope its plans, chains, and state to the path - which is precisely
+  ///     the binding #317 removed, and it would silently fork a moved workspace's records.</para>
+  ///     <para>Stamped by the same supervisor that stamps <see cref="SessionId"/>; null means no
+  ///     identity was resolved, and the host then falls back to the path (the pre-#317 shape).</para></summary>
+  public AgentSettings WithWorkspaceId(string? workspaceId) => this with
+  {
+    WorkspaceId = workspaceId,
   };
 
   /// <summary>Returns the same settings bound to the root session the host serves (spec D6):
