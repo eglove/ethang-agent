@@ -507,7 +507,22 @@ public static class AgentComposition
             sp.GetRequiredService<ChainService>(),
             sp.GetRequiredService<PlanService>(),
             sp.GetRequiredService<IStateService>()))
-        .AddSingleton<ChainBriefService>();
+        .AddSingleton<ChainBriefService>()
+        // The plan-to-execution transition (issue #313): the plan port the creation action
+        // validates against, and the session-start port it launches step 1 through. The start
+        // port rides the SAME session-request channel new_session uses - the act is identical,
+        // and a second envelope kind would be a second codec for one behaviour.
+        .AddSingleton<IChainPlanSource>(sp => new CompositionChainPlanSource(
+            sp.GetRequiredService<PlanService>(),
+            sp.GetRequiredService<IWorkspaceContext>()))
+        .AddSingleton<IChainStartPort>(sp => new WireChainStartPort(
+            sp.GetRequiredService<NewSessionRequestChannel>()))
+        .AddSingleton(sp => new ChainCapabilityProvider(
+            sp.GetRequiredService<ChainService>(),
+            sp.GetRequiredService<IChainPlanSource>(),
+            sp.GetRequiredService<IChainStartPort>(),
+            () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
+            TimeProvider.System));
   }
 
   /// <summary>The chain orphan check (issue #317 D7): a chain whose workspace directory is gone
@@ -1366,7 +1381,8 @@ public static class AgentComposition
         .Concat(AgentCapabilityProvider.ActionNames)
         .Concat(sp.GetRequiredService<StateCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<PlanCapabilityProvider>().Actions.Select(a => a.Name))
-        .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name));
+        .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name))
+        .Concat(sp.GetRequiredService<ChainCapabilityProvider>().Actions.Select(a => a.Name));
     // GRANT DECISION (issue #234): a spawned child may NOT start sessions — a child has
     // no workspace identity of its own and a session launch is a shell-level act. The
     // tool stays root-only; a child's dispatch fails GrantViolation via the filtered
@@ -1432,6 +1448,7 @@ public static class AgentComposition
         sp.GetRequiredService<StateCapabilityProvider>(),
         sp.GetRequiredService<PlanCapabilityProvider>(),
         sp.GetRequiredService<MemoryCapabilityProvider>(),
+        sp.GetRequiredService<ChainCapabilityProvider>(),
   ];
 
   /// <summary>Child-agent options with the default-model fallback applied: when

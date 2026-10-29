@@ -20,13 +20,25 @@ public sealed record ChainStep(
   string? Outcome,
   ChainActor Actor,
   DateTimeOffset? ClaimedAt,
-  DateTimeOffset? CompletedAt)
+  DateTimeOffset? CompletedAt,
+  ChainStepRole Role)
 {
-  /// <summary>A fresh Pending step. The actor starts as the harness: nothing has run yet.</summary>
-  public static ChainStep Pending(int position)
+  /// <summary>A fresh Pending step with the IMPLEMENTER role (issue #313 D7): the default a
+  ///     step takes when nobody assigned one. Use the two-argument overload to assign a
+  ///     review step.</summary>
+  public static ChainStep Pending(int position) => Pending(position, ChainStepRole.Implement);
+
+  /// <summary>A fresh Pending step in <paramref name="role"/>. The actor starts as the
+  ///     harness: nothing has run yet.
+  ///     <para>THE ROLE IS PART OF THE RECORD, not a creation-time decoration: a resumed step
+  ///     must still know whether it is reviewing or implementing, and a restart reads the row
+  ///     rather than a caller's memory.</para></summary>
+  public static ChainStep Pending(int position, ChainStepRole role)
   {
     ArgumentOutOfRangeException.ThrowIfLessThan(position, 1);
-    return new ChainStep(position, ChainStepStatus.Pending, null, 0, null, ChainActor.Harness, null, null);
+    ArgumentNullException.ThrowIfNull(role);
+    return new ChainStep(position, ChainStepStatus.Pending, null, 0, null, ChainActor.Harness,
+        null, null, role);
   }
 
   /// <summary>True while this step's Running claim is still live. A Running step with NO

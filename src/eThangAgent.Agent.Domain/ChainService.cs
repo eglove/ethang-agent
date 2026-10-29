@@ -12,10 +12,26 @@ namespace eThangAgent.AgentDomain;
 /// <param name="Title">A human label for the chain, normally the plan's title.</param>
 /// <param name="SessionId">The session that created the chain, if any. The harness owns the
 ///     execution regardless — a creating session may close immediately.</param>
-/// <param name="StepPositions">The plan step positions this chain executes, in any order;
-///     the aggregate orders and de-duplicates them.</param>
+/// <param name="Steps">The steps this chain executes, in any order; the aggregate orders and
+///     de-duplicates them. Each names a plan position and the role assigned to the session
+///     that will run it (issue #313 D2).</param>
 public sealed record ChainCreation(string WorkspaceId, int PlanId, int PlanVersion, string Title,
-    string? SessionId, IReadOnlyList<int> StepPositions);
+    string? SessionId, IReadOnlyList<ChainStepSeed> Steps)
+{
+  /// <summary>The position-only shape: every step is an implementer step. Stated once so the
+  ///     many call sites that assign no role do not each re-derive the default.</summary>
+  /// <param name="workspaceId">The workspace the chain belongs to.</param>
+  /// <param name="planId">The plan the chain executes.</param>
+  /// <param name="planVersion">The plan version the chain starts at.</param>
+  /// <param name="title">A human label for the chain.</param>
+  /// <param name="sessionId">The session that created the chain, if any.</param>
+  /// <param name="stepPositions">The plan step positions this chain executes.</param>
+  public static ChainCreation Implementing(string workspaceId, int planId, int planVersion,
+      string title, string? sessionId, IReadOnlyList<int> stepPositions) =>
+      new(workspaceId, planId, planVersion, title, sessionId,
+          [.. (stepPositions ?? throw new ArgumentNullException(nameof(stepPositions)))
+              .Select(ChainStepSeed.Implementing)]);
+}
 
 /// <summary>
 /// Application service over <see cref="IChainStore"/>: builds chains, applies aggregate
@@ -47,8 +63,8 @@ public sealed class ChainService(IChainStore store)
     Chain chain;
     try
     {
-      chain = Chain.New(creation.WorkspaceId, creation.PlanId, creation.PlanVersion, creation.Title,
-          creation.SessionId, creation.StepPositions, now);
+      chain = Chain.NewFromSeeds(creation.WorkspaceId, creation.PlanId, creation.PlanVersion,
+          creation.Title, creation.SessionId, creation.Steps, now);
     }
     catch (ChainInputException ex)
     {

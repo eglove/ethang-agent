@@ -224,7 +224,7 @@ public sealed class SqliteChainStoreTests : IDisposable
     service.StepChanged += stepChanges.Add;
 
     Result<Chain> created = await service.CreateAsync(
-        new ChainCreation(Ws, 9, 2, "lifecycle", "session-root", [1]), T0,
+        ChainCreation.Implementing(Ws, 9, 2, "lifecycle", "session-root", [1]), T0,
         TestContext.Current.CancellationToken);
     Assert.True(created.IsSuccess, created.Error?.Message ?? "create must succeed");
 
@@ -253,7 +253,7 @@ public sealed class SqliteChainStoreTests : IDisposable
   {
     ChainService service = new(NewStore());
     Result<Chain> created = await service.CreateAsync(
-        new ChainCreation(Ws, 1, 1, "empty", null, []), T0, TestContext.Current.CancellationToken);
+        ChainCreation.Implementing(Ws, 1, 1, "empty", null, []), T0, TestContext.Current.CancellationToken);
 
     Assert.False(created.IsSuccess);
     Assert.Equal("InvalidTransition", created.Error.Code);
@@ -264,7 +264,7 @@ public sealed class SqliteChainStoreTests : IDisposable
   {
     ChainService service = new(NewStore());
     Chain chain = Must(await service.CreateAsync(
-        new ChainCreation(Ws, 1, 1, "t", null, [1, 2]), T0,
+        ChainCreation.Implementing(Ws, 1, 1, "t", null, [1, 2]), T0,
         TestContext.Current.CancellationToken));
 
     Result<Chain> completed = await service.SetStatusAsync(chain.Id, ChainStatus.Completed,

@@ -32,23 +32,63 @@ public sealed record Chain(
   int Version,
   IReadOnlyList<ChainStep> Steps)
 {
-  /// <summary>Creates a fresh Running chain with an unassigned id (0) and version 0.</summary>
+  /// <summary>Creates a fresh Running chain with an unassigned id (0) and version 0.
+  ///     <para>THE SEEDS ARE THE DECLARATION (issue #313 D2): each names a plan position and
+  ///     the role assigned to the session that will run it. A position-only overload exists
+  ///     for the many call sites that assign no role, and it means 'implement' - stated once,
+  ///     here, rather than at each of them.</para></summary>
   public static Chain New(string workspaceId, int planId, int planVersion, string title,
       string? sessionId, IReadOnlyList<int> stepPositions, DateTimeOffset now)
+      => NewFromSeeds(workspaceId, planId, planVersion, title, sessionId,
+          [.. (stepPositions ?? throw new ArgumentNullException(nameof(stepPositions)))
+              .Select(ChainStepSeed.Implementing)], now);
+
+  /// <summary>Creates a fresh Running chain from declared step seeds.
+  ///     <para>NAMED, NOT AN OVERLOAD. An overload differing from the position-only factory
+  ///     only by element type makes a collection expression ambiguous, and a caller reading
+  ///     <c>Chain.New(..., [1, 2], now)</c> against two signatures has to resolve it by
+  ///     inference. Two names say which one is meant.</para>
+  ///     <para>AN EMPTY CHAIN IS REFUSED (D10). A chain that immediately reports Completed is
+  ///     a lie about work that did not happen: a plan with no executable step is a plan
+  ///     defect, not a record. The refusal lives in the aggregate because it is a property of
+  ///     what a chain IS, not of one caller's validation.</para>
+  ///     <para>POSITIONS ARE ORDERED AND DEDUPLICATED, so the record's step order is the
+  ///     plan's order and a caller cannot state one position twice. A position that appears
+  ///     twice with DIFFERENT roles is a contradiction the aggregate refuses rather than
+  ///     silently resolving.</para></summary>
+  public static Chain NewFromSeeds(string workspaceId, int planId, int planVersion, string title,
+      string? sessionId, IReadOnlyList<ChainStepSeed> seeds, DateTimeOffset now)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
     ArgumentException.ThrowIfNullOrWhiteSpace(title);
     ArgumentOutOfRangeException.ThrowIfLessThan(planId, 1);
     ArgumentOutOfRangeException.ThrowIfLessThan(planVersion, 1);
-    ArgumentNullException.ThrowIfNull(stepPositions);
+    ArgumentNullException.ThrowIfNull(seeds);
 
-    List<int> positions = [.. stepPositions.Distinct().Order()];
-    // An empty chain that immediately reports Completed is a lie about work that did not
-    // happen (#313 D10). A chain with no executable step is a plan defect, not a record.
-    return positions.Count == 0
+    List<ChainStepSeed> ordered = [.. seeds
+        .OrderBy(seed => seed.Position)
+        .GroupBy(seed => seed.Position)
+        .Select(OneSeedPerPosition)];
+    return ordered.Count == 0
         ? throw new ChainInputException("a chain needs at least one executable step position.")
         : new Chain(0, workspaceId.Trim(), planId, planVersion, title.Trim(), ChainStatus.Running,
-            null, null, sessionId, now, now, 0, [.. positions.Select(ChainStep.Pending)]);
+            null, null, sessionId, now, now, 0,
+            [.. ordered.Select(seed => ChainStep.Pending(seed.Position, seed.Role))]);
+  }
+
+  /// <summary>One seed per position: a duplicate that agrees collapses to one, and a
+  ///     duplicate that DISAGREES is a contradiction - two roles for one step is a chain
+  ///     nobody can start correctly, so it is refused by name rather than resolved by
+  ///     ordering.</summary>
+  private static ChainStepSeed OneSeedPerPosition(IGrouping<int, ChainStepSeed> group)
+  {
+    ChainStepSeed first = group.First();
+    return group.All(seed => seed.Role == first.Role)
+      ? first
+      : throw new ChainInputException(
+          $"step position {first.Position} was declared with two different roles "
+          + $"({first.Role.Kind} and {group.First(seed => seed.Role != first.Role).Role.Kind}); "
+          + "a chain step has exactly one role.");
   }
 
   /// <summary>Moves the chain's status; the legal moves and the completion invariant live in

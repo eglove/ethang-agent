@@ -73,8 +73,22 @@ public sealed class NewSessionRequestChannel
   ///     <paramref name="requestId"/> must be unique per call.</summary>
   public Task<Result<string>> RequestAsync(string requestId, string prompt, string? handoffSummary,
       CancellationToken ct = default)
+      => RequestAsync(new SessionRequestPayload(requestId, prompt, handoffSummary), ct);
+
+  /// <summary>Emits one ALREADY-BUILT request and returns the Task that completes with the
+  ///     app's answer (issue #313). The overload exists because a chain launch carries a
+  ///     <see cref="SessionRequestPayload.ChainStep"/> assignment beside the prompt, and
+  ///     positional arguments cannot express an optional member without a second signature
+  ///     whose parameters would drift from the payload's.
+  ///     <para>Every contract of the positional overload holds unchanged: fails immediately
+  ///     with <c>SessionRequestUnreachable</c> when no turn is connected, and as
+  ///     <c>SessionRequestCancelled</c> when <paramref name="ct"/> cancels the wait.</para></summary>
+  /// <param name="payload">The request to carry; its RequestId must be unique per call.</param>
+  /// <param name="ct">Cancellation.</param>
+  public Task<Result<string>> RequestAsync(SessionRequestPayload payload, CancellationToken ct = default)
   {
-    ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
+    ArgumentNullException.ThrowIfNull(payload);
+    ArgumentException.ThrowIfNullOrWhiteSpace(payload.RequestId);
     Action<string>? emit;
     lock (_gate)
     {
@@ -92,12 +106,12 @@ public sealed class NewSessionRequestChannel
       }
 
       TaskCompletionSource<Result<string>> waiter = new(TaskCreationOptions.RunContinuationsAsynchronously);
-      _pending.Add(requestId, waiter);
+      _pending.Add(payload.RequestId, waiter);
       // The emission happens under the lock so a Disconnect racing this request cannot
       // strand it: either the emitter is captured and the request is pending BEFORE the
       // turn's finally runs FailAll, or the emitter is already null and the request
       // fails above.
-      emit(JsonSerializer.Serialize(new SessionRequestPayload(requestId, prompt, handoffSummary)));
+      emit(JsonSerializer.Serialize(payload));
       Task<Result<string>> pending = AwaitAnswered(waiter.Task, ct);
       return pending;
     }

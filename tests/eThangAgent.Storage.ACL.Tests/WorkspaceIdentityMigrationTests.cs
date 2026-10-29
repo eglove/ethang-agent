@@ -128,10 +128,13 @@ public sealed class WorkspaceIdentityMigrationTests : IDisposable
         "INSERT INTO workspace_identities (id, root, bound_at) VALUES ('ws-b', 'C:\\ws\\one', 'x');"));
   }
 
+  /// <summary>Asserts against the CONSTANT, never a literal: the declared version is the one
+  ///     place a new migration updates, and a test pinning the number instead would fail on
+  ///     every later migration for no reason while proving nothing about this one.</summary>
   [Fact]
-  public void SchemaVersion_IsTwentyFive()
+  public void SchemaVersion_MatchesTheDeclaredLatest()
   {
     _ = new AppDatabase(_dbPath);
-    Assert.Equal(25, Scalar<int>("PRAGMA user_version;"));
+    Assert.Equal(AppDatabase.LatestSchemaVersion, Scalar<int>("PRAGMA user_version;"));
   }
 }

@@ -277,8 +277,10 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     using SqliteCommand insert = connection.CreateCommand();
     insert.Transaction = transaction;
     insert.CommandText = """
-        INSERT INTO chain_steps (chain_id, position, status, session_id, attempts, outcome, actor, claimed_at, completed_at)
-        VALUES (@chainId, @position, @status, @session, @attempts, @outcome, @actor, @claimedAt, @completedAt);
+        INSERT INTO chain_steps (chain_id, position, status, session_id, attempts, outcome, actor,
+            claimed_at, completed_at, role, role_model)
+        VALUES (@chainId, @position, @status, @session, @attempts, @outcome, @actor, @claimedAt,
+            @completedAt, @role, @roleModel);
         """;
     Add(insert, "@chainId", chainId);
     Add(insert, "@position", step.Position);
@@ -289,6 +291,8 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     Add(insert, "@actor", step.Actor.Encoded);
     Add(insert, "@claimedAt", step.ClaimedAt is { } claimed ? Format(claimed) : null);
     Add(insert, "@completedAt", step.CompletedAt is { } completed ? Format(completed) : null);
+    Add(insert, "@role", step.Role.Encoded);
+    Add(insert, "@roleModel", step.Role.Model);
     _ = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
   }
 
@@ -318,39 +322,63 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
       SqliteConnection connection, int chainId, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
-    command.CommandText = "SELECT position, status, session_id, attempts, outcome, actor, claimed_at, completed_at FROM chain_steps WHERE chain_id=@chainId ORDER BY position;";
+    command.CommandText = "SELECT position, status, session_id, attempts, outcome, actor, claimed_at, completed_at, role, role_model FROM chain_steps WHERE chain_id=@chainId ORDER BY position;";
     Add(command, "@chainId", chainId);
     List<ChainStep> steps = [];
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
     while (await reader.ReadAsync(ct).ConfigureAwait(false))
     {
-      string rawStatus = reader.GetString(1);
-      if (!TryParseStepStatus(rawStatus, out ChainStepStatus stepStatus))
+      // Stop materializing this chain on the first unreadable column: the caller reports it
+      // as a corrupt row and moves on to the next chain.
+      (ChainStep? step, string? reason) = await ReadStepAsync(reader, ct).ConfigureAwait(false);
+      if (step is null)
       {
-        // Stop materializing this chain: the caller reports it as a corrupt row and moves
-        // on to the next chain.
-        return (null, UnknownValueReason("step status", rawStatus));
+        return (null, reason);
       }
 
-      string rawActor = reader.GetString(5);
-      if (!ChainActor.TryDecode(rawActor, out ChainActor? actor))
-      {
-        return (null, UnknownValueReason("step actor", rawActor));
-      }
-
-      string? sessionId = await reader.IsDBNullAsync(2, ct).ConfigureAwait(false) ? null : reader.GetString(2);
-      string? outcome = await reader.IsDBNullAsync(4, ct).ConfigureAwait(false) ? null : reader.GetString(4);
-      DateTimeOffset? claimedAt = await reader.IsDBNullAsync(6, ct).ConfigureAwait(false)
-          ? null
-          : ParseTimestamp(reader.GetString(6));
-      DateTimeOffset? completedAt = await reader.IsDBNullAsync(7, ct).ConfigureAwait(false)
-          ? null
-          : ParseTimestamp(reader.GetString(7));
-      steps.Add(new ChainStep(reader.GetInt32(0), stepStatus, sessionId, reader.GetInt32(3),
-          outcome, actor, claimedAt, completedAt));
+      steps.Add(step);
     }
 
     return (steps, null);
+  }
+
+  /// <summary>Reads one step row, or reports WHY it cannot be materialized.
+  ///     <para>EXTRACTED FOR COMPLEXITY, and the split is the natural one: the loop owns
+  ///     'stop on the first bad row', and this owns 'decode one row'. The three closed-set
+  ///     columns (status, actor, role) are each a named refusal rather than a silent default
+  ///     - a step whose role nobody can name is worse than a reported row.</para></summary>
+  private static async Task<(ChainStep? Step, string? Reason)> ReadStepAsync(
+      SqliteDataReader reader, CancellationToken ct)
+  {
+    string rawStatus = reader.GetString(1);
+    if (!TryParseStepStatus(rawStatus, out ChainStepStatus stepStatus))
+    {
+      return (null, UnknownValueReason("step status", rawStatus));
+    }
+
+    string rawActor = reader.GetString(5);
+    if (!ChainActor.TryDecode(rawActor, out ChainActor? actor))
+    {
+      return (null, UnknownValueReason("step actor", rawActor));
+    }
+
+    string rawRole = reader.GetString(8);
+    string? roleModel = await reader.IsDBNullAsync(9, ct).ConfigureAwait(false) ? null : reader.GetString(9);
+    if (!ChainStepRole.TryDecode(rawRole, roleModel, out ChainStepRole? role))
+    {
+      return (null, UnknownValueReason("step role", rawRole));
+    }
+
+    string? sessionId = await reader.IsDBNullAsync(2, ct).ConfigureAwait(false) ? null : reader.GetString(2);
+    string? outcome = await reader.IsDBNullAsync(4, ct).ConfigureAwait(false) ? null : reader.GetString(4);
+    DateTimeOffset? claimedAt = await reader.IsDBNullAsync(6, ct).ConfigureAwait(false)
+        ? null
+        : ParseTimestamp(reader.GetString(6));
+    DateTimeOffset? completedAt = await reader.IsDBNullAsync(7, ct).ConfigureAwait(false)
+        ? null
+        : ParseTimestamp(reader.GetString(7));
+    return (new ChainStep(reader.GetInt32(0), stepStatus, sessionId, reader.GetInt32(3),
+        outcome, actor, claimedAt, completedAt, role), null);
   }
 
   private async Task<int?> ReadCurrentVersionAsync(SqliteConnection connection, SqliteTransaction transaction,

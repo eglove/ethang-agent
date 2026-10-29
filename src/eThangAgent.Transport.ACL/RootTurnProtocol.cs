@@ -19,8 +19,39 @@ public sealed record RootTurnPreTurnMessage(string Role, string Text);
 ///     Emitted as a <c>session-request</c> root-turn event while the new_session tool runs
 ///     host-side; the app creates the session, opens it in the requesting tab, and answers
 ///     over the <c>session-response</c> envelope kind. HandoffSummary is the compaction
-///     handoff's summary text — null for a plain launch.</summary>
-public sealed record SessionRequestPayload(string RequestId, string Prompt, string? HandoffSummary);
+///     handoff's summary text — null for a plain launch.
+///     <para><see cref="ChainStep"/> carries a CHAIN STEP ASSIGNMENT (issue #313): the
+///     <c>chain.create</c> action asked the app to start step 1's session. It rides THIS
+///     payload rather than a second envelope kind because the act is the same one — start a
+///     session in this workspace and answer with its id — and a second kind would be a
+///     second codec, a second host emitter, and a second app handler for one behaviour.
+///     Null for every other launch.</para>
+///     <para>THE ASSIGNMENT IS A SEED INSTRUCTION, NOT A PROMPT. The app renders the brief
+///     from the records and starts the session SEED-ONLY, exactly as the #301 advance does;
+///     <see cref="Prompt"/> stays empty for a chain launch.</para></summary>
+public sealed record SessionRequestPayload(string RequestId, string Prompt, string? HandoffSummary)
+{
+  /// <summary>The chain step this launch is for (issue #313), or null for an ordinary
+  ///     launch. Present means: seed the new session with the rendered brief for this
+  ///     assignment and start it with no prompt.</summary>
+  public SessionRequestChainStep? ChainStep { get; init; }
+}
+
+/// <summary>The chain step a session-request is launching (issue #313): the three facts the
+///     app needs to render the brief and start the session — never the chain record itself,
+///     which the app reads through its own container.
+///     <para>THE POSITION IS THE ASSIGNMENT. A chain step is named by (chain, plan, position)
+///     and nothing else: the step's title and detail are read from the plan at brief time, so
+///     carrying them here would freeze a copy that a plan revision could never reach.</para>
+///     <para><see cref="Role"/> is the assigned role's name (<c>implement</c> |
+///     <c>review</c>). It travels because #218's separation rule reads it at session start,
+///     and a session that did not know it was a reviewer could not be refused for running on
+///     the implementer's model.</para></summary>
+/// <param name="ChainId">The chain the step belongs to.</param>
+/// <param name="PlanId">The plan the chain executes.</param>
+/// <param name="Position">The 1-based chain step position.</param>
+/// <param name="Role">The step's assigned role name.</param>
+public sealed record SessionRequestChainStep(int ChainId, int PlanId, int Position, string Role);
 
 /// <summary>One root turn sent to a conversation host (spec D6): the user's input, the
 ///     images attached to it, the app-supplied messages that precede it, and the seed the app

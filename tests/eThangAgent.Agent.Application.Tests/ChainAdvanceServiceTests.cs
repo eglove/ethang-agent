@@ -87,9 +87,9 @@ public class ChainAdvanceServiceTests
     FakeStore store = new();
     FakeHost host = new();
     ChainService chains = new(store);
-    Chain chain = Must(await chains.CreateAsync(new ChainCreation("C:\\ws", 3, 1, "t", "session-root",
-        positions.Length == 0 ? [1] : positions), T0, TestContext.Current.CancellationToken)
-        .ConfigureAwait(true));
+    Chain chain = Must(await chains.CreateAsync(ChainCreation.Implementing("C:\\ws", 3, 1, "t",
+        "session-root", positions.Length == 0 ? [1] : positions), T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
     return (new ChainAdvanceService(chains, host), store, host, chain);
   }
 

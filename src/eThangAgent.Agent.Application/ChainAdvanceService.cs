@@ -147,9 +147,13 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       return ChainAdvance.Refused(claimed.Error.Code, claimed.Error.Message);
     }
 
+    // THE ROLE TRAVELS FROM THE RECORD (issue #313 D7): the step's assigned role is what
+    // #218's separation rule reads at session start, and the record is the only source a
+    // resumed or restarted launch also has.
+    ChainStepAssignment assignment = new ChainStepAssignment(chain.Id, chain.PlanId, position, null)
+        .WithRole(claimed.Value.Steps.First(step => step.Position == position).Role);
     Result<string> started = await _host
-        .StartSessionAsync(new ChainStepAssignment(chain.Id, chain.PlanId, position, null),
-            predecessorSessionId, ct)
+        .StartSessionAsync(assignment, predecessorSessionId, ct)
         .ConfigureAwait(false);
     if (!started.IsSuccess)
     {

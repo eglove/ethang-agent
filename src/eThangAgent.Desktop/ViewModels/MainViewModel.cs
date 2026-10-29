@@ -1562,6 +1562,12 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     BLOCKED awaiting the answer, so the request is answered with the new session's id
   ///     as soon as the container exists — BEFORE the tab swap, which waits for the current
   ///     turn to go idle (the host cannot swap its own tab mid-turn).
+  ///     <para>A CHAIN LAUNCH IS ANSWERED FIRST AND SWAPPED LAST (issue #313): the
+  ///     <c>chain.create</c> action asked for step 1's session, so the answer is the id the
+  ///     chain must record, and the swap waits for the creating turn to go idle exactly as a
+  ///     handoff does. The creating session is NOT the chain's owner (D5) — it is closed and
+  ///     replaced like any other in-place launch, which is what makes 'plan, then stop'
+  ///     legitimate.</para>
   ///     <para>REFUSALS ARE ANSWERED TOO: every failure path replies with its typed code,
   ///     because the unanswered alternative is a tool waiting out its own budget for an
   ///     answer that was never coming.</para>
@@ -1631,30 +1637,65 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
   /// <summary>The tab's session-request creation: seeded when the request carries a
-  ///     handoff summary, plain otherwise. Runs off the UI thread through the same
-  ///     suppressed-context schedule every other container build uses.</summary>
+  ///     handoff summary OR a chain step assignment, plain otherwise. Runs off the UI thread
+  ///     through the same suppressed-context schedule every other container build uses.
+  ///     <para>A CHAIN LAUNCH IS BRIEF-SEEDED (issue #313): the request names the chain step,
+  ///     the tab's own container renders the brief from the records, and the new session
+  ///     starts seed-only. A brief that cannot be rendered starts NOTHING — a session with no
+  ///     brief would idle until the watchdog parked the chain, reporting the symptom instead
+  ///     of the cause (the #302 rule, applied at creation).</para></summary>
   private async Task<Result<AgentSession>> CreateForSessionRequestAsync(AgentTabViewModel tab,
       SessionRequestPayload request)
   {
     string workspaceRoot = tab.Container.WorkspaceRoot;
     string providerName = tab.Container.ProviderName;
-    IReadOnlyList<Message>? seed = SessionHandoffSeed.Build(request.HandoffSummary);
+    Result<IReadOnlyList<Message>> seed = await SeedForAsync(tab, request).ConfigureAwait(true);
+    if (!seed.IsSuccess)
+    {
+      return Result.Failure<AgentSession>(seed.Error);
+    }
+
+    IReadOnlyList<Message>? messages = seed.Value.Count == 0 ? null : seed.Value;
     SeededSessionCreator? creator = _createSeededSession;
-    if (seed is not null && creator is null)
+    if (messages is not null && creator is null)
     {
       return Result.Failure<AgentSession>(new DomainError("SeedUnsupported",
-          "this host cannot seed a new session's conversation; the handoff summary would be lost."));
+          "this host cannot seed a new session's conversation; the seed would be lost."));
     }
 
     Task<Result<AgentSession>> scheduled;
     using (ExecutionContext.SuppressFlow())
     {
-      scheduled = Task.Run(() => creator is not null && seed is not null
-          ? creator(workspaceRoot, providerName, seed)
+      scheduled = Task.Run(() => creator is not null && messages is not null
+          ? creator(workspaceRoot, providerName, messages)
           : _createSession(workspaceRoot, providerName));
     }
 
     return await scheduled;
+  }
+
+  /// <summary>The seed a session-request's launch carries: a chain step's rendered brief
+  ///     when the request names one, else the compaction handoff's summary, else nothing.
+  ///     <para>THE CHAIN BRANCH WINS when both are present, and the two cannot legitimately
+  ///     both be: a chain step's session continues a CHAIN, not an earlier conversation, and
+  ///     a seed that mixed the two provenances would misstate what the session is.</para>
+  ///     <para>A container with no brief service refuses rather than launching unseeded: the
+  ///     brief IS the step's instructions, so dropping it starts a session with nothing to
+  ///     do.</para></summary>
+  private static async Task<Result<IReadOnlyList<Message>>> SeedForAsync(AgentTabViewModel tab,
+      SessionRequestPayload request)
+  {
+    if (request.ChainStep is not { } step)
+    {
+      return Result.Success(SessionHandoffSeed.Build(request.HandoffSummary) ?? []);
+    }
+
+    ChainBriefService? briefs = tab.Container.Services.GetService<ChainBriefService>();
+    return briefs is null
+        ? Result.Failure<IReadOnlyList<Message>>(new DomainError("BriefUnsupported",
+            "this host cannot render a chain brief; the chain step's session was not started."))
+        : await briefs.BuildSeedAsync(new ChainStepAssignment(step.ChainId, step.PlanId,
+            step.Position, null)).ConfigureAwait(true);
   }
 
   /// <summary>Awaits the requesting tab's turn going idle, then swaps. The wait is the

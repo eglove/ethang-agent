@@ -16,6 +16,24 @@ namespace eThangAgent.AgentDomain;
 /// <param name="SessionId">The session holding the assignment; null before it is created.</param>
 public sealed record ChainStepAssignment(int ChainId, int PlanId, int Position, string? SessionId)
 {
+  /// <summary>The role assigned to this step (issue #313 D7), read from the chain record.
+  ///     <para>IT IS NOT ON THE POSITIONAL RECORD, deliberately: every existing construction
+  ///     site states four facts and a role is a fifth that only the chain record knows. The
+  ///     launcher reads it from the record it is already loading rather than a caller
+  ///     restating it, so the two cannot disagree.</para>
+  ///     <para>NULL means 'not read yet' - a launcher that has not loaded the chain. A
+  ///     launcher that HAS loaded it always sets this, because #218's separation rule reads
+  ///     it at session start.</para></summary>
+  public ChainStepRole? Role { get; init; }
+
+  /// <summary>This assignment with <paramref name="role"/> attached.</summary>
+  /// <param name="role">The step's assigned role.</param>
+  public ChainStepAssignment WithRole(ChainStepRole role)
+  {
+    ArgumentNullException.ThrowIfNull(role);
+    return this with { Role = role };
+  }
+
   /// <summary>True when this assignment names a position - the only shape a launcher can act on.</summary>
   public bool IsExecutable => ChainId >= 1 && PlanId >= 1 && Position >= 1;
 

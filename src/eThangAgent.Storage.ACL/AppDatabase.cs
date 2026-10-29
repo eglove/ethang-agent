@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 25;
+  public const int LatestSchemaVersion = 26;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -133,6 +133,7 @@ public sealed class AppDatabase
     (23, ApplyV23),
     (24, ApplyV24),
     (25, ApplyV25),
+    (26, ApplyV26),
   ];
 
   private void Migrate()
@@ -928,6 +929,11 @@ public sealed class AppDatabase
             actor TEXT NOT NULL,
             claimed_at TEXT,
             completed_at TEXT,
+            -- The step's ROLE (issue #313 D7). V23 creates the columns so a fresh database
+            -- walks the same path V26 walks an existing one (the V4/V18 and V22 precedents);
+            -- V26 adds them to databases that predate the role vocabulary.
+            role TEXT NOT NULL DEFAULT 'Implement' CHECK (role IN ('Implement', 'Review')),
+            role_model TEXT,
             PRIMARY KEY (chain_id, position)
         );
         """;
@@ -1009,6 +1015,74 @@ public sealed class AppDatabase
     command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@name;";
     _ = command.Parameters.AddWithValue("@name", table);
     return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+  }
+
+  /// <summary>V26 adds the chain step's ROLE (issue #313 D7): <c>role</c> and
+  ///     <c>role_model</c> on <c>chain_steps</c>, so a chain can declare which steps are
+  ///     implementation and which are review.
+  ///     <para>TWO COLUMNS, NOT ONE ENCODED STRING. The kind is a CLOSED SET a CHECK
+  ///     constraint can hold - the same door V20/V21/V23 closed against a direct writer
+  ///     smuggling an out-of-enum value - and a model id is free text that must not be
+  ///     parsed back out of a composite value.</para>
+  ///     <para>EXISTING ROWS BECOME <c>Implement</c>. Every chain that exists predates the
+  ///     role vocabulary, and every one of its steps was implementation work: there was no
+  ///     review step to have recorded. The DEFAULT is stated in the column as well as in the
+  ///     backfill, so a row inserted by a writer that omits the column still lands on the
+  ///     documented default rather than on NULL.</para>
+  ///     <para>THE TABLE IS REBUILT (the V20/V21/V24 idiom) rather than altered in place:
+  ///     SQLite cannot add a NOT NULL column with a non-constant default, and the rebuild
+  ///     carries the V23 status CHECK forward VERBATIM so that door stays closed. Rows, ids,
+  ///     positions and every execution column are copied verbatim, so no chain changes
+  ///     identity or CAS state. Foreign-key enforcement is suspended around the swap for the
+  ///     same reason V20, V21 and V24 do it.</para>
+  ///     <para>THE REBUILD IS CONDITIONAL ON <c>chain_steps</c> EXISTING. A migration runs
+  ///     against every historical shape of this database, and one stamped below V23 does not
+  ///     have the table yet - the unconditional form failed exactly there for V25, on a
+  ///     legacy fixture, with 'no such table'. V23 creates the table with both columns too,
+  ///     so a fresh database walks the same path and the two cannot diverge.</para></summary>
+  private static void ApplyV26(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "chain_steps"))
+    {
+      return;
+    }
+
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE chain_steps_v26 (
+              chain_id INTEGER NOT NULL REFERENCES chains(id),
+              position INTEGER NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('Pending', 'Running', 'Done', 'Failed', 'Skipped', 'Parked')),
+              session_id TEXT,
+              attempts INTEGER NOT NULL,
+              outcome TEXT,
+              actor TEXT NOT NULL,
+              claimed_at TEXT,
+              completed_at TEXT,
+              role TEXT NOT NULL DEFAULT 'Implement' CHECK (role IN ('Implement', 'Review')),
+              role_model TEXT,
+              PRIMARY KEY (chain_id, position)
+          );
+          INSERT INTO chain_steps_v26 (chain_id, position, status, session_id, attempts, outcome,
+              actor, claimed_at, completed_at, role, role_model)
+              SELECT chain_id, position, status, session_id, attempts, outcome, actor,
+                  claimed_at, completed_at, 'Implement', NULL FROM chain_steps;
+          DROP TABLE chain_steps;
+          ALTER TABLE chain_steps_v26 RENAME TO chain_steps;
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
   }
 
   private static void ApplyV24(SqliteConnection connection)

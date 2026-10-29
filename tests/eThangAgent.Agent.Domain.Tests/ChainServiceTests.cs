@@ -73,7 +73,7 @@ public class ChainServiceTests
   }
 
   private static Task<Result<Chain>> CreateChainAsync(ChainService service, params int[] positions)
-      => service.CreateAsync(new ChainCreation("C:\\ws", 3, 1, "t", "session-root",
+      => service.CreateAsync(ChainCreation.Implementing("C:\\ws", 3, 1, "t", "session-root",
           positions.Length == 0 ? [1] : positions), T0, TestContext.Current.CancellationToken);
 
   [Fact]
@@ -102,7 +102,7 @@ public class ChainServiceTests
     // The helper defaults to one position; the empty case is stated explicitly here
     // because 'no executable step' is exactly what this test is about.
     Result<Chain> result = await service.CreateAsync(
-        new ChainCreation("C:\\ws", 3, 1, "t", "session-root", []), T0,
+        ChainCreation.Implementing("C:\\ws", 3, 1, "t", "session-root", []), T0,
         TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
