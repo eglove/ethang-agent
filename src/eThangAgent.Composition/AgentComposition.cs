@@ -500,7 +500,14 @@ public static class AgentComposition
         // The ownership gate (issue #301 D3): what makes a completion the RIGHT one. The Plan
         // Domain reaches it through its own port, so it never references this assembly.
         .AddSingleton<IPlanStepOwnershipGate>(sp => new ChainStepOwnershipGate(
-            sp.GetRequiredService<IChainStore>(), TimeProvider.System));
+            sp.GetRequiredService<IChainStore>(), TimeProvider.System))
+        // The brief (issue #302): the port is the Agent Domain's, so the renderer never learns
+        // what a plan is; this adapter is the one place that knows all three stores.
+        .AddSingleton<IChainBriefSource>(sp => new CompositionChainBriefSource(
+            sp.GetRequiredService<ChainService>(),
+            sp.GetRequiredService<PlanService>(),
+            sp.GetRequiredService<IStateService>()))
+        .AddSingleton<ChainBriefService>();
   }
 
   /// <summary>The chain orphan check (issue #317 D7): a chain whose workspace directory is gone

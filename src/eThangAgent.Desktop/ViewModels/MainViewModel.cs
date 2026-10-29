@@ -1256,8 +1256,21 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     handoff); <paramref name="prompt"/> is its first turn — EMPTY means seed-only, no
   ///     turn is fired (a handoff continues from the summary, it does not re-ask).</para>
   ///     <para>Must run on the UI thread: it mutates <see cref="Tabs"/>.</para></summary>
-  public async Task<Result<AgentTabViewModel>> StartNewSessionAsync(AgentTabViewModel tab,
+  public Task<Result<AgentTabViewModel>> StartNewSessionAsync(AgentTabViewModel tab,
       string? prompt, string? handoffSummary = null)
+    => StartNewSessionAsync(tab, prompt, SessionHandoffSeed.Build(handoffSummary));
+
+  /// <summary>The same in-place start, seeded with an ALREADY-BUILT message list (issue
+  ///     #302). A chain brief is rendered from the records, so it arrives as messages rather
+  ///     than as a summary string — flattening it back to text and re-wrapping it would lose
+  ///     the shape the renderer chose and give the caller a second way to state the seed.
+  ///     <para>An EMPTY or null seed is a plain launch: no seed message, no turn.</para>
+  ///     <para>Must run on the UI thread: it mutates <see cref="Tabs"/>.</para></summary>
+  /// <param name="tab">The tab whose session is replaced.</param>
+  /// <param name="prompt">The first turn's text; EMPTY means seed-only.</param>
+  /// <param name="seed">The seeded prefix, or null for a plain launch.</param>
+  public async Task<Result<AgentTabViewModel>> StartNewSessionAsync(AgentTabViewModel tab,
+      string? prompt, IReadOnlyList<Message>? seed)
   {
     ArgumentNullException.ThrowIfNull(tab);
     if (!Tabs.Contains(tab))
@@ -1272,7 +1285,11 @@ internal sealed partial class MainViewModel : ObservableObject
           "a turn is running in that tab; stop it before starting a new session."));
     }
 
-    IReadOnlyList<Message>? seed = SessionHandoffSeed.Build(handoffSummary);
+    if (seed is { Count: 0 })
+    {
+      seed = null;
+    }
+
     SeededSessionCreator? creator = _createSeededSession;
     if (seed is not null && creator is null)
     {
@@ -1379,11 +1396,15 @@ internal sealed partial class MainViewModel : ObservableObject
     return tab;
   }
 
-  /// <summary>Starts the session for a chain step (issue #301 D2): a SEED-ONLY in-place
-  ///     advance in the tab whose session completed the previous step.
-  ///     <para>SEED-ONLY, deliberately: the brief is #302's, and firing a turn with text this
-  ///     issue invents would be a handoff written by a model, which D5 forbids. The successor
-  ///     starts, reads its brief, and works from it.</para>
+  /// <summary>Starts the session for a chain step (issue #301 D2, seeded by #302): a
+  ///     SEED-ONLY in-place advance in the tab whose session completed the previous step.
+  ///     <para>SEED-ONLY AND BRIEF-SEEDED. The successor starts with the rendered brief as its
+  ///     first message and no prompt: the brief IS what it works from, and firing a turn with
+  ///     text this harness invents would be a handoff written by a model, which D5 forbids.</para>
+  ///     <para>A BRIEF THAT CANNOT BE RENDERED STARTS NOTHING. A chain step whose plan step is
+  ///     gone is a plan defect (#302 D5); starting a session with no brief would leave it idle
+  ///     until the watchdog parked the chain, which reports the symptom instead of the cause.
+  ///     The caller releases the claim on any failure, so the step stays available.</para>
   ///     <para>THE TAB IS FOUND BY THE COMPLETING SESSION, which is what makes the advance
   ///     land in the right workspace: a chain belongs to one workspace, and the session that
   ///     completed its step is running in that workspace's tab.</para>
@@ -1405,7 +1426,23 @@ internal sealed partial class MainViewModel : ObservableObject
           "the tab that completed the previous chain step is no longer open; the next step was not started."));
     }
 
-    Result<AgentTabViewModel> started = await StartNewSessionAsync(tab, prompt: null).ConfigureAwait(true);
+    // The brief is rendered from the records by the session's own container, so the tab that
+    // is about to be replaced supplies the stores it already holds.
+    ChainBriefService? briefs = tab.Container.Services.GetService<ChainBriefService>();
+    if (briefs is null)
+    {
+      return Result.Failure<string>(new DomainError("BriefUnsupported",
+          "this host cannot render a chain brief; the next step was not started."));
+    }
+
+    Result<IReadOnlyList<Message>> seed = await briefs.BuildSeedAsync(assignment).ConfigureAwait(true);
+    if (!seed.IsSuccess)
+    {
+      return Result.Failure<string>(seed.Error);
+    }
+
+    Result<AgentTabViewModel> started =
+        await StartNewSessionAsync(tab, prompt: null, seed: seed.Value).ConfigureAwait(true);
     return started.IsSuccess
         ? Result.Success(started.Value.Container.RootId.ToString())
         : Result.Failure<string>(started.Error);
