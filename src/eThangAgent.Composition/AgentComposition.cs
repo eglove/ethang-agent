@@ -435,9 +435,7 @@ public static class AgentComposition
         .AddSingleton<IChangeSignal>(sp => new SqliteChangeSignal(
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<IStateStore, SqliteStateStore>()
-        .AddSingleton<IPlanStore>(sp => new SqlitePlanStore(
-            sp.GetRequiredService<AppDatabase>(),
-            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddPlanServices()
         .AddChainServices()
         // Workspace identity (issue #317 D5): the store that maps a stable id to the directory it
         // currently lives at, and the marker-file resolver over it. Registered UNSCOPED on purpose
@@ -484,6 +482,26 @@ public static class AgentComposition
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
             sp.GetRequiredService<AppDatabase>()));
+  }
+
+  /// <summary>The plan record and its child, the plan REVIEW record (issue #216), registered
+  ///     together because a review is a fact about a plan version and the two share one
+  ///     workspace binding.
+  ///     <para>ONE REVIEW RECORD, TWO READERS (D7): the chain cursor (#320) deciding whether to
+  ///     advance and the telemetry report (#309) computing calibration both read it through
+  ///     <see cref="IPlanReviewStore"/>, so a reported number and an advance decision cannot
+  ///     disagree.</para>
+  ///     <para>Its own method because <c>AddPersistenceServices</c> is already at the length
+  ///     limit S138 enforces.</para></summary>
+  private static IServiceCollection AddPlanServices(this IServiceCollection wired)
+  {
+    return wired
+        .AddSingleton<IPlanStore>(sp => new SqlitePlanStore(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<IPlanReviewStore>(sp => new SqlitePlanReviewStore(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId));
   }
 
   /// <summary>The chain record (issue #300): the plan's SIBLING store and the application

@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 26;
+  public const int LatestSchemaVersion = 27;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -134,6 +134,7 @@ public sealed class AppDatabase
     (24, ApplyV24),
     (25, ApplyV25),
     (26, ApplyV26),
+    (27, ApplyV27),
   ];
 
   private void Migrate()
@@ -1115,5 +1116,53 @@ public sealed class AppDatabase
     {
       Execute(connection, "PRAGMA foreign_keys = ON;");
     }
+  }
+
+  /// <summary>V27 adds <c>plan_reviews</c>: the persisted verdict a reviewer reached about a
+  ///     specific VERSION of a plan (issue #216).
+  ///     <para>KEYED ON PLAN ID PLUS THE JUDGED VERSION (D1). A verdict about version 3 must
+  ///     stay distinguishable from a verdict about version 7 after the planner revises,
+  ///     otherwise a stale approve silently covers content nobody reviewed. The plan already
+  ///     carries its version, so the key needs no new state on the aggregate.</para>
+  ///     <para>THE FOREIGN KEY IS REAL, and it is why this is a child of <c>plans</c> rather
+  ///     than a free-standing log: a review of a plan that does not exist is not a fact about
+  ///     anything. <c>plan_id</c> is indexed because every read is by plan.</para>
+  ///     <para><c>verdict</c> IS CHECK-CONSTRAINED to the three tokens the review brief
+  ///     publishes (#306), so a DIRECT writer - an exec script's SQL - cannot smuggle an
+  ///     out-of-enum verdict past the domain's own validation. That is the V20/V21/V23
+  ///     precedent applied to a column a model writes.</para>
+  ///     <para>THE THREE SCORES ARE PLAIN INTEGERS with a non-negative CHECK, deliberately
+  ///     NOT a pinned 1..5 range: the scale belongs to the <c>reviewing-plans</c> rubric
+  ///     (#217), and pinning it here would make the record the authority on a rule it does
+  ///     not own - a later 1..10 rubric would then need a migration to be recordable.</para>
+  ///     <para><c>findings_json</c> is the array of cited findings (D4). JSON rather than a
+  ///     child table because the findings are read and written as ONE unit with the review
+  ///     and are never queried across reviews; a child table would add a join to every read
+  ///     and a second ordering to keep consistent for no query it enables.</para>
+  ///     <para>APPEND-ONLY: no update, no delete. A review is a historical fact.</para></summary>
+  private static void ApplyV27(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS plan_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL REFERENCES plans(id),
+            plan_version INTEGER NOT NULL,
+            verdict TEXT NOT NULL CHECK (verdict IN ('approve', 'deny', 'approve-with-conditions')),
+            reviewer_session_id TEXT NOT NULL,
+            reviewer_model TEXT NOT NULL,
+            requirement_coverage INTEGER NOT NULL CHECK (requirement_coverage >= 0),
+            testability INTEGER NOT NULL CHECK (testability >= 0),
+            blast_radius INTEGER NOT NULL CHECK (blast_radius >= 0),
+            findings_json TEXT NOT NULL,
+            notes TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_plan_reviews_plan ON plan_reviews (plan_id, id);
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
   }
 }
