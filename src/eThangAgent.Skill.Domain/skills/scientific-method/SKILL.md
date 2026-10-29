@@ -37,7 +37,7 @@ observation into a search for confirmation. The order matters more than the spee
 | Task type | Loop legs | Carrying skills |
 | --- | --- | --- |
 | Debugging | observe -> hypothesize -> experiment -> report | `systematic-debugging` (full loop), `test-driven-development` (failing test = prediction), `verification-before-completion` (report) |
-| Feature work | spec -> plan -> execute -> review -> finish | `grill` (observation), `writing-plans` (predictions = acceptance criteria, each with its falsifying check), `experiment-driven-development` (experiments), `requesting-code-review` + `receiving-code-review` (external verdicts), `finishing-a-development-branch` (conclusions + ledger gate) |
+| Feature work | spec -> plan -> execute -> review -> finish | `grill` (observation), `writing-plans` (predictions = acceptance criteria, each with its falsifying check), `reviewing-plans` (external verdict on the plan, before implementation), `experiment-driven-development` (experiments), `requesting-code-review` + `receiving-code-review` (external verdicts), `finishing-a-development-branch` (conclusions + ledger gate) |
 | Refactoring | invariants -> transform -> verify | `test-driven-development` (property tests as predictions), `verification-before-completion` |
 | Research | question -> claim -> evidence | claim-evidence form (below) |
 | Document writing | claims with evidence only | `writing` skill + claims-with-evidence rule (below) |

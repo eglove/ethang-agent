@@ -12,13 +12,14 @@ public class EmbeddedSkillCatalogTests
       "commit-style-conventional", "commit-style-gitmoji",
         "commit-style-none", "dispatching-parallel-agents", "ethang-tools-mapping",
         "executing-plans", "experiment-driven-development", "finishing-a-development-branch", "grill",
-        "receiving-code-review", "requesting-code-review", "scientific-method", "systematic-debugging",
+        "receiving-code-review", "requesting-code-review", "reviewing-plans", "scientific-method",
+        "systematic-debugging",
         "test-driven-development", "using-git-worktrees", "using-skills",
         "verification-before-completion", "writing-plans", "writing-skills",
     ];
 
   [Fact]
-  public async Task Lists_AllNineteenSkills_WithMetadata()
+  public async Task Lists_AllTwentySkills_WithMetadata()
   {
     Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
@@ -143,6 +144,7 @@ public class EmbeddedSkillCatalogTests
       ("experiment-driven-development", "This carries the experiment and external-verdict legs", "Execute a plan by dispatching"),
       ("requesting-code-review", "This is the external-verdict leg", "Dispatch a code reviewer subagent"),
       ("receiving-code-review", "This is the analysis leg", "Code review requires technical evaluation"),
+      ("reviewing-plans", "This is the external-verdict leg", "a verdict nobody can act on is not a verdict"),
   ];
 
   [Fact]
