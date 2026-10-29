@@ -193,4 +193,33 @@ public class ChainAdvanceServiceTests
     Assert.Equal("session-next", next.SessionId);
     Assert.Equal(1, next.Attempts);
   }
+
+  [Fact]
+  public async Task Advance_WhenTheChainCanNoLongerAdvance_ParksItInsteadOfLeavingItRunning()
+  {
+    // Issue #303 criterion: a chain with a parked step and nothing left to start must be
+    // PARKED, not left Running. Before this, the walker returned Blocked and nothing wrote
+    // the status, so the chain sat Running forever while every surface called it in progress.
+    (ChainAdvanceService service, FakeStore store, FakeHost _, Chain chain) = await NewAsync(1, 2);
+    ChainService chains = new(store);
+    _ = Must(await chains.ClaimStepAsync(chain.Id, 1, "session-a", T0,
+        TestContext.Current.CancellationToken));
+    _ = Must(await chains.SettleStepAsync(chain.Id, 1, ChainStepStatus.Parked,
+        ChainActor.Session("session-a"), "waiting on a human", T0,
+        TestContext.Current.CancellationToken));
+    _ = Must(await chains.ClaimStepAsync(chain.Id, 2, "session-b", T0,
+        TestContext.Current.CancellationToken));
+    _ = Must(await chains.SettleStepAsync(chain.Id, 2, ChainStepStatus.Parked,
+        ChainActor.Session("session-b"), "also waiting", T0,
+        TestContext.Current.CancellationToken));
+
+    ChainAdvance decision = Must(await service.AdvanceAsync(chain, 2, "session-b", T0,
+        TestContext.Current.CancellationToken));
+
+    Assert.Equal(ChainAdvanceKind.Blocked, decision.Kind);
+    Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken));
+    Assert.Equal(ChainStatus.Parked, stored.Status);
+    Assert.NotNull(stored.ParkReason);
+    Assert.Contains("neither Done nor Skipped", stored.ParkReason, StringComparison.Ordinal);
+  }
 }

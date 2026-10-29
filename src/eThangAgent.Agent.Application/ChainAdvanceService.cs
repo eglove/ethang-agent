@@ -113,6 +113,16 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     }
 
     ChainAdvance decision = ChainAdvancePolicy.Decide(settled.Value, position, sessionId, now);
+    if (decision.Kind == ChainAdvanceKind.Blocked)
+    {
+      // A BLOCKED CHAIN IS PARKED, not left Running (issue #303 D3/D9). Nothing is available to
+      // start and nothing can complete, so the work is waiting for a human - and a chain that
+      // stayed Running here would sit forever while every surface reported it as in progress.
+      // 'Waiting for a human' and 'broken' must not look alike, which is what Parked is for.
+      return Result.Success(await ParkBlockedAsync(settled.Value, decision, now, ct)
+          .ConfigureAwait(false));
+    }
+
     if (!decision.IsActionable)
     {
       // A refusal leaves the session OPEN on purpose: the model must be able to read why its
@@ -170,6 +180,27 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     _ = await _chains.ReassignStepAsync(chain.Id, position, started.Value, now, ct)
         .ConfigureAwait(false);
     return new ChainAdvance(ChainAdvanceKind.StartStep, position, null, started.Value);
+  }
+
+  /// <summary>Parks a chain that can no longer advance (issue #303 D3/D9): nothing is available
+  ///     to start and nothing can complete, so the work is waiting for a human.
+  ///     <para>THE REASON NAMES THE STEP AND WHAT BLOCKED IT, taken from the walker's own
+  ///     refusal message, so a reader does not have to re-derive why the chain stopped.</para>
+  ///     <para>A park is reported as a BLOCKED decision carrying the park reason: the caller
+  ///     sees the same 'nothing more will happen without a human' outcome it would have seen
+  ///     from the walker, now with the record to match.</para>
+  ///     <para>The session is NOT closed. It is the one that reported the completion, and a
+  ///     parked chain is waiting for a human who may want to read that session's transcript.</para></summary>
+  private async Task<ChainAdvance> ParkBlockedAsync(Chain chain, ChainAdvance decision,
+      DateTimeOffset now, CancellationToken ct)
+  {
+    string reason = decision.Reason ?? $"chain #{chain.Id} can no longer advance.";
+    Result<Chain> parked = await _chains
+        .ParkAsync(chain.Id, reason, decision.Position, ChainActor.Harness, now, ct)
+        .ConfigureAwait(false);
+    return parked.IsSuccess
+        ? new ChainAdvance(ChainAdvanceKind.Blocked, null, ChainAdvanceCode.StepsUnsettled, reason)
+        : ChainAdvance.Refused(parked.Error.Code, parked.Error.Message);
   }
 
   /// <summary>Moves a fully settled chain to Completed, with the harness as the actor (D6).

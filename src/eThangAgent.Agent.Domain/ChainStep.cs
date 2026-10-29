@@ -104,9 +104,52 @@ public sealed record ChainStep(
     };
   }
 
+  /// <summary>Re-enters a FAILED step for the SAME session (issue #303 D1): the retry
+  ///     resumes, it does not restart.
+  ///     <para>WHY THIS IS NOT <see cref="Claim"/>: a claim is an ATTEMPT and increments the
+  ///     count, and it also accepts a DIFFERENT session. A retry is the same session
+  ///     continuing its own work, so the count is left to the caller (which decides whether
+  ///     the budget allows another attempt) and the claimant must be unchanged. Re-claiming
+  ///     would also restart the claim clock for an attempt that is a continuation.</para>
+  ///     <para>REFUSED when the step is not Failed: a retry is only meaningful for work that
+  ///     actually broke. A Pending step is claimed, a Done step is finished, and a Parked
+  ///     step is waiting for a human - resuming any of them as a retry would misreport what
+  ///     happened.</para>
+  ///     <para>REFUSED when <paramref name="sessionId"/> is not the session that holds the
+  ///     step: a retry resumes THAT session, and a different session has no transcript to
+  ///     continue from - it would be a restart wearing a retry's name.</para></summary>
+  /// <param name="sessionId">The session being resumed; must be the current claimant.</param>
+  /// <param name="now">The clock the new claim window starts at.</param>
+  public ChainStep Retry(string sessionId, DateTimeOffset now)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+    return Status == ChainStepStatus.Failed
+      ? Retried(sessionId.Trim(), now)
+      : throw new ChainInputException(
+          $"step {Position} is {Status}, not Failed; only a failed step can be retried.");
+  }
+
+  /// <summary>The re-entered step, refused when a different session tries to resume it.
+  ///     Extracted so the two refusals stay separate statements rather than a nested
+  ///     conditional (S3358).</summary>
+  private ChainStep Retried(string sessionId, DateTimeOffset now)
+  {
+    return string.Equals(SessionId, sessionId, StringComparison.Ordinal)
+      ? this with
+      {
+        Status = ChainStepStatus.Running,
+        Actor = ChainActor.Session(sessionId),
+        ClaimedAt = now,
+        CompletedAt = null,
+      }
+      : throw new ChainInputException(
+          $"step {Position} was run by session {SessionId ?? "(none recorded)"}, not {sessionId}; "
+          + "a retry resumes the SAME session, because that is the transcript the work continues from.");
+  }
+
   /// <summary>Records this step's outcome. <paramref name="status"/> must be one of the
   ///     SETTLED step statuses (Done, Failed, Skipped, Parked); a chain step does not move
-  ///     back to Pending or Running through an outcome, it is claimed instead.</summary>
+  ///     back to Pending or Running through an outcome, it is claimed or retried instead.</summary>
   public ChainStep Settle(ChainStepStatus status, ChainActor actor, string? outcome, DateTimeOffset now)
   {
     ArgumentNullException.ThrowIfNull(actor);

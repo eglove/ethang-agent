@@ -197,6 +197,24 @@ public sealed record Chain(
     return ReplaceStep(index, Steps[index].Release(actor), now);
   }
 
+  /// <summary>Re-enters the FAILED step at <paramref name="position"/> for the session that
+  ///     ran it (issue #303 D1): a retry resumes, it does not restart.
+  ///     <para>THE SAME SESSION, ENFORCED BY THE STEP: <see cref="ChainStep.Retry"/> refuses a
+  ///     different claimant, because a different session has no transcript to continue from.</para>
+  ///     <para>THE ATTEMPT COUNT IS NOT TOUCHED. A claim is an attempt and increments the count;
+  ///     a retry is the same session continuing, so the count already reflects this attempt.
+  ///     The BUDGET decision (<see cref="ChainRetryPolicy.Decide"/>) is the caller's, because
+  ///     only the caller knows whether it is retrying or parking.</para></summary>
+  /// <param name="position">The 1-based step position.</param>
+  /// <param name="sessionId">The session being resumed; must be the current claimant.</param>
+  /// <param name="now">The clock the new claim window starts at.</param>
+  public Chain RetryStep(int position, string sessionId, DateTimeOffset now)
+  {
+    EnsureMutable();
+    int index = IndexOf(position);
+    return ReplaceStep(index, Steps[index].Retry(sessionId, now), now);
+  }
+
   /// <summary>The first step a session may claim now, or null when none is available.</summary>
   public ChainStep? NextAvailableStep(DateTimeOffset now)
     => Steps.FirstOrDefault(step => step.IsAvailable(now));

@@ -112,6 +112,15 @@ public sealed class ChainService(IChainStore store)
         (_, _) => StepChanged?.Invoke(
             new ChainStepChanged(id, position, "claimed", ChainActor.Session(sessionId), now)), ct);
 
+  /// <summary>Re-enters a FAILED step for the session that ran it (issue #303 D1): a retry
+  ///     resumes, it does not restart. The attempt count is untouched - see
+  ///     <see cref="Chain.RetryStep"/>.</summary>
+  public Task<Result<Chain>> RetryStepAsync(int id, int position, string sessionId,
+      DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.RetryStep(position, sessionId, now), now,
+        (_, _) => StepChanged?.Invoke(
+            new ChainStepChanged(id, position, "retried", ChainActor.Session(sessionId), now)), ct);
+
   /// <summary>Releases a claim whose launch failed, leaving the step available (issue #301).
   ///     The attempt count is kept: the launch was an attempt even though nothing ran.</summary>
   public Task<Result<Chain>> ReleaseStepAsync(int id, int position, ChainActor actor,

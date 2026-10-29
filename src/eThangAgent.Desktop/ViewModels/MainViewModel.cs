@@ -1467,6 +1467,35 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
 
+  /// <summary>Re-enters a live session with a message, keeping its transcript (issue #303 D1).
+  ///     <para>THIS IS A RETRY, NOT A RESTART: the cell already exists, its conversation is
+  ///     intact, and the message is simply the next thing it reads. A session that is gone
+  ///     answers false, so the caller parks the chain instead of spending an attempt on a
+  ///     resume nobody received.</para>
+  ///     <para>Must run on the UI thread: it touches the cell's view-model.</para></summary>
+  /// <param name="rootId">The session to resume.</param>
+  /// <param name="message">The failure note the session is re-entered with (D7).</param>
+  public bool ResumeChainStepSessionAsync(AgentId rootId, string message)
+  {
+    AgentCellViewModel? cell = Tabs
+        .SelectMany(t => t.Cells)
+        .FirstOrDefault(c => c.Container.RootId == rootId);
+    if (cell is null)
+    {
+      return false; // closed, or never open in this shell: nothing to resume
+    }
+
+    // A turn already running means the session is NOT failed - it is working. Resuming it
+    // would queue a second turn behind the first and double-report the step.
+    if (cell.ViewModel.IsBusy)
+    {
+      return false;
+    }
+
+    _ = cell.ViewModel.SubmitAsync(message);
+    return true;
+  }
+
   /// <summary>Adds a NEW agent cell to <paramref name="tab"/>'s grid (issue #307 D2): the
   ///     parallel-dispatch shape, as opposed to a sequential advance, which replaces the
   ///     primary cell in place.

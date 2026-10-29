@@ -37,4 +37,21 @@ internal static class ChainAdvanceFactory
                   "the shell is not ready; the next chain step was not started.")))))
       : null;
   }
+
+  /// <summary>The lifecycle service for <paramref name="session"/> (issue #303): resume a failed
+  ///     step's session, or park the chain when the budget is spent.
+  ///     <para>The same null-is-an-answer contract as <see cref="For"/>: a container that wired no
+  ///     chain machinery retries nothing, and the shell behaves exactly as it did before.</para></summary>
+  /// <param name="session">The session whose container owns the chain store.</param>
+  /// <param name="shell">Resolves the live shell, lazily - the shell owns the cells a resume
+  ///     re-enters.</param>
+  public static ChainLifecycleService? LifecycleFor(AgentSession session, Func<MainViewModel?> shell)
+  {
+    ArgumentNullException.ThrowIfNull(session);
+    ArgumentNullException.ThrowIfNull(shell);
+    return session.Services.GetService<ChainService>() is { } chains
+      ? new ChainLifecycleService(chains, new ChainLifecycleHost((rootId, message) => Task.FromResult(
+          shell() is { } live && live.ResumeChainStepSessionAsync(rootId, message))))
+      : null;
+  }
 }
