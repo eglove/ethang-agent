@@ -7,20 +7,35 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     post still wakes; the inbox clears the sticky wake when its queue drains.</summary>
 public class SignalingInboxStickyWakeTests
 {
-  private sealed class FakeInbox : IAgentInbox
+  /// <summary>An ADDRESSABLE inner box: the decorator refuses a non-addressable one
+  ///     (issue #319 D2), because a decorator that cannot forward Deliver drops the
+  ///     sender's message identity.</summary>
+  private sealed class FakeInbox : IAgentInbox, IAgentMailbox
   {
-    private readonly Queue<string> _pending = [];
+    private readonly Queue<PendingMessage> _pending = [];
     public int Capacity { get; set; } = int.MaxValue;
 
+    public int UnreadCount => _pending.Count;
+
     public Result<bool> TryPost(string text)
+        => Deliver(PendingMessage.New(text, MessageUrgency.Normal, "human"));
+
+    public Result<bool> Deliver(PendingMessage message)
     {
       if (_pending.Count >= Capacity)
       {
         return Result.Failure<bool>(new DomainError("MailboxFull", "full"));
       }
 
-      _pending.Enqueue(text);
+      _pending.Enqueue(message);
       return Result.Success(true);
+    }
+
+    public IReadOnlyList<PendingMessage> Drain()
+    {
+      IReadOnlyList<PendingMessage> drained = [.. _pending];
+      _pending.Clear();
+      return drained;
     }
 
     public bool TryTake(out string text, out Guid messageId)
@@ -32,8 +47,9 @@ public class SignalingInboxStickyWakeTests
         return false;
       }
 
-      text = _pending.Dequeue();
-      messageId = Guid.NewGuid();
+      PendingMessage message = _pending.Dequeue();
+      text = message.Text;
+      messageId = message.Id;
       return true;
     }
   }

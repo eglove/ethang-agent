@@ -695,15 +695,23 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 
     // The identity travels with the message (issue #92, and issue #253 B3): the app pinned
     // its echo under this id, and the loop's drain fact names it back - that name is what
-    // releases the pin. Minting a fresh id here would leave the echo pinned forever.
-    Guid id = messageId == Guid.Empty ? Guid.NewGuid() : messageId;
-    PendingMessage message = new(text, MessageUrgency.Normal, DateTimeOffset.UtcNow, sender, id);
+    // releases the pin. Minting a fresh id here would leave the echo pinned forever, so a
+    // message that ARRIVED with an identity is delivered under exactly that identity
+    // (issue #319 D1). Only a legacy publisher's frame - no id at all - gets one minted,
+    // which keeps delivery working while leaving that message unaddressable.
     if (inbox is IAgentMailbox mailbox)
     {
-      _ = mailbox.Deliver(message);
+      Guid id = messageId == Guid.Empty ? Guid.NewGuid() : messageId;
+      _ = mailbox.Deliver(new PendingMessage(text, MessageUrgency.Normal, DateTimeOffset.UtcNow,
+          sender, id));
       return;
     }
 
+    // The inbox is not addressable, so this path CANNOT carry the sender's identity: the
+    // legacy post mints its own, the drain fact names that one, and the app's pinned echo
+    // is never released. Reached only by a container that wired a non-addressable
+    // decorator; the production root inbox is a SignalingInbox, which forwards Deliver
+    // (issue #319 D2).
     _ = inbox.TryPost(text);
   }
 

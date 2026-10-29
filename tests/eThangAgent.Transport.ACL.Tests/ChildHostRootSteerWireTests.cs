@@ -54,6 +54,50 @@ public class ChildHostRootSteerWireTests
     _ = await turn.ConfigureAwait(true);
   }
 
+  /// <summary>Issue #319 D3: THE IDENTITY TRAVELS END TO END. The app mints the id its
+  ///     pinned echo hangs on, the wire carries it, and the loop's drain fact must name
+  ///     THAT id back — a drain naming anything else releases nothing.
+  ///     <para>The pre-existing test above calls <c>DeliverToRootTurn</c> with NO id, so it
+  ///     proved delivery and the wake while the identity handshake was never exercised.
+  ///     That is exactly why the drop shipped: the root inbox was a <c>SignalingInbox</c>
+  ///     that did not implement <c>IAgentMailbox</c>, so the host's addressability test
+  ///     failed and every steer fell through to the minting <c>TryPost</c> path.</para>
+  ///     <para>Anti-tautology: the inbox is the REAL <c>SignalingInbox</c> over a real
+  ///     <c>BoundedAgentMailbox</c>, the delivery goes through the server's own public
+  ///     seam, and the drain is the same <c>TryTake</c> the loop performs. Only the model
+  ///     provider is scripted.</para></summary>
+  [Fact]
+  public async Task DeliverToLiveRootTurn_PreservesTheMessageId_SoTheDrainFactNamesIt()
+  {
+    BoundedAgentMailbox mailbox = new();
+    WaitWakeHub hub = new();
+    SignalingInbox rootInbox = new(mailbox, hub, AgentId.NewId());
+    using ScriptedRootHost host = ScriptedRootHost.Start(
+        "answer", ["a"], options: new ScriptedOptions(Inbox: rootInbox));
+
+    using CancellationTokenSource turnCts = new();
+    host.Server.RegisterRootTurn("turn-identity", turnCts);
+    Task<Result<string>> turn = host.RunTurnAsync(
+        new RootTurnRequest("turn-identity", "long work", []),
+        _ => { },
+        turnCts.Token);
+
+    await WaitUntilAsync(() => host.ProviderCalls > 0).ConfigureAwait(true);
+
+    // The app's steer, carrying the id its echo was pinned under.
+    Guid pinned = Guid.NewGuid();
+    host.Server.DeliverToRootTurn("turn-identity", "take over", "human", pinned);
+
+    await WaitUntilAsync(() => mailbox.UnreadCount > 0).ConfigureAwait(true);
+    // THE ASSERTION THE DEFECT WAS: the id the app minted is the id the inbox holds.
+    Assert.True(mailbox.TryTake(out string text, out Guid drained));
+    Assert.Equal("take over", text);
+    Assert.Equal(pinned, drained);
+
+    await turnCts.CancelAsync().ConfigureAwait(true);
+    _ = await turn.ConfigureAwait(true);
+  }
+
   [Fact]
   public async Task DeliverToAnUnknownRootTurn_IsDroppedSilently()
   {

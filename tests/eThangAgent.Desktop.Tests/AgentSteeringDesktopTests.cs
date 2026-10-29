@@ -1,4 +1,5 @@
 using eThangAgent.AgentDomain;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
@@ -196,6 +197,57 @@ public class AgentSteeringDesktopTests
     UserMessageEntry pinned = Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[^1]);
     Assert.True(pinned.Pending);
     Assert.Equal("queued once", pinned.Text);
+
+    park.Release();
+    await turnTask.ConfigureAwait(true);
+    await vm.WaitForTurnAsync();
+  }
+
+  /// <summary>Issue #319: THE PINNED ECHO IS RELEASED, through the real inbox the session
+  ///     actually holds. A pending user entry is added, the loop's drain fact arrives naming
+  ///     the id the sender minted, and <c>MarkDrained</c> clears the pending flag.
+  ///     <para>Why this shape and not a hand-published fact: the defect was that the id the
+  ///     app minted never survived the trip. Here the session steers into a REAL
+  ///     <c>SignalingInbox</c> over a real <c>BoundedAgentMailbox</c>, the drain is the same
+  ///     <c>TryTake</c> the loop performs, and the fact is built from what that drain
+  ///     returned — so an identity dropped anywhere along the path fails this test.</para></summary>
+  [Fact]
+  public async Task SteeredEcho_IsReleasedByTheDrainFactNamingTheIdTheInboxActuallyHeld()
+  {
+    BoundedAgentMailbox mailbox = new();
+    // The production root inbox shape: the decorator over an addressable box.
+    SignalingInbox inbox = new(mailbox, new WaitWakeHub(), AgentId.NewId());
+    TestFixtures.ParkingRunner park = new();
+    RecordingLifecycle lifecycle = new(new StubStore());
+    AgentId rootId = AgentId.NewId();
+    InProcessAgentEvents events = new();
+    AgentSessionViewModel vm = new(
+        park.RunAsync, lifecycle, rootId, new Conversation(),
+        "OpenRouter", "test/model",
+        new AgentSessionViewModelOptions
+        {
+          WorkspaceRoot = @"C:\work\demo",
+          Inbox = inbox,
+          ChildEvents = events,
+          UiMarshal = action => action(),
+        });
+
+    Task turnTask = vm.SubmitAsync("first question");
+    await park.Started.ConfigureAwait(true);
+    _ = vm.SubmitAsync("also check the config");
+
+    UserMessageEntry pinned = Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>(),
+        e => e.Text == "also check the config");
+    Assert.True(pinned.Pending, "the echo is pinned until the model has seen it");
+
+    // The loop's safe-point drain: take the message and publish the fact naming it.
+    Assert.True(mailbox.TryTake(out string drained, out Guid drainedId));
+    Assert.Equal("also check the config", drained);
+    events.Publish(new MailboxDrainedEvent(rootId, DateTimeOffset.UtcNow, [drainedId]));
+
+    UserMessageEntry released = Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>(),
+        e => e.Text == "also check the config");
+    Assert.False(released.Pending, "the drain fact named the id the echo was pinned under");
 
     park.Release();
     await turnTask.ConfigureAwait(true);
