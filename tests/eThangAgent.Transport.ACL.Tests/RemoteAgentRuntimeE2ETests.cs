@@ -185,11 +185,16 @@ public class RemoteAgentRuntimeE2ETests
     return (app, host);
   }
 
-  /// <summary>Pins the task-2 typed contract: resume-after-settle is NOT wired through the
-  ///     child host yet, and the refusal is a typed DomainError on the Result — never an
-  ///     exception and never a silent success.</summary>
+  /// <summary>Resume-after-settle IS wired through the child host (issue #305), and the wire op
+  ///     keeps the in-process runtime's two preconditions: an EMPTY message is refused as
+  ///     InvalidMessage, and a resume travels to the host as a `resume` envelope.
+  ///     <para>This replaces the earlier contract test, which pinned `ResumeUnsupported` as a
+  ///     named follow-up. #305 depends on resume working: one process per agent is what makes a
+  ///     chain step independently resumable, and the issue's own words are that retry means
+  ///     RESUME rather than restart — a permanently unimplemented resume would have made that
+  ///     false.</para></summary>
   [Fact]
-  public async Task Resume_OnARemoteRuntime_IsATypedUnsupportedError()
+  public async Task Resume_OnARemoteRuntime_RefusesAnEmptyMessage_AndSendsTheOp()
   {
     (NamedPipeChildTransport app, NamedPipeChildTransport host) = await ConnectAsync().ConfigureAwait(true);
     try
@@ -198,12 +203,21 @@ public class RemoteAgentRuntimeE2ETests
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 
-      Result<AgentId> resumed = await runtime.Resume(new AgentId(Guid.NewGuid()), "go",
+      // The in-process runtime's own validation, kept identical so the two runtimes cannot
+      // disagree about what a resume means.
+      Result<AgentId> blank = await runtime.Resume(new AgentId(Guid.NewGuid()), "  ",
           TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.False(blank.IsSuccess);
+      Assert.Equal("InvalidMessage", blank.Error.Code);
 
-      Assert.False(resumed.IsSuccess);
-      Assert.Equal("ResumeUnsupported", resumed.Error.Code);
-      Assert.Contains("child host", resumed.Error.Message, StringComparison.Ordinal);
+      // A real resume travels: the send succeeds against a connected transport. The host's own
+      // handling of it (a full model run) is exercised by ChildHostResumeTests, which owns a
+      // host; here the contract is that the app no longer refuses locally.
+      AgentId target = AgentId.NewId();
+      Result<AgentId> sent = await runtime.Resume(target, "continue",
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(sent.IsSuccess, sent.IsSuccess ? string.Empty : sent.Error.Code + ": " + sent.Error.Message);
+      Assert.Equal(target, sent.Value);
     }
     finally
     {

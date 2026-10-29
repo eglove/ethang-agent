@@ -185,10 +185,41 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   }
 
   /// <inheritdoc cref="IAgentRuntime.Resume"/>
-  public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
-      => Task.FromResult(Result.Failure<AgentId>(new DomainError(
-          "ResumeUnsupported",
-          "resume-after-settle is not yet wired through the child host (named follow-up); only in-process children can be resumed.")));
+  /// <remarks>The resume travels as a wire op (issue #305): the host enacts it through its own leaf
+  ///     executor, which owns the persisted record and the run's real cancellation token. The app
+  ///     side keeps the settle source so <see cref="WhenSettledAsync"/> observes the resumed run
+  ///     exactly like the original — a caller awaits a resume the same way it awaited the first
+  ///     attempt, which is what makes a chain's retry a RESUME rather than a restart.</remarks>
+  public async Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+  {
+    if (string.IsNullOrWhiteSpace(message))
+    {
+      return Result.Failure<AgentId>(new DomainError("InvalidMessage",
+          "the resume message must be a non-empty string."));
+    }
+
+    // A LIVE run is steered, not resumed — the same rule the in-process runtime enforces, so the
+    // two runtimes cannot disagree about what resume means.
+    if (_settling.TryGetValue(id.Value, out TaskCompletionSource<AgentRunOutcome>? live) && !live.Task.IsCompleted)
+    {
+      return Result.Failure<AgentId>(new DomainError("NotRunning",
+          $"agent '{id}' is still running — steer it with agent.send, not agent.resume."));
+    }
+
+    // The resumed run settles like any other: a fresh source so an existing waiter never sees a
+    // stale outcome, and so the caller can await the retry with WhenSettledAsync.
+    _settling[id.Value] = new TaskCompletionSource<AgentRunOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+    lock (_owned)
+    {
+      _owned[id.Value] = 1;
+    }
+
+    bool sent = await SendEnvelopeAsync("resume",
+        JsonSerializer.Serialize(new ResumeCommand(id.Value, message)), id, ct).ConfigureAwait(false);
+    return sent
+        ? Result.Success(id)
+        : Result.Failure<AgentId>(new DomainError("HostUnavailable", "the child host refused the resume."));
+  }
 
   /// <inheritdoc cref="IAgentRuntime.InterruptSubtree"/>
   public void InterruptSubtree(AgentId rootOfSubtree)
@@ -862,6 +893,12 @@ public sealed record RootSteerCommand(string TurnId, string Text, int Urgency, s
 ///     which has no record id of its own. A stop button sends both: the subtree and the
 ///     root turn the user is actually watching.</summary>
 public sealed record InterruptCommand(Guid? RecordId, string? TurnId = null);
+
+/// <summary>One resume-after-settle request (issue #305). A settled agent is re-entered on the SAME
+///     id with <paramref name="Message"/> as its continuation prompt; the persisted transcript,
+///     workspace anchor, and grants carry over and the attempt counter increments. The host
+///     enacts it through its own leaf executor, so resume works for an agent whose host it owns.</summary>
+public sealed record ResumeCommand(Guid RecordId, string Message);
 public sealed record SettleNotice(Guid RecordId, string Status, string? Reason, string Report);
 public sealed record DeclareCommand(IReadOnlyCollection<Guid> LiveIds);
 public sealed record HostError(Guid RecordId, string Code, string Message);

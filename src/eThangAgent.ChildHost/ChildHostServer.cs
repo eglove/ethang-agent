@@ -161,6 +161,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       case "interrupt":
         HandleInterrupt(envelope);
         break;
+      case "resume":
+        // OFF the serve loop: a resumed run is a full model run, exactly like a start.
+        _ = Task.Run(() => HandleResumeAsync(envelope));
+        break;
       case "session-response":
         // Synchronous on purpose (issue #234): the handler only completes a pending
         // request's TaskCompletionSource — no I/O, no reason to leave the serve loop.
@@ -883,6 +887,83 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       {
         cts.Cancel();
       }
+    }
+  }
+
+  /// <summary>Enacts a resume-after-settle (issue #305). The run goes through the SAME leaf
+  ///     executor a start uses, so the resumed agent keeps its persisted transcript, anchor, and
+  ///     grants and increments its attempt count — resume means resume, never restart. Its settle
+  ///     is forwarded on the same envelope a start's settle uses, so the app awaits it identically.
+  ///     <para>A resume for an id this host does not own answers a typed error rather than
+  ///     starting anything: the app resolves ownership before sending, and a host that guessed
+  ///     would run an agent nobody is watching.</para></summary>
+  private async Task HandleResumeAsync(TransportEnvelope envelope)
+  {
+    ResumeCommand? command = JsonSerializer.Deserialize<ResumeCommand>(envelope.Json);
+    if (command is null)
+    {
+      return;
+    }
+
+    Guid recordId = command.RecordId;
+    CancellationTokenSource cts = new();
+    _active[recordId] = cts;
+    try
+    {
+      SessionHost host = SessionHost.Create(settingsPath, databasePath);
+      AttachDeliveryRegistry(recordId, host.Mailboxes);
+      Result<AgentRecord> loaded = await host.Store.GetAsync(new AgentId(recordId), CancellationToken.None).ConfigureAwait(false);
+      if (!loaded.IsSuccess)
+      {
+        await SendAsync("error", JsonSerializer.Serialize(new HostError(recordId, "NotFound",
+            "record not found in the shared database."))).ConfigureAwait(false);
+        return;
+      }
+
+      _parents[recordId] = loaded.Value.ParentId?.Value;
+      _runtimes[recordId] = host.LocalRunner;
+
+      Result<AgentId> resumed = await host.LocalRunner.Resume(new AgentId(recordId), command.Message, CancellationToken.None).ConfigureAwait(false);
+      if (!resumed.IsSuccess)
+      {
+        await SendAsync("error", JsonSerializer.Serialize(new HostError(recordId, resumed.Error.Code,
+            resumed.Error.Message))).ConfigureAwait(false);
+        return;
+      }
+
+      if (BuildChildWatchdog(host, loaded.Value.Id) is { } watchdog)
+      {
+        watchdog.Start();
+      }
+
+      AttachEventForwarder(host, recordId);
+      Result<AgentRunOutcome> outcome = await host.LocalRunner.WhenSettledAsync(new AgentId(recordId), cts.Token).ConfigureAwait(false);
+      if (outcome.IsSuccess)
+      {
+        await SendAsync("settle", JsonSerializer.Serialize(new SettleNotice(recordId,
+            outcome.Value.Status.ToString(), outcome.Value.Reason?.ToString(), outcome.Value.Report))).ConfigureAwait(false);
+      }
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+    {
+      // Named decision (CA1031): the host is an isolation boundary — any fault becomes a
+      // well-formed error envelope, never a host crash.
+      await SendAsync("error", JsonSerializer.Serialize(new HostError(recordId, "HostFault", ex.Message))).ConfigureAwait(false);
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+    finally
+    {
+      if (_eventLeases.TryRemove(recordId, out IDisposable? lease))
+      {
+        lease.Dispose();
+      }
+
+      _ = _active.TryRemove(recordId, out _);
+      _ = _delivery.TryRemove(recordId, out _);
+      _ = _parents.TryRemove(recordId, out _);
+      _ = _runtimes.TryRemove(recordId, out _);
+      await SendLiveSetAsync().ConfigureAwait(false);
     }
   }
 
