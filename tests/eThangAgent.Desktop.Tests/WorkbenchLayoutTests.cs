@@ -18,13 +18,17 @@ namespace eThangAgent.Desktop.Tests;
 ///     last column, so the content pane rendered ON TOP of the icon strip (hiding it
 ///     entirely) and its fixed width overflowed the window edge, cutting the text off.
 ///     A column index past the definition list is a silent overlap, never a build error,
-///     so the contract has to be asserted against measured geometry.</para></summary>
+///     so the contract has to be asserted against measured geometry.</para>
+///     <para>ISSUE #307 MOVED THE HOST: the rail is workspace-scoped (D6), so it lives in
+///     <see cref="WorkspaceTabView"/> - the tab - rather than in one agent's cell. Every
+///     test here therefore hosts the TAB VIEW and reads the rail through it. The contract
+///     under test is unchanged; only the view that carries the rail is.</para></summary>
 public class WorkbenchLayoutTests
 {
   [AvaloniaFact]
   public void WorkbenchContent_OccupiesItsOwnColumn_NotTheIconStrip()
   {
-    (AgentView view, Grid root) = Show(1200);
+    (WorkspaceTabView view, Grid root) = Show(1200);
     Border strip = Strip(view);
     Border content = Content(view);
 
@@ -40,7 +44,7 @@ public class WorkbenchLayoutTests
   [AvaloniaFact]
   public void WorkbenchIconStrip_IsVisible_NotCoveredByTheContentPane()
   {
-    (AgentView view, Grid _) = Show(1200);
+    (WorkspaceTabView view, Grid _) = Show(1200);
     Border strip = Strip(view);
     Border content = Content(view);
 
@@ -57,7 +61,7 @@ public class WorkbenchLayoutTests
   public void WorkbenchContent_IsNotClipped_ByTheWindowEdge()
   {
     const double windowWidth = 1200;
-    (AgentView view, Grid root) = Show(windowWidth);
+    (WorkspaceTabView view, Grid root) = Show(windowWidth);
     Border content = Content(view);
 
     Assert.True(content.Bounds.Right <= root.Bounds.Width + 0.5,
@@ -67,7 +71,7 @@ public class WorkbenchLayoutTests
   [AvaloniaFact]
   public void WorkbenchContent_KeepsItsIntendedWidth()
   {
-    (AgentView view, Grid _) = Show(1200);
+    (WorkspaceTabView view, Grid _) = Show(1200);
     Border content = Content(view);
 
     // The pane declares a 320 DIP width; a column that cannot honor it squeezes the text
@@ -77,30 +81,30 @@ public class WorkbenchLayoutTests
   }
 
   [AvaloniaFact]
-  public void CollapsingTheWorkbench_GivesTheChatTheFullWidth()
+  public void CollapsingTheWorkbench_GivesTheGridTheFullWidth()
   {
-    (AgentView view, Grid root) = Show(1200);
-    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
-    double openChat = ChatWidth(view);
+    (WorkspaceTabView view, Grid root) = Show(1200);
+    AgentTabViewModel tab = (AgentTabViewModel)view.DataContext!;
+    double openGrid = GridWidth(view);
 
-    vm.Workbench.IsOpen = false;
+    tab.Workbench.IsOpen = false;
     Dispatcher.UIThread.RunJobs();
 
     Assert.Equal(new GridLength(0), root.ColumnDefinitions[2].Width);
-    Assert.True(ChatWidth(view) > openChat,
-        $"collapsing must widen the chat (was {openChat}, now {ChatWidth(view)})");
+    Assert.True(GridWidth(view) > openGrid,
+        $"collapsing must widen the grid (was {openGrid}, now {GridWidth(view)})");
   }
 
   [AvaloniaFact]
   public void ReopeningTheWorkbench_RestoresItsWidth()
   {
-    (AgentView view, Grid root) = Show(1200);
-    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+    (WorkspaceTabView view, Grid root) = Show(1200);
+    AgentTabViewModel tab = (AgentTabViewModel)view.DataContext!;
     double openWidth = root.ColumnDefinitions[2].Width.Value;
 
-    vm.Workbench.IsOpen = false;
+    tab.Workbench.IsOpen = false;
     Dispatcher.UIThread.RunJobs();
-    vm.Workbench.IsOpen = true;
+    tab.Workbench.IsOpen = true;
     Dispatcher.UIThread.RunJobs();
 
     Assert.Equal(openWidth, root.ColumnDefinitions[2].Width.Value, 0.5);
@@ -109,8 +113,8 @@ public class WorkbenchLayoutTests
   [AvaloniaFact]
   public void CollapseButton_ClosesTheWorkbench_AndReopenButtonRestoresIt()
   {
-    (AgentView view, Grid root) = Show(1200);
-    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+    (WorkspaceTabView view, Grid root) = Show(1200);
+    AgentTabViewModel tab = (AgentTabViewModel)view.DataContext!;
     Button collapse = view.GetVisualDescendants().OfType<Button>()
         .First(b => b.Name == "WorkbenchCollapseButton");
     Button reopen = view.GetVisualDescendants().OfType<Button>()
@@ -121,14 +125,14 @@ public class WorkbenchLayoutTests
     collapse.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
     Dispatcher.UIThread.RunJobs();
 
-    Assert.False(vm.Workbench.IsOpen, "the collapse control must close the workbench");
+    Assert.False(tab.Workbench.IsOpen, "the collapse control must close the workbench");
     Assert.Equal(new GridLength(0), root.ColumnDefinitions[2].Width);
     Assert.True(reopen.IsVisible, "reopen must appear once the workbench is collapsed");
 
     reopen.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
     Dispatcher.UIThread.RunJobs();
 
-    Assert.True(vm.Workbench.IsOpen, "reopen must bring the workbench back");
+    Assert.True(tab.Workbench.IsOpen, "reopen must bring the workbench back");
     Assert.True(root.ColumnDefinitions[2].Width.Value > 0);
   }
 
@@ -142,8 +146,8 @@ public class WorkbenchLayoutTests
   [AvaloniaFact]
   public void CollapseButton_ClosesTheWorkbench_OnARealPointerClick()
   {
-    (AgentView view, Grid _, Window window) = ShowWindow(1200);
-    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+    (WorkspaceTabView view, Grid _, Window window) = ShowWindow(1200);
+    AgentTabViewModel tab = (AgentTabViewModel)view.DataContext!;
     Button collapse = view.GetVisualDescendants().OfType<Button>()
         .First(b => b.Name == "WorkbenchCollapseButton");
 
@@ -155,7 +159,7 @@ public class WorkbenchLayoutTests
     window.MouseUp(center.Value, MouseButton.Left);
     Dispatcher.UIThread.RunJobs();
 
-    Assert.False(vm.Workbench.IsOpen, "a real pointer click on the collapse control must close the workbench");
+    Assert.False(tab.Workbench.IsOpen, "a real pointer click on the collapse control must close the workbench");
   }
 
   /// <summary>The collapse control's glyph must be the character it means, not the
@@ -168,7 +172,7 @@ public class WorkbenchLayoutTests
   [AvaloniaFact]
   public void CollapseButton_Content_IsTheGlyphItself_NotTheRawEscape()
   {
-    (AgentView view, Grid _) = Show(1200);
+    (WorkspaceTabView view, Grid _) = Show(1200);
     Button collapse = view.GetVisualDescendants().OfType<Button>()
         .First(b => b.Name == "WorkbenchCollapseButton");
 
@@ -178,21 +182,21 @@ public class WorkbenchLayoutTests
   }
 
   /// <summary>The collapse control must still receive a real pointer click when the view is
-  ///     hosted the way PRODUCTION hosts it — one AgentView per tab inside a keep-alive
-  ///     ItemsControl, each wrapped in a Panel whose IsVisible follows tab selection — at
-  ///     production window size.
-  ///     <para>Every other test here builds a bare AgentView in a bare Window, which is not
+  ///     hosted the way PRODUCTION hosts it - one WorkspaceTabView per tab inside a
+  ///     keep-alive ItemsControl, each wrapped in a Panel whose IsVisible follows tab
+  ///     selection - at production window size.
+  ///     <para>Every other test here builds a bare view in a bare Window, which is not
   ///     the shape the user clicks in. If the hosting wrapper swallowed pointer input, the
   ///     bare-view tests would all pass while the real app's button stayed dead.</para></summary>
   [AvaloniaFact]
   public void CollapseButton_ClosesTheWorkbench_WhenHostedLikeProduction()
   {
-    AgentSessionViewModel vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
+    AgentTabViewModel tab = TestFixtures.CreateTab();
     ItemsControl host = new()
     {
-      ItemsSource = new[] { vm },
-      ItemTemplate = new FuncDataTemplate<AgentSessionViewModel>((_, _) =>
-          new Panel { Children = { new AgentView() } }, supportsRecycling: false),
+      ItemsSource = new[] { tab },
+      ItemTemplate = new FuncDataTemplate<AgentTabViewModel>((_, _) =>
+          new Panel { Children = { new WorkspaceTabView() } }, supportsRecycling: false),
     };
     Window window = new() { Width = 1920, Height = 1017, Content = host };
     window.Show();
@@ -208,7 +212,7 @@ public class WorkbenchLayoutTests
     window.MouseUp(center.Value, MouseButton.Left);
     Dispatcher.UIThread.RunJobs();
 
-    Assert.False(vm.Workbench.IsOpen,
+    Assert.False(tab.Workbench.IsOpen,
         "the collapse control must close the workbench when hosted like production");
   }
 
@@ -218,10 +222,10 @@ public class WorkbenchLayoutTests
   [AvaloniaFact]
   public void SelectingTheGitHubIcon_RendersThePullRequestPane_AndHidesTheOthers()
   {
-    (AgentView view, Grid _, Window window) = ShowWindow(1200);
-    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+    (WorkspaceTabView view, Grid _, Window window) = ShowWindow(1200);
+    AgentTabViewModel tab = (AgentTabViewModel)view.DataContext!;
 
-    vm.Workbench.Select(WorkbenchView.GitHub);
+    tab.Workbench.Select(WorkbenchView.GitHub);
     Dispatcher.UIThread.RunJobs();
 
     ItemsControl pullRequests = view.GetVisualDescendants().OfType<ItemsControl>()
@@ -241,47 +245,18 @@ public class WorkbenchLayoutTests
   [AvaloniaFact]
   public void TheGitHubIcon_IsAvailable_AndSelectable()
   {
-    (AgentView view, Grid _, Window window) = ShowWindow(1200);
-    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+    (WorkspaceTabView view, Grid _, Window window) = ShowWindow(1200);
+    AgentTabViewModel tab = (AgentTabViewModel)view.DataContext!;
 
-    WorkbenchIconViewModel icon = vm.Workbench.Icons.First(i => i.View == WorkbenchView.GitHub);
+    WorkbenchIconViewModel icon = tab.Workbench.Icons.First(i => i.View == WorkbenchView.GitHub);
     Assert.True(icon.IsAvailable, "the GitHub view is built, so its icon must not be dimmed");
 
-    vm.Workbench.Select(WorkbenchView.GitHub);
+    tab.Workbench.Select(WorkbenchView.GitHub);
     Dispatcher.UIThread.RunJobs();
 
-    Assert.Equal(WorkbenchView.GitHub, vm.Workbench.SelectedView);
-    Assert.True(vm.Workbench.IsGitHubSelected);
+    Assert.Equal(WorkbenchView.GitHub, tab.Workbench.SelectedView);
+    Assert.True(tab.Workbench.IsGitHubSelected);
     window.Close();
-  }
-  /// <summary>The chat column's width, read from the chat DockPanel itself so the
-  ///     assertion never re-derives layout.</summary>
-  private static double ChatWidth(AgentView view) => view.GetVisualDescendants().OfType<DockPanel>()
-      .First(d => Grid.GetColumn(d) == 0 && d.Parent is Grid g && g.Name == "RootSplit").Bounds.Width;
-
-  private static Border Strip(AgentView view) => view.GetVisualDescendants().OfType<Border>()
-      .First(b => b.Name == "WorkbenchStrip");
-
-  private static Border Content(AgentView view) => view.GetVisualDescendants().OfType<Border>()
-      .First(b => b.Name == "WorkbenchContent");
-
-  private static (AgentView View, Grid Root) Show(double width)
-  {
-    (AgentView view, Grid root, Window _) = ShowWindow(width);
-    return (view, root);
-  }
-
-  /// <summary>Shows the view in a real (headless) window and hands back the window too, so
-  ///     a test can drive pointer input through the platform the way a user does.</summary>
-  private static (AgentView View, Grid Root, Window Window) ShowWindow(double width)
-  {
-    AgentSessionViewModel vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
-    Window window = new() { Width = width, Height = 600, Content = new AgentView { DataContext = vm } };
-    window.Show();
-    Dispatcher.UIThread.RunJobs();
-    AgentView view = (AgentView)window.Content;
-    Grid root = view.GetVisualDescendants().OfType<Grid>().First(g => g.Name == "RootSplit");
-    return (view, root, window);
   }
 
   /// <summary>Issue #9: selecting the Git icon renders the git pane and hides the other
@@ -290,10 +265,10 @@ public class WorkbenchLayoutTests
   [AvaloniaFact]
   public void SelectingTheGitIcon_RendersTheGitPane_AndHidesTheOthers()
   {
-    (AgentView view, Grid _, Window window) = ShowWindow(1200);
-    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+    (WorkspaceTabView view, Grid _, Window window) = ShowWindow(1200);
+    AgentTabViewModel tab = (AgentTabViewModel)view.DataContext!;
 
-    vm.Workbench.Select(WorkbenchView.Git);
+    tab.Workbench.Select(WorkbenchView.Git);
     Dispatcher.UIThread.RunJobs();
 
     ItemsControl changeList = view.GetVisualDescendants().OfType<ItemsControl>()
@@ -307,5 +282,35 @@ public class WorkbenchLayoutTests
     Assert.True(diffList.IsEffectivelyVisible, "the git diff must render when the Git icon is selected");
     Assert.False(planList.IsEffectivelyVisible, "the plans list must not render at the same time");
     window.Close();
+  }
+
+  /// <summary>The grid column's width, read from the cell scroll host itself so the
+  ///     assertion never re-derives layout.</summary>
+  private static double GridWidth(WorkspaceTabView view) => view.GetVisualDescendants()
+      .OfType<ScrollViewer>().First(s => s.Name == "CellScroll").Bounds.Width;
+
+  private static Border Strip(WorkspaceTabView view) => view.GetVisualDescendants().OfType<Border>()
+      .First(b => b.Name == "WorkbenchStrip");
+
+  private static Border Content(WorkspaceTabView view) => view.GetVisualDescendants().OfType<Border>()
+      .First(b => b.Name == "WorkbenchContent");
+
+  private static (WorkspaceTabView View, Grid Root) Show(double width)
+  {
+    (WorkspaceTabView view, Grid root, Window _) = ShowWindow(width);
+    return (view, root);
+  }
+
+  /// <summary>Shows the view in a real (headless) window and hands back the window too, so
+  ///     a test can drive pointer input through the platform the way a user does.</summary>
+  private static (WorkspaceTabView View, Grid Root, Window Window) ShowWindow(double width)
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTab();
+    Window window = new() { Width = width, Height = 600, Content = new WorkspaceTabView { DataContext = tab } };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    WorkspaceTabView view = (WorkspaceTabView)window.Content;
+    Grid root = view.GetVisualDescendants().OfType<Grid>().First(g => g.Name == "TabRoot");
+    return (view, root, window);
   }
 }

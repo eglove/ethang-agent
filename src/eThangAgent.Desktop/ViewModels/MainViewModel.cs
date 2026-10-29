@@ -1307,60 +1307,165 @@ internal sealed partial class MainViewModel : ObservableObject
     return Result.Success(await ReplaceSessionAsync(tab, created.Value, index, prompt));
   }
 
-  /// <summary>Swaps <paramref name="oldTab"/> for a tab over <paramref name="session"/> at
-  ///     the SAME index (issue #234): the old session completes gracefully and its container
-  ///     is disposed, the new tab takes its place in the strip, and — when
-  ///     <paramref name="prompt"/> is non-empty — the new session's first turn fires.
-  ///     <para>ORDER MATTERS: the replacement is ADDED and wired BEFORE the old session is
+  /// <summary>Replaces the PRIMARY CELL of <paramref name="tab"/> with a cell over
+  ///     <paramref name="session"/> (issue #234 + #307 D2): the old session completes
+  ///     gracefully and its container is disposed, the new session takes the SAME cell, and —
+  ///     when <paramref name="prompt"/> is non-empty — its first turn fires.
+  ///     <para>#307 changed what 'in place' means. Before the grid, replacing the tab was the
+  ///     only way to restart a conversation, so `/new` removed the tab and attached a new one
+  ///     at the same index. Now the tab is the WORKSPACE and holds a grid: a sequential
+  ///     advance continues in its own cell, leaving the rail and any sibling agents alone.
+  ///     A PARALLEL dispatch is the case that adds a cell, and that is <see cref="AddCellAsync"/>.</para>
+  ///     <para>ORDER MATTERS: the replacement is attached and wired BEFORE the old session is
   ///     torn down. Teardown disposes a container and kills its host process, and the new
-  ///     session's own host start must not be racing that teardown inside the same tab
-  ///     slot; more importantly a teardown fault must never leave the shell with no tab at
-  ///     all.</para>
+  ///     session's own host start must not be racing that teardown inside the same cell; more
+  ///     importantly a teardown fault must never leave the tab with no cell at all.</para>
   ///     <para>Must run on the UI thread.</para></summary>
-  private async Task<AgentTabViewModel> ReplaceSessionAsync(AgentTabViewModel oldTab,
+  private async Task<AgentTabViewModel> ReplaceSessionAsync(AgentTabViewModel tab,
       AgentSession session, int index, string? prompt)
   {
-    // Insert at the old tab's index so the strip does not reshuffle under the user. The
-    // clamp covers a tab that vanished while the container was building.
-    int target = index < 0 || index > Tabs.Count ? Tabs.Count : index;
-    _ = Tabs.Remove(oldTab);
-    AgentTabViewModel fresh = await AttachSessionAsync(session, Math.Min(target, Tabs.Count));
-    await CloseReplacedSessionAsync(oldTab);
+    // A tab that vanished while the container was building is not resurrected: the new
+    // session is attached as its own tab so the work is not lost.
+    if (!Tabs.Contains(tab))
+    {
+      return await AttachSessionAsync(session, Math.Clamp(index, 0, Tabs.Count));
+    }
+
+    AgentSessionViewModel retiredVm = tab.ViewModel;
+    AgentSession retiredSession = tab.Container;
+    WorkbenchViewModel workbench = tab.Workbench;
+    // Self-referencing sink hook, the same pattern as the attach path: the view-model is
+    // captured after construction so its own sink marshals its events onto the UI thread.
+    AgentSessionViewModel? freshVmRef = null;
+    AgentSessionViewModel freshVm = BuildSessionViewModel(session, workbench,
+        () => freshVmRef ??
+            throw new InvalidOperationException("session view-model not initialized"),
+        id => freshVmRef!.Status.ModelId = id,
+        () => tab);
+    freshVmRef = freshVm;
+    session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
+        () => freshVmRef?.AddSystemNotice(message));
+    session.DeliverPendingNotices();
+    await RestorePinnedModelAsync(session, freshVm);
+    await RestoreSessionPreferencesAsync(session, freshVm);
+    await freshVm.SeedUsageAsync().ConfigureAwait(true);
+    freshVm.Transcript.Restore(session.Conversation.Messages);
+
+    tab.ReplacePrimaryCell(session, freshVm);
+    AttachTabWiring(session, tab);
+    await CloseReplacedSessionAsync(retiredVm, retiredSession);
 
     if (!string.IsNullOrWhiteSpace(prompt))
     {
       // Fire the first turn and DO NOT await it here: the caller (the slash command path,
       // or the host's session-request) must return so the UI keeps painting the stream. The
       // view-model owns the turn task and surfaces its own faults.
-      _ = fresh.ViewModel.SubmitAsync(prompt);
+      _ = freshVm.SubmitAsync(prompt);
     }
 
-    return fresh;
+    return tab;
   }
 
-  /// <summary>Retires a replaced tab's session: completes it gracefully (so the Sessions
-  ///     dialog can resume it) and disposes its container, which kills its host process.
-  ///     The tab itself is already gone from <see cref="Tabs"/>. Best effort by named
-  ///     decision — a teardown fault must never fail the session the user just started.</summary>
-  private async Task CloseReplacedSessionAsync(AgentTabViewModel replaced)
+  /// <summary>Adds a NEW agent cell to <paramref name="tab"/>'s grid (issue #307 D2): the
+  ///     parallel-dispatch shape, as opposed to a sequential advance, which replaces the
+  ///     primary cell in place.
+  ///     <para>Both shapes must be deliberate. A chain is a SEQUENCE of agents, so its advance
+  ///     continues in one cell; several agents working AT ONCE each need their own, and adding
+  ///     one must never disturb the agents already running beside it.</para>
+  ///     <para>This is the seam a parallel dispatch uses. Nothing calls it yet: parallel
+  ///     coordination is #314, which ships last. It exists now because D2 is a decision about
+  ///     the grid's shape, and a grid that could only ever hold one agent would have to be
+  ///     re-cut to admit the second.</para>
+  ///     <para>Must run on the UI thread.</para></summary>
+  public async Task<Result<AgentCellViewModel>> AddCellAsync(AgentTabViewModel tab, string? prompt)
   {
-    _sessionClosed?.Invoke(replaced.Container.RootId);
+    ArgumentNullException.ThrowIfNull(tab);
+    if (!Tabs.Contains(tab))
+    {
+      return Result.Failure<AgentCellViewModel>(new DomainError("TabClosed",
+          "that tab is no longer open; no agent was added."));
+    }
+
+    string workspaceRoot = tab.Container.WorkspaceRoot;
+    string providerName = tab.Container.ProviderName;
+    Task<Result<AgentSession>> scheduled;
+    using (ExecutionContext.SuppressFlow())
+    {
+      scheduled = Task.Run(() => _createSession(workspaceRoot, providerName));
+    }
+
+    Result<AgentSession> created;
+    try
+    {
+      created = await scheduled;
+    }
+    // Named decision (CA1031): a failed launch is INFORMATION, not a crash - the same rule the
+    // replace path follows, for the same reason (the UI dispatcher has no handler).
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031, S2486
+    {
+      return Result.Failure<AgentCellViewModel>(new DomainError("SessionLaunchFailed",
+          "the new agent could not be started: " + ex.Message));
+    }
+
+    if (!created.IsSuccess)
+    {
+      return Result.Failure<AgentCellViewModel>(created.Error);
+    }
+
+    AgentSession session = created.Value;
+    WorkbenchViewModel workbench = tab.Workbench;
+    AgentSessionViewModel? cellVmRef = null;
+    AgentSessionViewModel cellVm = BuildSessionViewModel(session, workbench,
+        () => cellVmRef ??
+            throw new InvalidOperationException("session view-model not initialized"),
+        id => cellVmRef!.Status.ModelId = id,
+        () => tab);
+    cellVmRef = cellVm;
+    session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
+        () => cellVmRef?.AddSystemNotice(message));
+    session.DeliverPendingNotices();
+    await RestorePinnedModelAsync(session, cellVm);
+    await RestoreSessionPreferencesAsync(session, cellVm);
+    await cellVm.SeedUsageAsync().ConfigureAwait(true);
+    cellVm.Transcript.Restore(session.Conversation.Messages);
+
+    AgentCellViewModel cell = tab.AddCell(session, cellVm);
+    AttachTabWiring(session, tab);
+
+    if (!string.IsNullOrWhiteSpace(prompt))
+    {
+      _ = cellVm.SubmitAsync(prompt);
+    }
+
+    return Result.Success(cell);
+  }
+
+  /// <summary>Retires a replaced cell's session: completes it gracefully (so the Sessions
+  ///     dialog can resume it) and disposes its container, which kills its host process.
+  ///     The cell is already swapped, so the tab is never left without one. Best effort by
+  ///     named decision — a teardown fault must never fail the session the user just started.
+  ///     <para>Issue #307: this takes the retired session and view-model directly rather than
+  ///     the whole tab, because the tab SURVIVES a cell swap - its rail and its sibling cells
+  ///     are not part of the teardown.</para></summary>
+  private async Task CloseReplacedSessionAsync(AgentSessionViewModel retiredVm, AgentSession retired)
+  {
+    _sessionClosed?.Invoke(retired.RootId);
 #pragma warning disable CA1031 // Named decision: teardown is best effort, like CloseTabAsync.
     try
     {
-      await replaced.ViewModel.ShutdownAsync();
+      await retiredVm.ShutdownAsync();
     }
     catch
     {
       // Swallowed deliberately: see the named decision above.
     }
 #pragma warning restore CA1031
-    replaced.Badge?.Dispose();
-    replaced.DetachBranchWatcher();
 #pragma warning disable CA1031 // Named decision: a disposed container must not fail the new session.
     try
     {
-      await replaced.Container.Services.DisposeAsync();
+      await retired.Services.DisposeAsync();
     }
     catch
     {
@@ -1588,7 +1693,11 @@ internal sealed partial class MainViewModel : ObservableObject
     session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
         () => sessionVmRef?.AddSystemNotice(message));
     AgentTabViewModel? attachedTab = null;
-    AgentSessionViewModel sessionVm = BuildSessionViewModel(session,
+    // Issue #307 D6: the rail is the TAB's, so the shell builds ONE per tab and hands it to
+    // every session view-model in it. A cell swap (a chain advance, /new) then rebuilds the
+    // session without rebuilding a pane the user is reading.
+    WorkbenchViewModel workbench = BuildWorkbench(session);
+    AgentSessionViewModel sessionVm = BuildSessionViewModel(session, workbench,
         () => sessionVmRef ??
             throw new InvalidOperationException("session view-model not initialized"),
         id => sessionVmRef!.Status.ModelId = id,
@@ -1608,7 +1717,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // conversation) renders into the transcript view. A fresh session replays nothing.
     sessionVm.Transcript.Restore(session.Conversation.Messages);
 
-    AgentTabViewModel tab = new(session, sessionVm);
+    AgentTabViewModel tab = new(session, sessionVm, workbench);
     // Publish the tab to the view-model's new-session seams (issue #234): both resolve it
     // lazily because the tab is constructed FROM this view-model.
     attachedTab = tab;
@@ -1621,6 +1730,44 @@ internal sealed partial class MainViewModel : ObservableObject
     return tab;
   }
 
+  /// <summary>Builds ONE workbench rail for a workspace tab (issue #307 D6). The rail is
+  ///     workspace-scoped - plans, git, PRs, and the database are the workspace's, not any one
+  ///     agent's - so it is built per TAB and shared by every cell in it.
+  ///     <para>Every view renders its own unavailable state when its seam is null, so a host
+  ///     without one of these services gets a working rail rather than a blank pane.</para></summary>
+  private static WorkbenchViewModel BuildWorkbench(AgentSession session) => new(
+      new PlansViewViewModel(
+          session.Services.GetService<PlanService>(),
+          session.Services.GetService<IChangeSignal>(),
+          render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
+          events: session.Services.GetService<IAgentEvents>()),
+      // The git view watches the WORKSPACE ROOT (never .git): working-tree edits are the thing
+      // it exists to show, and they never touch .git.
+      new GitViewViewModel(
+          session.WorkspaceRoot,
+          session.Services.GetService<IGitQueryAccess>(),
+          render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
+      // The Progress view's accordion is the tab's too: it lists the WORKSPACE's child agents,
+      // which every cell contributes to, so it cannot belong to one cell.
+      BuildSubagentPanel(session),
+      // The GitHub view (issue #10) polls the gh CLI on a long interval and ONLY while
+      // visible: each read is a subprocess, and no push channel exists (design D6).
+      new PullRequestPaneViewModel(
+          session.WorkspaceRoot,
+          session.Services.GetService<IGitHubAccess>(),
+          render => Avalonia.Threading.Dispatcher.UIThread.Post(render)));
+
+  /// <summary>The tab's live-progress accordion, subscribed to the session's child-event
+  ///     stream. Events arrive on stream threads, so the marshal posts each application onto
+  ///     the UI thread (the 884fc61 crash fix).</summary>
+  private static SubagentPanelViewModel BuildSubagentPanel(AgentSession session)
+  {
+    SubagentPanelViewModel panel = new(session.Services.GetService<IAgentStore>());
+    panel.Attach(session.Services.GetService<IAgentEvents>(),
+        apply => evt => Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(evt)));
+    return panel;
+  }
+
   /// <summary>Builds the session view-model with its self-referencing stream sink and
   ///     status hook. Both resolve the view-model lazily through the supplied accessors,
   ///     so the instance is captured after construction.
@@ -1628,8 +1775,8 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     up in, and the tab does not exist yet — so both resolve it lazily through the same
   ///     accessor pattern, and both are no-ops until the tab is attached.</para></summary>
   private AgentSessionViewModel BuildSessionViewModel(AgentSession session,
-      Func<AgentSessionViewModel> currentViewModel, Action<string> updateStatusModel,
-      Func<AgentTabViewModel?> currentTab)
+      WorkbenchViewModel workbench, Func<AgentSessionViewModel> currentViewModel,
+      Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab)
   {
     return new AgentSessionViewModel(
         // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
@@ -1690,6 +1837,8 @@ internal sealed partial class MainViewModel : ObservableObject
           // token storage, so a container without the seam renders the view's own unavailable
           // state instead of a blank pane.
           GitHub = session.Services.GetService<IGitHubAccess>(),
+          // Issue #307 D6: the tab's own rail, shared by every cell in it.
+          Workbench = workbench,
         });
   }
 
@@ -2221,9 +2370,12 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
-  /// <summary>Closes a tab: completes its root session gracefully (best effort), then
-  ///     removes it and disposes its container. Selection falls to the last remaining
-  ///     tab; closing the final tab leaves the empty shell with the menu bar.</summary>
+  /// <summary>Closes a tab: completes EVERY cell's root session gracefully (best effort),
+  ///     then removes the tab and disposes every container. Selection falls to the last
+  ///     remaining tab; closing the final tab leaves the empty shell with the menu bar.
+  ///     <para>Issue #307: a tab holds 1..N agents, so closing it must retire all of them or
+  ///     the ones past the primary would keep a live host process with no surface. The tab's
+  ///     own rail is disposed here too - it is the tab's, not any cell's (D6).</para></summary>
   public async Task CloseTabAsync(AgentTabViewModel tab)
   {
     ArgumentNullException.ThrowIfNull(tab);
@@ -2232,24 +2384,37 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    // After the guard: a stale double-close must not detach a NEWER watchdog bound to
-    // the same root id (a closed session becomes resumable, so the id can be live again).
-    _sessionClosed?.Invoke(tab.Container.RootId);
-
-    // Named decision (CA1031): teardown is best effort — a failing persistence
-    // write must not prevent the tab from closing.
-    try
+    // Snapshot BEFORE teardown: a cell swap during shutdown must not change what is closed.
+    List<AgentCellViewModel> cells = [.. tab.Cells];
+    foreach (AgentCellViewModel cell in cells)
     {
-      await tab.ViewModel.ShutdownAsync();
-    }
+      // After the guard: a stale double-close must not detach a NEWER watchdog bound to
+      // the same root id (a closed session becomes resumable, so the id can be live again).
+      _sessionClosed?.Invoke(cell.Container.RootId);
+
+      // Named decision (CA1031): teardown is best effort — a failing persistence
+      // write must not prevent the tab from closing.
+      try
+      {
+        await cell.ViewModel.ShutdownAsync();
+      }
 #pragma warning disable CA1031 // Do not catch general exception types
-    catch { /* teardown never throws */ }
+      catch { /* teardown never throws */ }
 #pragma warning restore CA1031
+    }
+
     tab.Badge?.Dispose();
     tab.DetachBranchWatcher();
+    // Issue #307 D6: the rail belongs to the tab, so the tab's close is what stops its
+    // pollers. A cell's shutdown deliberately leaves a SHARED rail running.
+    tab.Workbench.Dispose();
     _ = Tabs.Remove(tab);
     SelectedTab = Tabs.LastOrDefault();
-    await tab.Container.Services.DisposeAsync();
+
+    foreach (AgentCellViewModel cell in cells)
+    {
+      await cell.Container.Services.DisposeAsync();
+    }
   }
 
   /// <summary>Synchronous fire-and-forget close used by the tab header's close button.

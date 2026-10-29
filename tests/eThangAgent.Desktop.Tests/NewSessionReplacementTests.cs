@@ -89,23 +89,34 @@ public class NewSessionReplacementTests
       => (await ViewModel.OpenAgentAsync(root, provider).ConfigureAwait(true)).Value!;
   }
 
+  /// <summary>Issue #307 D2 CHANGED THIS CONTRACT. Before the grid, replacing the tab was
+  ///     the only way to restart a conversation, so `/new` removed the tab and attached a new
+  ///     one at the same index. Now the tab is the WORKSPACE and holds a grid of cells: a
+  ///     sequential advance continues in its own CELL, and the tab - its rail, its sibling
+  ///     agents - survives untouched.
+  ///     <para>What must still hold is the user-visible promise #234 made: ONE thing is
+  ///     replaced, not a third added, and the selection does not move.</para></summary>
   [Fact]
-  public async Task StartNewSession_ReplacesTheTabInPlace_AtTheSameIndex()
+  public async Task StartNewSession_ReplacesTheCellInPlace_AndTheTabSurvives()
   {
     Shell shell = new();
     AgentTabViewModel alpha = await shell.OpenAsync(@"C:\work\alpha");
     AgentTabViewModel beta = await shell.OpenAsync(@"C:\work\beta");
+    AgentId retired = beta.Container.RootId;
 
     Result<AgentTabViewModel> started = await shell.ViewModel.StartNewSessionAsync(beta, "keep going");
 
     Assert.True(started.IsSuccess, started.Error?.Message);
-    // ONE tab replaced, not a third added: the strip is the same length and the new tab
-    // sits where the old one did.
+    // The STRIP is unchanged: two tabs, in the same order, and the SAME tab object.
     Assert.Equal(2, shell.ViewModel.Tabs.Count);
     Assert.Same(alpha, shell.ViewModel.Tabs[0]);
-    Assert.Same(started.Value, shell.ViewModel.Tabs[1]);
-    Assert.DoesNotContain(beta, shell.ViewModel.Tabs);
-    Assert.Same(started.Value, shell.ViewModel.SelectedTab);
+    Assert.Same(beta, shell.ViewModel.Tabs[1]);
+    Assert.Same(beta, started.Value);
+    Assert.Same(beta, shell.ViewModel.SelectedTab);
+    // The tab still holds exactly one cell, and that cell is a NEW session.
+    AgentCellViewModel cell = Assert.Single(beta.Cells);
+    Assert.NotEqual(retired, cell.Container.RootId);
+    Assert.Same(cell.ViewModel, beta.ViewModel);
   }
 
   [Fact]
@@ -204,19 +215,22 @@ public class NewSessionReplacementTests
   }
 
   [Fact]
-  public async Task SlashNewCommand_ReachesTheShell_AndReplacesTheTab()
+  public async Task SlashNewCommand_ReachesTheShell_AndReplacesTheCell()
   {
     // The user-facing path end to end: /new <prompt> resolves BEFORE the skill lookup
     // (issue #234) and reaches the shell's replacement, which fires the prompt as the new
     // session's first turn.
+    // Issue #307 D2: the CELL is replaced and the TAB survives, so the tab object is the
+    // same one and only its session changed.
     Shell shell = new();
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
+    AgentId retired = tab.Container.RootId;
 
     await tab.ViewModel.SubmitAsync("/new explore the auth module").ConfigureAwait(true);
 
     Assert.Equal(2, shell.Created.Count);
-    AgentTabViewModel fresh = Assert.Single(shell.ViewModel.Tabs);
-    Assert.NotSame(tab, fresh);
+    Assert.Same(tab, Assert.Single(shell.ViewModel.Tabs));
+    Assert.NotEqual(retired, tab.Container.RootId);
     // The prompt became the new session's FIRST TURN — the host received it, not the
     // in-process runner.
     Assert.Equal("explore the auth module", shell.Host.LastRequest!.Input, StringComparer.Ordinal);

@@ -1,0 +1,428 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:md="using:eThangAgent.Desktop.Markdown"
+             xmlns:vm="using:eThangAgent.Desktop.ViewModels"
+             xmlns:views="using:eThangAgent.Desktop.Views"
+             x:Class="eThangAgent.Desktop.Views.WorkspaceTabView"
+             x:DataType="vm:AgentTabViewModel">
+  <UserControl.Styles>
+    <!-- Issue #307 D5: the IDLE OUTLINE. A non-streaming agent is visually distinct from a
+         streaming one, so a stalled or waiting agent is visible without reading its
+         transcript. This is the human half of the watchdog: the harness nudges a hung agent,
+         and the outline tells the user which one to look at.
+         <para>A finished card (D7) is dimmed further and keeps its position - it is a record
+         of what ran, not a slot to be reused.</para> -->
+    <Style Selector="Border#CellFrame.idle">
+      <Setter Property="BorderBrush" Value="#66FFB454"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <Style Selector="Border#CellFrame.finished">
+      <Setter Property="BorderBrush" Value="#33888888"/>
+      <Setter Property="Opacity" Value="0.72"/>
+    </Style>
+  </UserControl.Styles>
+  <!-- Issue #307 D1/D6: a workspace tab. The tab IS the workspace; what lives inside it is
+       1..N agent cells laid out in a grid, and the workbench rail beside them.
+       <para>Before #307 a tab was one session and one chat. The grid splits the available
+       space EVENLY (D8), every cell renders live (D3), and every cell has its own chat input
+       (D4) because there is no orchestrator and therefore no privileged conversation (D9).
+       The rail is the TAB's, not a cell's: its views are workspace-scoped (plans, git, PRs,
+       database), so they must not move when a cell arrives or departs.</para> -->
+  <Grid x:Name="TabRoot" ColumnDefinitions="*,Auto,354">
+    <!-- THE GRID (D1/D8): one cell looks exactly like the old tab, two split, three tile.
+         AgentGridLayout computes the geometry - a pure function - and the code-behind applies
+         it on every layout pass, so the view never re-derives it inline. Past what fits at
+         the 480 x 360 minimum the grid scrolls; there is no cell maximum (D8). -->
+    <Panel Grid.Column="0">
+      <ScrollViewer x:Name="CellScroll"
+                    HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+        <ItemsControl x:Name="CellGrid" ItemsSource="{Binding Cells, Mode=OneWay}">
+          <!-- The grid divides the space itself (AgentGridPanel): a WrapPanel would wrap on
+               the cells' own desired sizes, which is not the even split D8 describes. -->
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <views:AgentGridPanel/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:AgentCellViewModel">
+              <Border x:Name="CellFrame" Margin="2" Background="#0A000000"
+                      BorderThickness="1" BorderBrush="#33888888"
+                      Classes.idle="{Binding IsIdle}"
+                      Classes.finished="{Binding IsFinished}">
+                <DockPanel>
+                  <Border DockPanel.Dock="Top" Background="#15000000" Padding="8,3">
+                    <DockPanel LastChildFill="False">
+                      <TextBlock Text="{Binding Title}" FontSize="11" FontWeight="SemiBold"
+                                 VerticalAlignment="Center"/>
+                      <TextBlock DockPanel.Dock="Right" Text="finished" FontSize="10"
+                                 Opacity="0.6" VerticalAlignment="Center" Margin="6,0,0,0"
+                                 IsVisible="{Binding IsFinished}"/>
+                      <Button DockPanel.Dock="Right" Content="✕" Padding="4,0" FontSize="10"
+                              Background="Transparent" BorderThickness="0" Margin="6,0,0,0"
+                              IsVisible="{Binding IsFinished}"
+                              Click="OnDismissCellClick" Tag="{Binding}"
+                              ToolTip.Tip="Dismiss this finished agent"/>
+                    </DockPanel>
+                  </Border>
+                  <!-- The cell's chat surface is the unchanged AgentView: every cell renders
+                       live (D3), which the per-session stream sink already provides - the
+                       deltas and reasoning of each agent reach its own cell as they arrive. -->
+                  <views:AgentView DataContext="{Binding ViewModel}"/>
+                </DockPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+      <!-- Reopen the rail (design D5, issue #307 D6): the control lives OUTSIDE the
+           workbench because the workbench (strip included) is hidden while collapsed - a
+           control inside it could never be clicked to bring it back. Visible only while
+           collapsed, so the open state adds nothing to the tab. -->
+      <Button x:Name="WorkbenchReopenButton" Content="«" Padding="6,2"
+              HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0"
+              IsVisible="{Binding !Workbench.IsOpen, Mode=OneWay}"
+              Click="OnWorkbenchReopenClick" ToolTip.Tip="Show the workbench"/>
+    </Panel>
+
+    <!-- Splitter between the grid and the workbench: it resizes the workbench column as a
+         whole (icon strip plus content), so the strip can never be squeezed out from under
+         the pane. -->
+    <GridSplitter Grid.Column="1" Name="WorkbenchSplitter" Width="4"
+                  Background="#33888888" HorizontalAlignment="Center"
+                  IsVisible="{Binding Workbench.IsOpen, Mode=OneWay}"/>
+
+    <!-- The workbench REGION: icon strip and content pane are two columns of ONE
+         region, so the strip always owns its own space. Placing the content pane in
+         a column the root grid did not declare made Avalonia clamp it onto the
+         strip's column - the pane rendered on top of the icons and overflowed the
+         window edge, cutting its text off. -->
+    <Grid x:Name="WorkbenchRegion" Grid.Column="2" ColumnDefinitions="Auto,*"
+          IsVisible="{Binding Workbench.IsOpen, Mode=OneWay}">
+      <!-- Workbench icon strip (design D8): six icons, no menu, no scrolling strip.
+           An icon for a view this slice has not built renders dimmed and does not switch
+           - an icon that silently does nothing is worse than one that says so. -->
+      <Border Grid.Column="0" Name="WorkbenchStrip" Background="#22000000" Width="34">
+        <DockPanel>
+        <!-- Collapse control (design D5): the workbench never hides itself on content,
+             so the user needs one deliberate way to close it. Docked bottom, away from
+             the view icons so it can never be mistaken for a seventh view. -->
+        <Button x:Name="WorkbenchCollapseButton" DockPanel.Dock="Bottom" Content="»" ToolTip.Tip="Collapse the workbench"
+                Width="30" Height="30" Margin="2,4" Padding="0"
+                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                Click="OnWorkbenchCollapseClick"/>
+        <ItemsControl ItemsSource="{Binding Workbench.Icons, Mode=OneWay}" Margin="0,8,0,0">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:WorkbenchIconViewModel">
+              <Button Content="{Binding Glyph}" ToolTip.Tip="{Binding Tooltip}"
+                      Width="30" Height="30" Margin="2,1" Padding="0"
+                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                      Background="{Binding IsActive, Converter={x:Static views:WorkbenchConverters.ActiveIconBackground}}"
+                      Opacity="{Binding IsAvailable, Converter={x:Static views:WorkbenchConverters.AvailabilityOpacity}}"
+                      Click="OnWorkbenchIconClick" Tag="{Binding View}"/>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        </DockPanel>
+      </Border>
+
+      <!-- Workbench content: ONE view at a time (design D1). Its width comes from the
+           region's star column, so the splitter resizes it and the strip keeps its 34. -->
+      <Border Grid.Column="1" Name="WorkbenchContent" Background="#11000000" MinWidth="180">
+        <Panel>
+          <!-- PLANS (issue #8): plan records, realtime. The todo list this pane used to
+               render below the plans is gone (issue #310) - plan steps, chain records, and
+               the scientific ledger are the units now. -->
+          <DockPanel IsVisible="{Binding Workbench.IsPlansSelected, Mode=OneWay}" Margin="8,8,8,0">
+            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
+              <TextBlock Text="PLANS" FontWeight="SemiBold" Opacity="0.8"/>
+              <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                         Text="{Binding Workbench.Plans.StatusLine, Mode=OneWay}" Opacity="0.6"/>
+            </DockPanel>
+            <ScrollViewer>
+              <StackPanel>
+                <!-- A load failure renders HERE, never as an empty pane: 'no plans' and
+                     'cannot read plans' must not look the same. -->
+                <SelectableTextBlock Text="{Binding Workbench.Plans.LoadError, Mode=OneWay}"
+                                     Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,0,0,6"
+                                     IsVisible="{Binding Workbench.Plans.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <TextBlock Text="No plans yet." Opacity="0.55" Margin="0,4"
+                           IsVisible="{Binding Workbench.Plans.IsEmpty, Mode=OneWay}"/>
+                <ItemsControl x:Name="PlanCardList" ItemsSource="{Binding Workbench.Plans.Plans, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PlanCardViewModel">
+                      <Border Padding="6,4" Margin="0,0,0,6" CornerRadius="4" Background="#1AFFFFFF">
+                        <StackPanel>
+                          <SelectableTextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                          <TextBlock Text="{Binding Subtitle}" Opacity="0.6" FontSize="11" TextWrapping="Wrap"/>
+                          <!-- Issue #279: an unreadable plan renders its reason, so one
+                               corrupt row never blanks the catalog. -->
+                          <SelectableTextBlock Text="{Binding CorruptReason}" Foreground="#FF8A80"
+                                               FontSize="11" TextWrapping="Wrap"
+                                               IsVisible="{Binding IsCorrupt}"/>
+                          <ItemsControl ItemsSource="{Binding Steps, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:PlanStepRowViewModel">
+                                <Grid ColumnDefinitions="Auto,*" Margin="4,1,0,1">
+                                  <TextBlock Grid.Column="0" Text="{Binding Marker}" Margin="0,0,6,0"/>
+                                  <SelectableTextBlock Grid.Column="1" Text="{Binding Text}"
+                                                       TextWrapping="Wrap" FontSize="12"/>
+                                </Grid>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+
+          <!-- GIT (issue #9): branch, working-tree changes, and the selected path's
+               diff. Read-only by design (D4) - nothing here stages or commits. The status
+               list and the diff are two scroll regions of one pane, so a long diff cannot
+               push the change list out of reach. -->
+          <DockPanel IsVisible="{Binding Workbench.IsGitSelected, Mode=OneWay}" Margin="8,8,8,0">
+            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
+              <TextBlock Text="GIT" FontWeight="SemiBold" Opacity="0.8"/>
+              <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                          Text="{Binding Workbench.Git.StatusLine, Mode=OneWay}" Opacity="0.6"/>
+            </DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+              <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                <TextBlock Grid.Column="0" Text="branch" Opacity="0.55" Width="52" FontSize="11"/>
+                <SelectableTextBlock Grid.Column="1" Text="{Binding Workbench.Git.BranchDisplay, Mode=OneWay}"
+                            FontSize="11.5" TextWrapping="Wrap"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                <TextBlock Grid.Column="0" Text="dirty" Opacity="0.55" Width="52" FontSize="11"/>
+                <SelectableTextBlock Grid.Column="1" Text="{Binding Workbench.Git.DirtyDisplay, Mode=OneWay}"
+                            FontSize="11.5" TextWrapping="Wrap"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                <TextBlock Grid.Column="0" Text="head" Opacity="0.55" Width="52" FontSize="11"/>
+                <SelectableTextBlock Grid.Column="1" Text="{Binding Workbench.Git.HeadDisplay, Mode=OneWay}"
+                            FontSize="11.5" TextWrapping="Wrap"/>
+              </Grid>
+            </StackPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel>
+                <!-- A workspace that is not a repository renders HERE, never as an empty
+                     change list: 'not a repo' and 'a clean repo' must not look alike. -->
+                <SelectableTextBlock Text="{Binding Workbench.Git.EmptyReason, Mode=OneWay}"
+                            Foreground="#FFB454" TextWrapping="Wrap" Margin="0,0,0,6"
+                            IsVisible="{Binding Workbench.Git.EmptyReason, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <TextBlock Text="CHANGES" FontWeight="SemiBold" Opacity="0.8" FontSize="10.5"
+                           Margin="0,0,0,3"
+                           IsVisible="{Binding Workbench.Git.Changes.Count, Converter={x:Static views:WorkbenchConverters.CountToVisibility}}"/>
+                <ItemsControl x:Name="GitChangeList" ItemsSource="{Binding Workbench.Git.Changes, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:GitChangeRowViewModel">
+                      <Button Padding="2,1" Margin="0" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left" Background="Transparent"
+                              Click="OnGitChangeClick" Tag="{Binding SelectablePath}">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                          <TextBlock Grid.Column="0" Text="{Binding Code}" FontFamily="Consolas, Courier New"
+                                           FontSize="11" Opacity="0.75" Margin="0,0,6,0"/>
+                          <SelectableTextBlock Grid.Column="1" Text="{Binding Path}" FontSize="11.5"
+                                           TextWrapping="Wrap"/>
+                          <TextBlock Grid.Column="2" Text="{Binding Label}" FontSize="10.5"
+                                           Opacity="0.55" Margin="6,0,0,0"/>
+                        </Grid>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="Nothing changed." Opacity="0.55" Margin="0,4"
+                           IsVisible="{Binding Workbench.Git.IsClean, Mode=OneWay}"/>
+
+                <TextBlock Text="{Binding Workbench.Git.DiffHeading, Mode=OneWay}" FontWeight="SemiBold"
+                           Opacity="0.8" FontSize="10.5" Margin="0,8,0,3"/>
+                <SelectableTextBlock Text="{Binding Workbench.Git.DiffError, Mode=OneWay}"
+                            Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,0,0,4"
+                            IsVisible="{Binding Workbench.Git.DiffError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <ItemsControl x:Name="GitDiffList" ItemsSource="{Binding Workbench.Git.DiffLines, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DiffLineViewModel">
+                      <SelectableTextBlock Text="{Binding Text}" FontFamily="Consolas, Courier New"
+                              FontSize="11" TextWrapping="Wrap"
+                              Foreground="{Binding Kind, Converter={x:Static views:WorkbenchConverters.DiffLineBrush}}"/>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+          <!-- GITHUB (issue #10, design D6): the repository's open pull requests, one PR's
+               detail, and a create form. Every degradation state renders its own actionable
+               sentence here - a blank pane is a bug, not an empty state. -->
+          <DockPanel IsVisible="{Binding Workbench.IsGitHubSelected, Mode=OneWay}" Margin="8,8,8,0">
+            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
+              <TextBlock Text="GITHUB" FontWeight="SemiBold" Opacity="0.8"/>
+              <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                         Text="{Binding Workbench.PullRequests.StatusLine, Mode=OneWay}" Opacity="0.6"/>
+            </DockPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel>
+                <!-- The degradation states and the empty-list state share one slot: exactly
+                     one of them is ever the answer to 'why is there nothing here'. -->
+                <SelectableTextBlock Text="{Binding Workbench.PullRequests.EmptyReason, Mode=OneWay}"
+                                     Foreground="#FFB454" TextWrapping="Wrap" Margin="0,0,0,6"
+                                     IsVisible="{Binding Workbench.PullRequests.EmptyReason, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                <ItemsControl x:Name="PullRequestList"
+                              ItemsSource="{Binding Workbench.PullRequests.PullRequests, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PullRequestRowViewModel">
+                      <Button Padding="2,1" Margin="0" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left" Background="Transparent"
+                              Click="OnPullRequestClick" Tag="{Binding Number}">
+                        <StackPanel>
+                          <SelectableTextBlock Text="{Binding Display}" FontSize="11.5" TextWrapping="Wrap"/>
+                          <DockPanel LastChildFill="False">
+                            <TextBlock Text="{Binding AuthorDisplay}" FontSize="10.5" Opacity="0.55" Margin="0,0,8,0"/>
+                            <TextBlock Text="{Binding ReviewDisplay}" FontSize="10.5" Opacity="0.7" Margin="0,0,8,0"/>
+                            <TextBlock Text="{Binding ChecksDisplay}" FontSize="10.5" Opacity="0.7"/>
+                          </DockPanel>
+                        </StackPanel>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- CREATE: the one write this view performs, and only offered while the
+                     pane is Ready - a form whose submit could only fail is worse than none. -->
+                <Button x:Name="NewPullRequestButton" Content="New pull request" Padding="6,2"
+                        HorizontalAlignment="Left" Margin="0,8,0,4"
+                        IsVisible="{Binding Workbench.PullRequests.IsReady, Mode=OneWay}"
+                        Click="OnNewPullRequestClick"/>
+
+                <StackPanel IsVisible="{Binding Workbench.PullRequests.IsCreating, Mode=OneWay}"
+                            Margin="0,4,0,0">
+                  <TextBlock Text="TITLE" FontSize="10.5" Opacity="0.6" Margin="0,0,0,2"/>
+                  <TextBox Text="{Binding Workbench.PullRequests.NewTitle, Mode=TwoWay}"
+                           PlaceholderText="What does this change do?" FontSize="11.5"/>
+                  <TextBlock Text="DESCRIPTION" FontSize="10.5" Opacity="0.6" Margin="0,4,0,2"/>
+                  <TextBox Text="{Binding Workbench.PullRequests.NewBody, Mode=TwoWay}"
+                           AcceptsReturn="True" Height="72" TextWrapping="Wrap" FontSize="11.5"/>
+                  <Grid ColumnDefinitions="*,*" Margin="0,4,0,0">
+                    <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                      <TextBlock Text="HEAD" FontSize="10.5" Opacity="0.6"/>
+                      <TextBox Text="{Binding Workbench.PullRequests.NewHeadBranch, Mode=TwoWay}" FontSize="11.5"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                      <TextBlock Text="BASE" FontSize="10.5" Opacity="0.6"/>
+                      <TextBox Text="{Binding Workbench.PullRequests.NewBaseBranch, Mode=TwoWay}" FontSize="11.5"/>
+                    </StackPanel>
+                  </Grid>
+                  <CheckBox Content="Draft" FontSize="11"
+                            IsChecked="{Binding Workbench.PullRequests.NewDraft, Mode=TwoWay}"/>
+                  <SelectableTextBlock Text="{Binding Workbench.PullRequests.CreateError, Mode=OneWay}"
+                                       Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,2,0,0"
+                                       IsVisible="{Binding Workbench.PullRequests.CreateError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <Button x:Name="SubmitPullRequestButton" Content="Create" Padding="8,2"
+                            IsEnabled="{Binding !Workbench.PullRequests.IsSubmitting, Mode=OneWay}"
+                            Click="OnSubmitPullRequestClick"/>
+                    <Button Content="Cancel" Padding="8,2" Margin="6,0,0,0"
+                            Click="OnCancelPullRequestClick"/>
+                  </StackPanel>
+                </StackPanel>
+
+                <!-- DETAIL: the selected PR's body. A read failure says so rather than
+                     rendering an empty description, which would look like a PR with no text. -->
+                <TextBlock Text="{Binding Workbench.PullRequests.SelectedDisplay, Mode=OneWay}"
+                           FontWeight="SemiBold" FontSize="10.5" Opacity="0.8" Margin="0,10,0,3"
+                           IsVisible="{Binding Workbench.PullRequests.Selected, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <SelectableTextBlock Text="{Binding Workbench.PullRequests.DetailError, Mode=OneWay}"
+                                     Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,0,0,4"
+                                     IsVisible="{Binding Workbench.PullRequests.DetailError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <SelectableTextBlock Text="{Binding Workbench.PullRequests.SelectedBody, Mode=OneWay}"
+                                     FontSize="11.5" TextWrapping="Wrap"/>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+          <!-- LIVE AGENT PROGRESS (design D5): the subagent accordion, unchanged in
+               substance, now a workbench view instead of an auto-opening column. -->
+          <DockPanel IsVisible="{Binding Workbench.IsProgressSelected, Mode=OneWay}" Margin="8,8,8,0">
+            <TextBlock DockPanel.Dock="Top" Text="PROGRESS" FontWeight="SemiBold"
+                       Opacity="0.8" Margin="0,0,0,4"/>
+            <TextBlock Text="No subagents running." Opacity="0.55"
+                       IsVisible="{Binding !Workbench.Subagents.HasRows, Mode=OneWay}"/>
+            <ScrollViewer>
+              <ItemsControl x:Name="SubagentList" ItemsSource="{Binding Workbench.Subagents.Rows, Mode=OneWay}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SubagentRowViewModel">
+                    <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Margin="0,2"
+                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                              DataContextChanged="OnRowDataContextChanged">
+                      <Expander.Header>
+                        <DockPanel HorizontalAlignment="Stretch">
+                          <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0"
+                                     Foreground="{Binding StatusBrush, Mode=OneWay}"
+                                     Text="{Binding StatusDisplay, Mode=OneWay}"/>
+                          <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        </DockPanel>
+                      </Expander.Header>
+                      <ScrollViewer x:Name="RowTranscriptScroll" MaxHeight="420" VerticalScrollBarVisibility="Auto"
+                                    HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding Transcript.Entries, Mode=OneWay}" Margin="4,4">
+                          <ItemsControl.DataTemplates>
+                            <DataTemplate DataType="vm:UserMessageEntry">
+                              <SelectableTextBlock Text="{Binding Text}" FontWeight="Bold" TextWrapping="Wrap" Margin="4,2"/>
+                            </DataTemplate>
+                            <DataTemplate DataType="vm:AssistantTextEntry">
+                              <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="4,2"/>
+                            </DataTemplate>
+                            <DataTemplate DataType="vm:ToolCallEntry">
+                              <Expander Classes="tool-card" IsExpanded="True" Margin="4,2"
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                <Expander.Header>
+                                  <Panel>
+                                    <TextBlock IsVisible="{Binding IsExecCall}" TextWrapping="Wrap" FontSize="12">
+                                      <Run Text="⚙ "/><Run Text="{Binding HeaderTitle, Mode=OneWay}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <TextBlock IsVisible="{Binding !IsExecCall}" TextWrapping="Wrap" FontSize="12">
+                                      <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
+                                      <Run Foreground="Gray" Text="{Binding Preview, Mode=OneWay}"/>
+                                    </TextBlock>
+                                  </Panel>
+                                </Expander.Header>
+                                <Panel>
+                                  <md:AgentMarkdownBlock IsVisible="{Binding IsExecCall}" MarkdownText="{Binding ProgramBody, Mode=OneWay}"/>
+                                  <SelectableTextBlock IsVisible="{Binding !IsExecCall}" FontFamily="Consolas, Courier New"
+                                                       TextWrapping="Wrap" FontSize="12"
+                                                       Text="{Binding ArgumentsFormatted, Mode=OneWay}"/>
+                                </Panel>
+                              </Expander>
+                            </DataTemplate>
+                            <DataTemplate DataType="vm:ToolResultEntry">
+                              <TextBlock TextWrapping="Wrap" Margin="4,2" FontSize="12">
+                                <Run Text="↳ "/><Run Text="{Binding Name, Mode=OneWay}"/>
+                                <Run Text="{Binding Summary, Mode=OneWay}" Foreground="{Binding SummaryBrush, Mode=OneWay}"/>
+                              </TextBlock>
+                            </DataTemplate>
+                            <DataTemplate DataType="vm:NoticeEntry">
+                              <SelectableTextBlock Text="{Binding Text}" Foreground="DarkGray" TextWrapping="Wrap" Margin="4,2"/>
+                            </DataTemplate>
+                            <DataTemplate DataType="vm:SystemMessageEntry">
+                              <SelectableTextBlock Text="{Binding Text}" Foreground="#B9C7E2" TextWrapping="Wrap" Margin="4,2"/>
+                            </DataTemplate>
+                          </ItemsControl.DataTemplates>
+                        </ItemsControl>
+                      </ScrollViewer>
+                    </Expander>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
+        </Panel>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>
+

@@ -48,8 +48,11 @@ public class FullWidthLayoutTests
         $"input should span most of the chat column ({input.Bounds.Width} of {container})");
   }
 
-  /// <summary>The chat column's width: the AgentView minus the workbench and its splitter,
-  ///     read from the chat DockPanel itself so the assertion never re-derives layout.</summary>
+  /// <summary>The chat column's width: the cell's own column, read from the chat DockPanel
+  ///     itself so the assertion never re-derives layout.
+  ///     <para>Issue #307 D1: a cell IS the chat column now - the workbench rail and its
+  ///     splitter moved to the tab - so the measurement is the cell's full width rather than
+  ///     the remainder left beside a rail.</para></summary>
   private static double ChatColumnWidth(AgentView view)
   {
     DockPanel chat = view.GetVisualDescendants().OfType<DockPanel>()

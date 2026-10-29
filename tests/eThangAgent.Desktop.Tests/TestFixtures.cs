@@ -7,6 +7,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -156,6 +157,37 @@ runner,
         new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", UiStreamSink = sink });
     vmRef = vm;
     return vm;
+  }
+
+  /// <summary>Builds a workspace TAB around one agent cell (issue #307 D1), for tests that
+  ///     exercise the tab-level surfaces: the grid, the workbench rail, and the cell's
+  ///     lifecycle. The cell is the ordinary <c>CreateViewModel</c> session, so a test
+  ///     can drive the chat through <c>tab.ViewModel</c> exactly as before.
+  ///     <para>The tab builds its own rail from the view-model's seams, which is the pre-#307
+  ///     shape and the one a headless host gets - the shell shares one rail per tab in
+  ///     production, and that sharing is covered where the shell is exercised.</para></summary>
+  internal static AgentTabViewModel CreateTab(bool marshalToUIThread = false)
+  {
+    AgentSessionViewModel vm = CreateViewModel(marshalToUIThread);
+    return new AgentTabViewModel(FakeSessionFor(vm), vm);
+  }
+
+  /// <summary>A session record matching <paramref name="vm"/>'s identity, so a cell built from
+  ///     it addresses the same workspace and provider the view-model renders.</summary>
+  internal static AgentSession FakeSessionFor(AgentSessionViewModel vm)
+  {
+    ArgumentNullException.ThrowIfNull(vm);
+    return new AgentSession(
+        new ServiceCollection().BuildServiceProvider(),
+        new AgentId(vm.SessionId),
+        new Conversation(),
+        Handler: null!,
+        Lifecycle: new RootSessionLifecycle(new StubStore()),
+        Model: ModelDomain.ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
+        WorkspaceRoot: vm.WorkspaceRoot,
+        ProviderName: "openrouter",
+        Inbox: new BoundedAgentMailbox(),
+        ChildRuntime: new StubAgentRuntime());
   }
 
   /// <summary>Runner that parks on its cancellation token until released or cancelled,

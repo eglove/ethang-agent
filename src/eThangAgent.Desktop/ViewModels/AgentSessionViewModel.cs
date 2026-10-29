@@ -125,6 +125,14 @@ internal sealed record AgentSessionViewModelOptions
   ///     create-PR write, driven by the <c>gh</c> CLI (design D6). Null = the view renders
   ///     its unavailable state (headless stubs), never a blank pane.</summary>
   public IGitHubAccess? GitHub { get; init; }
+
+  /// <summary>The workspace tab's workbench rail (issue #307 D6), when the shell built one for
+  ///     the tab. The rail is WORKSPACE-scoped, so every cell in a tab shares one instance and a
+  ///     cell swap must not rebuild it.
+  ///     <para>Null = this view-model builds its own from the seams above, which is the pre-#307
+  ///     behaviour and what a single-session test host still gets. The shell always passes one,
+  ///     so production never takes that path.</para></summary>
+  public WorkbenchViewModel? Workbench { get; init; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -285,6 +293,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     layout is stable; the user's collapse is what hides it.</summary>
   public WorkbenchViewModel Workbench { get; }
 
+  /// <summary>The rail the workspace tab handed this session (issue #307 D6), or null when
+  ///     this view-model built its own. Null is what makes the rail this view-model's to
+  ///     dispose: a SHARED rail outlives every cell in the tab, so a cell that disposed it
+  ///     would kill the pane its siblings are still reading.</summary>
+  private readonly WorkbenchViewModel? _sharedWorkbench;
+
   /// <summary>Feeds the popup from the input box's current text; the view calls
   ///     this on every input change.</summary>
   public void UpdateAutocomplete(string input) => Autocomplete?.Update(input);
@@ -373,49 +387,16 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
     RootTurnChannel = options.RootTurnChannel;
-    // Split view (subagent accordion): the panel subscribes to the session's child
-    // event stream. Events publish on stream threads; the marshal wrapper posts every
-    // event's application onto the UI thread — Rows is bound to the accordion and
-    // UI-thread-only (the 884fc61 crash fix; the badge's AttachBadge is the pattern).
-    // The root loop's drain fact releases a pinned steering echo (issue #253 B3). The drain
-    // happens in the HOST process, so the fact arrives over the child-event stream the
-    // session already subscribes to; the marshal keeps the transcript mutation on the UI
-    // thread, exactly like the panel's.
-    if (options.ChildEvents is { } events)
-    {
-      _drainLease = events.Subscribe(new SteerDrainSubscriber(rootId, ids =>
-          _uiMarshal(() =>
-          {
-            foreach (Guid id in ids)
-            {
-              Transcript.MarkDrained(id);
-            }
-          })));
-    }
+    AttachDrainLease(options.ChildEvents, rootId);
 
     Subagents = new SubagentPanelViewModel(options.AgentStore);
     Subagents.Attach(options.ChildEvents, apply => evt =>
       Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(evt)));
     // The workbench renders on the UI thread (its refresh completes on pool threads).
-    Workbench = new WorkbenchViewModel(
-        new PlansViewViewModel(
-            options.Plans,
-            options.ChangeSignal,
-            render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
-            events: options.Events),
-        // The git view watches the WORKSPACE ROOT (never .git): working-tree edits are
-        // the thing it exists to show, and they never touch .git.
-        new GitViewViewModel(
-            options.WorkspaceRoot,
-            options.Git,
-            render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
-         Subagents,
-         // The GitHub view (issue #10) polls the gh CLI on a long interval and ONLY while
-         // visible: each read is a subprocess, and no push channel exists (design D6).
-         new PullRequestPaneViewModel(
-             options.WorkspaceRoot,
-             options.GitHub,
-             render => Avalonia.Threading.Dispatcher.UIThread.Post(render)));
+    // Issue #307 D6: a tab hands its OWN rail to every cell, because the rail is
+    // workspace-scoped - a cell swap must not rebuild a pane the user is reading.
+    _sharedWorkbench = options.Workbench;
+    Workbench = _sharedWorkbench ?? BuildWorkbench(options);
     // Grand-plan "show initial bootstrap/context at start of session": the first
     // transcript line states what the session runs under (transient, never a
     // conversation message). Resume replays persisted history after it.
@@ -424,6 +405,53 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
 
+
+  /// <summary>Subscribes the root loop's drain fact, which releases a pinned steering echo
+  ///     (issue #253 B3). The drain happens in the HOST process, so the fact arrives over the
+  ///     child-event stream the session already subscribes to; the marshal keeps the transcript
+  ///     mutation on the UI thread, exactly like the subagent panel's.
+  ///     <para>Null stream (headless hosts) subscribes nothing.</para></summary>
+  private void AttachDrainLease(IAgentEvents? events, AgentId rootId)
+  {
+    if (events is null)
+    {
+      return;
+    }
+
+    _drainLease = events.Subscribe(new SteerDrainSubscriber(rootId, ids =>
+        _uiMarshal(() =>
+        {
+          foreach (Guid id in ids)
+          {
+            Transcript.MarkDrained(id);
+          }
+        })));
+  }
+
+  /// <summary>Builds this session's own workbench rail from the supplied seams (issue #8).
+  ///     Only a session whose tab handed it no rail takes this path (issue #307 D6): the shell
+  ///     builds ONE rail per workspace tab and shares it, because the rail is workspace-scoped.
+  ///     <para>Every view renders its own unavailable state when its seam is null, so a headless
+  ///     stub gets a working rail rather than a blank pane.</para></summary>
+  private WorkbenchViewModel BuildWorkbench(AgentSessionViewModelOptions options) => new(
+      new PlansViewViewModel(
+          options.Plans,
+          options.ChangeSignal,
+          render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
+          events: options.Events),
+      // The git view watches the WORKSPACE ROOT (never .git): working-tree edits are the
+      // thing it exists to show, and they never touch .git.
+      new GitViewViewModel(
+          options.WorkspaceRoot,
+          options.Git,
+          render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
+      Subagents,
+      // The GitHub view (issue #10) polls the gh CLI on a long interval and ONLY while
+      // visible: each read is a subprocess, and no push channel exists (design D6).
+      new PullRequestPaneViewModel(
+          options.WorkspaceRoot,
+          options.GitHub,
+          render => Avalonia.Threading.Dispatcher.UIThread.Post(render)));
 
   /// <summary>Seeds the status bar's session cost from the persisted rollup (issue #24):
   ///     the ledger rows a resumed or reopened session already has. Called at tab open,
@@ -792,7 +820,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _drainLease = null;
     // Issue #8: stop the workbench's poller and detach its event subscriptions; a
     // closed tab must not keep reading the database once a second.
-    Workbench.Dispose();
+    // Issue #307 D6: a SHARED rail belongs to the tab, not to this cell - disposing it here
+    // would kill the pane every other cell in the tab is reading. Only the rail this
+    // view-model built itself is its to dispose.
+    if (_sharedWorkbench is null)
+    {
+      Workbench.Dispose();
+    }
     Transcript.DisposeEntries();
     await _lifecycle.CompleteAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
   }

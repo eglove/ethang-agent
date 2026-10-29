@@ -157,10 +157,13 @@
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:AgentTabViewModel">
-            <!-- The wrapper owns the visibility binding (it reads the tab VM); the
-                 AgentView's DataContext switch must not re-scope it. -->
+            <!-- The wrapper owns the visibility binding (it reads the tab VM); the tab
+                 view's own DataContext switch must not re-scope it.
+                 Issue #307 D1: a tab renders the AGENT GRID plus the workbench rail, not one
+                 chat. The tab view binds the tab itself, because the grid and the rail are
+                 both the tab's - the cells inside it bind their own sessions. -->
             <Panel IsVisible="{Binding IsSelected}">
-              <views:AgentView DataContext="{Binding ViewModel}"/>
+              <views:WorkspaceTabView DataContext="{Binding}"/>
             </Panel>
           </DataTemplate>
         </ItemsControl.ItemTemplate>

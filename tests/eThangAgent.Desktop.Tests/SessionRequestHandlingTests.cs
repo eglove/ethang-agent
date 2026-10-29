@@ -91,17 +91,17 @@ public class SessionRequestHandlingTests
 
     await shell.ViewModel.HandleSessionRequestAsync(tab, request).ConfigureAwait(true);
 
-    // The new session exists, the tab was replaced in place, and the request was answered
-    // with the id the host is blocked on.
+    // The new session exists, the CELL was replaced in place (issue #307 D2 - the tab
+    // survives, its rail and siblings untouched), and the request was answered with the id
+    // the host is blocked on.
     Assert.Equal(2, shell.Created.Count);
-    AgentTabViewModel fresh = Assert.Single(shell.ViewModel.Tabs);
-    Assert.NotSame(tab, fresh);
-    Assert.Equal(@"C:\work\alpha", fresh.Container.WorkspaceRoot, StringComparer.OrdinalIgnoreCase);
+    Assert.Same(tab, Assert.Single(shell.ViewModel.Tabs));
+    Assert.Equal(@"C:\work\alpha", tab.Container.WorkspaceRoot, StringComparer.OrdinalIgnoreCase);
 
     (string requestId, string? sessionId, string? errorCode, string? errorMessage) =
         Assert.Single(shell.Host.SessionResponses);
     Assert.Equal(request.RequestId, requestId, StringComparer.Ordinal);
-    Assert.Equal(fresh.Container.RootId.ToString(), sessionId, StringComparer.Ordinal);
+    Assert.Equal(tab.Container.RootId.ToString(), sessionId, StringComparer.Ordinal);
     Assert.Null(errorCode);
     Assert.Null(errorMessage);
   }
