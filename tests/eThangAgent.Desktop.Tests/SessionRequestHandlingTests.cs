@@ -27,7 +27,7 @@ public class SessionRequestHandlingTests
   {
     public FakeRootTurnChannel Host { get; } = new([], holdOpen: false);
 
-    public List<(string Root, string Provider, IReadOnlyList<Message>? Seed)> Created { get; } = [];
+    public List<(string Root, string Provider, IReadOnlyList<Message>? Seed, ChainContract? Contract)> Created { get; } = [];
 
     /// <summary>Creation calls from this index onward (0-based) fail.</summary>
     public int? FailFromCall { get; set; }
@@ -40,16 +40,18 @@ public class SessionRequestHandlingTests
           (root, provider) => Create(root, provider, seed: null),
           new MainViewModelOptions
           {
-            SeededSessionCreator = (root, provider, seed) => Create(root, provider, seed),
+            SeededSessionCreator = (root, provider, seed, chainContract) =>
+                Create(root, provider, seed, chainContract),
           });
     }
 
     public async Task<AgentTabViewModel> OpenAsync(string root, string provider = "openrouter")
       => (await ViewModel.OpenAgentAsync(root, provider).ConfigureAwait(true)).Value!;
 
-    private Task<Result<AgentSession>> Create(string root, string provider, IReadOnlyList<Message>? seed)
+    private Task<Result<AgentSession>> Create(string root, string provider, IReadOnlyList<Message>? seed,
+        ChainContract? chainContract = null)
     {
-      Created.Add((root, provider, seed));
+      Created.Add((root, provider, seed, chainContract));
       return Task.FromResult(FailFromCall is { } from && Created.Count > from
           ? Result.Failure<AgentSession>(new DomainError("HostUnavailable", "no host"))
           : Result.Success(Session(root, provider)));
@@ -114,7 +116,7 @@ public class SessionRequestHandlingTests
 
     await shell.ViewModel.HandleSessionRequestAsync(tab, Request("", "the dense summary")).ConfigureAwait(true);
 
-    (string _, string _, IReadOnlyList<Message>? seed) = shell.Created[^1];
+    (string _, string _, IReadOnlyList<Message>? seed, ChainContract? _) = shell.Created[^1];
     Message seeded = Assert.Single(seed!);
     Assert.True(seeded.IsSummary);
     Assert.Contains("the dense summary", seeded.Content, StringComparison.Ordinal);

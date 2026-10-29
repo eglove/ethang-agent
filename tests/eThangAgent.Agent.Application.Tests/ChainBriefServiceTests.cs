@@ -100,6 +100,52 @@ public sealed class ChainBriefServiceTests
   }
 
   [Fact]
+  public async Task BuildLaunch_CarriesTheContractDerivedFromTheSameFacts()
+  {
+    // Issue #311: the launch is the seed AND the contract, from ONE gather — so the ledger key
+    // and the gate in the prompt are the values the brief was rendered with.
+    ChainBriefService service = new(new FakeSource());
+
+    Result<ChainBriefLaunch> launch = await service.BuildLaunchAsync(Assignment, TestContext.Current.CancellationToken);
+
+    Assert.True(launch.IsSuccess, launch.Error?.Message);
+    Message seeded = Assert.Single(launch.Value.Seed);
+    Assert.StartsWith(ChainBriefRenderer.Prefix, seeded.Content, StringComparison.Ordinal);
+    ChainContract contract = Assert.IsType<ChainContract>(launch.Value.Contract);
+    Assert.Equal(7, contract.ChainId);
+    Assert.Equal(104, contract.PlanId);
+    Assert.Equal(2, contract.Position);
+    Assert.Equal("sci.dashboard-truth/ledger", contract.LedgerKey);
+    // The brief and the contract name the same key — the point of one derivation site.
+    Assert.Contains(contract.LedgerKey, seeded.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task BuildSeed_IsTheSeedHalfOfBuildLaunch()
+  {
+    // The seed path is not a second renderer: it delegates, so a future change to the launch
+    // cannot leave the two disagreeing.
+    ChainBriefService service = new(new FakeSource());
+
+    Result<IReadOnlyList<Message>> seed = await service.BuildSeedAsync(Assignment, TestContext.Current.CancellationToken);
+    Result<ChainBriefLaunch> launch = await service.BuildLaunchAsync(Assignment, TestContext.Current.CancellationToken);
+
+    Assert.Equal(Assert.Single(launch.Value!.Seed).Content, Assert.Single(seed.Value!).Content,
+        StringComparer.Ordinal);
+  }
+
+  [Fact]
+  public async Task BuildLaunch_WhenThePlanStepIsGone_RefusesWithTheSameNamedCode()
+  {
+    ChainBriefService service = new(new FakeSource(plan: FakeSource.PlanWithout()));
+
+    Result<ChainBriefLaunch> launch = await service.BuildLaunchAsync(Assignment, TestContext.Current.CancellationToken);
+
+    Assert.False(launch.IsSuccess);
+    Assert.Equal("ChainStepMissing", launch.Error.Code);
+  }
+
+  [Fact]
   public async Task BuildSeed_ReportsPredecessorsFromTheChain()
   {
     ChainBriefService service = new(new FakeSource(chain: Result.Success(new ChainBriefChain(

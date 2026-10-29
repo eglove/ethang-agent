@@ -38,7 +38,8 @@ public sealed record AgentSettings(
     string? SkillRegistryDefaultTarget = null,
     string? SessionId = null,
     string? TrustedDirectories = null,
-    string? WorkspaceId = null)
+    string? WorkspaceId = null,
+    ChainContract? ChainContract = null)
 {
   // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
   // runs WatchdogOptions.Default. The value travels to the child host inside the
@@ -114,6 +115,19 @@ public sealed record AgentSettings(
   public AgentSettings WithWorkspaceId(string? workspaceId) => this with
   {
     WorkspaceId = workspaceId,
+  };
+
+  /// <summary>Returns the same settings carrying the chain contract this session runs under
+  ///     (issue #311).
+  ///     <para>IT RIDES THE SETTINGS JSON BECAUSE THE HOST RENDERS THE PROMPT: the app resolves
+  ///     which chain step a session is when it launches it, and the process that serves the
+  ///     model is the host - so a contract that stayed app-side would leave the system prompt
+  ///     silent in the only place it is read. Null means 'this session is not a chain step',
+  ///     which is the ordinary case and renders nothing.</para></summary>
+  /// <param name="contract">The chain contract, or null for a session outside a chain.</param>
+  public AgentSettings WithChainContract(ChainContract? contract) => this with
+  {
+    ChainContract = contract,
   };
 
   /// <summary>Returns the same settings bound to the root session the host serves (spec D6):

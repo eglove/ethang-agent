@@ -56,7 +56,7 @@ public class NewSessionReplacementTests
   ///     (1-based), which is how a replacement's failure is exercised without a second shell.</summary>
   private sealed class Shell
   {
-    public List<(string Root, string Provider, IReadOnlyList<Message>? Seed)> Created { get; } = [];
+    public List<(string Root, string Provider, IReadOnlyList<Message>? Seed, ChainContract? Contract)> Created { get; } = [];
 
     /// <summary>Creation calls from this index onward (0-based) fail.</summary>
     public int? FailFromCall { get; set; }
@@ -73,13 +73,15 @@ public class NewSessionReplacementTests
           (root, provider) => Create(root, provider, seed: null),
           new MainViewModelOptions
           {
-            SeededSessionCreator = (root, provider, seed) => Create(root, provider, seed),
+            SeededSessionCreator = (root, provider, seed, chainContract) =>
+                Create(root, provider, seed, chainContract),
           });
     }
 
-    private Task<Result<AgentSession>> Create(string root, string provider, IReadOnlyList<Message>? seed)
+    private Task<Result<AgentSession>> Create(string root, string provider, IReadOnlyList<Message>? seed,
+        ChainContract? chainContract = null)
     {
-      Created.Add((root, provider, seed));
+      Created.Add((root, provider, seed, chainContract));
       return Task.FromResult(FailFromCall is { } from && Created.Count > from
           ? Result.Failure<AgentSession>(new DomainError("HostUnavailable", "no host"))
           : Result.Success(FakeSession(root, provider, Host)));
@@ -175,7 +177,7 @@ public class NewSessionReplacementTests
         await shell.ViewModel.StartNewSessionAsync(tab, prompt: null, handoffSummary: "the dense summary");
 
     Assert.True(started.IsSuccess, started.Error?.Message);
-    (string _, string _, IReadOnlyList<Message>? seed) = shell.Created[^1];
+    (string _, string _, IReadOnlyList<Message>? seed, ChainContract? _) = shell.Created[^1];
     Message seeded = Assert.Single(seed!);
     // A summary message, not user voice: the model must read it as a summary of earlier
     // work, and the prefix must not claim a compaction that never happened.
@@ -210,7 +212,7 @@ public class NewSessionReplacementTests
 
     _ = await shell.ViewModel.StartNewSessionAsync(tab, "a fresh start");
 
-    (string _, string _, IReadOnlyList<Message>? seed) = shell.Created[^1];
+    (string _, string _, IReadOnlyList<Message>? seed, ChainContract? _) = shell.Created[^1];
     Assert.Null(seed);
   }
 
@@ -248,6 +250,41 @@ public class NewSessionReplacementTests
     Assert.Same(tab, Assert.Single(shell.ViewModel.Tabs));
     Assert.Contains(tab.ViewModel.Transcript.Notices,
         n => n.Contains("/new <prompt>", StringComparison.Ordinal));
+  }
+
+  [Fact]
+  public async Task StartNewSession_WithAChainContract_PassesItToTheCreation()
+  {
+    // Issue #311: the contract is prompt text on the session that is being started, so it has
+    // to reach the creation call. A shell that dropped it would start a chain step with no
+    // idea which step it is, and nothing else would report it.
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
+    ChainContract contract = new(7, 104, 2, "sci.dashboard-truth/ledger", ["dotnet build"]);
+
+    Result<AgentTabViewModel> started = await shell.ViewModel.StartNewSessionAsync(
+        tab, prompt: null, seed: null, chainContract: contract);
+
+    Assert.True(started.IsSuccess, started.Error?.Message);
+    (string _, string _, IReadOnlyList<Message>? _, ChainContract? passed) = shell.Created[^1];
+    Assert.Equal(contract, passed);
+  }
+
+  [Fact]
+  public async Task StartNewSession_WithAContractButNoSeededCreator_RefusesRatherThanDroppingIt()
+  {
+    // The same rule the handoff follows: a host that cannot take the extra fact must refuse,
+    // not launch a session that silently lacks it.
+    MainViewModel vm = new((root, provider) =>
+        Task.FromResult(Result.Success(FakeSession(root, provider))));
+    AgentTabViewModel tab = (await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter")).Value!;
+
+    Result<AgentTabViewModel> started = await vm.StartNewSessionAsync(tab, prompt: null,
+        seed: null, chainContract: new ChainContract(7, 104, 2, "sci.x/ledger"));
+
+    Assert.False(started.IsSuccess);
+    Assert.Equal("SeedUnsupported", started.Error.Code);
+    Assert.Same(tab, Assert.Single(vm.Tabs));
   }
 
   [Fact]

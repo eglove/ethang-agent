@@ -28,23 +28,44 @@ public sealed class ChainBriefService(IChainBriefSource source)
   public async Task<Result<IReadOnlyList<Message>>> BuildSeedAsync(ChainStepAssignment assignment,
       CancellationToken ct = default)
   {
+    Result<ChainBriefLaunch> launch = await BuildLaunchAsync(assignment, ct).ConfigureAwait(false);
+    return launch.IsSuccess
+      ? Result.Success(launch.Value.Seed)
+      : Result.Failure<IReadOnlyList<Message>>(launch.Error);
+  }
+
+  /// <summary>The seed AND the contract for <paramref name="assignment"/> (issue #311): one
+  ///     gather, both artifacts.
+  ///     <para>WHY ONE CALL: the contract's ledger key and gate ARE the brief's facts, and a
+  ///     caller that built them separately would read the chain twice and could render a
+  ///     prompt describing a step the seed does not. The two artifacts are also always wanted
+  ///     together — a session started for a chain step needs both, and a caller that had only
+  ///     one would be a caller that forgot the other.</para>
+  ///     <para>A REFUSAL IS STILL A VALUE: the same named errors <see cref="BuildSeedAsync"/>
+  ///     reports (ChainStepMissing, ChainNotFound, ...) come back here, because the refusal is
+  ///     about the facts and the facts are shared.</para></summary>
+  /// <param name="assignment">The chain step the session is being started for.</param>
+  /// <param name="ct">Cancellation.</param>
+  public async Task<Result<ChainBriefLaunch>> BuildLaunchAsync(ChainStepAssignment assignment,
+      CancellationToken ct = default)
+  {
     ArgumentNullException.ThrowIfNull(assignment);
     if (!assignment.IsExecutable)
     {
-      return Result.Failure<IReadOnlyList<Message>>(new DomainError("InvalidAssignment",
+      return Result.Failure<ChainBriefLaunch>(new DomainError("InvalidAssignment",
           "a chain brief needs a chain id, a plan id, and a step position; " + assignment + " names none."));
     }
 
     Result<ChainBriefFacts> facts = await GatherAsync(assignment, ct).ConfigureAwait(false);
     if (!facts.IsSuccess)
     {
-      return Result.Failure<IReadOnlyList<Message>>(facts.Error);
+      return Result.Failure<ChainBriefLaunch>(facts.Error);
     }
 
     Result<ChainBrief> brief = ChainBriefRenderer.Render(facts.Value);
     return brief.IsSuccess
-      ? Result.Success<IReadOnlyList<Message>>([Seed(brief.Value)])
-      : Result.Failure<IReadOnlyList<Message>>(brief.Error);
+      ? Result.Success(new ChainBriefLaunch([Seed(brief.Value)], ChainContract.For(facts.Value)))
+      : Result.Failure<ChainBriefLaunch>(brief.Error);
   }
 
   /// <summary>Gathers the facts for one assignment. Extracted so the refusal paths read as the
@@ -84,7 +105,7 @@ public sealed class ChainBriefService(IChainBriefSource source)
           plan.Steps,
           chain.Predecessors,
           gate,
-          "sci." + ChainLedgerSlug.For(chain.Title) + "/ledger");
+          ChainLedgerSlug.KeyFor(chain.Title));
 
   /// <summary>The seed message, flagged as a summary so every surface treats it as harness
   ///     context rather than as user voice.

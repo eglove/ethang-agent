@@ -931,6 +931,13 @@ public static class AgentComposition
                  // so a session with no approvals keeps a byte-identical prompt.
                  new TrustedDirectoriesPromptProvider(
                      sp.GetRequiredService<ResolvedTrustedDirectories>().List),
+                 // The chain contract (issue #311): renders EMPTY for a session that is not a
+                 // chain step, so the ordinary way a user begins work keeps a byte-identical
+                 // prompt. The contract is read from the CARRIER rather than built here because
+                 // only a launcher knows which chain step a session is - and the carrier is
+                 // filled before the container hands the session out.
+                 new ChainContractPromptProvider(
+                     sp.GetRequiredService<ChainContractCarrier>().Contract),
                 ..host.ExtraPromptProviders,
         ]));
   }
@@ -1046,7 +1053,14 @@ public static class AgentComposition
         // resolve the same approved external roots. Unconditional registration: not
         // remote resolves nulls, an empty root list, and nothing else changes.
         .AddSingleton<TrustedDirectoriesCarrier>()
-        .AddSingleton(_ => new ResolvedTrustedDirectories(ResolveTrustedDirectoriesFromSettings(settings)));
+        .AddSingleton(_ => new ResolvedTrustedDirectories(ResolveTrustedDirectoriesFromSettings(settings)))
+        // The chain contract (issue #311) rides every container the same way: the launcher
+        // fills the carrier when it starts a session FOR a chain step, and the RemoteHost
+        // block overlays the value onto the settings JSON - because the HOST runs every
+        // production turn, and a contract that did not travel would leave the prompt silent
+        // in the only process that serves the model. Unconditional registration: a session
+        // outside a chain resolves null and renders nothing.
+        .AddSingleton<ChainContractCarrier>();
   }
 
   /// <summary>Registers the IN-PROCESS runtime as this container's <see cref="IAgentRuntime"/>.
@@ -1152,7 +1166,11 @@ public static class AgentComposition
                // Trusted directories (issue #96): the host runs every production turn, so
                // an approval that did not travel with the settings would be invisible to
                // the process that resolves the tool paths.
-               .WithTrustedDirectories(sp.GetRequiredService<TrustedDirectoriesCarrier>().Stored),
+               .WithTrustedDirectories(sp.GetRequiredService<TrustedDirectoriesCarrier>().Stored)
+               // The chain contract (issue #311) travels for the same reason: the prompt is
+               // built host-side, so a contract that stayed in the app would leave the system
+               // prompt silent in the only process that serves the model.
+               .WithChainContract(sp.GetRequiredService<ChainContractCarrier>().Contract),
               sp.GetRequiredService<AppDatabase>().DatabasePath,
               // Host-health notices surface on the session transcript when the host UI
               // has attached its notice sink; headless hosts drop them.

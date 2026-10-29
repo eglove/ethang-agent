@@ -34,11 +34,17 @@ internal delegate Task<Result<string>> TurnRunner(
 ///     seeds the new session with its summary, so the seeded shape needs its own seam — the
 ///     plain creation delegate cannot express it. A host that supplies only the plain
 ///     delegate keeps every other path working and reports the seeded launch as
-///     unavailable, which is honest: it has no store to seed.</summary>
+///     unavailable, which is honest: it has no store to seed.
+///     <para>THE CHAIN CONTRACT RIDES THE SAME SEAM (issue #311) because it is the same
+///     launch: a chain step's session is seeded with the brief AND told, in its system prompt,
+///     which step it is. Two delegates would let a caller seed one and forget the other,
+///     producing a session that has the instructions and not the identity. Null means 'not a
+///     chain step', which is the ordinary launch.</para></summary>
 internal delegate Task<Result<AgentSession>> SeededSessionCreator(
     string workspaceRoot,
     string providerName,
-    IReadOnlyList<Message>? seed);
+    IReadOnlyList<Message>? seed,
+    ChainContract? chainContract);
 
 /// <summary>Optional shell configuration for <see cref="MainViewModel"/>. Every member
 ///     is an optional seam or default override whose null behaves exactly as the
@@ -405,7 +411,8 @@ internal sealed partial class MainViewModel : ObservableObject
       => options?.SeededSessionCreator
           ?? (createSession is not null
               ? null
-              : (root, provider, seed) => _sessionFactory!.CreateAsync(root, provider, seed));
+              : (root, provider, seed, chainContract) =>
+                  _sessionFactory!.CreateAsync(root, provider, seed, chainContract, default));
 
   /// <summary>The resume delegate: the factory's resume, read at invocation so a
   ///     settings-save rebind reaches future resumes. A host composing sessions itself
@@ -1269,8 +1276,12 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="tab">The tab whose session is replaced.</param>
   /// <param name="prompt">The first turn's text; EMPTY means seed-only.</param>
   /// <param name="seed">The seeded prefix, or null for a plain launch.</param>
+  /// <param name="chainContract">The chain step this session executes, or null when it is not
+  ///     a chain step (issue #311). It travels with the seed because both describe the SAME
+  ///     launch: the seed is the brief the session works from, the contract is the standing
+  ///     rule its system prompt carries.</param>
   public async Task<Result<AgentTabViewModel>> StartNewSessionAsync(AgentTabViewModel tab,
-      string? prompt, IReadOnlyList<Message>? seed)
+      string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract = null)
   {
     ArgumentNullException.ThrowIfNull(tab);
     if (!Tabs.Contains(tab))
@@ -1291,7 +1302,11 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     SeededSessionCreator? creator = _createSeededSession;
-    if (seed is not null && creator is null)
+    // A CONTRACT WITHOUT A CREATOR IS REFUSED TOO (issue #311): the contract is prompt text on
+    // a session that would otherwise be created by the plain delegate, so a host that cannot
+    // take it would start a chain step with no idea which step it is.
+    bool seeded = seed is not null || chainContract is not null;
+    if (seeded && creator is null)
     {
       return Result.Failure<AgentTabViewModel>(new DomainError("SeedUnsupported",
           "this host cannot seed a new session's conversation; the handoff summary would be lost."));
@@ -1306,8 +1321,8 @@ internal sealed partial class MainViewModel : ObservableObject
     Task<Result<AgentSession>> scheduled;
     using (ExecutionContext.SuppressFlow())
     {
-      scheduled = Task.Run(() => creator is not null && seed is not null
-          ? creator(workspaceRoot, providerName, seed)
+      scheduled = Task.Run(() => creator is not null && seeded
+          ? creator(workspaceRoot, providerName, seed, chainContract)
           : _createSession(workspaceRoot, providerName));
     }
 
@@ -1435,14 +1450,17 @@ internal sealed partial class MainViewModel : ObservableObject
           "this host cannot render a chain brief; the next step was not started."));
     }
 
-    Result<IReadOnlyList<Message>> seed = await briefs.BuildSeedAsync(assignment).ConfigureAwait(true);
-    if (!seed.IsSuccess)
+    // ONE READ, TWO USES (issue #311): the brief facts are what the contract is derived from,
+    // so the ledger key and the gate in the system prompt are the values the brief was rendered
+    // with rather than a second derivation that happens to agree.
+    Result<ChainBriefLaunch> launch = await briefs.BuildLaunchAsync(assignment).ConfigureAwait(true);
+    if (!launch.IsSuccess)
     {
-      return Result.Failure<string>(seed.Error);
+      return Result.Failure<string>(launch.Error);
     }
 
-    Result<AgentTabViewModel> started =
-        await StartNewSessionAsync(tab, prompt: null, seed: seed.Value).ConfigureAwait(true);
+    Result<AgentTabViewModel> started = await StartNewSessionAsync(tab, prompt: null,
+        seed: launch.Value.Seed, chainContract: launch.Value.Contract).ConfigureAwait(true);
     return started.IsSuccess
         ? Result.Success(started.Value.Container.RootId.ToString())
         : Result.Failure<string>(started.Error);
@@ -1649,15 +1667,16 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     string workspaceRoot = tab.Container.WorkspaceRoot;
     string providerName = tab.Container.ProviderName;
-    Result<IReadOnlyList<Message>> seed = await SeedForAsync(tab, request).ConfigureAwait(true);
-    if (!seed.IsSuccess)
+    Result<ChainBriefLaunch> launch = await SeedForAsync(tab, request).ConfigureAwait(true);
+    if (!launch.IsSuccess)
     {
-      return Result.Failure<AgentSession>(seed.Error);
+      return Result.Failure<AgentSession>(launch.Error);
     }
 
-    IReadOnlyList<Message>? messages = seed.Value.Count == 0 ? null : seed.Value;
+    IReadOnlyList<Message>? messages = launch.Value.Seed.Count == 0 ? null : launch.Value.Seed;
+    ChainContract? contract = launch.Value.Contract;
     SeededSessionCreator? creator = _createSeededSession;
-    if (messages is not null && creator is null)
+    if ((messages is not null || contract is not null) && creator is null)
     {
       return Result.Failure<AgentSession>(new DomainError("SeedUnsupported",
           "this host cannot seed a new session's conversation; the seed would be lost."));
@@ -1666,8 +1685,8 @@ internal sealed partial class MainViewModel : ObservableObject
     Task<Result<AgentSession>> scheduled;
     using (ExecutionContext.SuppressFlow())
     {
-      scheduled = Task.Run(() => creator is not null && messages is not null
-          ? creator(workspaceRoot, providerName, messages)
+      scheduled = Task.Run(() => creator is not null && (messages is not null || contract is not null)
+          ? creator(workspaceRoot, providerName, messages, contract)
           : _createSession(workspaceRoot, providerName));
     }
 
@@ -1682,19 +1701,22 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     <para>A container with no brief service refuses rather than launching unseeded: the
   ///     brief IS the step's instructions, so dropping it starts a session with nothing to
   ///     do.</para></summary>
-  private static async Task<Result<IReadOnlyList<Message>>> SeedForAsync(AgentTabViewModel tab,
+  private static async Task<Result<ChainBriefLaunch>> SeedForAsync(AgentTabViewModel tab,
       SessionRequestPayload request)
   {
     if (request.ChainStep is not { } step)
     {
-      return Result.Success(SessionHandoffSeed.Build(request.HandoffSummary) ?? []);
+      // A handoff carries no contract: it continues a CONVERSATION, not a chain step, so its
+      // session is not part of any chain and its prompt must say nothing about one.
+      return Result.Success(new ChainBriefLaunch(
+          SessionHandoffSeed.Build(request.HandoffSummary) ?? [], Contract: null));
     }
 
     ChainBriefService? briefs = tab.Container.Services.GetService<ChainBriefService>();
     return briefs is null
-        ? Result.Failure<IReadOnlyList<Message>>(new DomainError("BriefUnsupported",
+        ? Result.Failure<ChainBriefLaunch>(new DomainError("BriefUnsupported",
             "this host cannot render a chain brief; the chain step's session was not started."))
-        : await briefs.BuildSeedAsync(new ChainStepAssignment(step.ChainId, step.PlanId,
+        : await briefs.BuildLaunchAsync(new ChainStepAssignment(step.ChainId, step.PlanId,
             step.Position, null)).ConfigureAwait(true);
   }
 

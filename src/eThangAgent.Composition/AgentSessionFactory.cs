@@ -73,6 +73,25 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     unconfigured, or when bootstrap persistence fails.</summary>
   public async Task<Result<AgentSession>> CreateAsync(string workspaceRoot, string providerName,
       IReadOnlyList<Message>? conversationSeed = null, CancellationToken ct = default)
+    => await CreateAsync(workspaceRoot, providerName, conversationSeed, chainContract: null, ct)
+        .ConfigureAwait(false);
+
+  /// <summary>The same creation, carrying the chain contract the session runs under (issue
+  ///     #311).
+  ///     <para>WHY IT IS A PARAMETER AND NOT A SECOND FACTORY: which chain step a session is
+  ///     belongs to THAT session, exactly like the workspace root and the conversation seed —
+  ///     the factory serves many sessions over one workspace, so a contract held on the factory
+  ///     would be one session's identity leaking onto every other.</para>
+  ///     <para>A CONTRACT WITHOUT A SEED IS LEGAL and is the shape the mechanical advance uses:
+  ///     the seed is the brief (a message) and the contract is the standing rule (prompt text),
+  ///     and a caller that has only one of them still starts a correct session.</para></summary>
+  /// <param name="workspaceRoot">The workspace directory.</param>
+  /// <param name="providerName">The provider id.</param>
+  /// <param name="conversationSeed">The seeded prefix, or null.</param>
+  /// <param name="chainContract">The chain this session executes a step of, or null.</param>
+  /// <param name="ct">Cancellation.</param>
+  public async Task<Result<AgentSession>> CreateAsync(string workspaceRoot, string providerName,
+      IReadOnlyList<Message>? conversationSeed, ChainContract? chainContract, CancellationToken ct)
   {
     Result<string> validated = ValidateProvider(workspaceRoot, providerName);
     if (!validated.IsSuccess)
@@ -96,6 +115,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories,
             trustedDirectories));
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
+    // The chain contract (issue #311) is filled BEFORE the session is handed out: the prompt
+    // provider reads it at construction, so a fill after the first turn would leave the prompt
+    // silent for exactly the session it describes.
+    services.GetService<ChainContractCarrier>()?.Fill(chainContract);
     try
     {
       IAgentStore store = services.GetRequiredService<IAgentStore>();

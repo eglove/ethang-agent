@@ -154,6 +154,12 @@ public sealed class SessionHost
             .AddInProcessAgentRuntime(settings)
         .BuildServiceProvider();
 
+    // The chain contract (issue #311): THIS container builds the system prompt for every
+    // production turn, so the contract the app resolved has to be filled HERE or the prompt
+    // would be silent in the only process that serves the model. Filled after the build
+    // because the carrier is construction-phase glue, exactly like the session-file carrier.
+    services.GetRequiredService<ChainContractCarrier>().Fill(settings.ChainContract);
+
     // Hot reload (issue #269): THIS container serves the model's skill_list/skill_view in
     // every production session, so THIS is where the watcher must be live. The app-side
     // factory's start never ran here - the host builds its own container - which left a

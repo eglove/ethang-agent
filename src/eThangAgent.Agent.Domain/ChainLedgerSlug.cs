@@ -26,6 +26,15 @@ public static class ChainLedgerSlug
   public static string For(string? title) =>
       string.IsNullOrWhiteSpace(title) ? Fallback : Shape(WithoutLeadingDate(title.Trim()));
 
+  /// <summary>The STATE KEY a chain's ledger lives at: <c>sci.&lt;slug&gt;/ledger</c>.
+  ///     <para>ONE FUNCTION, TWO READERS (issue #311). The brief (#302) names the key as the
+  ///     session's first message and the chain contract (#311) names it in the system prompt;
+  ///     a key those two derived separately would eventually disagree, and a session told two
+  ///     different places to look has been told nothing. Deriving it here is what makes the
+  ///     agreement structural rather than a convention two call sites have to remember.</para></summary>
+  /// <param name="title">The chain's title.</param>
+  public static string KeyFor(string? title) => "sci." + For(title) + "/ledger";
+
   /// <summary>Lowercases ASCII letters and digits and collapses every other run to a single
   ///     hyphen, then bounds the length. The same shaping the worktree-name derivation uses,
   ///     minus its uniqueness fragment: a slug that changed per call would be a different
