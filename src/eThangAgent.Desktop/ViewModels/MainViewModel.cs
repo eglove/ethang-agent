@@ -1742,11 +1742,18 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     ChainBriefService? briefs = tab.Container.Services.GetService<ChainBriefService>();
+    // THE ROLE SURVIVES THE LAUNCH (issue #306). It crossed the wire on the request and was
+    // discarded here, so every review step's session was seeded as an implementer - which is
+    // the defect this issue exists for. A role that does not parse is an IMPLEMENT step, the
+    // same default the chain record applies, rather than a failed launch.
+    ChainStepRole role = ChainStepRole.TryDecode(step.Role, model: null, out ChainStepRole? decoded)
+        ? decoded
+        : ChainStepRole.Implement;
     return briefs is null
         ? Result.Failure<ChainBriefLaunch>(new DomainError("BriefUnsupported",
             "this host cannot render a chain brief; the chain step's session was not started."))
         : await briefs.BuildLaunchAsync(new ChainStepAssignment(step.ChainId, step.PlanId,
-            step.Position, null)).ConfigureAwait(true);
+            step.Position, null).WithRole(role)).ConfigureAwait(true);
   }
 
   /// <summary>Awaits the requesting tab's turn going idle, then swaps. The wait is the

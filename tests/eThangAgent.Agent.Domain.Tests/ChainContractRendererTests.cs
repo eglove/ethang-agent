@@ -10,9 +10,10 @@ namespace eThangAgent.Agent.Domain.Tests;
 ///     brief, which is the drift the criterion exists to prevent.</para></summary>
 public sealed class ChainContractRendererTests
 {
-  private static ChainContract Contract(IReadOnlyList<string>? gate = null) =>
+  private static ChainContract Contract(IReadOnlyList<string>? gate = null,
+      ChainStepRole? role = null) =>
       new(ChainId: 7, PlanId: 104, Position: 2, LedgerKey: "sci.dashboard-truth/ledger",
-          GateCommands: gate);
+          GateCommands: gate, Role: role);
 
   [Fact]
   public void Render_NamesTheAssignedStepAndItsChain()
@@ -116,4 +117,49 @@ public sealed class ChainContractRendererTests
   [Fact]
   public void Gates_IsNeverNull_EvenWhenThePayloadCarriedNone() =>
       Assert.Empty(new ChainContract(1, 2, 3, "sci.x/ledger").Gates);
+
+  [Fact]
+  public void EffectiveRole_IsImplement_WhenTheContractCarriedNone()
+  {
+    // An absent role is 'implement', the same default the chain record applies - so a contract
+    // written before this issue existed reads as the implementer contract it always was.
+    ChainContract contract = new(1, 2, 3, "sci.x/ledger");
+
+    Assert.Equal(ChainStepRoleKind.Implement, contract.EffectiveRole.Kind);
+    Assert.False(contract.IsReview);
+  }
+
+  [Fact]
+  public void Render_ForAReviewStep_TellsItToJudgeRatherThanToFinishTheWork()
+  {
+    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Review("vendor/reviewer")));
+
+    // The standing rule, which is what survives a compaction that evicts the brief.
+    Assert.Contains("assigned the review role", text, StringComparison.Ordinal);
+    Assert.Contains("JUDGE this", text, StringComparison.Ordinal);
+    Assert.Contains("Do not change the workspace", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("Mark step 2 of plan #104 done when — and only when — the work", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAReviewStep_StillSaysTheHarnessAdvancesTheChain()
+  {
+    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Review()));
+
+    // A reviewer is still a chain step: it finishes by marking the step done, and the harness
+    // - not the reviewer - decides what follows.
+    Assert.Contains("will start the next session when you mark", text, StringComparison.Ordinal);
+    Assert.Contains("step of this plan you may mark done", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAnImplementStep_IsUnchangedByTheRoleBranch()
+  {
+    string byDefault = ChainContractRenderer.Render(Contract());
+    string explicitImplement = ChainContractRenderer.Render(Contract(role: ChainStepRole.Implement));
+
+    Assert.Equal(byDefault, explicitImplement, StringComparer.Ordinal);
+    Assert.DoesNotContain("review role", byDefault, StringComparison.Ordinal);
+    Assert.Contains("Mark step 2 of plan #104 done when", byDefault, StringComparison.Ordinal);
+  }
 }

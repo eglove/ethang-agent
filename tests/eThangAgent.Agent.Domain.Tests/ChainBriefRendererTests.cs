@@ -13,7 +13,9 @@ public sealed class ChainBriefRendererTests
       IReadOnlyList<ChainBriefPlanStep>? steps = null,
       IReadOnlyList<ChainBriefPredecessor>? predecessors = null,
       IReadOnlyList<string>? gate = null,
-      string goal = "Make the dashboard tell the truth about what it did.") =>
+      string goal = "Make the dashboard tell the truth about what it did.",
+      ChainStepRole? role = null,
+      bool rubric = false) =>
       new(ChainId: 7,
           ChainTitle: "2026-08-24-dashboard-truth",
           PlanId: 104,
@@ -27,7 +29,9 @@ public sealed class ChainBriefRendererTests
           ],
           Predecessors: predecessors ?? [],
           GateCommands: gate ?? [],
-          LedgerKey: "sci.dashboard-truth/ledger");
+          LedgerKey: "sci.dashboard-truth/ledger",
+          Role: role,
+          ReviewRubricAvailable: rubric);
 
   [Fact]
   public void Render_NamesTheAssignedStepThePlanAndTheChain()
@@ -133,6 +137,76 @@ public sealed class ChainBriefRendererTests
     Assert.False(brief.IsSuccess);
     Assert.Equal("ChainStepMissing", brief.Error.Code);
     Assert.Contains("re-create the chain", brief.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAReviewStep_TellsItToJudgeRatherThanToFinishTheWork()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review("vendor/reviewer"))).Value!;
+
+    // The defect this issue exists for: an implementer's contract handed to a reviewer.
+    Assert.Contains("You are the REVIEWER for this step", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("JUDGE the", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("Do not change the workspace", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("## How to finish\n\nMark step 2 of plan #104 done:", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAReviewStep_StillNamesTheOneStepItMayMarkDone()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review())).Value!;
+
+    // A reviewer still has to COMPLETE its step - the ownership gate and the harness's advance
+    // both read that write. What changes is what the step is for, not whether it finishes.
+    Assert.Contains("plan.update-step id=104 position=2 status=Done", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("ONLY step you may mark done", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAReviewStep_StatesTheVerdictShapeAndTheCitationRule()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review())).Value!;
+
+    Assert.Contains("verdict: approve | deny | approve-with-conditions", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("citing a requirement id or a step position", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("A finding that cites nothing is not a finding", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAReviewStep_WithTheRubricSkill_NamesIt()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(
+        Facts(role: ChainStepRole.Review(), rubric: true)).Value!;
+
+    Assert.Contains("Load the `reviewing-plans` skill", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("no rubric to apply", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAReviewStep_WithoutTheRubricSkill_SaysSoRatherThanInventingOne()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(
+        Facts(role: ChainStepRole.Review(), rubric: false)).Value!;
+
+    // An invented rubric is a verdict nobody can compare; an absent one is visibly absent.
+    Assert.Contains("No `reviewing-plans` skill is installed", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("rubric was available", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("Load the `reviewing-plans` skill", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAnImplementStep_IsUnchangedByTheRoleBranch()
+  {
+    // The criterion that protects every existing chain: an implement step's brief is what it
+    // was before the branch existed, and it never mentions reviewing.
+    string byDefault = ChainBriefRenderer.Render(Facts()).Value!.Content;
+    string explicitImplement = ChainBriefRenderer.Render(
+        Facts(role: ChainStepRole.Implement)).Value!.Content;
+
+    Assert.Equal(byDefault, explicitImplement, StringComparer.Ordinal);
+    Assert.DoesNotContain("REVIEWER", byDefault, StringComparison.Ordinal);
+    Assert.Contains("## How to finish", byDefault, StringComparison.Ordinal);
+    Assert.Contains("plan.update-step id=104 position=2 status=Done", byDefault, StringComparison.Ordinal);
   }
 
   [Fact]

@@ -2,6 +2,7 @@ using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 
 namespace eThangAgent.Composition;
@@ -13,26 +14,52 @@ namespace eThangAgent.Composition;
 ///     <para>EVERY READ IS A READ. Nothing here writes, and nothing here renders: the brief's
 ///     text is the Agent Domain's, so a second renderer cannot drift from the first.</para></summary>
 internal sealed class CompositionChainBriefSource(ChainService chains, PlanService plans,
-    IStateService state) : IChainBriefSource
+    IStateService state, ISkillCatalog skills) : IChainBriefSource
 {
   /// <summary>The state key holding the project's own check commands, as a JSON array of
   ///     strings. The same key the completion gate reads, so the brief and the gate can never
   ///     disagree about what this workspace requires.</summary>
   private const string GoalCheckKey = "goal/check";
 
+  /// <summary>The embedded skill that carries the reviewer's rubric (issue #217). Named here
+  ///     rather than assumed present: until #217 ships, a review brief says plainly that no
+  ///     rubric is installed instead of inventing one.</summary>
+  private const string ReviewRubricSkill = "reviewing-plans";
+
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly PlanService _plans = plans ?? throw new ArgumentNullException(nameof(plans));
   private readonly IStateService _state = state ?? throw new ArgumentNullException(nameof(state));
+  private readonly ISkillCatalog _skills = skills ?? throw new ArgumentNullException(nameof(skills));
 
   /// <inheritdoc />
-  public async Task<Result<ChainBriefChain>> GetChainAsync(int chainId, CancellationToken ct = default)
+  public async Task<Result<ChainBriefChain>> GetChainAsync(int chainId, int position,
+      CancellationToken ct = default)
   {
     Result<Chain> chain = await _chains.GetAsync(chainId, ct).ConfigureAwait(false);
     return chain.IsSuccess
       ? Result.Success(new ChainBriefChain(chain.Value.Id, chain.Value.Title, chain.Value.PlanId,
-          Predecessors(chain.Value)))
+          Predecessors(chain.Value), RoleOf(chain.Value, position)))
       : Result.Failure<ChainBriefChain>(chain.Error);
   }
+
+  /// <summary>Whether the reviewer's rubric skill is installed (issue #306). The catalog is the
+  ///     same one this session's listing is built from, so the brief and the skill listing
+  ///     cannot disagree about whether a rubric exists.</summary>
+  public async Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default)
+  {
+    Result<IReadOnlyList<SkillDefinition>> listed = await _skills.ListAsync(ct).ConfigureAwait(false);
+    return listed.IsSuccess
+      ? Result.Success(listed.Value.Any(skill =>
+          string.Equals(skill.Name, ReviewRubricSkill, StringComparison.OrdinalIgnoreCase)))
+      : Result.Failure<bool>(listed.Error);
+  }
+
+  /// <summary>The role of the chain step at <paramref name="position"/>, or null when the chain
+  ///     holds no step there.
+  ///     <para>THE RECORD IS THE SOURCE, not the assignment: a resumed or restarted launch reads
+  ///     the row, and the row is what #218's separation rule reads too.</para></summary>
+  private static ChainStepRole? RoleOf(Chain chain, int position) =>
+      chain.Steps.FirstOrDefault(step => step.Position == position)?.Role;
 
   /// <inheritdoc />
   public async Task<Result<ChainBriefPlan>> GetPlanAsync(int planId, CancellationToken ct = default)

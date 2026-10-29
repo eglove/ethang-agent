@@ -36,6 +36,12 @@ public sealed record ChainBriefPredecessor(int Position, ChainStepStatus Status,
 /// <param name="Predecessors">The chain steps that already ran, in position order.</param>
 /// <param name="GateCommands">The workspace's <c>goal/check</c> commands; empty when unset.</param>
 /// <param name="LedgerKey">Where the chain's ledger lives, already resolved from the slug.</param>
+/// <param name="Role">The role assigned to this step's session (issue #306): implement or
+///     review. The brief branches on it, because a reviewer told to mark its step done is a
+///     reviewer that will finish the work instead of judging it. Null means implement.</param>
+/// <param name="ReviewRubricAvailable">Whether the <c>reviewing-plans</c> skill (#217) is
+///     installed in this session's catalog. A reviewer must be told which rubric to apply, and
+///     the honest answer when there is none is to say so rather than to invent one.</param>
 public sealed record ChainBriefFacts(
     int ChainId,
     string ChainTitle,
@@ -46,7 +52,9 @@ public sealed record ChainBriefFacts(
     IReadOnlyList<ChainBriefPlanStep> PlanSteps,
     IReadOnlyList<ChainBriefPredecessor> Predecessors,
     IReadOnlyList<string> GateCommands,
-    string LedgerKey)
+    string LedgerKey,
+    ChainStepRole? Role = null,
+    bool ReviewRubricAvailable = false)
 {
   /// <summary>The plan step this session was assigned, or null when the plan no longer has
   ///     one at that position. Chains bind to plan steps BY POSITION, and
@@ -54,6 +62,18 @@ public sealed record ChainBriefFacts(
   ///     step pointing at work that no longer exists — the defect the refusal exists for.</summary>
   public ChainBriefPlanStep? AssignedStep =>
       PlanSteps.FirstOrDefault(step => step.Position == AssignedPosition);
+
+  /// <summary>The step's role, never null: an absent role means 'implement', the same default
+  ///     the chain record itself applies to a step that names none.</summary>
+  [System.Text.Json.Serialization.JsonIgnore]
+  public ChainStepRole EffectiveRole => Role ?? ChainStepRole.Implement;
+
+  /// <summary>True when this step's session JUDGES work rather than doing it (issue #306).
+  ///     <para>THE ONE BRANCH THE BRIEF MAKES ON ROLE. Everything else about a step — its
+  ///     position, its title, its detail, the plan's goal, the predecessors, the gate — is the
+  ///     same fact whether a session is implementing or reviewing. What differs is what
+  ///     "finished" means, and that is the whole of the difference.</para></summary>
+  public bool IsReview => EffectiveRole.IsReview;
 }
 
 /// <summary>The rendered brief (issue #302): the first message a chain step's session

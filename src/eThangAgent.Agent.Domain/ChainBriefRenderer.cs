@@ -99,7 +99,17 @@ public static class ChainBriefRenderer
 
     AddPredecessors(lines, facts);
     AddGate(lines, facts);
-    AddCompletion(lines, facts);
+    // THE ONE BRANCH ON ROLE (issue #306): a reviewer is not asked to finish the work, because
+    // a reviewer told to mark the step done would finish it instead of judging it.
+    if (facts.IsReview)
+    {
+      AddReview(lines, facts);
+    }
+    else
+    {
+      AddCompletion(lines, facts);
+    }
+
     return string.Join('\n', lines);
   }
 
@@ -145,6 +155,78 @@ public static class ChainBriefRenderer
     lines.Add("");
     lines.Add("state.checkgoal runs them and records the result. The result must be FRESH — run it");
     lines.Add("again after your last change, or the completion gate refuses the claim.");
+  }
+
+  /// <summary>How a REVIEW step finishes (issue #306): judge the work and record a verdict,
+  ///     rather than mark the step done.
+  ///     <para>WHY THIS IS NOT <see cref="AddCompletion"/>: a reviewer handed the implementer's
+  ///     contract is told to mark the step done, which is the one thing a reviewer must not do —
+  ///     it would finish the work instead of judging it, and the chain would advance on the
+  ///     reviewer's own labour. The role exists so this instruction can differ.</para>
+  ///     <para>THE VERDICT IS NOT A TYPE YET (#216). <see cref="ChainStep.Outcome"/> is free text
+  ///     on the record, so the verdict and its cited findings ride the step outcome. This states
+  ///     the shape the outcome must have; #216 gives it a typed home.</para>
+  ///     <para>THE RUBRIC IS #217's, AND ITS ABSENCE IS STATED. A reviewer told to apply a rubric
+  ///     that does not exist would invent one, and an invented rubric is a verdict nobody can
+  ///     compare. Saying plainly that none is installed is the honest answer, and it is the reason
+  ///     <see cref="ChainBriefFacts.ReviewRubricAvailable"/> is a fact rather than an assumption.</para></summary>
+  private static void AddReview(List<string> lines, ChainBriefFacts facts)
+  {
+    lines.Add("");
+    lines.Add("## You are the REVIEWER for this step");
+    lines.Add("");
+    // The word is literal because this method only runs for a review step (the branch in
+    // Text), so there is no second case for a computed name to distinguish.
+    lines.Add($"Step {facts.AssignedPosition} was assigned the review role, so your job is to JUDGE the");
+    lines.Add("work on it, not to do it. Do not change the workspace to make the work pass: a reviewer");
+    lines.Add("that fixes what it reviews has replaced the independent verdict with its own.");
+    lines.Add("");
+    AddRubric(lines, facts);
+    lines.Add("## What to record");
+    lines.Add("");
+    lines.Add("Record your verdict in this step's outcome, in this shape:");
+    lines.Add("");
+    lines.Add("    verdict: approve | deny | approve-with-conditions");
+    lines.Add("    findings: one line per finding, each citing a requirement id or a step position");
+    lines.Add("");
+    lines.Add("A finding that cites nothing is not a finding: 'the code is unclear' cannot be acted on or");
+    lines.Add("audited, while 'step 3 has no acceptance criterion for requirement R2' can.");
+    lines.Add("");
+    lines.Add("## How to finish");
+    lines.Add("");
+    lines.Add($"Mark step {facts.AssignedPosition} of plan #{facts.PlanId} done once your verdict is recorded:");
+    lines.Add("");
+    lines.Add($"    plan.update-step id={facts.PlanId} position={facts.AssignedPosition} status=Done");
+    lines.Add("");
+    lines.Add("That is the ONLY step you may mark done. The harness refuses a Done on any other step of");
+    lines.Add("this plan, and it refuses a Done on this step from any other session.");
+    lines.Add("");
+    lines.Add("Completing your step is what starts the next one — the harness reacts to it, you do not");
+    lines.Add("start anything yourself. If you cannot reach a verdict, say so in the transcript and stop;");
+    lines.Add("the chain parks rather than guessing.");
+  }
+
+  /// <summary>The rubric a reviewer applies: the skill when it is installed, and an explicit
+  ///     statement when it is not. Never an invented rubric — an unstated one is at least
+  ///     visibly absent, while a fabricated one is a verdict nobody can compare or audit.</summary>
+  private static void AddRubric(List<string> lines, ChainBriefFacts facts)
+  {
+    lines.Add("## The rubric");
+    lines.Add("");
+    if (facts.ReviewRubricAvailable)
+    {
+      lines.Add("Load the `reviewing-plans` skill and apply its rubric: it carries the dimensions to score,");
+      lines.Add("the verdict contract, and the citation rule. It is the rubric for this review.");
+    }
+    else
+    {
+      lines.Add("No `reviewing-plans` skill is installed in this session, so there is no rubric to apply.");
+      lines.Add("Judge the work against the plan's own goal and its steps, and say in your verdict that no");
+      lines.Add("rubric was available. A verdict that silently invents its own criteria cannot be compared");
+      lines.Add("with any other review.");
+    }
+
+    lines.Add("");
   }
 
   /// <summary>D4: how to finish, stated so a session that does not know how to finish can.</summary>

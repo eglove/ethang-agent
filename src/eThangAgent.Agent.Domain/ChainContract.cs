@@ -20,8 +20,12 @@ namespace eThangAgent.AgentDomain;
 /// <param name="LedgerKey">Where the chain's ledger lives — <c>sci.&lt;slug&gt;/ledger</c>.</param>
 /// <param name="GateCommands">The workspace's <c>goal/check</c> commands as stored; null when
 ///     the payload carried none. Read <see cref="Gates"/> instead, which is never null.</param>
+/// <param name="Role">The role assigned to this step's session (issue #306). It rides the
+///     contract because the completion rule differs by role, and the contract is where the
+///     standing completion rule lives — a reviewer told in every request to mark its step done
+///     is a reviewer that will finish the work instead of judging it.</param>
 public sealed record ChainContract(int ChainId, int PlanId, int Position, string LedgerKey,
-    IReadOnlyList<string>? GateCommands = null)
+    IReadOnlyList<string>? GateCommands = null, ChainStepRole? Role = null)
 {
   /// <summary>The gate commands, never null. An absent list and an empty list are the same
   ///     fact — this workspace declares no gate — which is exactly how the completion gate
@@ -32,6 +36,17 @@ public sealed record ChainContract(int ChainId, int PlanId, int Position, string
   [System.Text.Json.Serialization.JsonIgnore]
   public IReadOnlyList<string> Gates => GateCommands ?? [];
 
+  /// <summary>The step's role, never null: an absent role means 'implement', which is the same
+  ///     default the chain record itself applies to a step that names none.
+  ///     <para>NOT ON THE WIRE: this is a view over <see cref="Role"/>, so serializing it would
+  ///     put the same fact in the payload twice under two names.</para></summary>
+  [System.Text.Json.Serialization.JsonIgnore]
+  public ChainStepRole EffectiveRole => Role ?? ChainStepRole.Implement;
+
+  /// <summary>True when this session judges work rather than doing it (issue #306).</summary>
+  [System.Text.Json.Serialization.JsonIgnore]
+  public bool IsReview => EffectiveRole.IsReview;
+
   /// <summary>The contract for a chain step's gathered brief facts.
   ///     <para>THE ONE DERIVATION SITE: the brief (#302) and the contract (#311) both come from
   ///     <see cref="ChainBriefFacts"/>, so the ledger key, the plan id, and the gate are the same
@@ -41,7 +56,7 @@ public sealed record ChainContract(int ChainId, int PlanId, int Position, string
   {
     ArgumentNullException.ThrowIfNull(facts);
     return new ChainContract(facts.ChainId, facts.PlanId, facts.AssignedPosition, facts.LedgerKey,
-        facts.GateCommands);
+        facts.GateCommands, facts.Role);
   }
 
   public override string ToString() =>

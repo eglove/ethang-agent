@@ -46,7 +46,18 @@ public static class ChainContractRenderer
       "",
     ];
     AddGate(lines, contract);
-    AddCompletion(lines, contract);
+    // THE COMPLETION RULE DIFFERS BY ROLE (issue #306), and this is where the STANDING rule
+    // lives — the brief states it once and a compaction can evict it, so a reviewer that read
+    // the right instruction only in its first message would drift back to finishing the work.
+    if (contract.IsReview)
+    {
+      AddReview(lines, contract);
+    }
+    else
+    {
+      AddCompletion(lines, contract);
+    }
+
     return string.Join('\n', lines);
   }
 
@@ -78,6 +89,30 @@ public static class ChainContractRenderer
     lines.Add("from before your last edit does not count: it proves nothing about the code being");
     lines.Add("declared finished, and the completion gate refuses a claim that predates the change.");
     lines.Add("");
+  }
+
+  /// <summary>The completion rule for a REVIEW step (issue #306): judge, record a verdict,
+  ///     then mark the step done. The implementer's rule is the wrong instruction for a
+  ///     reviewer — it asks for the work to be finished rather than judged.
+  ///     <para>IT DOES NOT RESTATE THE BRIEF'S OUTPUT SHAPE. The verdict line and the citation
+  ///     rule are the brief's (and #217's, once the rubric skill exists); this states only that
+  ///     the verdict is what the step is FOR, which is the standing fact a session must keep
+  ///     applying after its first message scrolls away.</para></summary>
+  private static void AddReview(List<string> lines, ChainContract contract)
+  {
+    lines.Add("## How the chain moves");
+    lines.Add("");
+    // The word is literal because this method only runs for a review step (the branch in
+    // Render), so there is no second case for a computed name to distinguish.
+    lines.Add($"Step {contract.Position} was assigned the review role: your job is to JUDGE this");
+    lines.Add("step's work, not to do it. Do not change the workspace to make the work pass.");
+    lines.Add("");
+    lines.Add("Record your verdict and your cited findings in this step's outcome, then mark the step");
+    lines.Add("done. That single write is the completion fact the harness reacts to, and it is the only");
+    lines.Add("step of this plan you may mark done.");
+    lines.Add("");
+    lines.Add("If you cannot reach a verdict, say so plainly in the transcript and stop. The chain parks");
+    lines.Add("rather than guessing, and a parked chain is something a human can act on.");
   }
 
   /// <summary>The completion rule, stated as a rule rather than as a command: the command

@@ -73,7 +73,8 @@ public sealed class ChainBriefService(IChainBriefSource source)
   private async Task<Result<ChainBriefFacts>> GatherAsync(ChainStepAssignment assignment,
       CancellationToken ct)
   {
-    Result<ChainBriefChain> chain = await _source.GetChainAsync(assignment.ChainId, ct).ConfigureAwait(false);
+    Result<ChainBriefChain> chain = await _source
+        .GetChainAsync(assignment.ChainId, assignment.Position, ct).ConfigureAwait(false);
     if (!chain.IsSuccess)
     {
       return Result.Failure<ChainBriefFacts>(chain.Error);
@@ -86,16 +87,37 @@ public sealed class ChainBriefService(IChainBriefSource source)
     }
 
     Result<IReadOnlyList<string>> gate = await _source.GetGateCommandsAsync(ct).ConfigureAwait(false);
-    return gate.IsSuccess
-      ? Result.Success(Facts(assignment, chain.Value, plan.Value, gate.Value))
-      : Result.Failure<ChainBriefFacts>(gate.Error);
+    if (!gate.IsSuccess)
+    {
+      return Result.Failure<ChainBriefFacts>(gate.Error);
+    }
+
+    // THE RUBRIC IS ASKED FOR ONLY WHEN SOMETHING USES IT (issue #306): an implement step never
+    // reads the skill catalog, so a chain with no review step costs exactly what it did before.
+    Result<bool> rubric = RoleOf(chain.Value, assignment).IsReview
+      ? await _source.GetReviewRubricAvailableAsync(ct).ConfigureAwait(false)
+      : Result.Success(false);
+    return rubric.IsSuccess
+      ? Result.Success(Facts(assignment, chain.Value, plan.Value, gate.Value, rubric.Value))
+      : Result.Failure<ChainBriefFacts>(rubric.Error);
   }
+
+  /// <summary>The role this brief is for (issue #306): the ASSIGNMENT's when the launcher read
+  ///     it, else the RECORD's. Both are the same value in production — the launcher reads it
+  ///     from the record — but a caller that did not load the chain yet still gets the record's
+  ///     answer rather than a silent 'implement'.
+  ///     <para>FALLING BACK TO IMPLEMENT IS THE LAST RESORT and only when the chain holds no step
+  ///     at that position, which <see cref="ChainBriefRenderer.RefusalFor"/> already refuses.</para></summary>
+  private static ChainStepRole RoleOf(ChainBriefChain chain, ChainStepAssignment assignment) =>
+      assignment.Role
+      ?? chain.Role
+      ?? ChainStepRole.Implement;
 
   /// <summary>Assembles the fact record. The ledger key is DERIVED from the chain's title
   ///     rather than stored, so the brief and the system prompt (#311) cannot disagree about
   ///     where a chain's ledger lives.</summary>
   private static ChainBriefFacts Facts(ChainStepAssignment assignment, ChainBriefChain chain,
-      ChainBriefPlan plan, IReadOnlyList<string> gate) =>
+      ChainBriefPlan plan, IReadOnlyList<string> gate, bool rubricAvailable) =>
       new(chain.ChainId,
           chain.Title,
           plan.PlanId,
@@ -105,7 +127,9 @@ public sealed class ChainBriefService(IChainBriefSource source)
           plan.Steps,
           chain.Predecessors,
           gate,
-          ChainLedgerSlug.KeyFor(chain.Title));
+          ChainLedgerSlug.KeyFor(chain.Title),
+          RoleOf(chain, assignment),
+          rubricAvailable);
 
   /// <summary>The seed message, flagged as a summary so every surface treats it as harness
   ///     context rather than as user voice.

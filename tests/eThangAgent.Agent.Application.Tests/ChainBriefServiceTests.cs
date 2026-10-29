@@ -156,22 +156,89 @@ public sealed class ChainBriefServiceTests
     Assert.Contains("Step 1 — Done: status line rewritten", message.Content, StringComparison.Ordinal);
   }
 
+  [Fact]
+  public async Task BuildSeed_ForAReviewAssignment_TellsTheSessionToJudge()
+  {
+    // The role reaches the brief from the ASSIGNMENT when the launcher read it (issue #306).
+    ChainBriefService service = new(new FakeSource());
+    ChainStepAssignment review = Assignment.WithRole(ChainStepRole.Review("vendor/reviewer"));
+
+    Message message = Assert.Single(
+        (await service.BuildSeedAsync(review, TestContext.Current.CancellationToken)).Value!);
+
+    Assert.Contains("You are the REVIEWER for this step", message.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("## How to finish\n\nMark step 2 of plan #104 done:",
+        message.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task BuildSeed_ForAReviewStep_AsksTheCatalogForTheRubric()
+  {
+    FakeSource source = new(rubricAvailable: true);
+    ChainBriefService service = new(source);
+
+    Message message = Assert.Single((await service
+        .BuildSeedAsync(Assignment.WithRole(ChainStepRole.Review()), TestContext.Current.CancellationToken)).Value!);
+
+    Assert.Equal(1, source.RubricReads);
+    Assert.Contains("Load the `reviewing-plans` skill", message.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task BuildSeed_ForAnImplementStep_NeverAsksTheCatalogForTheRubric()
+  {
+    // A chain with no review step must cost exactly what it did before this issue.
+    FakeSource source = new();
+    ChainBriefService service = new(source);
+
+    _ = await service.BuildSeedAsync(Assignment, TestContext.Current.CancellationToken);
+
+    Assert.Equal(0, source.RubricReads);
+  }
+
+  [Fact]
+  public async Task BuildSeed_WhenTheAssignmentNamesNoRole_FallsBackToTheRecordsRole()
+  {
+    // A launcher that has not read the chain still gets the record's answer rather than a
+    // silent 'implement' - the fallback that keeps a review step from degrading to a work step.
+    FakeSource source = new(chain: Result.Success(new ChainBriefChain(
+        7, "2026-08-24-dashboard-truth", 104, [], ChainStepRole.Review())));
+    ChainBriefService service = new(source);
+
+    Message message = Assert.Single(
+        (await service.BuildSeedAsync(Assignment, TestContext.Current.CancellationToken)).Value!);
+
+    Assert.Contains("You are the REVIEWER for this step", message.Content, StringComparison.Ordinal);
+  }
+
   private sealed class FakeSource(
       Result<ChainBriefChain>? chain = null,
       Result<ChainBriefPlan>? plan = null,
-      Result<IReadOnlyList<string>>? gate = null) : IChainBriefSource
+      Result<IReadOnlyList<string>>? gate = null,
+      bool rubricAvailable = false) : IChainBriefSource
   {
     public int Reads { get; private set; }
+
+    /// <summary>How many times the skill catalog was consulted (issue #306): an implement step
+    ///     must never ask, so the count is the assertion that the read is conditional.</summary>
+    public int RubricReads { get; private set; }
 
     public static Result<ChainBriefPlan> PlanWithout() =>
         Result.Success(new ChainBriefPlan(104, 3, "Make the dashboard tell the truth.",
             [new ChainBriefPlanStep(1, "Only step left", null)]));
 
-    public Task<Result<ChainBriefChain>> GetChainAsync(int chainId, CancellationToken ct = default)
+    public Task<Result<ChainBriefChain>> GetChainAsync(int chainId, int position,
+        CancellationToken ct = default)
     {
       Reads++;
       return Task.FromResult(chain ?? Result.Success(new ChainBriefChain(
           7, "2026-08-24-dashboard-truth", 104, [])));
+    }
+
+    public Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default)
+    {
+      RubricReads++;
+      return Task.FromResult(Result.Success(rubricAvailable));
     }
 
     public Task<Result<ChainBriefPlan>> GetPlanAsync(int planId, CancellationToken ct = default)

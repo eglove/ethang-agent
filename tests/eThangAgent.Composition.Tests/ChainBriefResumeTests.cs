@@ -98,9 +98,13 @@ public sealed class ChainBriefResumeTests
   /// </summary>
   private sealed class StubSource : IChainBriefSource
   {
-    public Task<Result<ChainBriefChain>> GetChainAsync(int chainId, CancellationToken ct = default) =>
+    public Task<Result<ChainBriefChain>> GetChainAsync(int chainId, int position,
+        CancellationToken ct = default) =>
         Task.FromResult(Result.Success(new ChainBriefChain(
             7, "2026-08-24-dashboard-truth", 104, [])));
+
+    public Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(false));
 
     public Task<Result<ChainBriefPlan>> GetPlanAsync(int planId, CancellationToken ct = default) =>
         Task.FromResult(Result.Success(new ChainBriefPlan(104, 3,

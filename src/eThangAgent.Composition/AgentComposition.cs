@@ -506,7 +506,11 @@ public static class AgentComposition
         .AddSingleton<IChainBriefSource>(sp => new CompositionChainBriefSource(
             sp.GetRequiredService<ChainService>(),
             sp.GetRequiredService<PlanService>(),
-            sp.GetRequiredService<IStateService>()))
+            sp.GetRequiredService<IStateService>(),
+            // The reviewer's rubric is a SKILL (issue #306/#217), so the brief asks the same
+            // catalog this session's skill listing is built from: the two cannot then disagree
+            // about whether a rubric exists.
+            sp.GetRequiredService<ISkillCatalog>()))
         .AddSingleton<ChainBriefService>()
         // The plan-to-execution transition (issue #313): the plan port the creation action
         // validates against, and the session-start port it launches step 1 through. The start
