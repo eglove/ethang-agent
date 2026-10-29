@@ -172,6 +172,28 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     Null when the shell wired none (headless/test hosts construct nothing).</summary>
   private GitBranchWatcher? _branchWatcher;
 
+  /// <summary>The tab's subscription to the mechanical chain advance (issue #301 D1).
+  ///     Disposed with the tab: a closed tab must not keep advancing a chain.</summary>
+  private IDisposable? _chainAdvanceLease;
+
+  /// <summary>Attaches the chain-advance subscription for this tab's session stream.
+  ///     Calling again disposes the prior lease first, so a cell swap cannot leave two
+  ///     subscribers advancing the same chain.</summary>
+  public void AttachChainAdvance(IDisposable lease)
+  {
+    ArgumentNullException.ThrowIfNull(lease);
+    _chainAdvanceLease?.Dispose();
+    _chainAdvanceLease = lease;
+  }
+
+  /// <summary>Disposes the chain-advance subscription (tab close). Safe when none was
+  ///     attached.</summary>
+  public void DetachChainAdvance()
+  {
+    _chainAdvanceLease?.Dispose();
+    _chainAdvanceLease = null;
+  }
+
   /// <summary>Attaches the statusline branch watcher over the tab's workspace.
   ///     Calling again disposes the prior watcher first.</summary>
   public void AttachBranchWatcher(IGitQueryAccess? git)

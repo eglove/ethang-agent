@@ -107,6 +107,15 @@ internal sealed record MainViewModelOptions
   ///     handoff then reports the seeded launch as unavailable instead of silently
   ///     dropping the summary it exists to carry.</summary>
   public SeededSessionCreator? SeededSessionCreator { get; init; }
+
+  /// <summary>The mechanical advance (issue #301 D1/D2): answers the advance service for one
+  ///     SESSION, or null when that session's container wired no chain machinery. Null (tests,
+  ///     headless hosts) means no chain is ever advanced and the shell behaves exactly as
+  ///     before.
+  ///     <para>WHY PER SESSION AND NOT PER WORKSPACE PATH: the chain store is bound to a
+  ///     workspace at construction and lives in the session's own container, so the session IS
+  ///     the key. A path-keyed factory would have to re-derive the container it already has.</para></summary>
+  public Func<AgentSession, ChainAdvanceService?>? ChainAdvance { get; init; }
 }
 
 /// <summary>Shell-level state for the main window: the left menu bar (Open Workspace,
@@ -160,6 +169,9 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     watchdogs as tabs open and close. Null (tests, hosts without one): no-op.</summary>
   private readonly Action<AgentSession>? _sessionOpened;
   private readonly Action<AgentId>? _sessionClosed;
+
+  /// <summary>The per-session advance service (issue #301). Null: no chain is advanced.</summary>
+  private readonly Func<AgentSession, ChainAdvanceService?>? _chainAdvance;
 
   /// <summary>Factory rebound via <see cref="AgentSessionFactory.WithSettings"/> when
   ///     saved keys change; the creation delegate always reads the current instance.</summary>
@@ -332,6 +344,7 @@ internal sealed partial class MainViewModel : ObservableObject
     _settings = options?.Settings;
     _sessionOpened = options?.SessionOpened;
     _sessionClosed = options?.SessionClosed;
+    _chainAdvance = options?.ChainAdvance;
     _sessionFactory = options?.SessionFactory;
     _keyProtector = options?.ApiKeyProtector;
     _sessionCatalog = options?.SessionCatalog;
@@ -1366,6 +1379,39 @@ internal sealed partial class MainViewModel : ObservableObject
     return tab;
   }
 
+  /// <summary>Starts the session for a chain step (issue #301 D2): a SEED-ONLY in-place
+  ///     advance in the tab whose session completed the previous step.
+  ///     <para>SEED-ONLY, deliberately: the brief is #302's, and firing a turn with text this
+  ///     issue invents would be a handoff written by a model, which D5 forbids. The successor
+  ///     starts, reads its brief, and works from it.</para>
+  ///     <para>THE TAB IS FOUND BY THE COMPLETING SESSION, which is what makes the advance
+  ///     land in the right workspace: a chain belongs to one workspace, and the session that
+  ///     completed its step is running in that workspace's tab.</para>
+  ///     <para>Returns the new session's id, or a typed failure. The caller (the advance) has
+  ///     already claimed the step, so a failure here releases it rather than leaking it.</para></summary>
+  /// <param name="assignment">The chain step the new session is started for.</param>
+  /// <param name="predecessorSessionId">The session whose completion triggered the advance.</param>
+  public async Task<Result<string>> StartChainStepSessionAsync(ChainStepAssignment assignment,
+      string predecessorSessionId)
+  {
+    ArgumentNullException.ThrowIfNull(assignment);
+    ArgumentException.ThrowIfNullOrWhiteSpace(predecessorSessionId);
+    AgentTabViewModel? tab = Guid.TryParse(predecessorSessionId, out Guid predecessor)
+        ? Tabs.FirstOrDefault(t => t.Cells.Any(c => c.Container.RootId.Value == predecessor))
+        : null;
+    if (tab is null)
+    {
+      return Result.Failure<string>(new DomainError("TabClosed",
+          "the tab that completed the previous chain step is no longer open; the next step was not started."));
+    }
+
+    Result<AgentTabViewModel> started = await StartNewSessionAsync(tab, prompt: null).ConfigureAwait(true);
+    return started.IsSuccess
+        ? Result.Success(started.Value.Container.RootId.ToString())
+        : Result.Failure<string>(started.Error);
+  }
+
+
   /// <summary>Adds a NEW agent cell to <paramref name="tab"/>'s grid (issue #307 D2): the
   ///     parallel-dispatch shape, as opposed to a sequential advance, which replaces the
   ///     primary cell in place.
@@ -1936,10 +1982,42 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     deliver raises, drain/settle clear; a subscription, never a poll) and the
   ///     statusline's git branch watcher (issue 1 — event-driven on .git changes; a
   ///     session without the git seam, none in production, skips it).</summary>
-  private static void AttachTabWiring(AgentSession session, AgentTabViewModel tab)
+  private void AttachTabWiring(AgentSession session, AgentTabViewModel tab)
   {
     tab.AttachBadge(session.Services.GetService<IAgentEvents>());
     tab.AttachBranchWatcher(session.Services.GetService<IGitQueryAccess>());
+    AttachChainAdvance(session, tab);
+  }
+
+  /// <summary>Subscribes the tab's session stream to the mechanical advance (issue #301 D1).
+  ///     <para>EVERY CELL IS SUBSCRIBED, not just the primary: a chain step's session may be
+  ///     any cell, and the completion fact names its author. The subscriber resolves the
+  ///     advance service per WORKSPACE, so a tab whose host wired none is a no-op.</para>
+  ///     <para>The lease is held by the tab and disposed with it, so a closed tab cannot keep
+  ///     advancing a chain.</para></summary>
+  private void AttachChainAdvance(AgentSession session, AgentTabViewModel tab)
+  {
+    if (_chainAdvance is not { } resolve
+        || resolve(session) is not { } advance
+        || session.Services.GetService<IAgentEvents>() is not { } events)
+    {
+      return;
+    }
+
+    ChainAdvanceSubscriber subscriber = new(
+        _ => advance,
+        message => Avalonia.Threading.Dispatcher.UIThread.Post(() => tab.ViewModel.AddSystemNotice(message)));
+    tab.AttachChainAdvance(events.Subscribe(new ChainAdvanceEventSink(subscriber, session.WorkspaceRoot)));
+  }
+
+  /// <summary>Adapts the session's event stream to the advance subscriber: the stream is
+  ///     synchronous and the advance is async, so each fact is dispatched and its task
+  ///     observed. A fault is contained by the subscriber itself.</summary>
+  private sealed class ChainAdvanceEventSink(ChainAdvanceSubscriber subscriber, string workspaceId)
+      : IAgentEventSubscriber
+  {
+    public void OnEvent(ChildEvent evt)
+      => _ = Task.Run(() => subscriber.OnEventAsync(evt, workspaceId, CancellationToken.None));
   }
 
   /// <summary>Menu-bar entry point: raises the Sessions request. The view shows the
@@ -2405,6 +2483,7 @@ internal sealed partial class MainViewModel : ObservableObject
 
     tab.Badge?.Dispose();
     tab.DetachBranchWatcher();
+    tab.DetachChainAdvance();
     // Issue #307 D6: the rail belongs to the tab, so the tab's close is what stops its
     // pollers. A cell's shutdown deliberately leaves a SHARED rail running.
     tab.Workbench.Dispose();
@@ -2415,6 +2494,56 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       await cell.Container.Services.DisposeAsync();
     }
+  }
+
+  /// <summary>Closes ONE session by root id (issue #301 D4): the session that completed its
+  ///     chain step is retired so the successor can take its cell.
+  ///     <para>DISTINCT FROM <see cref="CloseTabAsync"/>: a tab is the WORKSPACE and holds
+  ///     1..N agents, so closing a chain step's session must not close its siblings or the
+  ///     rail. The cell is marked finished and its container disposed; the tab survives.</para>
+  ///     <para>When the closed session is a tab's PRIMARY cell the tab cannot be left without
+  ///     one, so the whole tab closes instead - the honest outcome, since that tab's identity
+  ///     was the session that just finished.</para>
+  ///     <para>Best effort: the transcript is already persisted, so a teardown fault must not
+  ///     stop the chain from advancing. Must run on the UI thread.</para></summary>
+  public async Task CloseSessionAsync(AgentId rootId)
+  {
+    AgentTabViewModel? tab = Tabs.FirstOrDefault(t =>
+        t.Cells.Any(c => c.Container.RootId == rootId));
+    if (tab is null)
+    {
+      return; // already gone: the advance has nothing left to retire
+    }
+
+    if (tab.Container.RootId == rootId)
+    {
+      // The primary cell is the tab's identity; there is no tab without it.
+      await CloseTabAsync(tab).ConfigureAwait(true);
+      return;
+    }
+
+    AgentCellViewModel? cell = tab.Cells.FirstOrDefault(c => c.Container.RootId == rootId);
+    if (cell is null)
+    {
+      return;
+    }
+
+    _sessionClosed?.Invoke(rootId);
+#pragma warning disable CA1031 // Named decision: teardown is best effort, like CloseTabAsync.
+    try
+    {
+      await cell.ViewModel.ShutdownAsync().ConfigureAwait(true);
+    }
+    catch
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
+
+    // The card stays in the grid (D7: position carries meaning) and its container is disposed
+    // so the host process dies with it.
+    _ = tab.MarkSessionFinished(rootId);
+    await cell.Container.Services.DisposeAsync().ConfigureAwait(true);
   }
 
   /// <summary>Synchronous fire-and-forget close used by the tab header's close button.

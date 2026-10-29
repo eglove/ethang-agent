@@ -119,6 +119,44 @@ public sealed record Chain(
     return ReplaceStep(index, Steps[index].Settle(status, actor, outcome, now), now);
   }
 
+  /// <summary>Moves a LIVE claim to a different session without spending another attempt
+  ///     (issue #301). The harness claims a step before it can know the new session's id —
+  ///     the id does not exist until the session does — so the placeholder claim is corrected
+  ///     here once the session is real.
+  ///     <para>Deliberately NOT a second <see cref="ClaimStep"/>: claiming increments
+  ///     <see cref="ChainStep.Attempts"/> and restarts the claim clock, and neither is true —
+  ///     no new attempt was made and the claim never lapsed. Re-claiming would double-count
+  ///     an attempt the bound (#303 D2) reads.</para>
+  ///     <para>Refused when the step is not Running or its claim has lapsed: a lapsed claim is
+  ///     available to anyone, and silently reassigning it would steal it from a claimant that
+  ///     may already be working.</para></summary>
+  public Chain ReassignStep(int position, string sessionId, DateTimeOffset now)
+  {
+    EnsureMutable();
+    ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+    int index = IndexOf(position);
+    ChainStep step = Steps[index];
+    return step.Status == ChainStepStatus.Running && step.IsClaimLive(now)
+      ? ReplaceStep(index, step.Reassign(sessionId), now)
+      : throw new ChainInputException(
+          $"chain #{Id} step {position} is {step.EffectiveStatus(now)}; only a live claim can be reassigned.");
+  }
+
+  /// <summary>Returns a claimed step to Pending WITHOUT settling it (issue #301): the launch
+  ///     that claimed it failed, so no session ever existed to run it.
+  ///     <para>The ATTEMPT COUNT IS KEPT. A launch that failed is still an attempt the bound
+  ///     must see, or a step whose every launch fails would retry forever; what is released is
+  ///     the claim, not the history.</para>
+  ///     <para>Distinct from settling it <c>Failed</c>: nothing ran, so there is no outcome to
+  ///     record and the step is still available to the next advance.</para></summary>
+  public Chain ReleaseStep(int position, ChainActor actor, DateTimeOffset now)
+  {
+    EnsureMutable();
+    ArgumentNullException.ThrowIfNull(actor);
+    int index = IndexOf(position);
+    return ReplaceStep(index, Steps[index].Release(actor), now);
+  }
+
   /// <summary>The first step a session may claim now, or null when none is available.</summary>
   public ChainStep? NextAvailableStep(DateTimeOffset now)
     => Steps.FirstOrDefault(step => step.IsAvailable(now));

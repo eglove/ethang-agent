@@ -228,6 +228,11 @@ internal static class DesktopHost
         session.Services.GetService<IAgentEvents>(),
         session.Services.GetService<ChildSupervisorRegistry>());
 
+    // The mechanical advance (issue #301 D1/D2): a completion fact starts the next session.
+    MainViewModel? vmRef = null;
+    ChainAdvanceService? AdvanceFor(AgentSession session) =>
+        ChainAdvanceFactory.For(session, () => vmRef);
+
     MainViewModel vm = new(
         createSession: null,
         new MainViewModelOptions
@@ -240,10 +245,12 @@ internal static class DesktopHost
           SessionFactory = boot.Sessions,
           ApiKeyProtector = boot.ApiKeys,
           SessionCatalog = boot.Catalog,
+          ChainAdvance = AdvanceFor,
           SessionOpened = session => watchdogLoop.Attach(session.RootId,
               new AgentWatchdog(session.RootId, ServicesFor(session))),
           SessionClosed = rootId => watchdogLoop.Detach(rootId),
         });
+    vmRef = vm;
     // Spec D4/D14: the resource governor runs on its OWN fast clock, independent of
     // the one-minute agent-idle watchdog: the watchdog asks 'is a sub-agent stuck?',
     // the governor asks 'is the machine filling up?' every couple of seconds. It is

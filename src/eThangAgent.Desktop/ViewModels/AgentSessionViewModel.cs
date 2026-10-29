@@ -133,6 +133,18 @@ internal sealed record AgentSessionViewModelOptions
   ///     behaviour and what a single-session test host still gets. The shell always passes one,
   ///     so production never takes that path.</para></summary>
   public WorkbenchViewModel? Workbench { get; init; }
+
+  /// <summary>Receives this session's own ROOT TURN facts (issue #301 D5): a turn started,
+  ///     a tool dispatch, a streamed fragment, a turn settled.
+  ///     <para>WHY THIS EXISTS: the chain advance must be able to tell that a root session
+  ///     has gone idle without completing its step, and the ONLY honest source for that is
+  ///     the root loop's own lifecycle. <c>ChildProgressEvent</c> describes a child run and is
+  ///     retired by #305/#316; a wall-clock timer is the mechanism <c>ChildTimeout</c> was
+  ///     deleted for. These are facts this view-model already knows, surfaced so the root
+  ///     supervisor can read them.</para>
+  ///     <para>Null (the default) means the host wired no supervision and the callbacks are
+  ///     no-ops, so a headless or test host is byte-identical to before.</para></summary>
+  public Action<RootTurnActivity>? RootActivity { get; init; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -313,6 +325,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       new("new", "Start a new session in this workspace with the rest of the input as its first prompt.", IsManual: false, IsCommand: true);
 
   private readonly IAgentInbox? _inbox;
+  private readonly Action<RootTurnActivity>? _rootActivity;
   private readonly IAgentRuntime? _childRuntime;
 
   /// <summary>The subscription that releases pinned steering echoes when the loop's drain
@@ -386,6 +399,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
+    _rootActivity = options.RootActivity;
     RootTurnChannel = options.RootTurnChannel;
     AttachDrainLease(options.ChildEvents, rootId);
 
@@ -831,6 +845,30 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     await _lifecycle.CompleteAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
   }
 
+  /// <summary>Reports one root-turn fact to the session's supervisor (issue #301 D5).
+  ///     <para>Best effort by contract: the supervisor is a supervision surface, and a
+  ///     callback fault must never fail the turn it is observing - the same rule the event
+  ///     stream's subscribers follow.</para></summary>
+  private void BeatRootActivity(RootTurnPhase phase, string label)
+  {
+    if (_rootActivity is not { } sink)
+    {
+      return;
+    }
+
+    try
+    {
+      sink(new RootTurnActivity(_rootId, DateTimeOffset.UtcNow, phase, label));
+    }
+    // Named decision (CA1031): a supervision callback is an observer, never a turn step.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+  }
+
   private async Task ExecuteTurnAsync(string input)
   {
     try
@@ -851,6 +889,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       _turnCts = null;
       Status.Phase = TurnPhase.Ready;
       IsBusy = false;
+      // The turn is over: this is the moment idleness BEGINS for the root supervisor
+      // (issue #301 D5). Emitted from the finally so a faulted or cancelled turn settles
+      // the clock too - a session whose turn threw is idle, not busy.
+      BeatRootActivity(RootTurnPhase.TurnSettled, "turn-settled");
     }
   }
 
@@ -887,6 +929,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Transcript.AddUser(input, transcriptImages, transcriptImageLabels);
     Status.Phase = TurnPhase.Thinking;
     IsBusy = true;
+    BeatRootActivity(RootTurnPhase.TurnStarted, "turn-start");
 
     CancellationTokenSource cts = new();
     _turnCts = cts;
@@ -898,11 +941,20 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     bool sawStream = false;
     bool compactedThisTurn = false;
     bool shrunkThisTurn = false;
+    // Every streamed fragment is a root-turn fact (issue #301 D5): this is the clock the
+    // root supervisor reads, and it must advance while the model is producing text or the
+    // session would read as idle mid-answer.
+    void OnStreamed()
+    {
+      sawStream = true;
+      BeatRootActivity(RootTurnPhase.Streamed, "stream");
+    }
+
     Result<string> result = RootTurnChannel is { } channel
         ? await SendTurnToHostAsync(channel, input, imageParts, bridge,
-            () => sawStream = true, cts.Token).ConfigureAwait(true)
+            OnStreamed, cts.Token).ConfigureAwait(true)
         : await RunTurnInProcessAsync(input, imageParts, bridge,
-            () => sawStream = true,
+            OnStreamed,
             () => compactedThisTurn = true,
             () => shrunkThisTurn = true, cts.Token).ConfigureAwait(true);
 

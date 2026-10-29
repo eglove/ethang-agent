@@ -83,6 +83,26 @@ public sealed class ChainService(IChainStore store)
     => MutateAsync(id, chain => chain.SettleStep(position, status, actor, outcome, now), now,
         (_, _) => StepChanged?.Invoke(new ChainStepChanged(id, position, KindOf(status), actor, now)), ct);
 
+  /// <summary>The chain claiming a step for <paramref name="sessionId"/>, or null when this
+  ///     session is executing none (issue #301).</summary>
+  public Task<Result<Chain?>> FindBySessionAsync(string sessionId, CancellationToken ct = default)
+    => _store.FindBySessionAsync(sessionId, ct);
+
+  /// <summary>Moves a live claim to a different session without spending an attempt (issue
+  ///     #301): the harness claims before the new session's id exists.</summary>
+  public Task<Result<Chain>> ReassignStepAsync(int id, int position, string sessionId,
+      DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.ReassignStep(position, sessionId, now), now,
+        (_, _) => StepChanged?.Invoke(
+            new ChainStepChanged(id, position, "claimed", ChainActor.Session(sessionId), now)), ct);
+
+  /// <summary>Releases a claim whose launch failed, leaving the step available (issue #301).
+  ///     The attempt count is kept: the launch was an attempt even though nothing ran.</summary>
+  public Task<Result<Chain>> ReleaseStepAsync(int id, int position, ChainActor actor,
+      DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.ReleaseStep(position, actor, now), now,
+        (_, _) => StepChanged?.Invoke(new ChainStepChanged(id, position, "pending", actor, now)), ct);
+
   /// <summary>Parks the chain, naming why and which step stopped it.</summary>
   public Task<Result<Chain>> ParkAsync(int id, string reason, int? position, ChainActor actor,
       DateTimeOffset now, CancellationToken ct = default)

@@ -229,6 +229,43 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     }
   }
 
+  /// <summary>The chain claiming a step for this session (issue #301). One indexed query on
+  ///     (chain_id, position) joined to the workspace-scoped chains row: a chain in another
+  ///     workspace is invisible here for the same reason every other read is.
+  ///     <para>A session appears on at most one step by construction (settling clears the
+  ///     claim, and a claim is only ever taken by a session the harness just started), so the
+  ///     query takes the first match rather than reporting an ambiguity the record cannot
+  ///     express.</para></summary>
+  public async Task<Result<Chain?>> FindBySessionAsync(string sessionId, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+    try
+    {
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SqliteConnection connection = _database.Open();
+#pragma warning restore CA2007
+      using SqliteCommand command = connection.CreateCommand();
+      command.CommandText = """
+          SELECT c.id FROM chains c
+          JOIN chain_steps s ON s.chain_id = c.id
+          WHERE c.workspace_id=@ws AND s.session_id=@session
+          ORDER BY c.id DESC LIMIT 1;
+          """;
+      Add(command, "@ws", _workspaceId);
+      Add(command, "@session", sessionId);
+      object? found = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+      return found is null or DBNull
+          ? Result.Success<Chain?>(null)
+          : (await GetAsync(Convert.ToInt32(found, CultureInfo.InvariantCulture), ct).ConfigureAwait(false))
+              .Map(chain => (Chain?)chain);
+    }
+    catch (SqliteException ex)
+    {
+      return Result.Failure<Chain?>(Unavailable(ex));
+    }
+  }
+
   private static Chain Materialize(ChainRow row, List<ChainStep> steps)
       => new(row.Id, row.WorkspaceId, row.PlanId, row.PlanVersion, row.Title, row.Status,
           row.ParkReason, row.ParkedAtPosition, row.SessionId, row.CreatedAt, row.UpdatedAt,

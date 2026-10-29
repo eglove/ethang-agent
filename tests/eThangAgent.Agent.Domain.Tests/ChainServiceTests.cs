@@ -52,6 +52,10 @@ public class ChainServiceTests
       _chains[saved.Id] = saved;
       return Task.FromResult(Result.Success(saved));
     }
+
+    public Task<Result<Chain?>> FindBySessionAsync(string sessionId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(_chains.Values.FirstOrDefault(chain => chain.Steps
+            .Any(step => string.Equals(step.SessionId, sessionId, StringComparison.Ordinal)))));
   }
 
   private static (ChainService Service, FakeStore Store) New()

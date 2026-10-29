@@ -15,7 +15,7 @@ namespace eThangAgent.PlanDomain;
 ///     <c>(() => sp.GetRequiredService&lt;RootSessionIdentity&gt;().Id?.ToString())</c>), so a
 ///     child's create/add stamps the owning ROOT session, never the child.</summary>
 public sealed class PlanCapabilityProvider(PlanService service, Func<string?> sessionId,
-    IPlanCompletionGate? completionGate = null)
+    IPlanCompletionGate? completionGate = null, IPlanStepOwnershipGate? ownershipGate = null)
     : ICapabilityProvider
 {
   public const string ProviderId = "plan";
@@ -36,11 +36,17 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   ///     are unfinished' from 'your gate is not current'.</summary>
   public const string CompletionGateCode = "CompletionGateNotFresh";
 
+  /// <summary>The typed code a completion refused because the session was not assigned the
+  ///     step carries (issue #301 D3). Distinct from InvalidTransition so a caller can tell
+  ///     'your steps are unfinished' from 'this is not your step'.</summary>
+  public const string StepNotAssignedCode = "ChainStepNotAssigned";
+
   private static readonly HashSet<string> StepAllowed = new(StringComparer.Ordinal) { Title, Detail };
 
   private readonly PlanService _service = service ?? throw new ArgumentNullException(nameof(service));
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly IPlanCompletionGate? _completionGate = completionGate;
+  private readonly IPlanStepOwnershipGate? _ownershipGate = ownershipGate;
 
   public string Id => ProviderId;
 
@@ -65,7 +71,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present.")],
             [IdParam, Title]),
         new("update-step", "Change one step's title, detail, or status.",
-            "At least one optional field is required. Output contract: '[plan] updated step <position> in #<id>'. status must be exactly Pending|InProgress|Done|Skipped. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. VersionConflict errors instruct re-get + reconcile + retry. Errors: InvalidActionInput, PlanNotFound, PlanStepNotFound, InvalidTransition (frozen plan), VersionConflict.",
+            "At least one optional field is required. Output contract: '[plan] updated step <position> in #<id>'. status must be exactly Pending|InProgress|Done|Skipped. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. A session executing a CHAIN step may mark only the step it was started for Done; completing any other step fails Error [ChainStepNotAssigned] naming the step it IS assigned. A session outside a chain is unaffected. VersionConflict errors instruct re-get + reconcile + retry. Errors: InvalidActionInput, PlanNotFound, PlanStepNotFound, ChainStepNotAssigned, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position."),
               new ActionParameter(Title, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
@@ -192,6 +198,16 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       return Gutter(plan.Error);
     }
 
+    // Issue #301 D3: a session executing a chain step may complete only THAT step. A session
+    // started by hand is not in a chain and passes straight through, so the ordinary way a
+    // plan has always been worked is untouched. Checked BEFORE the write, so a refusal leaves
+    // the plan byte-identical and the version unspent.
+    if (stepStatus == PlanStepStatus.Done
+        && await OwnershipRefusalAsync(id, position).ConfigureAwait(false) is { } refusal)
+    {
+      return refusal;
+    }
+
     int expected = plan.Value.Version;
     Result<Plan> updated = await _service.UpdateStepAsync(id, position, step => step with
     {
@@ -259,6 +275,23 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
         ? CapabilityInvocationResult.Ok(
             string.Create(CultureInfo.InvariantCulture, $"[plan] #{id} is now {saved.Value.Status}"))
         : await ResolveMutationErrorAsync(id, position: null, plan.Value.Version, saved.Error).ConfigureAwait(false);
+  }
+
+  /// <summary>Asks the ownership gate; null means 'proceed'. A provider with no gate wired
+  ///     (a headless host, or a test that composes the provider directly) behaves exactly as
+  ///     before - which is also the correct behaviour for a session outside any chain.</summary>
+  private async Task<CapabilityInvocationResult?> OwnershipRefusalAsync(int planId, int position)
+  {
+    if (_ownershipGate is null || _sessionId() is not { } session)
+    {
+      return null;
+    }
+
+    PlanStepOwnership ownership = await _ownershipGate
+        .EvaluateAsync(planId, position, session).ConfigureAwait(false);
+    return ownership.Allowed
+        ? null
+        : CapabilityInvocationResult.Fail($"Error [{ownership.Code}]: {ownership.Message}");
   }
 
   /// <summary>Asks the completion gate; null means 'proceed'. A plan provider with no

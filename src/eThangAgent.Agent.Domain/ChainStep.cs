@@ -65,6 +65,33 @@ public sealed record ChainStep(
     };
   }
 
+  /// <summary>Moves a LIVE claim to a different session, keeping the attempt count and the
+  ///     claim clock (issue #301). The actor follows the claim: the session now holding it is
+  ///     the one that will complete the step, so recording the old claimant would name a
+  ///     session that no longer owns the work.</summary>
+  public ChainStep Reassign(string sessionId)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+    return this with { SessionId = sessionId.Trim(), Actor = ChainActor.Session(sessionId) };
+  }
+
+  /// <summary>Returns this step to Pending without settling it (issue #301): a claim whose
+  ///     launch failed, so no session ever ran. The attempt count is KEPT - the launch was
+  ///     still an attempt - while the claim clock and the claimant are cleared, because there
+  ///     is no live claim any more.</summary>
+  public ChainStep Release(ChainActor actor)
+  {
+    ArgumentNullException.ThrowIfNull(actor);
+    return this with
+    {
+      Status = ChainStepStatus.Pending,
+      SessionId = null,
+      Actor = actor,
+      ClaimedAt = null,
+      CompletedAt = null,
+    };
+  }
+
   /// <summary>Records this step's outcome. <paramref name="status"/> must be one of the
   ///     SETTLED step statuses (Done, Failed, Skipped, Parked); a chain step does not move
   ///     back to Pending or Running through an outcome, it is claimed instead.</summary>

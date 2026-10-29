@@ -496,7 +496,11 @@ public static class AgentComposition
         .AddSingleton<IChainStore>(sp => new SqliteChainStore(
             sp.GetRequiredService<AppDatabase>(),
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
-        .AddSingleton<ChainService>();
+        .AddSingleton<ChainService>()
+        // The ownership gate (issue #301 D3): what makes a completion the RIGHT one. The Plan
+        // Domain reaches it through its own port, so it never references this assembly.
+        .AddSingleton<IPlanStepOwnershipGate>(sp => new ChainStepOwnershipGate(
+            sp.GetRequiredService<IChainStore>(), TimeProvider.System));
   }
 
   /// <summary>The chain orphan check (issue #317 D7): a chain whose workspace directory is gone
@@ -772,7 +776,11 @@ public static class AgentComposition
             // The completion gate (issue #283): 'Completed' is a completion claim, so it
             // requires a gate that passed since the newest workspace change. Abandoned is
             // never gated - it is the named exit every refusal points at.
-            sp.GetRequiredService<IPlanCompletionGate>()))
+            sp.GetRequiredService<IPlanCompletionGate>(),
+            // The ownership gate (issue #301 D3): a session executing a chain step may
+            // complete only that step. A session outside a chain passes straight through,
+            // so the ordinary way a plan is worked is untouched.
+            sp.GetRequiredService<IPlanStepOwnershipGate>()))
         .AddSingleton<MemoryCapabilityProvider>();
   }
 

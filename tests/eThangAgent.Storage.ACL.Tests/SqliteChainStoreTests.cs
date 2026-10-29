@@ -44,6 +44,49 @@ public sealed class SqliteChainStoreTests : IDisposable
   }
 
   [Fact]
+  public async Task FindBySessionAsync_AnswersTheChainClaimingAStepForTheSession()
+  {
+    SqliteChainStore store = NewStore();
+    Chain created = Must(await store.CreateAsync(Draft(1, 2), TestContext.Current.CancellationToken));
+    _ = Must(await store.SaveAsync(created.ClaimStep(2, "session-a", T0), created.Version,
+        TestContext.Current.CancellationToken));
+
+    Result<Chain?> found = await store.FindBySessionAsync("session-a",
+        TestContext.Current.CancellationToken);
+
+    Assert.True(found.IsSuccess, found.Error?.Message ?? "lookup must succeed");
+    Assert.Equal(created.Id, found.Value?.Id);
+  }
+
+  [Fact]
+  public async Task FindBySessionAsync_ForASessionHoldingNoStep_IsNull()
+  {
+    SqliteChainStore store = NewStore();
+    _ = Must(await store.CreateAsync(Draft(1), TestContext.Current.CancellationToken));
+
+    Result<Chain?> found = await store.FindBySessionAsync("session-stranger",
+        TestContext.Current.CancellationToken);
+
+    Assert.True(found.IsSuccess, found.Error?.Message ?? "lookup must succeed");
+    Assert.Null(found.Value);
+  }
+
+  [Fact]
+  public async Task FindBySessionAsync_DoesNotSeeAnotherWorkspacesChain()
+  {
+    SqliteChainStore alpha = NewStore();
+    Chain created = Must(await alpha.CreateAsync(Draft(1), TestContext.Current.CancellationToken));
+    _ = Must(await alpha.SaveAsync(created.ClaimStep(1, "session-a", T0), created.Version,
+        TestContext.Current.CancellationToken));
+
+    Result<Chain?> found = await NewStore(OtherWs).FindBySessionAsync("session-a",
+        TestContext.Current.CancellationToken);
+
+    Assert.True(found.IsSuccess, found.Error?.Message ?? "lookup must succeed");
+    Assert.Null(found.Value);
+  }
+
+  [Fact]
   public async Task CreateAsync_AssignsIdAndVersionOne_AndRoundTripsEveryStepFact()
   {
     SqliteChainStore store = NewStore();
