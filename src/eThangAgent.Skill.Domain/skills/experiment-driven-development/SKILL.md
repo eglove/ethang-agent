@@ -1,515 +1,276 @@
 ---
 name: experiment-driven-development
-description: Execute plan tasks through fresh subagents with two-stage review between tasks. Use when a plan has independent tasks that benefit from isolated execution and review.
+description: Turn a plan into a chain of sessions and read what the chain proves. Use when a plan exists whose steps should each run in their own session with an external verdict.
 ---
 
 # Experiment-Driven Development
 
-This carries the experiment and external-verdict legs of the scientific loop: each task
-is an experiment run by a fresh implementer, and each review is an external verdict the
-implementer cannot self-grade.
+This carries the experiment and external-verdict legs of the scientific loop: each plan step is
+an experiment run by a fresh session, and a review step is an external verdict the implementer
+cannot self-grade.
 
-Execute a plan by dispatching a fresh implementer subagent per task, a task review (spec compliance + code quality) after each, and a broad whole-branch review at the end. The plan, ledger, briefs, and reports live in workspace state — the database is the record.
+Execute a plan as a CHAIN: the plan goes in the database, `chain.start` converts it, and the
+harness runs one session per step. The plan, the ledger, the briefs, and the outcomes live in the
+database — the record is the work.
 
-**Why subagents:** You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
+**Why sessions instead of one long conversation:** each step gets an isolated context. A session
+seeded for step 4 never inherits step 2's history, so it cannot be anchored by a wrong turn taken
+twenty messages ago, and it cannot exhaust its window re-reading work that is already recorded.
 
-**Core principle:** Fresh subagent per task + task review (spec + quality) + broad final review = high quality, fast iteration.
+**Core principle:** fresh session per step + external verdict + the record in the database = high
+quality, fast iteration.
 
-**Models:** Every child inherits the configured default model. There is no model selection — never choose, request, or mention models when dispatching.
+**Models:** every session inherits the configured default model. There is no model selection —
+never choose, request, or mention models. A review step may name its reviewer's model on the chain
+record, and the separation rule enforces that it differs from the implementer's.
 
-**Narration:** between tool calls, narrate at most one short line — the ledger and the tool results carry the record.
+**Narration:** between tool calls, narrate at most one short line — the ledger and the tool
+results carry the record.
 
-**Continuous execution:** Do not pause to check in with your human partner between tasks. Execute all tasks from the plan without stopping. The only reasons to stop are the four named below, or all tasks complete. "Should I continue?" prompts and progress summaries waste their time — they asked you to execute the plan, so execute it.
+**Rulings, not stalls.** A running chain does not wait on a human. Conflicts, ambiguities, plan
+defects, a cap you would have asked to exceed — decide them. The spec is the binding authority,
+the plan is its argument, and your judgment settles what neither answers. Record every decision in
+the ledger as `Ruling: <what you decided> — <why> — <what it costs if wrong>`, and keep going. A
+wrong ruling costs rework your human partner can see and undo; a session parked on a question costs
+their whole day and buys nothing.
 
-**Rulings, not stalls.** A running plan does not wait on a human. Conflicts, ambiguities, plan defects, a cap you would have asked to exceed — decide them. The spec is the binding authority, the plan is its argument, and your judgment settles what neither answers. Record every decision in the ledger as `Ruling: <what you decided> — <why> — <what it costs if wrong>`, and keep going. A wrong ruling costs rework your human partner can see and undo; a session parked on a question costs their whole day and buys nothing.
+Four things stop you, and only these: an irreversible or destructive operation; a security-sensitive
+action; a side effect outside this workspace that norms say you ask about first (a merge, a push to
+a shared branch, a publish); and a plan so broken that every path forward is a guess. For those,
+stop and ask.
 
-Four things stop you, and only these: an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree that norms say you ask about first (a merge, a push to a shared branch, a publish); and a plan so broken that every path forward is a guess. For those, stop and ask.
-
-## When to Use
+## When to use this
 
 ```dot
 digraph when_to_use {
-    "Have implementation plan?" [shape=diamond];
-    "Tasks mostly independent?" [shape=diamond];
-    "Stay in this session?" [shape=diamond];
-    "experiment-driven-development" [shape=box];
-    "executing-plans" [shape=box];
-    "Manual execution or grill first" [shape=box];
+    "Have a plan record?" [shape=diamond];
+    "Do steps need their own session?" [shape=diamond];
+    "Start a chain" [shape=box];
+    "executing-plans in this session" [shape=box];
+    "grill first" [shape=box];
 
-    "Have implementation plan?" -> "Tasks mostly independent?" [label="yes"];
-    "Have implementation plan?" -> "Manual execution or grill first" [label="no"];
-    "Tasks mostly independent?" -> "Stay in this session?" [label="yes"];
-    "Tasks mostly independent?" -> "Manual execution or grill first" [label="no - tightly coupled"];
-    "Stay in this session?" -> "experiment-driven-development" [label="yes"];
-    "Stay in this session?" -> "executing-plans" [label="no"];
+    "Have a plan record?" -> "Do steps need their own session?" [label="yes"];
+    "Have a plan record?" -> "grill first" [label="no"];
+    "Do steps need their own session?" -> "Start a chain" [label="yes - independent"];
+    "Do steps need their own session?" -> "executing-plans in this session" [label="no - tightly coupled"];
 }
 ```
 
-**vs. Executing Plans (separate session):**
-- Same session (no context switch)
-- Fresh subagent per task (no context pollution)
-- Review after each task (spec compliance + code quality), broad review at the end
-- Faster iteration (no human-in-loop between tasks)
+**A chain, when the steps are separable.** Each step produces a deliverable a reviewer could judge
+on its own, and later steps read earlier ones from the record rather than from memory.
+
+**`executing-plans` in this session, when they are not.** If the steps share a tight edit loop — a
+refactor whose second half invalidates the first's tests — a chain of sessions spends more on
+re-reading context than the coupling saves.
 
 ## Setup
 
-Ensure work happens in an isolated workspace: use using-git-worktrees to create
-one or verify the existing one. Never start implementation on a main/master
-branch without your human partner's explicit consent.
+Work in an isolated workspace: use `using-git-worktrees` to create one or verify the existing one.
+Never start implementation on a main/master branch without your human partner's explicit consent.
 
-When dispatching implementer/reviewer children, request isolation explicitly:
-pass "isolateInWorktree": true on every agent.spawn (and per child in agent.fanout).
-The harness provisions a fresh worktree inside the parent's effective root and
-anchors the child there, so the child's edits, tests, and git commits land on the
-worktree's branch - never the controller's checkout. A failed child's worktree is
-evidence: remove it manually with the worktree tool after review.
+### The ledger is chain scope
 
-Conversation memory does not survive compaction. In real sessions, controllers
-that lost their place have re-dispatched entire completed task sequences — the
-single most expensive failure observed. Track progress in the ledger, not only
-in plan steps.
+Every step of a chain reads and writes the SAME key: `sci.<slug>/ledger`, where the slug is derived
+from the chain's title by the harness. A refutation recorded by step 3 is step 7's to read.
 
-- Each plan owns a state namespace: `sdd.<plan-slug>` where `<plan-slug>` is
-  derived from the plan record's title (plan record titled
-  `2026-08-24-native-skills-db-planning` → namespace `sdd.native-skills-db-planning`). Home to the ledger
-  (`sdd.<slug>/ledger`), per-task briefs (`sdd.<slug>/task-N-brief`), and
-  reports (`sdd.<slug>/task-N-report`). Another plan's keys are never yours to
-  read or write.
-- Check for this plan's ledger with `state.get sdd.<slug>/ledger`. If its first
-  line names your plan key, tasks with a `Task <N>: complete` line are DONE —
-  do not re-dispatch them; resume at the first task without one. A task whose
-  last line is a fix round is mid-loop: resume the loop at the next round. A
-  ledger naming a different plan belongs to another run: leave it alone.
-- Create the ledger with its identity as the first line:
-  `# SDD ledger — plan: <plan key>`.
-- The ledger is your recovery map: the commits it names exist in git even when
-  your context no longer remembers creating them. After compaction, trust the
-  ledger and `git log` over your own recollection. Append ledger lines with `state.append` (key `sdd.<slug>/ledger`, text one
-  line). It is CAS by design: pass `expectedVersion=<n>` when resuming after a
-  conflict report; on VersionConflict re-get, reconcile, retry — never
-  blind-overwrite. For bulk scratch cleanup at Finish use
-  `state.prune` on the plan's task namespace (dotted boundary
-  respected), keeping the ledger itself.
+**The privacy rule, restated for chains:** another chain's keys are never yours to read or write.
+A chain's conclusions are scoped to that chain's work. What is workspace-visible is REFUTATIONS —
+"approach X does not work because Y" is a fact about the world, and rediscovering it costs the next
+chain real budget. Search for them with `state.find` before you start; do not read another chain's
+conclusions, which describe work you are not doing.
 
-Read the plan once (`plan.show <plan-id>`), note its context and Global
-Constraints, and mark the task's plan step InProgress. The plan's Spec may be the plan
-record's goal body — read it from there. The spec is the authority the plan
-argues from, and conflicts inside the plan resolve against it. A plan with no
-reachable spec gets a ledger note saying so — rulings made without one are
-provisional.
+An empty ledger is normal — the first step of a chain starts with one. Check with
+`state.get key="sci.<slug>/ledger"`. A ledger whose identity line names a different chain belongs to
+another run: leave it alone.
 
-Before dispatching Task 1, scan the plan once for conflicts, writing down what
-you checked as you check it:
+Record with the `experiment` tool. Its actions are `record-hypothesis`, `record-prediction`,
+`record-verdict`, `record-observation`, `record-conclusion`, `record-skip`, `list`, and `summary`.
+Parameters are `slug`, `id`, `text`, `falsifiedBy`, `verdict`, and `evidence` — the tool rejects
+unknown keys strictly.
+
+The ledger is the recovery map: the commits it names exist in git even when a session's context no
+longer remembers creating them. Append one line at a time with `state.append` (CAS by design: pass
+`expectedVersion` when resuming after a conflict report; on VersionConflict re-get, reconcile,
+retry — never blind-overwrite).
+
+## Writing the plan for a chain
+
+Read the spec first. The plan's `goal` carries it, and the spec is the authority the plan argues
+from; conflicts inside the plan resolve against it. A plan with no reachable spec gets a ledger note
+saying so — rulings made without one are provisional.
+
+Before starting the chain, scan the plan once for conflicts, writing down what you checked as you
+check it:
 
 - tasks that contradict each other or the plan's Global Constraints
 - anything the plan explicitly mandates that the review rubric treats as a defect
 
-The scan's output is a table in the ledger, not a verdict: one row for every
-pair of tasks sharing a file or interface, one row per task for self-consistency
-(tests vs code, files created vs files touched). Rule on each conflict — spec as
-binding authority — record the ruling beside its row, then dispatch Task 1. If
-the scan is clean, say so in the ledger and proceed. The review loop remains the
+The scan's output is a table in the ledger, not a verdict: one row for every pair of tasks sharing a
+file or interface, one row per task for self-consistency (tests vs code, files created vs files
+touched). Rule on each conflict — spec as binding authority — record the ruling beside its row, then
+start the chain. If the scan is clean, say so in the ledger and proceed. The review steps remain the
 net for conflicts that emerge only from implementation.
 
-## The Task Loop
+**You do not write task briefs.** The harness renders each step's brief from the plan record when it
+starts that step's session: the step, the plan's goal, the ledger key, the gate, the predecessors,
+and the completion contract. That is why the plan's step detail must carry everything the step needs
+— exact values, signatures, file paths, test cases. A detail that says "see the earlier discussion"
+reaches a session that has no such discussion.
 
-**Batch small same-shape work.** When the plan lists several tasks that are each
-a small, independent edit of the same kind, compose ONE dispatch covering the
-batch and review its diff as one unit. Reserve one-dispatch-per-task for work
-needing its own judgment, tests, or review surface.
+### Choosing which steps execute, and their roles
 
-Everything a child returns stays resident in your context for the rest of the
-session. Hand artifacts over through state keys; children read what they need
-with `state.get`.
+`chain.start` takes the plan id and an optional `steps` array. Only steps you name become chain
+steps, so design and informational steps are simply left out; omitting `steps` executes every plan
+step as an implementer step.
 
-**Waiting on dispatched children:** spawn returns immediately with an id — it
-does not block. While children run, keep doing local work (ledger updates,
-composing the next brief). When genuinely idle, wait in bounded stretches and
-between stretches post one status line and reconcile live children with
-`status`; chase any that finished without reporting. `Error [ConcurrencyCapReached]`
-from spawn means retrieve pending results before spawning more.
+```text
+chain.start id=<planId>
+chain.start id=<planId> steps=[{"position":1,"role":"implement"},{"position":2,"role":"review","model":"<reviewer model>"}]
+```
 
-### 1. Dispatch the implementer
+The role vocabulary is exactly `implement | review`. A step that names none is an implementer step.
+A review step SHOULD name its reviewer's model, and it must differ from the implementer's: the
+harness refuses a review session that would run on the same model as the work it judges, and it
+refuses a review step that names no model at all.
 
-Record BASE (`git rev-parse HEAD`) before dispatching — fix-round diffs need it.
+Creation validates before anything starts and refuses with a named code rather than producing a
+chain that cannot run: `ChainNoExecutableSteps` (an empty chain that immediately reports `Completed`
+is a lie about work that did not happen), `ChainStepMissing` (naming the missing positions and what
+the plan does have), `ChainStepRoleConflict` (one position, two roles), `ChainPlanUnreadable`,
+`ChainStepCannotCreateChain` (a session executing a chain step may not start one).
 
-- **Brief:** write the task's full text to `sdd.<slug>/task-N-brief` via
-  `state.set` BEFORE dispatching. It is the single source of requirements, with
-  exact values verbatim. Your spawn prompt contains: (1) one line on where this
-  task fits; (2) the brief's KEY PATH, introduced as "retrieve your requirements
-  with `state.get sdd.<slug>/task-N-brief` — exact values are there, use them
-  verbatim"; (3) interfaces and decisions from earlier tasks the brief cannot
-  know; (4) your resolution of any ambiguity you noticed; (5) the report key and
-  the report contract. Never paste the brief content into the dispatch, and
-  never make a child read the whole plan.
-- **Report:** the implementer writes its full report to
-  `sdd.<slug>/task-N-report` via `state.set` and returns ONLY: status (DONE /
-  DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED), commits, a one-line test
-  summary, concerns. The report MUST carry the RED transcript: the exact test
-  command and the verbatim failing output, captured when the new test was
-  watched failing. No RED transcript means the TDD claim is unverified — send
-  the report back.
-- A dispatch describes one task, not the session's history. Do not paste
-  accumulated prior-task summaries into later dispatches. A fresh child needs
-  its task, the interfaces it touches, and the global constraints. Nothing else.
-- The dispatch carries the no-subagents contract (it is in the implementer
-  template): the implementer never spawns subagents — not helpers, and never a
-  reviewer. Review arrives from you, after the report.
-- If an earlier task parked a finding in this task's area, carry a pointer to
-  that ledger entry in the dispatch.
-- Record the child's agent id from the spawn result — fix rounds 1–3 resume it.
-- Never dispatch multiple implementation children in parallel (conflicts).
+**A plan does not become a chain on its own.** It can stay a design artifact indefinitely. This
+action is the explicit statement "execute this".
 
-Template: Implementer Dispatch Template below.
+**The creating session is not the chain's owner.** Step 1 is claimed and started before the action
+returns, so the session that planned may close immediately — which is what makes "plan, then stop" a
+legitimate way to work.
 
-### 2. Handle the report
+## The RED transcript is the TDD evidence
 
-Read the report from state (`state.get sdd.<slug>/task-N-report`) plus the short
-contract the child returned. Statuses:
+Watched-RED is unverifiable downstream: a session that says it wrote the test first is making a
+claim, and a claim is not evidence. Every implementer step's report must carry the RED transcript —
+the exact test command it ran and the verbatim failing output, captured when it watched the test
+fail, before it implemented anything.
 
-**DONE:** go to review.
+**A missing or summarized-only RED transcript goes back to the session.** Review does not start on
+an unaudited TDD claim. **Audit the RED transcript**: does the exact test command match the code,
+and does the verbatim output fail for the stated reason?
 
-**DONE_WITH_CONCERNS:** read the concerns. Correctness/scope concerns are
-addressed before review; observations are noted and review proceeds.
+If no test changed in a round, the report says why RED does not apply. Silence is not an exemption.
+The `test-driven-development` skill carries the checklist the implementer follows to capture it.
 
-**NEEDS_CONTEXT:** provide the missing context and re-dispatch.
+## What a step's session owes the record
 
-**BLOCKED:** assess. Context problem → more context, same child. Needs deeper
-reasoning → fresh child (rounds 4–5 route). Too large → split the task. Plan
-wrong → rule, ledger the ruling, re-dispatch carrying the ruling. Never ignore
-an escalation or force a retry without changes.
+A chain step's brief is rendered by the harness, so there is no dispatch template here to fill in.
+What the step's session owes is the RECORD, and a review step audits it:
 
-If the implementer asks questions — before starting or mid-task — answer clearly
-and completely, and don't rush it into implementation.
+```text
+STATUS:  DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
+COMMITS: <list>
+TESTS:   <one line>
+RED:     <exact command + verbatim failing output, or "n/a — no test changed">
+VERDICT: <prediction id, confirmed|refuted|inconclusive, or "skip <id> — <reason>">
+CONCERNS:<none, or one line each>
+```
 
-### 3. Review the task
+The full report — what it did, files touched, test commands with output summaries, self-review notes
+— goes to the step's `outcome` on the chain record, or to a `state.set` key the brief names. The
+short contract above is what the reviewer reads first.
 
-Per-task reviews are task-scoped gates; the broad review happens once, at the
-end. Never skip it, and never accept a report missing any of the three verdicts —
-spec compliance, task quality, AND the ledger audit are all required. Implementer
-self-review never replaces the task review.
+**A review step audits three things, with separate verdicts:**
 
-- **The reviewer runs the diff itself.** Give the reviewer child the BASE and
-  HEAD commit ids; it produces the commit list, stat, and full diff in its own
-  session via exec (`git log --oneline BASE..HEAD`, `git diff --stat BASE HEAD`,
-  `git diff -U10 BASE HEAD`). The diff never enters YOUR context. Use the BASE
-  recorded before dispatching — never `HEAD~1`, which silently truncates
-  multi-commit tasks.
-- **Reviewer inputs:** the brief key, the report key (both retrieved via
-  `state.get`), BASE and HEAD ids, and the global constraints verbatim from the
-  plan. The constraints block is the reviewer's attention lens — exact values,
-  formats, stated relationships ("same layout as X", "matches Y"). Its template
-  already carries process rules; yours carries THIS project's demands.
-- Do not add open-ended directives ("check all uses") without a concrete
-  task-specific reason.
-- Do not ask a reviewer to re-run tests the implementer already ran on the same
-  code — the report carries the test evidence. Audit the RED transcript first:
-  the exact test command and the verbatim failing output must be present in
-  the report. A missing or summarized-only RED transcript goes back
-  to the implementer — review does not start on an unaudited TDD claim.
-- Do not pre-judge findings. Never instruct a reviewer to ignore or not flag an
-  issue. If you believe a finding is false, let the reviewer raise it and
-  adjudicate in the loop. If your prompt contains "do not flag," "don't treat X
-  as a defect," "at most Minor," or "the plan chose" — stop: you are
-  pre-judging.
+1. **SPEC COMPLIANCE** — every requirement in the step's detail is present; nothing extra.
+2. **TASK QUALITY** — correctness, test honesty (do the tests assert the behaviour?), and fit with
+   surrounding code.
+3. **LEDGER AUDIT** — the prediction and verdict are in the chain's ledger (`experiment` with
+   `list`). The prediction names a real falsifying command, the verdict's evidence shows that
+   command's actual output, and the verdict word matches what the output shows. Read the listing
+   header's open-prediction count and confirm it is zero before approving. A report claiming
+   success with no verdict in the ledger is NEEDS_CONTEXT, not a pass — and so is a claimed skip
+   with no skip row.
+## Running the chain
 
-The reviewer may report "⚠️ Cannot verify from diff" items. These do not block
-its other verdicts, but YOU must resolve each before marking the task complete —
-you hold the plan and cross-task context. A confirmed gap is a failed spec
-review: it enters the fix loop.
+After `chain.start` returns, the harness owns the cursor. Your job is to read the record, not to
+drive it.
 
-Template: Task Reviewer Template below.
+**What advances the chain:** a session marking its assigned step `Done`. The harness sees that
+fact, closes the session, and starts the next step's session. No model decides whether to
+continue, and no model writes a handoff prompt.
 
-### 4. The fix loop
+**Watch the record, not a conversation.** `plan.show id=<planId>` renders every step and its
+status; the chain record says which step is claimed, by which session, and how many attempts it has
+spent. Do not poll a running session's transcript to infer progress — the record is the fact.
 
-Triggers on spec ❌, any Critical or Important finding, or a ⚠️ item you
-confirmed as real.
+**A review step judges before the chain moves.** Its session records a verdict with `plan.review`
+— approve, deny, or approve-with-conditions, with three rubric scores and findings that each cite a
+requirement id or a step position. The cursor reads that verdict: an approve advances, a deny
+reopens the judged step for a fix session seeded with the findings, and approve-with-conditions
+carries its conditions into the next step's brief. A reviewer that fixes what it reviews has
+replaced the independent verdict with its own.
 
-Two things leave the loop immediately:
+**A denial is capped.** Each step carries its own review round-trip counter, separate from its retry
+counter, capped at three. Past the cap the chain PARKS rather than looping — a third denial of the
+same work means the plan is wrong, not that a fourth session will succeed.
 
-- Record Minor findings in the ledger as you go
-  (`Task <N>: minor (deferred): <one-liner>`); the final whole-branch review
-  triages that list. Minor findings never enter the loop.
-- A finding labeled plan-mandated — or conflicting with plan text — is yours to
-  rule on: weigh it against plan text, decide with the spec as binding authority,
-  ledger the ruling before acting. Do not dismiss because the plan mandates it;
-  do not dispatch a contradicting fix without a recorded ruling.
+## When the chain stops
 
-Everything else enters the loop. A fix round is one fix dispatch plus one scoped
-re-review. Five rounds maximum:
+A chain stops in four ways, and only one of them is success.
 
-**Rounds 1–3 — resume the original implementer.** Send it the open findings
-verbatim (same agent id; use the harness's resume path). Its context is intact.
-If your harness cannot resume a live child, dispatch a FRESH implementer
-carrying the brief key, report key, and findings — the report key is the
-persistent memory either way. Fresh eyes, same default model.
+| State | What it means | What you do |
+| --- | --- | --- |
+| `Completed` | Every step is `Done` or `Skipped`. | Read the ledger's conclusions, then use `finishing-a-development-branch`. |
+| `Parked` | A human is needed. The record names the reason and the step. | Read the reason, fix what it names, then resume the parked step's session from the Sessions menu. |
+| `Abandoned` | Someone dropped it deliberately. | Nothing — the record says what happened. |
+| `Running` with no live session | The claim has not yet lapsed. | Wait, or resume the session if you know it died. A claim EXPIRES on a clock rather than being probed, so nothing needs repairing. |
 
-**Rounds 4–5 — dispatch a FRESH implementer.** Same brief key, report key, open
-findings, framing: "A prior implementer attempted this task N times; you own it
-now. Read the report with `state.get` for what was tried." A loop surviving
-three resumes usually means the implementer cannot see its own problem — fresh
-eyes in one move.
+**A parked chain is recoverable; a failed one is broken.** That is why the lifecycle parks rather
+than aborting, and why nothing resumes a chain automatically after a restart: resuming is a human
+decision made by opening the session from the Sessions menu.
 
-**Every round, either way:** the implementer fixes, re-runs the tests covering
-the amended code, APPENDS its fix report to the same report key (CAS append),
-and returns the short contract. Before re-review, confirm the fix report holds
-the covering tests, the command run, and the output. Name the covering test
-files in the fix message — a one-line fix does not need the whole suite.
+**A retry RESUMES the same session**, up to three attempts per step. The retry is re-entered with a
+failure note naming the attempt and what the failed attempt recorded — not with an idleness nudge,
+which would tell the session something untrue about why it restarted.
 
-**The re-review is scoped.** New FIX_BASE = the head the previous review saw.
-The re-reviewer gets the findings list, brief key, report key, and FIX_BASE +
-new HEAD; it diffs the fix range itself. Verdicts each finding ADDRESSED or NOT
-ADDRESSED; flags new breakage in the fix diff only. New Critical/Important
-breakage joins the open list. Out-of-scope observations go to the ledger as
-deferred minors — they never extend the loop.
+**A step whose work is deliberately not being done is `Skipped`.** It is the truthful exit and it
+counts as settled, so the chain can still complete. Without it the cheapest way past a gate would be
+to mark unfinished work `Done`, which is the false record the gate exists to prevent.
 
-**After each round,** append to the ledger:
-`Task <N>: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>..<b7>)`
+## What a plan step's detail must carry
 
-Never fix findings yourself in the controller session — your context stays clean
-for coordination, and controller fixes skip review.
+The brief a step's session receives is RENDERED from the plan record — you do not write it, and you
+cannot add to it after the chain starts. So the plan's step detail is the only place your intent
+survives. Write it for a stranger who has the record and nothing else:
 
-**The breaker.** When round 5's re-review still leaves findings open, stop
-dispatching. Adjudicate each open finding yourself:
+- **Files:** exact paths to create, modify, and test. Not "the relevant module".
+- **Interfaces:** the exact names and signatures this step produces, so a later step can call them.
+- **Tests:** the actual test code, not "write tests for the above".
+- **Exact values:** version floors, dependency limits, naming and copy rules — verbatim.
+- **Traps you already ruled out**, so the step does not spend its budget rediscovering them.
 
-- **Reviewer wrong, or contestable:** park it —
-  `Task <N>: parked — <finding> — Ruling: <why the code stands>`.
-- **Real, nothing downstream builds on it:** park with a ruling saying so.
-- **Real and load-bearing:** rule on the smallest change that unblocks dependent
-  work, ledger it as `Task <N>: Ruling: <finding> — <decision and why>`, carry
-  into the next dispatch. Stop only when the defect leaves every path forward a
-  guess.
+Anything not in the record does not reach the session. A detail that says "see the earlier
+discussion" reaches a session that has no such discussion.
 
-Adjudicate only at the cap. Adjudicating earlier to end a loop is pre-judging
-with a different name. Every adjudication is a ledger entry — silent discards
-are forbidden.
-
-### 5. Complete the task
-
-When review comes back clean — or every open finding is parked-with-ruling at
-the cap — append the completion line:
-
-- `Task <N>: complete (commits <base7>..<head7>, review clean)`
-- `Task <N>: complete (commits <base7>..<head7>, <K> parked)` after a breaker
-
-Then mark the plan step Done and move on. Never advance while open
-Critical/Important findings are neither fixed nor parked-with-ruling at the cap.
-
-## Final Review
-
-The final whole-branch review gets MERGE_BASE (e.g. `git merge-base main HEAD`)
-and HEAD; it runs the branch diff itself via exec. Dispatch using
-requesting-code-review's flow. Point it at the ledger's deferred-minor and
-parked lines so it can triage which must be fixed before merge.
-
-If final review returns findings, dispatch ONE fix child with the complete list
-— not one fixer per finding. Per-finding fixers rebuild context and re-run
-suites; a real session's final-review fix wave cost more than all its tasks.
-Then exactly one scoped re-review of the fix wave. Adjudicate residuals like the
-task-loop breaker: park with rulings, or rule on load-bearing ones. Only the
-four classes stop you here. There is no second fix wave — residual load-bearing
-findings surface to your human partner when finishing-a-development-branch
-presents options.
-
-## Finish
-
-Before deleting anything, collect every ledger line containing `Ruling:` —
-preflight rulings, parked findings, breaker adjudications, all of them — into
-your final message under "Rulings I made", in order, each with what it costs if
-wrong. That list is the only place decisions taken on your human partner's
-behalf reach them. A ruling that dies with the session was made in secret.
-
-When final review is clean and fixes merged, delete this plan's scratch keys
-(`state.delete sdd.<slug>/task-N-brief` and `-report` for each task) — the
-ledger itself stays; git history is the code record. Sibling namespaces belong
-to other plans; leave them alone.
-
-Use finishing-a-development-branch.
-
-## Common Rationalizations
+## Common rationalizations
 
 | Excuse | Reality |
-|--------|---------|
-| "Close enough on spec compliance" | Reviewer found spec gaps = not done. Fix or hit the cap and adjudicate — those are the only exits. |
-| "I'll fix it myself, dispatching is overhead" | Controller fixes pollute your context and skip review. Resume the implementer. |
-| "One more round will converge" | Past the cap, rounds don't converge — the failure is structural. Adjudicate and route. |
-| "The reviewer will just find something new anyway" | Scoped re-reviews verify fixes; they cannot wander. New findings on untouched code go to the ledger, not the loop. |
-| "This finding is obviously wrong, I'll drop it" | You adjudicate only at the cap, and every ruling is a ledger entry. Silent discards are forbidden. |
-| "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
-| "Reviews slow the loop down" | The loop without reviews is just unverified churn. Reviews are the loop's brakes and steering. |
-| "Ledger bookkeeping is overhead" | The ledger is what survives compaction. Controllers without one have re-dispatched entire completed task sequences. |
-| "The implementer spawned its own reviewer — free extra assurance" | It's a duplicate seat reviewing the same diff; the task review is the gate. A worker-spawned reviewer is a defect to flag, not rigor. |
-| "I'll pick a stronger model for the stuck rounds" | Model selection does not exist here. Children inherit the default model; escalation is FRESH EYES, never a model tier. |
+| --- | --- |
+| "I'll dispatch a fresh implementer for this task" | There is no dispatch. `chain.start` converts the plan and the harness starts the sessions. |
+| "The step is done, I'll start the next session" | The completion fact starts it. A session that starts its own successor makes the cursor and the guess disagree. |
+| "I'll write a handoff prompt so the next session knows what happened" | The brief is rendered from the record. A model-written handoff is a summary of a summary, and it drifts. |
+| "Close enough on spec compliance" | A reviewer's spec gap is not done. Fix it, or hit the review cap and let the chain park. |
+| "I'll fix it myself instead of reopening the step" | Fixing outside the chain skips the review that was the point of the step. |
+| "One more round will converge" | Past the cap, rounds do not converge — the failure is structural. The chain parks. |
+| "The reviewer will just find something new anyway" | A scoped re-review verifies fixes; it cannot wander. New findings on untouched code go to the ledger, not the loop. |
+| "This finding is obviously wrong, I'll drop it" | Rule on it and record the ruling. Silent discards are forbidden. |
+| "Ledger bookkeeping is overhead" | The ledger is what survives a session's context. Sessions without one re-derive work the record already holds. |
+| "I'll pick a stronger model for the stuck step" | Model selection does not exist here. Escalation is fresh eyes, never a model tier. |
+| "A parked chain is a failed chain" | Parked means waiting for a human, and it names what it waits on. Failed means broken. |
 
-## Example Workflow
+## Related skills
 
-```text
-You: I'm using Experiment-Driven Development to execute this plan.
-
-[Setup: worktree verified]
-[plan.show <plan-id> once; note Global Constraints]
-[state.get sdd.<slug>/ledger — none; create with identity line]
-[Pre-flight scan table written to ledger]
-[plan.show <plan-id> - steps are the task list]
-
-Task 1: Hook installation script
-
-[state.set sdd.<slug>/task-1-brief = task text]
-[spawn implementer: brief key + report key + context]
-
-Implementer asks: "should the hook be user or system level?"
-You: "User level."
-Implementer: DONE — commits a1b2c3d..d4e5f6a, 5/5 tests pass
-[state.get sdd.<slug>/task-1-report — full report read here, once]
-
-[spawn task reviewer: brief key + report key + BASE e58ee6f + HEAD d4e5f6a]
-Reviewer: Spec ✅. Quality approved. No findings.
-
-[Ledger CAS append: Task 1: complete (commits e58ee6f..d4e5f6a, review clean)]
-
-Task 2: Recovery modes
-... same shape ...
-
-Implementer reports Spec ❌ risk: reviewer finds missing progress reporting + magic number
-[Fix round 1: resume implementer with both findings]
-Implementer: fixed, appended fix report to task-2-report, 10/10 passing
-[Re-review: FIX_BASE d4e5f6a .. new HEAD b7c8d9e]
-Re-reviewer: both ADDRESSED, no new breakage.
-
-[Ledger: Task 2: fix round 1/5 (2 addressed, 0 open; commits d4e5f6a..b7c8d9e)]
-[Ledger: Task 2: complete (commits d4e5f6a..b7c8d9e, review clean)]
-
-[After all tasks]
-[spawn final reviewer: MERGE_BASE + HEAD + deferred-minors list]
-Final reviewer: all requirements met; deferred minors triaged, none block merge.
-
-[Delete task brief/report keys — ledger stays]
-Done! Using finishing-a-development-branch.
-```
-
-## Implementer Dispatch Template
-
-Fill every bracket; delete none. The bracketed values are paths into state, not
-content to paste.
-
-```text
-You are implementing ONE task of a larger plan. You have no access to the plan
-or session history except what is below and what you retrieve yourself.
-
-Where this fits: <one line>
-
-Your requirements: retrieve them FIRST with
-  state.get key="sdd.<slug>/task-N-brief"
-That brief is authoritative — exact values, signatures, and test cases appear
-only there; use them verbatim. Do not ask others for the plan file.
-
-Interfaces from earlier tasks you will build on:
-<exact names/signatures, or "none">
-
-Ambiguity resolutions: <rulings you already made, or "none">
-
-Before you experiment, record what you expect. If this plan's ledger has no
-hypothesis yet, record one first with action `record-hypothesis` and `text` stating
-what you expect to be true; its output line names the id your prediction then
-references. Then call the `experiment` tool with action `record-prediction`, `slug`
-(the plan's slug), `id` (the hypothesis id this task tests), `text` (the claim), and
-`falsifiedBy` — the exact command whose output would prove the claim wrong. Then run
-that command. A prediction you never named is a change you cannot be wrong about,
-which means your report can only ever confirm itself.
-
-After you run it, record the outcome with action `record-verdict`: `id` (the
-prediction id), `verdict` (`confirmed`, `refuted`, or `inconclusive`), and `evidence`
-(the command and what it actually printed). A refuted prediction is a result, not a
-failure — say what it eliminated. If the task genuinely needs no experiment (a pure
-rename, a docs edit), record action `record-skip` with `text` stating the reason and
-`id` naming the prediction it closes where one exists; its output line names the skip
-id your report then carries.
-
-Write your FULL report — what you did, files touched, test commands with
-output summaries, self-review notes — to
-  state.set key="sdd.<slug>/task-N-report" value=<full report>
-The report MUST include the RED transcript for every new test: the exact test
-command you ran and the verbatim failing output, captured when you watched it
-fail — before implementing. If no test changed this round, state why RED does
-not apply. The report also carries your prediction's verdict: the falsifying
-command, its fresh output, and what the output says about the claim.
-Appending later fix rounds goes to the SAME key with CAS.
-
-Return ONLY this contract, nothing else:
-STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
-COMMITS: <list>
-TESTS: <one line>
-RED: <in report: exact command + verbatim failing output, or "n/a — no test changed">
-VERDICT: <in report: prediction id, confirmed|refuted|inconclusive, or "skip <id> — <reason>">
-CONCERNS: <none, or one line each>
-
-Rules:
-- Commit your work with the git_commit tool following the session's active commit-style guidance (bootstrap section); never raw shell commits.
-- Tests run via dotnet CLI. Every change leaves the suite green.
-- NEVER spawn subagents — not helpers, not reviewers. Review arrives from the
-  controller after your report.
-- If blocked, say BLOCKED and why; do not guess past blockers.
-```
-
-## Task Reviewer Template
-
-```text
-You are reviewing ONE completed task of a larger plan. You did not write this
-code; judge it cold.
-
-Retrieve, in order:
-  state.get key="<brief key>"     — the requirements
-  state.get key="<report key>"    — the implementer's claims
-
-Produce the diff YOURSELF in this session via exec:
-  git log --oneline <BASE>..<HEAD>
-  git diff --stat <BASE> <HEAD>
-  git diff -U10 <BASE> <HEAD>
-Do not trust the report's description of the diff; verify against it.
-
-Global constraints binding this task (verbatim from the plan):
-<pasted constraint lines>
-
-Review for ALL THREE, with separate verdicts:
-1. SPEC COMPLIANCE ✅/❌ — every brief requirement present; nothing extra.
-   List anything missing, extra, or diverging from exact values.
-2. TASK QUALITY — approve, or findings rated Critical / Important / Minor.
-   Judge correctness, test honesty (do tests assert the behavior?), and fit
-   with surrounding code.
-3. LEDGER AUDIT — the implementer's prediction and verdict are in the plan's ledger
-   (call `experiment` with action `list` and the plan's slug). Check that the
-   prediction names a real falsifying command, that the verdict's evidence shows that
-   command's actual output, and that the verdict word matches what the output shows.
-   When the report claims a skip instead, the ledger carries a `skip <id>: <reason>`
-   line (or `skip <id> (prediction <p>): <reason>`) and the id the report names is
-   that row. Read the listing header's open prediction count and confirm it is zero
-   before approving. A report claiming success with no verdict in the ledger is
-   NEEDS_CONTEXT, not a pass, and so is a claimed skip with no skip row: the claim is
-   untested, and untested claims are what this review exists to catch.
-
-You may mark items "⚠️ Cannot verify from diff" — the controller resolves those.
-
-Return: all three verdicts, findings as a numbered list with severity + file:line,
-and any ⚠️ items. No praise padding.
-```
-
-## Re-Review Template
-
-```text
-You are verifying FIXES only. Prior review found these findings:
-<numbered findings, verbatim>
-
-Retrieve context:
-  state.get key="<brief key>"
-  state.get key="<report key>"   — includes the fix report appended by the implementer
-
-Diff the fix range YOURSELF via exec:
-  git diff -U10 <FIX_BASE> <HEAD>
-Judge ONLY this range.
-
-For each finding: ADDRESSED (cite file:line) or NOT ADDRESSED (why).
-Flag NEW breakage introduced in the fix diff (Critical/Important/Minor).
-Out-of-scope observations belong to the controller, not this verdict.
-
-Return: per-finding verdicts, any new breakage, nothing else.
-```
+- `writing-plans` — how the plan is written, and what its step details must carry.
+- `executing-a-chain` — the skill a chain step's own session follows.
+- `reviewing-plans` — the rubric and verdict contract a review step applies.
+- `requesting-code-review` — the review a single session requests of its own change.
+- `finishing-a-development-branch` — merging once the chain has completed.

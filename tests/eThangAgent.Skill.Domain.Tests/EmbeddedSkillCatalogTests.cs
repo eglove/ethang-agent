@@ -11,7 +11,8 @@ public class EmbeddedSkillCatalogTests
   [
       "commit-style-conventional", "commit-style-gitmoji",
         "commit-style-none", "dispatching-parallel-agents", "ethang-tools-mapping",
-        "executing-plans", "experiment-driven-development", "finishing-a-development-branch", "grill",
+        "executing-a-chain", "executing-plans", "experiment-driven-development",
+        "finishing-a-development-branch", "grill",
         "receiving-code-review", "requesting-code-review", "reviewing-plans", "scientific-method",
         "systematic-debugging",
         "test-driven-development", "using-git-worktrees", "using-skills",
@@ -19,7 +20,7 @@ public class EmbeddedSkillCatalogTests
     ];
 
   [Fact]
-  public async Task Lists_AllTwentySkills_WithMetadata()
+  public async Task Lists_AllTwentyOneSkills_WithMetadata()
   {
     Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
@@ -69,58 +70,68 @@ public class EmbeddedSkillCatalogTests
   }
 
   [Fact]
-  public async Task FlowTemplates_Carry_ExecutableLedgerContracts_InTheirOwnSections()
+  public async Task TheRecordContract_Carries_ExecutableLedgerRequirements_InItsOwnSections()
   {
-    // The ledger only binds a claim to evidence if the flow's own dispatch templates
-    // make the implementer record a prediction before experimenting and a verdict after,
-    // and make the reviewer audit the ledger instead of trusting the report's prose.
-    // Every assertion is scoped to the template that must carry it: a body-wide IndexOf
-    // cannot tell "inside the implementer's contract block" from "inside the example
-    // workflow", so a moved block would still pass.
+    // The ledger only binds a claim to evidence if the flow's own contract makes the
+    // implementer record a prediction before experimenting and a verdict after, and makes
+    // the review audit the ledger instead of trusting the report's prose.
+    //
+    // THE CONTAINER CHANGED, THE REQUIREMENT DID NOT (issue #308). A chain step's brief is
+    // rendered by the harness, so there is no per-task dispatch template to fill in any more;
+    // what a step's session owes the record is stated in the skill instead. Every assertion
+    // below is still scoped to the SECTION that must carry it, because a body-wide IndexOf
+    // cannot tell "inside the contract block" from "inside the example workflow", so a moved
+    // block would still pass.
     Result<SkillDefinition> r = await _catalog.GetAsync("experiment-driven-development", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     string body = r.Value.Body;
 
-    string implementer = FencedSection(body, "## Implementer Dispatch Template");
-    // The tool's real parameter names, in backticks: it rejects unknown keys strictly, so
-    // a described parameter invites {"reason": ...} and an InvalidParameterValue.
-    Assert.Contains("`slug`", implementer, StringComparison.Ordinal);
-    Assert.Contains("`id`", implementer, StringComparison.Ordinal);
-    Assert.Contains("`text`", implementer, StringComparison.Ordinal);
-    Assert.Contains("`falsifiedBy`", implementer, StringComparison.Ordinal);
-    Assert.Contains("record-prediction", implementer, StringComparison.Ordinal);
-    Assert.Contains("record-verdict", implementer, StringComparison.Ordinal);
-    Assert.Contains("record-skip", implementer, StringComparison.Ordinal);
-    // A prediction hard-requires an existing hypothesis id, so the template must say how
-    // to establish one: without it the mandated call fails on first use, and the natural
-    // recovery is the skip that bypasses the ledger.
-    Assert.Contains("record-hypothesis", implementer, StringComparison.Ordinal);
-    // A skip is a ledger record carrying an id, never a free-text reason: a report-only
-    // skip leaves the ledger empty, and the finish gate reads empty as satisfied.
-    Assert.Contains("skip <id> — <reason>", implementer, StringComparison.Ordinal);
-    Assert.Contains("VERDICT: <in report:", implementer, StringComparison.Ordinal);
-    // Ordering inside the template: prediction before the report, contract line after RED.
-    Assert.True(implementer.IndexOf("record-prediction", StringComparison.Ordinal) <
-        implementer.IndexOf("Write your FULL report", StringComparison.Ordinal),
-        "the prediction requirement must precede the report paragraph");
-    Assert.True(implementer.IndexOf("RED: <in report:", StringComparison.Ordinal) <
-        implementer.IndexOf("VERDICT: <in report:", StringComparison.Ordinal),
+    string contract = FencedSection(body, "## What a step's session owes the record");
+    // The tool's real parameter names, in backticks: it rejects unknown keys strictly, so a
+    // described parameter invites {"reason": ...} and an InvalidParameterValue.
+    string ledger = Section(body, "## The ledger is chain scope");
+    Assert.Contains("`slug`", ledger, StringComparison.Ordinal);
+    Assert.Contains("`id`", ledger, StringComparison.Ordinal);
+    Assert.Contains("`text`", ledger, StringComparison.Ordinal);
+    Assert.Contains("`falsifiedBy`", ledger, StringComparison.Ordinal);
+    Assert.Contains("record-hypothesis", ledger, StringComparison.Ordinal);
+    Assert.Contains("record-prediction", ledger, StringComparison.Ordinal);
+    Assert.Contains("record-verdict", ledger, StringComparison.Ordinal);
+    Assert.Contains("record-skip", ledger, StringComparison.Ordinal);
+    // A skip is a ledger record carrying an id, never a free-text reason: a report-only skip
+    // leaves the ledger empty, and the finish gate reads empty as satisfied.
+    Assert.Contains("skip <id> — <reason>", contract, StringComparison.Ordinal);
+    Assert.Contains("VERDICT:", contract, StringComparison.Ordinal);
+    Assert.Contains("RED:", contract, StringComparison.Ordinal);
+    // Ordering inside the contract: the RED line before the VERDICT line, so a reader checking
+    // the TDD claim reads the evidence before the conclusion.
+    Assert.True(contract.IndexOf("RED:", StringComparison.Ordinal) <
+        contract.IndexOf("VERDICT:", StringComparison.Ordinal),
         "the VERDICT line must follow the RED line in the returned contract");
 
-    string reviewer = FencedSection(body, "## Task Reviewer Template");
-    Assert.Contains("LEDGER AUDIT", reviewer, StringComparison.Ordinal);
-    Assert.Contains("NEEDS_CONTEXT, not a", reviewer, StringComparison.Ordinal);
-    // The audit names the skip row and the count the finish gate keys off, so a claimed
-    // skip and an open prediction are both caught rather than trusted.
-    Assert.Contains("skip <id>", reviewer, StringComparison.Ordinal);
-    Assert.Contains("open prediction", reviewer, StringComparison.Ordinal);
-    // Three numbered items mean three verdicts: framing and return line must agree, or a
-    // reviewer can read item 3 as advisory and still believe it answered.
-    Assert.Contains("Review for ALL THREE", reviewer, StringComparison.Ordinal);
-    Assert.Contains("Return: all three verdicts", reviewer, StringComparison.Ordinal);
-    Assert.True(reviewer.IndexOf("LEDGER AUDIT", StringComparison.Ordinal) >
-        reviewer.IndexOf("2. TASK QUALITY", StringComparison.Ordinal),
+    // Three numbered items mean three verdicts, and the ledger audit names the count the finish
+    // gate keys off, so a claimed skip and an open prediction are both caught rather than
+    // trusted.
+    string audit = Section(body, "## What a step's session owes the record");
+    Assert.Contains("LEDGER AUDIT", audit, StringComparison.Ordinal);
+    Assert.Contains("NEEDS_CONTEXT, not a pass", audit, StringComparison.Ordinal);
+    Assert.Contains("open-prediction count", audit, StringComparison.Ordinal);
+    Assert.Contains("1. **SPEC COMPLIANCE**", audit, StringComparison.Ordinal);
+    Assert.Contains("2. **TASK QUALITY**", audit, StringComparison.Ordinal);
+    Assert.Contains("3. **LEDGER AUDIT**", audit, StringComparison.Ordinal);
+    Assert.True(audit.IndexOf("3. **LEDGER AUDIT**", StringComparison.Ordinal) >
+        audit.IndexOf("2. **TASK QUALITY**", StringComparison.Ordinal),
         "the ledger audit must follow the task-quality item");
+  }
+
+  /// <summary>The text of one <c>##</c> section, from its heading to the next one, so an
+  ///     assertion cannot be satisfied by prose in another section.</summary>
+  private static string Section(string body, string heading)
+  {
+    int start = body.IndexOf(heading, StringComparison.Ordinal);
+    Assert.True(start >= 0, $"missing section '{heading}'");
+    int next = body.IndexOf("\n## ", start + heading.Length, StringComparison.Ordinal);
+    return next < 0 ? body[start..] : body[start..next];
   }
 
   /// <summary>The fenced <c>text</c> block under a heading, fences excluded, so an
@@ -141,8 +152,8 @@ public class EmbeddedSkillCatalogTests
   [
       ("grill", "This is the observation leg of the scientific loop", "Interview the user relentlessly"),
       ("writing-plans", "This is the prediction leg of the scientific loop", "Write comprehensive implementation plans"),
-      ("experiment-driven-development", "This carries the experiment and external-verdict legs", "Execute a plan by dispatching"),
-      ("requesting-code-review", "This is the external-verdict leg", "Dispatch a code reviewer subagent"),
+      ("experiment-driven-development", "This carries the experiment and external-verdict legs", "Execute a plan as a CHAIN"),
+      ("requesting-code-review", "This is the external-verdict leg", "A review is an INDEPENDENT SESSION"),
       ("receiving-code-review", "This is the analysis leg", "Code review requires technical evaluation"),
       ("reviewing-plans", "This is the external-verdict leg", "a verdict nobody can act on is not a verdict"),
   ];

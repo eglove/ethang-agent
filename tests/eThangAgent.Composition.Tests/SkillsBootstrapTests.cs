@@ -44,10 +44,13 @@ public class SkillsBootstrapTests
   {
     string output = Build();
 
+    // Every mapping key names an action the harness HAS (issue #308). "spawn" used to be
+    // in this list, and its removal is the point of the rewrite — a key that no longer
+    // resolves would pin the staleness the mechanical guard exists to catch.
     foreach (string? key in new[]
              {
                      "read", "write", "edit", "exec",
-                     "spawn", "plan", "skill_view", "skill_list",
+                     "chain.start", "plan", "skill_view", "skill_list",
                  })
     {
       Assert.Contains(key, output, StringComparison.Ordinal);

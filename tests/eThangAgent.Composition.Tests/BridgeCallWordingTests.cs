@@ -3,11 +3,14 @@ using eThangAgent.SkillDomain;
 
 namespace eThangAgent.Composition.Tests;
 
-/// <summary>The bootstrap and the skills listing must name skill_view and spawn as
-///     exec-bridge calls: the loop's chat tool registry carries only exec (plus the
-///     computer tool when enabled), so a model that calls skill_view or spawn directly
-///     gets Error [UnknownTool] and burns a turn recovering through Tools.Invoke
-///     (observed in the field, 2026-09-26).</summary>
+/// <summary>The bootstrap and the skills listing must name their actions as exec-bridge
+///     calls: the loop's tool registry carries only exec, so a model that calls skill_view
+///     directly gets Error [UnknownTool] and burns a turn recovering through Tools.Invoke
+///     (observed in the field, 2026-09-26).
+///     <para>The mapping's rows are checked against actions that EXIST. It used to pin a
+///     <c>Tools.Invoke("spawn"</c> row, which was correct then and is exactly what issue
+///     #308 removed — a bridge-call test naming a retired action would pin the staleness the
+///     mechanical guard exists to catch.</para></summary>
 public class BridgeCallWordingTests
 {
   [Fact]
@@ -22,13 +25,14 @@ public class BridgeCallWordingTests
   }
 
   [Fact]
-  public void BootstrapToolsMapping_NamesSpawnAndSkillViewAsExecBridgeCalls()
+  public void BootstrapToolsMapping_NamesItsActionsAsExecBridgeCalls()
   {
     string output = new SkillsBootstrapPromptProvider(new EmbeddedSkillCatalog()).Build();
 
-    // The mapping's binding rows carry the bridge form verbatim.
-    Assert.Contains("Tools.Invoke(\"spawn\"", output, StringComparison.Ordinal);
+    // The mapping's binding rows carry the bridge form verbatim, for actions the harness
+    // really has.
     Assert.Contains("Tools.Invoke(\"skill_view\"", output, StringComparison.Ordinal);
+    Assert.Contains("Tools.List()", output, StringComparison.Ordinal);
   }
 
   private sealed class EmptyCatalog : ISkillCatalog

@@ -5,94 +5,96 @@ description: Request structured code review of completed work before integrating
 
 # Requesting Code Review
 
-This is the external-verdict leg: a reviewer who did not write the change grades it — the
-loop's check against self-grading.
+This is the external-verdict leg: a reviewer who did not write the change grades it — the loop's
+check against self-grading.
 
-Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history.
+**Core principle:** review early, review often.
 
-**Core principle:** Review early, review often.
+## How a review happens here
 
-## When to Request Review
+A review is an INDEPENDENT SESSION that judges your work. In a chain, that is a step assigned the
+review role when the chain was created — the harness starts it, it records a verdict, and the cursor
+reads that verdict. You do not schedule it and you do not dispatch it.
+
+**There is no reviewer subagent.** A session cannot start one, and it cannot review itself into an
+external verdict. If your work needs an independent verdict and no review step exists, say so — the
+planning session can revise the plan, and a human can start a new chain that includes one.
+
+## When a review is worth a chain step
 
 **Mandatory:**
-- After each task in experiment-driven development
-- After completing major feature
-- Before merge to main
+
+- Before a chain completes and its work is integrated.
+- After a step whose change is large enough that a reviewer could meaningfully reject it.
 
 **Optional but valuable:**
-- When stuck (fresh perspective)
-- Before refactoring (baseline check)
-- After fixing complex bug
 
-## How to Request
+- A step you expect to be contentious.
+- A step that changes a shared interface later steps build on.
 
-**1. Get git SHAs:**
-```bash
-BASE_SHA=$(git rev-parse HEAD~1)  # or origin/main
-HEAD_SHA=$(git rev-parse HEAD)
-```
+## What the reviewer receives
 
-**2. Dispatch code reviewer subagent:**
+The reviewer's brief is rendered by the harness from the plan record. It names the step, the plan's
+goal, the chain's ledger key, and the rubric — and it never includes your session's history. A
+reviewer that reads your reasoning inherits your framing, which is the self-grading the external
+verdict exists to prevent.
 
-Dispatch a reviewer subagent with `spawn`, filling the template at the end of this skill
+The reviewer loads `reviewing-plans` and applies its rubric: three scored dimensions (requirement
+coverage, testability, blast radius) and findings that each cite a requirement id or a step position.
 
-**Placeholders:**
-- `{DESCRIPTION}` - Brief summary of what you built
-- `{PLAN_OR_REQUIREMENTS}` - What it should do
-- `{BASE_SHA}` - Starting commit
-- `{HEAD_SHA}` - Ending commit
+## What the reviewer returns
 
-**3. Act on feedback:**
-- Fix Critical issues immediately
-- Fix Important issues before proceeding
-- Note Minor issues for later
-- Push back if reviewer is wrong (with reasoning)
-
-## Example
+A verdict recorded with `plan.review` — not prose in a transcript:
 
 ```text
-[Just completed Task 2: Add verification function]
-
-You: Let me request code review before proceeding.
-
-BASE_SHA=$(git log --oneline | grep "Task 1" | head -1 | awk '{print $1}')
-HEAD_SHA=$(git rev-parse HEAD)
-
-[Dispatch code reviewer subagent]
-  DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types
-  PLAN_OR_REQUIREMENTS: Task 2 from the plan record (retrieve via plan.show <plan-id>)
-  BASE_SHA: a7981ec
-  HEAD_SHA: 3df7661
-
-[Subagent returns]:
-  Strengths: Clean architecture, real tests
-  Issues:
-    Important: Missing progress indicators
-    Minor: Magic number (100) for reporting interval
-  Assessment: Ready to proceed
-
-You: [Fix progress indicators]
-[Continue to Task 3]
+verdict: approve | deny | approve-with-conditions
+scores:  requirement-coverage, testability, blast-radius (each 1-5, with a reason)
+findings: one per finding, each citing a requirement id or a step position
 ```
 
-## Common Rationalizations
+| Verdict | What happens |
+| --- | --- |
+| `approve` | The chain advances; the plan executes as written. |
+| `deny` | The judged step reopens for a fix session seeded with the findings and their citations. |
+| `approve-with-conditions` | Both: the chain advances, and the conditions travel into the next step's brief. |
 
-| Excuse                                                                 | Reality                                                                                                                                                                                                                               |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "I'll just review the diff myself instead of dispatching a reviewer"   | You're the coordinator — reviewing the diff inline burns the context window you need to keep driving the work. Dispatch a reviewer subagent: the diff and the evaluation live in its context, and only the findings come back to you. |
-| "The reviewer needs my whole session history to understand the change" | Hand it precisely crafted context, never your session's history. That keeps the reviewer on the work product, not your thought process.                                                                                               |
+A denial is capped at three round trips per step. Past the cap the chain parks rather than looping:
+a third denial of the same work means the plan is wrong, not that a fourth session will succeed.
 
-## Red Flags
+## If you are the reviewer
+
+Load `reviewing-plans` and follow it. Two rules that matter most:
+
+- **Never read the planner's session history.** Judge the plan, the requirements, and the rubric.
+- **Never fix what you review.** A reviewer that edits the work to make it pass has replaced the
+  independent verdict with its own.
+
+A finding with no citation is not a finding. "The code is unclear" cannot be acted on or audited;
+"step 3 has no acceptance criterion for requirement R2" can.
+
+## Acting on feedback you receive
+
+- Fix Critical issues immediately.
+- Fix Important issues before proceeding.
+- Note Minor issues in the ledger for later.
+- Push back when the reviewer is wrong — with reasoning and evidence, and by recording the ruling,
+  never by silently dropping the finding.
+
+## Red flags
 
 **Never:**
-- Skip review because "it's simple"
-- Ignore Critical issues
-- Proceed with unfixed Important issues
-- Argue with valid technical feedback
 
-**If reviewer wrong:**
-- Push back with technical reasoning
-- Show code/tests that prove it works
-- Request clarification
+- Skip review because "it's simple".
+- Ignore a Critical finding.
+- Proceed with unfixed Important findings.
+- Argue with valid technical feedback.
+- Review your own change and call it reviewed.
 
-Template: at the end of this skill (Code Reviewer Template)
+**If the reviewer is wrong:** push back with technical reasoning, show the code or tests that prove
+it works, and record the ruling in the ledger.
+
+## Related skills
+
+- `reviewing-plans` — the rubric and verdict contract.
+- `receiving-code-review` — what to do with feedback you get.
+- `executing-a-chain` — the step whose completion a verdict gates.

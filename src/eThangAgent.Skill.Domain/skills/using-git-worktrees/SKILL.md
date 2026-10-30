@@ -76,8 +76,8 @@ Via exec: Shell("git", "check-ignore", "-q", dir) per candidate — exit 0 means
 #### Create the Worktree
 
 Via exec: Shell("git", "worktree", "add", fullPath, "-b", branchName).
-The agent workspace then moves to fullPath; children spawned while it is
-active inherit that workspace root.
+The agent workspace then moves to fullPath; a session started while it is
+active inherits that workspace root.
 
 **Exec failure fallback:** if the exec call fails or git reports a permission error, tell your human partner and work in the current directory instead; run setup and baseline tests in place.
 

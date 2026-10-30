@@ -1,167 +1,160 @@
 ---
 name: dispatching-parallel-agents
-description: Fan out independent subtasks to parallel subagents and fan in their results. Use when facing two or more independent tasks with no shared state.
+description: Split independent problems into separate sessions instead of investigating them one by one. Use when several unrelated failures or subsystems each need their own attention.
 ---
 
-# Dispatching Parallel Agents
+# Parallel Agents
 
 ## Overview
 
-You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
+When several problems are genuinely independent, investigating them one after another wastes the
+one resource that is actually scarce: your context. Each investigation is its own question, and a
+session that answers it can start with a clean window.
 
-When you have multiple unrelated failures (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Each investigation is independent and can happen in parallel.
+**Core principle:** one problem domain, one session. Independence is the precondition, not a
+preference.
 
-**Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
+## How this harness does it
 
-## When to Use
+There is no dispatch-and-wait. Agents ARE sessions: the harness starts a session per chain step and
+reacts to a completion fact, and a session does not start children and then block on them.
+
+So parallel work has two shapes here, and picking the wrong one is the common failure:
+
+| Shape | When | How |
+| --- | --- | --- |
+| **Sequential chain** (the default) | Steps share a repository, a test suite, or a file. | `chain.start` on a plan whose steps are the separate problems. The harness runs them one at a time. |
+| **Parallel sessions** (deliberately deferred) | The work is genuinely disjoint and the coordination cost is real. | Not built yet — see below. |
+
+**Sequential is the honest default.** This codebase's work is coupled: every step touches the same
+solution and the same test suite. A plan whose steps are "fix test file A, fix test file B, fix test
+file C" looks parallel and is not — all three write to the same tree, and the second one's build
+sees the first one's half-finished edit.
+
+**Parallel file coordination is a separate, unbuilt piece of work.** Scoped path claims, conflict
+prediction, and a serialized landing queue are specified and deliberately deferred. Do not simulate
+them by starting sessions that edit the same tree — that produces conflicting edits and a merge
+nobody reviewed.
+
+## When the problems really are independent
 
 ```dot
 digraph when_to_use {
     "Multiple failures?" [shape=diamond];
-    "Are they independent?" [shape=diamond];
-    "Single agent investigates all" [shape=box];
-    "One agent per problem domain" [shape=box];
-    "Can they work in parallel?" [shape=diamond];
-    "Sequential agents" [shape=box];
-    "Parallel dispatch" [shape=box];
+    "Independent?" [shape=diamond];
+    "Share files or a suite?" [shape=diamond];
+    "One chain, sequential steps" [shape=box];
+    "One session investigates all" [shape=box];
 
-    "Multiple failures?" -> "Are they independent?" [label="yes"];
-    "Are they independent?" -> "Single agent investigates all" [label="no - related"];
-    "Are they independent?" -> "Can they work in parallel?" [label="yes"];
-    "Can they work in parallel?" -> "Parallel dispatch" [label="yes"];
-    "Can they work in parallel?" -> "Sequential agents" [label="no - shared state"];
+    "Multiple failures?" -> "Independent?" [label="yes"];
+    "Multiple failures?" -> "One session investigates all" [label="no"];
+    "Independent?" -> "Share files or a suite?" [label="yes"];
+    "Independent?" -> "One session investigates all" [label="no - related"];
+    "Share files or a suite?" -> "One chain, sequential steps" [label="yes"];
 }
 ```
 
-**Use when:**
-- 3+ test files failing with different root causes
+**Use a chain when:**
+
+- 3+ test files failing with different root causes, each fixable without the others
 - Multiple subsystems broken independently
-- Each problem can be understood without context from others
-- No shared state between investigations
+- Each problem can be understood without context from the others
+- No step's edit invalidates another step's tests
 
-**Don't use when:**
-- Failures are related (fix one might fix others)
-- Need to understand full system state
-- Agents would interfere with each other
+**Investigate in one session when:**
 
-## The Pattern
+- Failures are related (fixing one might fix others)
+- Understanding requires seeing the whole system state
+- The problems touch the same files
 
-### 1. Identify Independent Domains
+## The pattern
 
-Group failures by what's broken:
-- File A tests: Tool approval flow
-- File B tests: Batch completion behavior
-- File C tests: Abort functionality
+### 1. Identify the independent domains
 
-Each domain is independent - fixing tool approval doesn't affect abort tests.
+Group the failures by what is broken, not by which file the test lives in:
 
-### 2. Create Focused Agent Tasks
+- "tool approval flow" — a domain
+- "batch completion behavior" — a domain
+- "abort functionality" — a domain
 
-Each agent gets:
-- **Specific scope:** One test file or subsystem
-- **Clear goal:** Make these tests pass
-- **Constraints:** Don't change other code
-- **Expected output:** Summary of what you found and fixed
+Each domain is a plan STEP. Fixing tool approval does not change the abort tests, so a reviewer can
+judge each step on its own — which is the test for whether the split is real.
 
-### 3. Dispatch in Parallel
+### 2. Write each step's detail for a stranger
 
-Issue all three subagent dispatches in the same response — they run in parallel:
+The brief a step's session receives is rendered from the plan record. That session has your plan and
+nothing else: no transcript, no earlier discussion, no memory of what you tried.
+
+Each step's detail must carry:
+
+- **Scope:** the exact files or subsystem — a path, not a theme
+- **The failure verbatim:** the test names and the output you actually saw
+- **The goal:** what passing means
+- **Constraints:** what not to touch
+- **What to return:** the outcome, and the evidence for it
+
+### 3. Declare the roles and start
 
 ```text
-spawn(taskPrompt: "Fix the agent-tool-abort test failures", label: "abort")
-spawn(taskPrompt: "Fix the batch-completion-behavior failures", label: "batch")
-spawn(taskPrompt: "Fix the tool-approval-race-condition failures", label: "race")
-// Three spawn calls in one response = parallel execution. One per response = sequential.
+chain.start id=<planId>
 ```
 
-Multiple dispatch calls in one response = parallel execution. One per response = sequential.
+One implementer step per domain, plus review steps where an independent verdict is worth the round
+trip. The harness starts step 1 and advances on each completion — you do not start the next one.
 
-### 4. Review and Integrate
+### 4. Read the record, then integrate
 
-When agents return:
-- Read each summary
-- Verify fixes don't conflict
-- Run full test suite
-- Integrate all changes
+When the chain reports `Completed`:
 
-## Agent Prompt Structure
+- Read each step's outcome and the ledger's conclusions.
+- Check for conflicts the steps could not see — they ran one at a time, but they edited one tree.
+- Run the full suite yourself. Each step ran the tests covering its own change.
+- Use `finishing-a-development-branch`.
 
-Good agent prompts are:
-1. **Focused** - One clear problem domain
-2. **Self-contained** - All context needed to understand the problem
-3. **Specific about output** - What should the agent return?
+## Common mistakes
 
-```markdown
-Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
+**❌ Too broad:** "Fix all the tests" — the session has no scope and no stopping point.
+**✅ Specific:** "Fix `agent-tool-abort.test.ts`" — one file, one deliverable.
 
-1. "should abort tool with partial output capture" - expects 'interrupted at' in message
-2. "should handle mixed completed and aborted tools" - fast tool aborted instead of completed
-3. "should properly track pendingToolCount" - expects 3 results but gets 0
+**❌ No context:** "Fix the race condition" — the session does not know where.
+**✅ Context:** the exact test names and the output you saw, verbatim.
 
-These are timing/race condition issues. Your task:
+**❌ No constraints:** the session refactors the subsystem.
+**✅ Constraints:** "change tests only" or "do not touch production code".
 
-1. Read the test file and understand what each test verifies
-2. Identify root cause - timing issues or actual bugs?
-3. Fix by:
-   - Replacing arbitrary timeouts with event-based waiting
-   - Fixing bugs in abort implementation if found
-   - Adjusting test expectations if testing changed behavior
+**❌ Vague output:** "Fix it" — you cannot tell what changed.
+**✅ Specific:** "Return the root cause and the change, with the test output."
 
-Do NOT just increase timeouts - find the real issue.
+**❌ Parallel simulation:** starting several sessions on one tree.
+**✅ One chain:** sequential steps, one tree, one landing.
 
-Return: Summary of what you found and what you fixed.
-```
+## A real example
 
-## Common Mistakes
+**Scenario:** 6 failures across 3 files after a refactor.
 
-**❌ Too broad:** "Fix all the tests" - agent gets lost
-**✅ Specific:** "Fix agent-tool-abort.test.ts" - focused scope
+| Domain | Failures |
+| --- | --- |
+| abort handling | 3, timing |
+| batch completion | 2, tools not executing |
+| approval race | 1, execution count zero |
 
-**❌ No context:** "Fix the race condition" - agent doesn't know where
-**✅ Context:** Paste the error messages and test names
+**Decision:** three independent domains, one shared tree — so a three-step chain, not three
+concurrent sessions.
 
-**❌ No constraints:** Agent might refactor everything
-**✅ Constraints:** "Do NOT change production code" or "Fix tests only"
-
-**❌ Vague output:** "Fix it" - you don't know what changed
-**✅ Specific:** "Return summary of root cause and changes"
-
-## When NOT to Use
-
-**Related failures:** Fixing one might fix others - investigate together first
-**Need full context:** Understanding requires seeing entire system
-**Exploratory debugging:** You don't know what's broken yet
-**Shared state:** Agents would interfere (editing same files, using same resources)
-
-## Real Example from Session
-
-**Scenario:** 6 test failures across 3 files after major refactoring
-
-**Failures:**
-- agent-tool-abort.test.ts: 3 failures (timing issues)
-- batch-completion-behavior.test.ts: 2 failures (tools not executing)
-- tool-approval-race-conditions.test.ts: 1 failure (execution count = 0)
-
-**Decision:** Independent domains - abort logic separate from batch completion separate from race conditions
-
-**Dispatch:**
-```text
-Agent 1 → Fix agent-tool-abort.test.ts
-Agent 2 → Fix batch-completion-behavior.test.ts
-Agent 3 → Fix tool-approval-race-conditions.test.ts
-```
-
-**Results:**
-- Agent 1: Replaced timeouts with event-based waiting
-- Agent 2: Fixed event structure bug (threadId in wrong place)
-- Agent 3: Added wait for async tool execution to complete
-
-**Integration:** All fixes independent, no conflicts, full suite green
+**Result:** each step's session fixed its own file and left the others alone; the chain completed;
+the full suite ran once at the end and passed.
 
 ## Verification
 
-After agents return:
-1. **Review each summary** - Understand what changed
-2. **Check for conflicts** - Did agents edit same code?
-3. **Run full suite** - Verify all fixes work together
-4. **Spot check** - Agents can make systematic errors
+After the chain completes:
+
+1. **Read each outcome** — what changed and why.
+2. **Check for conflicts** — did two steps touch the same code?
+3. **Run the full suite** — each step only ran the tests covering its own change.
+4. **Spot check** — a session can make a systematic error consistently.
+
+## Related skills
+
+- `executing-a-chain` — what each step's session does.
+- `experiment-driven-development` — how the chain is created and read.
+- `writing-plans` — the step detail that reaches the session.

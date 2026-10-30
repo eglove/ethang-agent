@@ -19,7 +19,7 @@ Every message addressed TO THE USER speaks to them as a user/stakeholder, not a
 developer — plain language, user-visible consequences, no code vocabulary. Where a
 decision genuinely requires technical framing, present it as a recommendation the
 user approves or rejects rather than a technical question. This governs messages to
-the user only: plans, task specs, and subagent messages stay technical.
+the user only: plans, task specs, and chain step briefs stay technical.
 
 Work the tree in **rounds**. The **frontier** is every decision whose prerequisites
 are already settled: the questions you can ask _now_ without guessing at answers
@@ -46,10 +46,10 @@ the next round. A question whose answer depends on another question still open i
 this round belongs to a _later_ round, not this one.
 
 Finding _facts_ is your job, never the user's. When a frontier question needs a fact
-from the environment (filesystem, tools, etc.), dispatch a sub-agent or look it up
-yourself; don't ask the user for anything you could find out alone. Don't block on
-it: a running exploration is an unsettled prerequisite, so only the questions
-downstream of it wait for the sub-agent to report; ask the rest of the frontier now.
+from the environment (filesystem, tools, etc.), look it up yourself; don't ask the
+user for anything you could find out alone. Don't block on it: an open lookup is an
+unsettled prerequisite, so only the questions downstream of it wait for the answer;
+ask the rest of the frontier now.
 The _decisions_ are the user's: put each to them and wait.
 
 The session is done when the frontier is empty: every branch of the design tree
