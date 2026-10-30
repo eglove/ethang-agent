@@ -99,6 +99,17 @@ public sealed class ChainService(IChainStore store)
     => MutateAsync(id, chain => chain.SettleStep(position, status, actor, outcome, now), now,
         (_, _) => StepChanged?.Invoke(new ChainStepChanged(id, position, KindOf(status), actor, now)), ct);
 
+  /// <summary>Reopens a DONE step on a reviewer's denial (issue #320): the review back-edge.
+  ///     <para>THE RETRY COUNTER IS UNTOUCHED; the review counter increments. See
+  ///     <see cref="ChainStep.Reopen"/> for why the two budgets stay separate (Q14).</para>
+  ///     <para>The step-change event reports <c>reopened</c>, so a surface watching the stream
+  ///     sees a step move back without having to diff the record.</para></summary>
+  public Task<Result<Chain>> ReopenStepAsync(int id, int position, ChainActor actor,
+      string? outcome, DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.ReopenStep(position, actor, outcome, now), now,
+        (_, _) => StepChanged?.Invoke(
+            new ChainStepChanged(id, position, "reopened", actor, now)), ct);
+
   /// <summary>The chain claiming a step for <paramref name="sessionId"/>, or null when this
   ///     session is executing none (issue #301).</summary>
   public Task<Result<Chain?>> FindBySessionAsync(string sessionId, CancellationToken ct = default)

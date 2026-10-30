@@ -26,12 +26,14 @@ public class PlanWiringTests
   }
 
   [Fact]
-  public void Container_ResolvesPlanProvider_WithSevenValidActions()
+  public void Container_ResolvesPlanProvider_WithEightValidActions()
   {
     using ServiceProvider services = Build();
     PlanCapabilityProvider provider = services.GetRequiredService<PlanCapabilityProvider>();
     Assert.Equal("plan", provider.Id);
-    Assert.Equal(7, provider.Actions.Count);
+    // 'review' is the eighth (issue #320): the writer a reviewer records its verdict through,
+    // registered so the record it writes is the one the chain cursor reads.
+    Assert.Equal(8, provider.Actions.Count);
     Assert.All(provider.Actions, a => Assert.True(CapabilityNameRules.IsValidActionName(a.Name)));
   }
 

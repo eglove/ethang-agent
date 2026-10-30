@@ -184,10 +184,14 @@ public static class ChainBriefRenderer
     AddRubric(lines, facts);
     lines.Add("## What to record");
     lines.Add("");
-    lines.Add("Record your verdict in this step's outcome, in this shape:");
+    lines.Add("Record your verdict with plan.review before you mark the step done:");
     lines.Add("");
     lines.Add("    verdict: approve | deny | approve-with-conditions");
-    lines.Add("    findings: one line per finding, each citing a requirement id or a step position");
+    lines.Add("    scores: requirement-coverage, testability, blast-radius (each 1-5, with a reason)");
+    lines.Add("    findings: one per finding, each citing a requirement id or a step position");
+    lines.Add("");
+    lines.Add("The harness reads the RECORD, not your transcript: a verdict that stays in prose moves");
+    lines.Add("nothing, and a review step that completes without one is refused.");
     lines.Add("");
     lines.Add("A finding that cites nothing is not a finding: 'the code is unclear' cannot be acted on or");
     lines.Add("audited, while 'step 3 has no acceptance criterion for requirement R2' can.");

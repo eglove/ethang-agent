@@ -540,11 +540,13 @@ public class PlanCapabilityProviderTests
   // ---- surface ---------------------------------------------------------------
 
   [Fact]
-  public void Provider_ExposesSevenValidUniqueActions_UnderIdPlan()
+  public void Provider_ExposesEightValidUniqueActions_UnderIdPlan()
   {
     PlanCapabilityProvider provider = New(out _);
     Assert.Equal("plan", provider.Id);
-    string[] expected = ["create", "show", "index", "add-step", "update-step", "remove-step", "set-status"];
+    // 'review' is the eighth (issue #320): the writer a reviewer records its verdict through.
+    string[] expected = ["create", "show", "index", "add-step", "update-step", "remove-step",
+        "review", "set-status"];
     Assert.Equal(expected.Length, provider.Actions.Count);
     Assert.Equal(expected, provider.Actions.Select(a => a.Name));
     Assert.All(provider.Actions, a => Assert.True(CapabilityNameRules.IsValidActionName(a.Name)));

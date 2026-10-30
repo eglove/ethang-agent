@@ -530,6 +530,12 @@ public static class AgentComposition
             // about whether a rubric exists.
             sp.GetRequiredService<ISkillCatalog>()))
         .AddSingleton<ChainBriefService>()
+        // THE REVIEW PORT (issue #320): the writer nothing in this harness had. The review
+        // record lives in the Plan Domain, so the translation between the two verdict spellings
+        // lives in the composition root - the one place allowed to know both.
+        .AddSingleton<IChainReviewSource>(sp => new CompositionChainReviewSource(
+            sp.GetRequiredService<IPlanReviewStore>()))
+        .AddSingleton<ChainReviewService>()
         // The reviewer-separation gate (issue #218): the ONE place a review step's model is
         // checked before its session starts. Both launch sites - the mechanical advance and the
         // creation action - resolve it, so the rule cannot be enforced on one path and forgotten
@@ -552,6 +558,58 @@ public static class AgentComposition
             TimeProvider.System,
             sp.GetRequiredService<ChainReviewerGate>()));
   }
+
+  /// <summary>The reviewer-recording delegate <c>plan.review</c> writes through (issue #320):
+  ///     the chain's own service, so the row a reviewer writes is the row the cursor reads.
+  ///     <para>WHY IT DELEGATES RATHER THAN WRITING THE STORE DIRECTLY: the review service
+  ///     resolves the chain a session holds, the plan version it STARTED at, and the reviewer's
+  ///     model. A second write path would re-derive all three and could disagree with the one the
+  ///     cursor reads - the silent-discard defect in a new coat.</para>
+  ///     <para>A CONTAINER WITH NO CHAIN MACHINERY REFUSES with a typed error, never a success:
+  ///     reporting 'recorded' while writing nothing is the failure this issue exists to
+  ///     close.</para></summary>
+  /// <param name="sp">The container, resolved lazily so this costs nothing until a review is
+  ///     recorded.</param>
+  /// <param name="draft">What the reviewer stated.</param>
+  /// <param name="ct">Cancellation.</param>
+  private static async Task<Result<PlanReview>> RecordReviewAsync(IServiceProvider sp,
+      PlanReviewDraft draft, CancellationToken ct)
+  {
+    ArgumentNullException.ThrowIfNull(draft);
+    if (sp.GetService<ChainReviewService>() is not { } reviews
+        || sp.GetService<RootSessionIdentity>()?.Id is not { } reviewer)
+    {
+      return Result.Failure<PlanReview>(new DomainError("ReviewUnsupported",
+          "this container has no chain review machinery, so the verdict was NOT saved."));
+    }
+
+    // THE REVIEWER'S MODEL IS THE SESSION'S RESOLVED MODEL (issue #216 D6): a verdict's
+    // provenance is part of the verdict, and the same session can be resumed on a different one.
+    ChainReviewRecord review = new(MapVerdict(draft.Verdict),
+        [.. draft.Findings.Select(finding => new ChainReviewFinding(finding.Text, finding.Citation))],
+        new ChainReviewScores(draft.Scores.RequirementCoverage, draft.Scores.Testability,
+            draft.Scores.BlastRadius),
+        sp.GetService<ModelConfig>()?.ModelId);
+    Result<Chain> recorded = await reviews.RecordAsync(reviewer.ToString(), review, ct)
+        .ConfigureAwait(false);
+    return recorded.IsSuccess
+        ? Result.Success(new PlanReview(0, draft.PlanId, recorded.Value.PlanVersion, draft.Verdict,
+            reviewer.ToString(), review.ReviewerModel, draft.Scores, draft.Findings, draft.Notes,
+            DateTimeOffset.UtcNow))
+        : Result.Failure<PlanReview>(recorded.Error);
+  }
+
+  /// <summary>The plan verdict as the chain verdict. Exhaustive, so a new verdict cannot be
+  ///     added without deciding what the chain does with it.</summary>
+  /// <param name="verdict">The plan review verdict.</param>
+  private static ChainReviewVerdict MapVerdict(PlanReviewVerdict verdict) => verdict switch
+  {
+    PlanReviewVerdict.Approve => ChainReviewVerdict.Approve,
+    PlanReviewVerdict.Deny => ChainReviewVerdict.Deny,
+    PlanReviewVerdict.ApproveWithConditions => ChainReviewVerdict.ApproveWithConditions,
+    _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict,
+        "not a plan review verdict."),
+  };
 
   /// <summary>The chain orphan check (issue #317 D7): a chain whose workspace directory is gone
   ///     renders as ORPHANED rather than vanishing. The read crosses workspace boundaries by
@@ -830,7 +888,11 @@ public static class AgentComposition
             // The ownership gate (issue #301 D3): a session executing a chain step may
             // complete only that step. A session outside a chain passes straight through,
             // so the ordinary way a plan is worked is untouched.
-            sp.GetRequiredService<IPlanStepOwnershipGate>()))
+            sp.GetRequiredService<IPlanStepOwnershipGate>(),
+            // THE REVIEW WRITER (issue #320): plan.review records a verdict into the review
+            // store through the chain's own service, so the record it writes is the one the
+            // cursor reads. Null in a container that wired no chain machinery at all.
+            (draft, ct) => RecordReviewAsync(sp, draft, ct)))
         .AddSingleton<MemoryCapabilityProvider>();
   }
 

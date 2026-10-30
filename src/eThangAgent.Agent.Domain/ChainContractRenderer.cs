@@ -107,9 +107,17 @@ public static class ChainContractRenderer
     lines.Add($"Step {contract.Position} was assigned the review role: your job is to JUDGE this");
     lines.Add("step's work, not to do it. Do not change the workspace to make the work pass.");
     lines.Add("");
-    lines.Add("Record your verdict and your cited findings in this step's outcome, then mark the step");
-    lines.Add("done. That single write is the completion fact the harness reacts to, and it is the only");
-    lines.Add("step of this plan you may mark done.");
+    // THE VERDICT GOES IN THE RECORD, NOT IN FREE TEXT (issue #320). The old sentence told a
+    // reviewer to put its verdict in the step's outcome, and the advance settled with
+    // outcome: null — so the work was done and nothing kept it. plan.review writes the typed
+    // record the cursor reads.
+    lines.Add("Record your verdict with plan.review — the verdict, the three rubric scores, and every");
+    lines.Add("finding with its citation — then mark the step done. That single write is the completion");
+    lines.Add("fact the harness reacts to, and it is the only step of this plan you may mark done.");
+    lines.Add("");
+    lines.Add("The harness reads your verdict: a denial reopens the step you judged for a fix session");
+    lines.Add("seeded with your findings, and an approve-with-conditions carries those conditions into");
+    lines.Add("the next step's brief.");
     lines.Add("");
     lines.Add("If you cannot reach a verdict, say so plainly in the transcript and stop. The chain parks");
     lines.Add("rather than guessing, and a parked chain is something a human can act on.");

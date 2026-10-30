@@ -39,7 +39,11 @@ internal static class ChainAdvanceFactory
           // a review step whose reviewer matches the implementer, and the agent store is where the
           // durable record of what actually served lives.
           reviewers: session.Services.GetService<ChainReviewerGate>(),
-          agents: session.Services.GetService<IAgentStore>())
+          agents: session.Services.GetService<IAgentStore>(),
+          // THE REVIEW CURSOR'S ONE READ (issue #320): the verdict a review step's session
+          // recorded. Without it a review step would advance exactly as it did before, which
+          // is the silent discard this issue closes.
+          reviews: session.Services.GetService<IChainReviewSource>())
       : null;
   }
 

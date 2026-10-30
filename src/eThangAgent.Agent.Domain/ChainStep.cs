@@ -22,7 +22,8 @@ public sealed record ChainStep(
   DateTimeOffset? ClaimedAt,
   DateTimeOffset? CompletedAt,
   ChainStepRole Role,
-  string? ServedModel = null)
+  string? ServedModel = null,
+  int ReviewAttempts = 0)
 {
   /// <summary>A fresh Pending step with the IMPLEMENTER role (issue #313 D7): the default a
   ///     step takes when nobody assigned one. Use the two-argument overload to assign a
@@ -39,7 +40,7 @@ public sealed record ChainStep(
     ArgumentOutOfRangeException.ThrowIfLessThan(position, 1);
     ArgumentNullException.ThrowIfNull(role);
     return new ChainStep(position, ChainStepStatus.Pending, null, 0, null, ChainActor.Harness,
-        null, null, role, ServedModel: null);
+        null, null, role, ServedModel: null, ReviewAttempts: 0);
   }
 
   /// <summary>True while this step's Running claim is still live. A Running step with NO
@@ -147,6 +148,46 @@ public sealed record ChainStep(
           $"step {Position} was run by session {SessionId ?? "(none recorded)"}, not {sessionId}; "
           + "a retry resumes the SAME session, because that is the transcript the work continues from.");
   }
+
+  /// <summary>Reopens a DONE step so a fix session can work on it again (issue #320): the
+  ///     review back-edge's own transition, and the reason it is not <see cref="Claim"/>.
+  ///     <para>WHY NOT A CLAIM: a claim is an ATTEMPT on work nobody has done yet, and it
+  ///     increments the retry counter. A reopen is a reviewer's verdict sending finished work
+  ///     back, so the RETRY counter is untouched (the session did not break) and the REVIEW
+  ///     counter increments instead — the two budgets Q14 keeps separate.</para>
+  ///     <para>REFUSED WHEN THE STEP IS NOT DONE. The only thing a review reopens is work the
+  ///     chain believed was finished; a Pending step has nothing to redo, a Failed one is
+  ///     #303's retry path, and a Parked one is already waiting for a human.</para>
+  ///     <para>THE CLAIMANT IS CLEARED and the outcome is kept as the review's own record of
+  ///     what it found: the reopened step is available to whichever session the harness starts
+  ///     for it, and the previous outcome stays readable until that session settles it again.
+  ///     </para></summary>
+  /// <param name="outcome">What the review recorded, so the reopened step says why.</param>
+  /// <param name="actor">Who reopened it — the harness, on the reviewer's verdict.</param>
+  public ChainStep Reopen(ChainActor actor, string? outcome)
+  {
+    ArgumentNullException.ThrowIfNull(actor);
+    return Status == ChainStepStatus.Done
+        ? this with
+        {
+          Status = ChainStepStatus.Pending,
+          SessionId = null,
+          Outcome = outcome,
+          Actor = actor,
+          ClaimedAt = null,
+          CompletedAt = null,
+          ReviewAttempts = ReviewAttempts + 1,
+        }
+        : throw new ChainInputException(
+            $"step {Position} is {Status}, not Done; only a step the chain believed was finished "
+            + "can be reopened by a review.");
+  }
+
+  /// <summary>True when this step's review round-trip budget is spent (issue #320).
+  ///     <para>Computed from the count rather than stored, so the bound has one home
+  ///     (<see cref="ChainReviewPolicy.MaxReviewAttempts"/>) and cannot drift from a
+  ///     persisted copy of itself.</para></summary>
+  public bool ReviewBudgetSpent => !ChainReviewPolicy.CanSendBack(ReviewAttempts);
 
   /// <summary>Records the model this step's session actually SERVED on (issue #218).
   ///     <para>WHY THE STEP CARRIES IT: the separation rule compares a reviewer's model to the

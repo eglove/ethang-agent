@@ -15,7 +15,8 @@ namespace eThangAgent.PlanDomain;
 ///     <c>(() => sp.GetRequiredService&lt;RootSessionIdentity&gt;().Id?.ToString())</c>), so a
 ///     child's create/add stamps the owning ROOT session, never the child.</summary>
 public sealed class PlanCapabilityProvider(PlanService service, Func<string?> sessionId,
-    IPlanCompletionGate? completionGate = null, IPlanStepOwnershipGate? ownershipGate = null)
+    IPlanCompletionGate? completionGate = null, IPlanStepOwnershipGate? ownershipGate = null,
+    Func<PlanReviewDraft, CancellationToken, Task<Result<PlanReview>>>? recordReview = null)
     : ICapabilityProvider
 {
   public const string ProviderId = "plan";
@@ -30,6 +31,15 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   private const string PlanStepNotFoundCode = "PlanStepNotFound";
   private const string VersionConflictCode = "VersionConflict";
   private const string InvalidTransitionCode = "InvalidTransition";
+  private const string VerdictParam = "verdict";
+  private const string ScoresParam = "scores";
+  private const string FindingsParam = "findings";
+  private const string NotesParam = "notes";
+  private const string CoverageField = "requirementCoverage";
+  private const string TestabilityField = "testability";
+  private const string BlastRadiusField = "blastRadius";
+  private const string FindingText = "text";
+  private const string FindingCitation = "citation";
 
   /// <summary>The typed code a completion refused for want of a fresh gate carries
   ///     (issue #283). Distinct from InvalidTransition so a caller can tell 'your steps
@@ -47,6 +57,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly IPlanCompletionGate? _completionGate = completionGate;
   private readonly IPlanStepOwnershipGate? _ownershipGate = ownershipGate;
+  private readonly Func<PlanReviewDraft, CancellationToken, Task<Result<PlanReview>>>? _recordReview = recordReview;
 
   public string Id => ProviderId;
 
@@ -83,6 +94,16 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position.")],
             [IdParam, Position]),
+        new("review", "Record a review verdict with its rubric scores and cited findings.",
+              "Records a review of THIS plan version: the verdict, the three rubric dimensions, and every finding with its citation. A reviewer must call this BEFORE marking its review step done - the harness reads the RECORD, and a review step that completes with no review recorded is refused. Output contract: '[plan] recorded <verdict> review #<id> of #<planId> v<version>' followed by one line per finding, each carrying its citation. verdict must be exactly approve|deny|approve-with-conditions; scores are non-negative integers for requirement-coverage, testability, and blast-radius; every finding needs both text and a citation (a finding that cites nothing is refused, and the refusal names its index). Errors: InvalidActionInput (bad params), UnknownVerdict, UncitedFinding, InvalidRubricScore, PlanNotFound.",
+              [
+                new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
+                new ActionParameter(VerdictParam, ActionParameterTypes.StringType, "Required. Exactly approve|deny|approve-with-conditions."),
+                new ActionParameter(ScoresParam, "Object", "Required. { 'requirementCoverage', 'testability', 'blastRadius' } - non-negative integers."),
+                new ActionParameter(FindingsParam, "Array", "Required. Findings: [{ 'text' (non-empty), 'citation' (non-empty: a requirement id or a step position) }]. An empty array is legal for a clean approve and refused for a denial."),
+                new ActionParameter(NotesParam, ActionParameterTypes.StringType, "Optional. Free-text context from the reviewer."),
+              ],
+              [IdParam, VerdictParam, ScoresParam, FindingsParam]),
         new("set-status", "Move a plan between statuses.",
             "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. COMPLETION REQUIRES A CONSISTENT PLAN: while any step is Pending or InProgress the move is refused with Error [InvalidTransition] naming the offending step positions and statuses, and the plan's stored status is unchanged - mark each step Done, or Skipped when you are deliberately not doing it, with update-step first. Abandoned is unaffected: dropping a half-finished plan stays possible. Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition, VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
@@ -104,6 +125,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
         "update-step" => await UpdateStepAsync(jsonArguments).ConfigureAwait(false),
         "remove-step" => await RemoveStepAsync(jsonArguments).ConfigureAwait(false),
         "set-status" => await SetStatusAsync(jsonArguments).ConfigureAwait(false),
+        "review" => await ReviewAsync(jsonArguments).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
     }
@@ -275,6 +297,200 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
         ? CapabilityInvocationResult.Ok(
             string.Create(CultureInfo.InvariantCulture, $"[plan] #{id} is now {saved.Value.Status}"))
         : await ResolveMutationErrorAsync(id, position: null, plan.Value.Version, saved.Error).ConfigureAwait(false);
+  }
+
+  /// <summary>Records a reviewer's verdict into the plan review record (issue #320) - the
+  ///     writer nothing in this harness had before, and the reason a denial could not exist.
+  ///     <para>THE VERSION AND THE SESSION COME FROM THE HARNESS, not the caller: the record is
+  ///     keyed on the plan version JUDGED (#216 D1), so a reviewer that named its own version
+  ///     could record a verdict against content nobody reviewed, and the reviewer session id is
+  ///     what the chain cursor keys on. The provider reads the plan to learn the current version.
+  ///     </para>
+  ///     <para>A PROVIDER WITH NO RECORDER REFUSES rather than silently succeeding: an action
+  ///     that reported 'recorded' while writing nothing would be the silent discard this issue
+  ///     closes, wearing a new coat.</para></summary>
+  private async Task<CapabilityInvocationResult> ReviewAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json,
+        Allowed(IdParam, VerdictParam, ScoresParam, FindingsParam, NotesParam));
+    int id = ReqPlanId(args);
+    PlanReviewVerdict verdict = ReqVerdict(args);
+    PlanReviewScores scores = ReqScores(args);
+    IReadOnlyList<PlanReviewFinding> findings = ReqFindings(args);
+    string? notes = OptString(args, NotesParam);
+    RequireDenialFindings(verdict, findings);
+    if (_recordReview is null)
+    {
+      return Gutter(new DomainError("ReviewUnsupported",
+          "this host cannot record a plan review; the verdict was NOT saved."));
+    }
+
+    Result<Plan> plan = await _service.GetAsync(id).ConfigureAwait(false);
+    if (!plan.IsSuccess)
+    {
+      return Gutter(plan.Error);
+    }
+
+    Result<PlanReview> recorded = await _recordReview(
+        new PlanReviewDraft(id, verdict, scores, findings, notes), CancellationToken.None)
+        .ConfigureAwait(false);
+    return recorded.IsSuccess
+        ? CapabilityInvocationResult.Ok(RenderReview(recorded.Value, plan.Value.Version))
+        : Gutter(recorded.Error);
+  }
+
+  /// <summary>A DENIAL WITH NO FINDINGS IS REFUSED (issue #219's surviving rule): a session
+  ///     told 'the reviewer denied' with no notes will guess, and guessing is what the rule
+  ///     exists to prevent. An approve with no findings is a clean pass and is legal.</summary>
+  /// <param name="verdict">The verdict the reviewer stated.</param>
+  /// <param name="findings">The findings it supplied.</param>
+  private static void RequireDenialFindings(PlanReviewVerdict verdict,
+      IReadOnlyList<PlanReviewFinding> findings)
+  {
+    if (verdict == PlanReviewVerdict.Deny && findings.Count == 0)
+    {
+      throw new PlanInputException(
+          "a deny must carry at least one cited finding: a fix session told only that the reviewer "
+          + "denied would have nothing to act on.");
+    }
+  }
+
+  /// <summary>The recorded review, stated so the reviewer can see what was kept: the verdict,
+  ///     the row id, the version judged, and every finding with its citation.</summary>
+  /// <param name="review">The persisted review.</param>
+  /// <param name="version">The plan version it judged.</param>
+  private static string RenderReview(PlanReview review, int version)
+  {
+    StringBuilder sb = new();
+    _ = sb.Append(CultureInfo.InvariantCulture,
+        $"[plan] recorded {PlanReviewVerdictCodec.Encode(review.Verdict)} review #{review.Id} of "
+        + $"#{review.PlanId} v{version}");
+    foreach (PlanReviewFinding finding in review.Findings)
+    {
+      _ = sb.Append(CultureInfo.InvariantCulture,
+          $"\n  - {finding.Text} [cites: {finding.Citation}]");
+    }
+
+    return sb.ToString();
+  }
+
+  /// <summary>The verdict token, decoded STRICTLY by the record's own codec so the accepted
+  ///     spellings have one home (the brief publishes them, and #306's test pins them).
+  ///     </summary>
+  /// <param name="args">The parsed arguments.</param>
+  private static PlanReviewVerdict ReqVerdict(Dictionary<string, JsonElement> args)
+  {
+    Result<PlanReviewVerdict> decoded = PlanReviewVerdictCodec.Decode(OptString(args, VerdictParam));
+    return decoded.IsSuccess ? decoded.Value : throw new PlanInputException(decoded.Error.Message);
+  }
+
+  /// <summary>The three rubric dimensions, each a non-negative integer. The scale is the
+  ///     rubric's (#217); this reads the numbers and enforces only what the record enforces.
+  ///     </summary>
+  /// <param name="args">The parsed arguments.</param>
+  private static PlanReviewScores ReqScores(Dictionary<string, JsonElement> args)
+  {
+    if (!args.TryGetValue(ScoresParam, out JsonElement element)
+        || element.ValueKind != JsonValueKind.Object)
+    {
+      throw new PlanInputException(
+          $"'{ScoresParam}' is required and must be an object with '{CoverageField}', "
+          + $"'{TestabilityField}', and '{BlastRadiusField}'.");
+    }
+
+    Result<PlanReviewScores> scores = PlanReviewScores.Create(
+        ReqIntField(element, CoverageField), ReqIntField(element, TestabilityField),
+        ReqIntField(element, BlastRadiusField));
+    return scores.IsSuccess ? scores.Value : throw new PlanInputException(scores.Error.Message);
+  }
+
+  /// <summary>One integer field of the scores object.</summary>
+  /// <param name="element">The scores object.</param>
+  /// <param name="name">The field name.</param>
+  private static int ReqIntField(JsonElement element, string name)
+  {
+    JsonProperty? found = element.EnumerateObject()
+        .Cast<JsonProperty?>()
+        .FirstOrDefault(property =>
+            string.Equals(property!.Value.Name, name, StringComparison.Ordinal));
+    return found is not { } property
+        ? throw new PlanInputException($"'{ScoresParam}.{name}' is required.")
+        : ReadInt(property, name);
+  }
+
+  /// <summary>One scores field's integer value, refused when it is not an integer.</summary>
+  /// <param name="property">The field.</param>
+  /// <param name="name">Its name, for the refusal.</param>
+  private static int ReadInt(JsonProperty property, string name)
+  {
+    return property.Value.ValueKind == JsonValueKind.Number
+        && property.Value.TryGetInt32(out int value)
+        ? value
+        : throw new PlanInputException($"'{ScoresParam}.{name}' must be an integer.");
+  }
+
+  /// <summary>The cited findings. EVERY finding must say something and cite something, and the
+  ///     refusal names the offender's index so a reviewer with twelve findings is not told only
+  ///     that 'something' was uncited.</summary>
+  /// <param name="args">The parsed arguments.</param>
+  private static List<PlanReviewFinding> ReqFindings(Dictionary<string, JsonElement> args)
+  {
+    if (!args.TryGetValue(FindingsParam, out JsonElement element)
+        || element.ValueKind != JsonValueKind.Array)
+    {
+      throw new PlanInputException($"'{FindingsParam}' is required and must be an array.");
+    }
+
+    List<PlanReviewFinding> findings = [];
+    int index = 0;
+    foreach (JsonElement item in element.EnumerateArray())
+    {
+      index++;
+      Result<PlanReviewFinding> finding = ParseFinding(item, index);
+      if (!finding.IsSuccess)
+      {
+        throw new PlanInputException(finding.Error.Message);
+      }
+
+      findings.Add(finding.Value);
+    }
+
+    return findings;
+  }
+
+  /// <summary>One finding, refused by name when it is not an object or cites nothing.</summary>
+  /// <param name="item">The finding element.</param>
+  /// <param name="index">Its 1-based position, for the refusal.</param>
+  private static Result<PlanReviewFinding> ParseFinding(JsonElement item, int index)
+  {
+    if (item.ValueKind != JsonValueKind.Object)
+    {
+      return Result.Failure<PlanReviewFinding>(new DomainError("InvalidActionInput",
+          $"'{FindingsParam}[{index}]' must be a finding object."));
+    }
+
+    string? text = null;
+    string? citation = null;
+    foreach (JsonProperty property in item.EnumerateObject())
+    {
+      if (string.Equals(property.Name, FindingText, StringComparison.Ordinal))
+      {
+        text = property.Value.ValueKind == JsonValueKind.String ? property.Value.GetString() : null;
+      }
+      else if (string.Equals(property.Name, FindingCitation, StringComparison.Ordinal))
+      {
+        citation = property.Value.ValueKind == JsonValueKind.String
+            ? property.Value.GetString()
+            : null;
+      }
+      else
+      {
+        return Result.Failure<PlanReviewFinding>(new DomainError("InvalidActionInput",
+            $"Unknown parameter '{FindingsParam}[{index}].{property.Name}'."));
+      }
+    }
+
+    return PlanReviewFinding.Create(text, citation);
   }
 
   /// <summary>Asks the ownership gate; null means 'proceed'. A provider with no gate wired
