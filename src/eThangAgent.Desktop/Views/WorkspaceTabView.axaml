@@ -38,6 +38,22 @@
     <Style Selector="Border.chain-corrupt">
       <Setter Property="Background" Value="#2EFF6B6B"/>
     </Style>
+    <!-- Issue #318 D3: a REFUTED verdict is the highest-value record in a ledger - it is what
+         stops the next session spending budget on something already disproved - so it must be
+         scannable rather than buried in a chronological list. The class carries a frame as well
+         as the colour, so the distinction survives a reader who cannot separate the hues. -->
+    <Style Selector="Border.ledger-refuted">
+      <Setter Property="Background" Value="#2EFF8A65"/>
+      <Setter Property="BorderBrush" Value="#66FF8A65"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <!-- A ledger still holding open predictions is mid-flight, so its card says so rather than
+         reading like a finished record. -->
+    <Style Selector="Border.ledger-open">
+      <Setter Property="Background" Value="#1F6F8FC9"/>
+      <Setter Property="BorderBrush" Value="#556F8FC9"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
   </UserControl.Styles>
   <!-- Issue #307 D1/D6: a workspace tab. The tab IS the workspace; what lives inside it is
        1..N agent cells laid out in a grid, and the workbench rail beside them.
@@ -292,6 +308,85 @@
                             </ItemsControl.ItemTemplate>
                           </ItemsControl>
                         </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+
+          <!-- SCIENTIFIC-METHOD LEDGER (issue #318): its OWN rail view BESIDE Plans and Chains
+               (Q18). The plan is the design, the chain is its execution, and the ledger is what
+               was LEARNED - three artifacts with three lifetimes, so each gets its own entry.
+               READ-ONLY (D1): the ledger is written by sessions through the experiment tool, and
+               this pane has no writer to offer.
+               D5: THE STORED LINE RENDERS VERBATIM. A parser that reformatted it would be a
+               second definition of the ledger's format and would break the first time a session
+               wrote something slightly different. The parse contributes the KIND (for the
+               marker and colour) and whether the verdict was refuted (D3) - never the wording. -->
+          <DockPanel IsVisible="{Binding Workbench.IsLedgerSelected, Mode=OneWay}" Margin="8,8,8,0">
+            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
+              <TextBlock Text="LEDGER" FontWeight="SemiBold" Opacity="0.8"/>
+              <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                         Text="{Binding Workbench.Ledgers.StatusLine, Mode=OneWay}" Opacity="0.6"/>
+            </DockPanel>
+            <ScrollViewer>
+              <StackPanel>
+                <!-- A load failure renders HERE, never as an empty pane: 'no ledgers' and
+                     'cannot read ledgers' must not look the same. -->
+                <SelectableTextBlock Text="{Binding Workbench.Ledgers.LoadError, Mode=OneWay}"
+                                     Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,0,0,6"
+                                     IsVisible="{Binding Workbench.Ledgers.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <TextBlock Text="No ledgers yet." Opacity="0.55" Margin="0,4"
+                           IsVisible="{Binding Workbench.Ledgers.IsEmpty, Mode=OneWay}"/>
+                <!-- D2: the LEDGERS first, each with its open-prediction count - the number
+                     that tells a user whether the loop is being run honestly, and the same one
+                     the finish gate reads. -->
+                <ItemsControl x:Name="LedgerCardList" ItemsSource="{Binding Workbench.Ledgers.Ledgers, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:LedgerCardViewModel">
+                      <!-- An open ledger is still mid-flight, so its card says so rather than
+                           reading like a finished record. -->
+                      <Border Padding="6,4" Margin="0,0,0,6" CornerRadius="4"
+                              Background="#1AFFFFFF"
+                              Classes.ledger-open="{Binding HasOpenPredictions}">
+                        <StackPanel>
+                          <SelectableTextBlock Text="{Binding Slug}" FontWeight="SemiBold"
+                                               TextWrapping="Wrap"/>
+                          <TextBlock Text="{Binding Detail}" Opacity="0.6" FontSize="11"
+                                     TextWrapping="Wrap"/>
+                          <Button Content="Open" Padding="6,0" FontSize="10.5"
+                                  Background="Transparent" BorderThickness="0"
+                                  Tag="{Binding}" Click="OnLedgerOpenClick"
+                                  ToolTip.Tip="Show this ledger's records"/>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <!-- The detail: the selected ledger's records, in stored order. A hint stands in
+                     until one is opened, so an unselected pane does not read as an empty ledger. -->
+                <TextBlock Text="Select a ledger to see its records." Opacity="0.55" Margin="0,6,0,4"
+                           IsVisible="{Binding !Workbench.Ledgers.HasSelection, Mode=OneWay}"/>
+                <TextBlock Text="This ledger has no records yet." Opacity="0.55" Margin="0,6,0,4"
+                           IsVisible="{Binding Workbench.Ledgers.SelectedIsEmpty, Mode=OneWay}"/>
+                <ItemsControl x:Name="LedgerRecordList" ItemsSource="{Binding Workbench.Ledgers.Records, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:LedgerLineViewModel">
+                      <!-- D3: a REFUTED verdict's line carries its own class, so the highest-value
+                           record in the ledger is scannable rather than buried in the list. -->
+                      <Border Padding="4,2" Margin="0,0,0,2" CornerRadius="3"
+                              Background="Transparent"
+                              Classes.ledger-refuted="{Binding IsRefuted}">
+                        <Grid ColumnDefinitions="Auto,*">
+                          <TextBlock Grid.Column="0" Text="{Binding Marker}" Margin="0,0,6,0"
+                                     Foreground="{Binding Converter={x:Static views:WorkbenchConverters.LedgerLineBrush}}"/>
+                          <!-- THE STORED LINE, VERBATIM (D5). Never a re-rendering of the
+                               parsed pieces. -->
+                          <SelectableTextBlock Grid.Column="1" Text="{Binding Text}"
+                                               TextWrapping="Wrap" FontSize="11.5"/>
+                        </Grid>
                       </Border>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>

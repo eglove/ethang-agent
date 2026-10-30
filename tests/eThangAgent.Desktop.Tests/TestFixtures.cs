@@ -257,6 +257,76 @@ runner,
     return new AgentTabViewModel(FakeSessionFor(vm), vm, workbench);
   }
 
+  /// <summary>Builds a workspace tab whose rail renders LEDGERS (issue #318), so a layout test can
+  ///     assert the pane really draws and a refuted verdict really carries its own style class.
+  ///     <para>The rail is built HERE rather than by the tab, for the reason
+  ///     <see cref="CreateTabWithChains"/> builds its own: the tab's rail comes from the
+  ///     session's container, and a headless fixture has none.</para></summary>
+  /// <param name="ledgers">The ledger values, keyed by state key.</param>
+  internal static AgentTabViewModel CreateTabWithLedgers(IReadOnlyDictionary<string, string> ledgers)
+  {
+    ArgumentNullException.ThrowIfNull(ledgers);
+    AgentSessionViewModel vm = CreateViewModel();
+    FakeLedgerAccess access = new();
+    foreach ((string key, string value) in ledgers)
+    {
+      access.Ledgers[key] = value;
+    }
+
+    // OWNERSHIP TRANSFERS TO THE TAB, which is what CA2000 cannot see: the rail owns its views,
+    // the tab owns the rail, and the tab disposes it - the MainViewModel.BuildWorkbench shape.
+#pragma warning disable CA2000 // Ownership is transferred to the tab, which disposes the rail.
+    WorkbenchViewModel workbench = BuildLedgerWorkbench(vm.WorkspaceRoot, access);
+#pragma warning restore CA2000
+    workbench.Ledgers.Start();
+    return new AgentTabViewModel(FakeSessionFor(vm), vm, workbench);
+  }
+
+  /// <summary>An in-memory ledger access for the UI fixtures: enough to render, never to mutate.
+  ///     <para>Its summary list is built through the SAME <c>ExperimentLedgerReader</c> the
+  ///     production adapter uses, so a fixture cannot disagree with the real read about a
+  ///     ledger's counts.</para></summary>
+  internal sealed class FakeLedgerAccess : ToolDomain.IExperimentLedgerAccess
+  {
+    public Dictionary<string, string> Ledgers { get; } = new(StringComparer.Ordinal);
+
+    public Task<Result<IReadOnlyList<ToolDomain.LedgerSummary>>> ListAsync(CancellationToken ct = default)
+    {
+      IReadOnlyList<ToolDomain.LedgerSummary> summaries =
+      [
+          .. Ledgers.Select(entry =>
+          {
+            ToolDomain.ExperimentLedgerSnapshot snapshot = ToolDomain.ExperimentLedgerReader.Read(entry.Value);
+            return new ToolDomain.LedgerSummary(entry.Key,
+                ToolDomain.ExperimentLedgerKey.SlugOf(entry.Key),
+                snapshot.RecordCount, snapshot.OpenPredictions);
+          }),
+      ];
+      return Task.FromResult(Result.Success(summaries));
+    }
+
+    public Task<Result<ToolDomain.ExperimentLedgerSnapshot>> ReadAsync(string key, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(Ledgers.TryGetValue(key, out string? value)
+          ? ToolDomain.ExperimentLedgerReader.Read(value)
+          : ToolDomain.ExperimentLedgerSnapshot.Empty));
+  }
+
+  /// <summary>The rail for a ledger fixture. The rail OWNS its views and the tab owns the rail, so
+  ///     ownership transfers here and nothing is leaked un-disposed.</summary>
+  /// <param name="workspaceRoot">The workspace the views read.</param>
+  /// <param name="access">The ledger access the Ledger view renders.</param>
+  // CA2000: the caller owns the rail and disposes it; the views are the rail's to dispose.
+#pragma warning disable CA2000 // Ownership is transferred to the caller.
+  private static WorkbenchViewModel BuildLedgerWorkbench(string workspaceRoot,
+      ToolDomain.IExperimentLedgerAccess access) => new(
+      new PlansViewViewModel(plans: null, signal: null, render => render()),
+      new GitViewViewModel(workspaceRoot, git: null, render => render()),
+      new SubagentPanelViewModel(store: null),
+      new PullRequestPaneViewModel(workspaceRoot, github: null, render => render()),
+      chains: null,
+      new LedgerViewViewModel(access, signal: null, render => render()));
+#pragma warning restore CA2000
+
   /// <summary>An in-memory chain store for the UI fixtures: enough to render, never to mutate.
   ///     </summary>
   internal sealed class FakeChainStore : IChainStore

@@ -437,6 +437,7 @@ public static class AgentComposition
         .AddSingleton<IStateStore, SqliteStateStore>()
         .AddPlanServices()
         .AddChainServices()
+        .AddLedgerViewServices()
         // Workspace identity (issue #317 D5): the store that maps a stable id to the directory it
         // currently lives at, and the marker-file resolver over it. Registered UNSCOPED on purpose
         // - the identity table DEFINES the scopes, so binding it to one workspace would make it
@@ -482,6 +483,21 @@ public static class AgentComposition
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
             sp.GetRequiredService<AppDatabase>()));
+  }
+
+  /// <summary>The workbench's ledger read port (issue #318).
+  ///     <para>READ-ONLY BY CONSTRUCTION (D1): the port exposes the two reads and nothing else, so
+  ///     the rail view cannot write a ledger even by accident. The experiment tool keeps the
+  ///     write side through <see cref="IExperimentLedgerStore"/>.</para>
+  ///     <para>Its own method because <c>AddPersistenceServices</c> is at the length limit S138
+  ///     enforces - the same reason <c>AddPlanServices</c> and <c>AddChainServices</c> exist.
+  ///     </para></summary>
+  private static IServiceCollection AddLedgerViewServices(this IServiceCollection wired)
+  {
+    return wired
+        .AddSingleton<IExperimentLedgerAccess>(sp => new StateExperimentLedgerAccess(
+            sp.GetRequiredService<IStateStore>(),
+            sp.GetRequiredService<IWorkspaceContext>()));
   }
 
   /// <summary>The plan record and its child, the plan REVIEW record (issue #216), registered
@@ -890,7 +906,33 @@ public static class AgentComposition
         .AddSingleton<IGoalCommandRunner>(sp => new ShellGoalCommandRunner(
             sp.GetRequiredService<IShellCommandAccess>(),
             sp.GetRequiredService<GoalRunnerOptions>()))
-        .AddSingleton<IStateService, StateService>()
+        // The state-change publisher (issue #318) is WIRED INSIDE THE SERVICE'S OWN FACTORY,
+        // for the reason PlanChangePublisher and ChainChangePublisher are: DI is lazy and nothing
+        // resolves the publisher by name, so a separate registration would never be constructed -
+        // it would subscribe to nothing and every state change would fire into no listener.
+        // Wiring it as StateService is built makes the subscription a property of the service
+        // existing at all, which is the only ordering that cannot be forgotten.
+        //
+        // WHY A TRANSLATION IS NEEDED AT ALL: IStateChangeBus is IN-PROCESS, while every
+        // production turn runs in the ChildHost process. A rail view subscribes the APP
+        // container's stream, so without this the ledger view would listen to a bus nobody
+        // publishes on and stay silently stale forever while every unit test passed.
+        .AddSingleton<IStateService>(sp =>
+        {
+          StateService service = new(
+              sp.GetRequiredService<IStateStore>(),
+              sp.GetRequiredService<IEvidenceRunner>(),
+              sp.GetRequiredService<IWorkspaceContext>(),
+              sp.GetRequiredService<IStateChangeBus>(),
+              sp.GetRequiredService<IGoalCommandRunner>(),
+              sp.GetRequiredService<IWorkspaceSnapshotAccess>());
+          _ = new StateChangePublisher(sp.GetRequiredService<IStateChangeBus>(),
+              sp.GetRequiredService<IAgentEvents>(),
+              () => SubAgentSpawner.RunningChild?.Id
+                  ?? sp.GetRequiredService<RootSessionIdentity>().Id
+                  ?? AgentId.NewId());
+          return service;
+        })
         .AddSingleton<StateCapabilityProvider>()
         .AddSingleton(sp => new PlanCapabilityProvider(
             sp.GetRequiredService<PlanService>(),

@@ -131,6 +131,14 @@ internal sealed record AgentSessionViewModelOptions
   ///     pane - the shape every other rail view follows.</summary>
   public ChainService? Chains { get; init; }
 
+  /// <summary>The workbench's ledger view seam (issue #318): the read-only ledger access the
+  ///     rail reads. Null = the view renders its unavailable state (headless stubs), never a blank
+  ///     pane - the shape every other rail view follows.
+  ///     <para>DELIBERATELY NOT <c>IStateService</c>: the view must never be able to WRITE a
+  ///     ledger (D1), and a read-only port enforces that with the type system rather than with
+  ///     discipline.</para></summary>
+  public IExperimentLedgerAccess? Ledgers { get; init; }
+
   /// <summary>Opens a chain step's session from the rail (issue #312): the same act the Sessions
   ///     menu performs, which is what keeps the view read-only except for this one operation.
   ///     Null = the view reports that it has no way to open a session.</summary>
@@ -478,7 +486,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
           render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
       // The chain view (issue #312). A session that was handed no chain seam renders the view's
       // unavailable state rather than a blank pane - the shape every other rail view follows.
-      BuildChainsView(options));
+      BuildChainsView(options),
+      // The ledger view (issue #318): the third durable record, its own rail entry (Q18).
+      BuildLedgerView(options));
 
   /// <summary>The chain view this session's own rail carries (issue #312). Production never takes
   ///     this path - the shell builds one rail per tab and shares it - but a headless host gets a
@@ -491,6 +501,20 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
         events: options.Events,
         resumeSession: options.ResumeSession);
+    view.Start();
+    return view;
+  }
+
+  /// <summary>The ledger view this session's own rail carries (issue #318). Production never takes
+  ///     this path - the shell builds one rail per tab and shares it - but a headless host gets a
+  ///     working pane rather than a blank one.</summary>
+  private static LedgerViewViewModel BuildLedgerView(AgentSessionViewModelOptions options)
+  {
+    LedgerViewViewModel view = new(
+        options.Ledgers,
+        options.ChangeSignal,
+        render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
+        events: options.Events);
     view.Start();
     return view;
   }

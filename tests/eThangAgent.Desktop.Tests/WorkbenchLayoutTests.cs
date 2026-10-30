@@ -364,6 +364,107 @@ public class WorkbenchLayoutTests
     window.Close();
   }
 
+  /// <summary>Issue #318: the ledger view is its OWN rail entry BESIDE Plans and Chains, so
+  ///     selecting it renders the ledger list and hides the plan list. The assertion is against
+  ///     real visibility in the SAME content border - a view-model flag alone never proved a pane
+  ///     drew.</summary>
+  [AvaloniaFact]
+  public void SelectingTheLedgerIcon_RendersTheLedgerPane_AndHidesThePlans()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTabWithLedgers(LedgerFixtures());
+    Window window = new() { Width = 1200, Height = 700, Content = new WorkspaceTabView { DataContext = tab } };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    WorkspaceTabView view = (WorkspaceTabView)window.Content;
+
+    tab.Workbench.Select(WorkbenchView.Ledger);
+    Dispatcher.UIThread.RunJobs();
+
+    ItemsControl ledgerList = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "LedgerCardList");
+    ItemsControl planList = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "PlanCardList");
+
+    Assert.True(ledgerList.IsEffectivelyVisible, "the ledger list must render when the Ledger icon is selected");
+    Assert.False(planList.IsEffectivelyVisible, "the plans list must not render at the same time");
+    window.Close();
+  }
+
+  /// <summary>The Ledger icon is AVAILABLE: a dimmed icon is how the workbench says a view is not
+  ///     built yet, and issue #318 built this one.</summary>
+  [AvaloniaFact]
+  public void TheLedgerIcon_IsAvailable_AndSelectable()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTabWithLedgers(LedgerFixtures());
+    Window window = new() { Width = 1200, Height = 700, Content = new WorkspaceTabView { DataContext = tab } };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    WorkbenchIconViewModel icon = tab.Workbench.Icons.First(i => i.View == WorkbenchView.Ledger);
+    Assert.True(icon.IsAvailable, "the Ledger view is built, so its icon must not be dimmed");
+
+    tab.Workbench.Select(WorkbenchView.Ledger);
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.Equal(WorkbenchView.Ledger, tab.Workbench.SelectedView);
+    Assert.True(tab.Workbench.IsLedgerSelected);
+    window.Close();
+  }
+
+  /// <summary>Issue #318 D3, asserted against the REAL RENDERED LINE rather than the view-model: a
+  ///     refuted verdict's line must carry the refuted style class, and a confirmed one's must
+  ///     not. A line that looked identical in both cases would bury the highest-value record in
+  ///     the ledger - the one that stops the next session spending budget on something already
+  ///     disproved.</summary>
+  [AvaloniaFact]
+  public void ARefutedVerdictLine_CarriesItsOwnStyleClass_AConfirmedOneDoesNot()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTabWithLedgers(LedgerFixtures());
+    Window window = new() { Width = 1200, Height = 900, Content = new WorkspaceTabView { DataContext = tab } };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    WorkspaceTabView view = (WorkspaceTabView)window.Content;
+
+    tab.Workbench.Select(WorkbenchView.Ledger);
+    Dispatcher.UIThread.RunJobs();
+    // Open the ledger carrying the refuted verdict, SELECTED BY SLUG rather than by position: the
+    // list orders open-predictions-first and then by slug, so an index would silently pick the
+    // other fixture and assert against a confirmed verdict.
+    LedgerCardViewModel refuting = tab.Workbench.Ledgers.Ledgers
+        .First(card => card.Slug == "318-ledger-view");
+    tab.Workbench.Ledgers.SelectAsync(refuting, CancellationToken.None).GetAwaiter().GetResult();
+    Dispatcher.UIThread.RunJobs();
+
+    // The class is asserted through the LINE it decorates rather than by counting borders: a
+    // template realizes several borders per item, and a count would be a fact about Avalonia's
+    // templating rather than about the distinction under test.
+    List<Border> refutedLines = [.. view.GetVisualDescendants().OfType<Border>()
+        .Where(b => b.Classes.Contains("ledger-refuted"))];
+    Border refuted = Assert.Single(refutedLines);
+    Assert.True(((LedgerLineViewModel)refuted.DataContext!).IsRefuted,
+        "only a refuted verdict's line may carry the refuted class");
+    Assert.DoesNotContain(
+        view.GetVisualDescendants().OfType<Border>()
+            .Where(b => b.DataContext is LedgerLineViewModel { IsRefuted: false }),
+        b => b.Classes.Contains("ledger-refuted"));
+    window.Close();
+  }
+
+  /// <summary>A workspace's ledgers for the layout fixtures: one mid-flight with a refuted verdict,
+  ///     and one finished. The two let a test show the refuted class is a DIFFERENCE rather than
+  ///     something every line carries.</summary>
+  private static Dictionary<string, string> LedgerFixtures() => new(StringComparer.Ordinal)
+  {
+    ["sci.318-ledger-view/ledger"] =
+        "hypothesis 1: the watcher sees changes\n" +
+        "prediction 1 (hypothesis 1): a no-op rewrite fires it \u2014 falsified by: touch f.txt\n" +
+        "verdict 1 (prediction 1): refuted \u2014 two Changed events, bytes identical",
+    ["sci.312-chain-view/ledger"] =
+        "hypothesis 1: the rail goes dark silently\n" +
+        "prediction 1 (hypothesis 1): an unregistered kind drops \u2014 falsified by: decode it\n" +
+        "verdict 1 (prediction 1): confirmed \u2014 decoded null",
+  };
+
   /// <summary>A parked chain for the layout fixtures: one step claimed by a session, the chain
   ///     waiting at it with a reason.</summary>
   private static AgentDomain.Chain ParkedChain()

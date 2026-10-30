@@ -3,16 +3,21 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>The workbench's view identities (design D8: six icons for nine views, grouped).
-///     <see cref="Plans"/>, <see cref="Chains"/>, <see cref="Git"/>, <see cref="GitHub"/>, and
-///     <see cref="Progress"/> are implemented; the rest are named here so the strip's shape is
-///     settled and a later view is a case, not a redesign.
+///     <see cref="Plans"/>, <see cref="Chains"/>, <see cref="Ledger"/>, <see cref="Git"/>,
+///     <see cref="GitHub"/>, and <see cref="Progress"/> are implemented; the rest are named here
+///     so the strip's shape is settled and a later view is a case, not a redesign.
 ///     <para><see cref="Chains"/> sits BESIDE <see cref="Plans"/> rather than inside it (issue
 ///     #312 D5): a plan is the design and a chain is its execution, so they are different
-///     artifacts with different lifetimes and each gets its own entry.</para></summary>
+///     artifacts with different lifetimes and each gets its own entry.</para>
+///     <para><see cref="Ledger"/> is the THIRD of that kind (issue #318, stakeholder Q18): the
+///     plan is the design, the chain is its execution, and the ledger is what was LEARNED. Three
+///     artifacts with three lifetimes, so each gets its own entry rather than a section inside
+///     another.</para></summary>
 internal enum WorkbenchView
 {
   Plans,
   Chains,
+  Ledger,
   Git,
   Files,
   Progress,
@@ -54,13 +59,15 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
       GitViewViewModel git,
       SubagentPanelViewModel subagents,
       PullRequestPaneViewModel pullRequests,
-      ChainsViewViewModel? chains = null)
+      ChainsViewViewModel? chains = null,
+      LedgerViewViewModel? ledgers = null)
   {
     Plans = plans ?? throw new ArgumentNullException(nameof(plans));
     Git = git ?? throw new ArgumentNullException(nameof(git));
     Subagents = subagents ?? throw new ArgumentNullException(nameof(subagents));
     PullRequests = pullRequests ?? throw new ArgumentNullException(nameof(pullRequests));
     Chains = chains ?? ChainsViewViewModel.CreateUnavailable();
+    Ledgers = ledgers ?? LedgerViewViewModel.CreateUnavailable();
     Icons =
     [
       new WorkbenchIconViewModel(WorkbenchView.Plans, "\U0001F4CB", "Plans") { IsAvailable = true },
@@ -68,6 +75,10 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
       // the chain is its execution, and the badge count on this icon is what makes a chain
       // waiting for a human visible from the strip without opening the pane.
       new WorkbenchIconViewModel(WorkbenchView.Chains, "\U0001F517", "Chains") { IsAvailable = true },
+      // The LEDGER view (issue #318) is the third of the same kind: the plan is the design, the
+      // chain is its execution, and the ledger is what was learned. Its own entry for the same
+      // reason (Q18) - a user looking for one does not scan past the others.
+      new WorkbenchIconViewModel(WorkbenchView.Ledger, "\U0001F9EA", "Scientific-method ledger") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Git, "\U0001F33F", "Git status and diff") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Files, "\U0001F5C2", "File tree (not yet built)"),
       // The Progress view IS the subagent accordion this workbench generalizes (D5):
@@ -90,6 +101,13 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   ///     badge mirrors (D6): the rail may be closed, and a chain waiting for a human is the one
   ///     thing in this application that needs attention.</para></summary>
   public ChainsViewViewModel Chains { get; }
+
+  /// <summary>The scientific-method ledger view (issue #318): the workspace's experiment ledgers,
+  ///     each with its open-prediction count, and the records inside one. Its OWN rail entry
+  ///     beside Plans and Chains (Q18) - three artifacts, three lifetimes.
+  ///     <para>Read-only (D1): the ledger is written by sessions through the experiment tool, and
+  ///     the view has no writer to offer.</para></summary>
+  public LedgerViewViewModel Ledgers { get; }
 
   /// <summary>The git status and diff view (issue #9): branch, working-tree changes, and
   ///     the selected path's diff, refreshed by a watch over the workspace root.</summary>
@@ -122,6 +140,9 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   /// <summary>True while the Chains view is the selected one (issue #312).</summary>
   public bool IsChainsSelected => SelectedView == WorkbenchView.Chains;
 
+  /// <summary>True while the ledger view is the selected one (issue #318).</summary>
+  public bool IsLedgerSelected => SelectedView == WorkbenchView.Ledger;
+
   /// <summary>True while the live-progress view is the selected one.</summary>
   public bool IsProgressSelected => SelectedView == WorkbenchView.Progress;
 
@@ -152,6 +173,7 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     OnPropertyChanged(nameof(IsPlansSelected));
     OnPropertyChanged(nameof(IsChainsSelected));
+    OnPropertyChanged(nameof(IsLedgerSelected));
     OnPropertyChanged(nameof(IsProgressSelected));
     OnPropertyChanged(nameof(IsGitSelected));
     OnPropertyChanged(nameof(IsGitHubSelected));
@@ -175,6 +197,12 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
       Chains.Start();
       _ = Chains.RefreshAsync(CancellationToken.None);
+    }
+
+    if (view == WorkbenchView.Ledger)
+    {
+      Ledgers.Start();
+      _ = Ledgers.RefreshAsync(CancellationToken.None);
     }
 
     if (view == WorkbenchView.Git)
@@ -205,6 +233,7 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   {
     Plans.Dispose();
     Chains.Dispose();
+    Ledgers.Dispose();
     Git.Dispose();
     PullRequests.Dispose();
   }

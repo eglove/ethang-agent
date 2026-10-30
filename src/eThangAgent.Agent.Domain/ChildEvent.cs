@@ -99,6 +99,25 @@ public sealed record PlanChangedEvent(AgentId ChildId, DateTimeOffset At, int Pl
 public sealed record ChainChangedEvent(AgentId ChildId, DateTimeOffset At, int ChainId, string Change, string? Status)
     : ChildEvent(ChildId, At);
 
+/// <summary>A DURABLE STATE KEY changed (issue #318): a set, an append, or a delete.
+///     <para>WHY A FACT ON THIS STREAM RATHER THAN A BUS SUBSCRIPTION: <c>IStateChangeBus</c>
+///     is IN-PROCESS and session-scoped, and every production turn runs in the ChildHost
+///     process - so a rail view subscribing the APP container's bus subscribes to a bus that
+///     nobody publishes on, and it would stay silently stale forever while every unit test
+///     passed. That is the exact defect <see cref="PlanChangedEvent"/> and
+///     <see cref="ChainChangedEvent"/> exist to close, and the ledger view needs the same
+///     treatment for the same reason.</para>
+///     <para><paramref name="ChildId"/> is the AUTHORING agent, as the plan and chain facts'
+///     is. <paramref name="Key"/> is the namespaced key (e.g. <c>sci.my-plan/ledger</c>) and
+///     <paramref name="Change"/> is a short tag (set | append | delete) - metadata only
+///     (D5), NEVER the stored value. A view told a key moved re-reads it; the record says
+///     what it now holds.</para>
+///     <para>THE VALUE IS DELIBERATELY ABSENT for the same reason the chain fact omits its park
+///     reason: a ledger can be a hundred kilobytes, and shipping it on every append would put
+///     the whole record on the wire to announce that one line joined it.</para></summary>
+public sealed record StateChangedEvent(AgentId ChildId, DateTimeOffset At, string Key, string Change)
+    : ChildEvent(ChildId, At);
+
 /// <summary>A RUNNING child's provider stream went silent past the stall threshold.
 ///     Informational: the child is still running; consumers (waits, UI) decide.
 ///     LastActivityKind is "content" or "reasoning" — the last stream fragment type seen.</summary>

@@ -2,6 +2,7 @@ using Avalonia.Data.Converters;
 using Avalonia.Media;
 using eThangAgent.AgentDomain;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Views;
 
@@ -54,6 +55,40 @@ internal static class WorkbenchConverters
         ChainStepStatus.Skipped => new SolidColorBrush(Color.Parse("#B9C2D4")),
         _ => Brushes.Transparent,
       });
+
+  /// <summary>The ledger line colour (issue #318 D3): a REFUTED verdict is amber-red, because it
+  ///     is the highest-value record in a ledger - it is what stops the next session spending
+  ///     budget on something already disproved - and it must be scannable rather than buried in
+  ///     a chronological list.
+  ///     <para>COLOUR IS THE SECOND CUE, never the only one: a refuted verdict also carries its
+  ///     own marker glyph and its own card class, so a reader who cannot distinguish the hue
+  ///     still gets the fact.</para></summary>
+  public static readonly IValueConverter LedgerLineBrush =
+      new FuncValueConverter<LedgerLineViewModel, IBrush>(line =>
+          line is null ? Brushes.Transparent : LedgerLineColor(line));
+
+  /// <summary>The ledger line's brush. A separate method rather than an inline conditional: a
+  ///     refuted verdict outranks its kind, and folding that precedence into the null check
+  ///     would hide the one rule the colour exists to express.</summary>
+  /// <param name="line">The line being coloured.</param>
+  private static IBrush LedgerLineColor(LedgerLineViewModel line) =>
+      line.IsRefuted ? new SolidColorBrush(Color.Parse("#FF8A65")) : LedgerKindColor(line.Kind);
+
+  /// <summary>The colour a record kind renders as, once the refuted verdict's precedence is
+  ///     settled. Its own method so neither the precedence nor the kind set has to carry the
+  ///     other's complexity.</summary>
+  /// <param name="kind">The record kind.</param>
+  private static IBrush LedgerKindColor(ExperimentRecordKind kind) => kind switch
+  {
+    ExperimentRecordKind.Hypothesis => new SolidColorBrush(Color.Parse("#B9C2D4")),
+    ExperimentRecordKind.Prediction => new SolidColorBrush(Color.Parse("#6F8FC9")),
+    ExperimentRecordKind.Verdict => new SolidColorBrush(Color.Parse("#5FD18B")),
+    ExperimentRecordKind.Observation => new SolidColorBrush(Color.Parse("#B9C2D4")),
+    ExperimentRecordKind.Conclusion => new SolidColorBrush(Color.Parse("#FFB454")),
+    ExperimentRecordKind.Skip => new SolidColorBrush(Color.Parse("#B9C2D4")),
+    ExperimentRecordKind.Unrecognized => new SolidColorBrush(Color.Parse("#8A8A8A")),
+    _ => Brushes.Transparent,
+  };
 
   /// <summary>The expand/collapse button's label, derived from the state it toggles rather than
   ///     held beside it - a label and a flag that can disagree is one of them lying.</summary>

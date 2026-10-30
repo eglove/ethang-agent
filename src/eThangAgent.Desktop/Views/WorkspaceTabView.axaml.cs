@@ -195,6 +195,21 @@ internal partial class WorkspaceTabView : UserControl
     }
   }
 
+  /// <summary>Opens one ledger's records (issue #318 D2): the view has no other action, because
+  ///     the ledger is written by sessions through the experiment tool and this pane is read-only
+  ///     (D1).
+  ///     <para>Fire-and-forget by design, like the chain view's action: the read goes to the
+  ///     database, and blocking the click handler on it would freeze the shell for its duration.
+  ///     The view-model records its own refusal in <c>LoadError</c>, so there is no outcome here
+  ///     for a caller to act on.</para></summary>
+  private void OnLedgerOpenClick(object? sender, RoutedEventArgs e)
+  {
+    if (sender is Button { Tag: LedgerCardViewModel card } && Vm is { } vm)
+    {
+      _ = vm.Workbench.Ledgers.SelectAsync(card, CancellationToken.None);
+    }
+  }
+
   /// <summary>Dismisses a FINISHED cell (D7). The card is removed only when the tab agrees -
   ///     a running cell or the primary cell is refused - so a click can never orphan a live
   ///     session or leave a tab whose primary session names nothing.</summary>

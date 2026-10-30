@@ -122,4 +122,38 @@ public class ReceiptEventWireTests
 
     Assert.Null(restored.Status);
   }
+
+  /// <summary>Issue #318: the state fact must survive the wire, for the reason the plan and chain
+  ///     facts must. Every production conversation runs in a host process, and the ledger is
+  ///     APPENDED there by the experiment tool - so a ledger write only reaches the app's ledger
+  ///     view if this kind is REGISTERED. An unregistered kind decodes to null and is silently
+  ///     dropped by the pump, which is exactly how the rail would go dark in production while
+  ///     every unit test passed.</summary>
+  [Fact]
+  public void StateChangedEvent_IsRegisteredAndRoundTrips()
+  {
+    AgentId author = AgentId.NewId();
+    StateChangedEvent original = new(author, DateTimeOffset.UtcNow, "sci.my-plan/ledger", "append");
+
+    ChildEventEnvelope envelope = ChildEventEnvelope.From(original);
+    ChildEvent? decoded = envelope.Decode();
+
+    Assert.Equal(nameof(StateChangedEvent), envelope.EventKind);
+    StateChangedEvent restored = Assert.IsType<StateChangedEvent>(decoded);
+    Assert.Equal("sci.my-plan/ledger", restored.Key);
+    Assert.Equal("append", restored.Change);
+    Assert.Equal(author, restored.ChildId);
+  }
+
+  /// <summary>The state fact carries METADATA ONLY: a ledger can be a hundred kilobytes, so
+  ///     announcing that one line joined it must not put the whole record on the wire. Pinned
+  ///     against the type's own shape, because a member added later would silently start
+  ///     shipping the value.</summary>
+  [Fact]
+  public void StateChangedEvent_CarriesNoStoredValue()
+  {
+    string[] members = [.. typeof(StateChangedEvent).GetProperties().Select(p => p.Name)];
+
+    Assert.Equal(["At", "Change", "ChildId", "Key"], members.OrderBy(n => n, StringComparer.Ordinal));
+  }
 }

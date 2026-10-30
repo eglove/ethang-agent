@@ -1984,7 +1984,10 @@ internal sealed partial class MainViewModel : ObservableObject
       // The CHAIN view (issue #312): the chain store is workspace-scoped, so the view is the
       // tab's. Its PRIMARY source is the ChainChangedEvent the host forwards over the wire; the
       // change signal is the backstop for a write that published no fact.
-      BuildChainsView(session));
+      BuildChainsView(session),
+      // The LEDGER view (issue #318): the state keys are workspace-scoped too, and its primary
+      // source is the StateChangedEvent the host forwards over the wire.
+      BuildLedgerView(session));
 
   /// <summary>The tab's chain view (issue #312): the workspace's chains, event-driven off
   ///     <see cref="ChainChangedEvent"/> with the change signal as a backstop, and the one action
@@ -2006,6 +2009,22 @@ internal sealed partial class MainViewModel : ObservableObject
             : Task.CompletedTask);
     // The parked count is needed BEFORE anyone opens the rail (D6), so the read starts with the
     // tab rather than with the first selection of the view.
+    view.Start();
+    return view;
+  }
+
+  /// <summary>The tab's ledger view (issue #318): the workspace's experiment ledgers, event-driven
+  ///     off <see cref="StateChangedEvent"/> with the change signal as a backstop.
+  ///     <para>EVERY SEAM IS OPTIONAL, so a container that wired no state machinery renders the
+  ///     view's unavailable state rather than a blank pane - the shape every other rail view
+  ///     follows.</para></summary>
+  private static LedgerViewViewModel BuildLedgerView(AgentSession session)
+  {
+    LedgerViewViewModel view = new(
+        session.Services.GetService<IExperimentLedgerAccess>(),
+        session.Services.GetService<IChangeSignal>(),
+        render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
+        events: session.Services.GetService<IAgentEvents>());
     view.Start();
     return view;
   }
@@ -2109,6 +2128,8 @@ internal sealed partial class MainViewModel : ObservableObject
           // Issue #312: the chain view's seams, so a session that builds its OWN rail (a
           // headless host) renders chains rather than the unavailable state.
           Chains = session.Services.GetService<ChainService>(),
+          // Issue #318: the ledger view's read-only seam, same reason.
+          Ledgers = session.Services.GetService<IExperimentLedgerAccess>(),
           ResumeSession = sessionId => Guid.TryParse(sessionId, out Guid id)
               ? ResumeChainStepSessionAsync(new AgentId(id))
               : Task.CompletedTask,

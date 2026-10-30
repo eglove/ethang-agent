@@ -1,8 +1,12 @@
 namespace eThangAgent.ToolDomain;
 
 /// <summary>The record kinds the experiment tool writes to a ledger, plus
-///     <see cref="Unrecognized"/> for a stored line the tool did not write.</summary>
-internal enum ExperimentRecordKind { Unrecognized, Hypothesis, Prediction, Verdict, Observation, Conclusion, Skip }
+///     <see cref="Unrecognized"/> for a stored line the tool did not write.
+///     <para>PUBLIC because a ledger has readers besides its writer (issue #318): the workbench's
+///     ledger view renders each record and must say what kind it is. A reader-side enum with the
+///     same members would be a SECOND definition of the ledger's vocabulary - the thing D5
+///     forbids for the format, and the same argument applies to its words.</para></summary>
+public enum ExperimentRecordKind { Unrecognized, Hypothesis, Prediction, Verdict, Observation, Conclusion, Skip }
 
 /// <summary>One parsed ledger line. <see cref="Id"/> is the record's own sequence
 ///     number (0 for an unrecognized line), <see cref="Reference"/> the record it
