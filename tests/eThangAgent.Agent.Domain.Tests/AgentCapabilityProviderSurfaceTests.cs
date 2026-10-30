@@ -17,6 +17,42 @@ public class AgentCapabilityProviderSurfaceTests
     Assert.Equal(actual, declared);
   }
 
+  /// <summary>Issue #316: the six agent-to-agent messaging actions are GONE from the
+  ///     surface, not merely undocumented. A retired action that still resolves is a working
+  ///     message channel a future session would build on, which is exactly what the issue
+  ///     exists to prevent. Pinned against BOTH the literal list the grant surface reads and
+  ///     the real descriptors, so the two cannot drift apart on this.</summary>
+  [Fact]
+  public void ActionNames_ExcludeEveryRetiredMessagingAction()
+  {
+    string[] retired =
+        ["send", "receipts", "route", "escalate", "notify-subtree", "notify-ancestors"];
+    AgentCapabilityProvider provider = MakeBare();
+    string[] actual = [.. provider.Actions.Select(a => a.Name)];
+
+    foreach (string action in retired)
+    {
+      Assert.DoesNotContain(action, actual);
+      Assert.DoesNotContain(action, AgentCapabilityProvider.ActionNames);
+    }
+  }
+
+  /// <summary>Issue #316 D5: the DRAIN fact survives the retirement, and it is the fact the two
+  ///     Desktop rendering contracts ride (the pinned steering echo's release and the tab
+  ///     badge's clear). Retiring it would leave steering working while its rendering silently
+  ///     broke - the worst shape of failure, because nothing errors. This pins that the event
+  ///     still exists and still names the ids it consumed.</summary>
+  [Fact]
+  public void MailboxDrainedEvent_StillNamesTheIdsItConsumed()
+  {
+    Guid first = Guid.NewGuid();
+    Guid second = Guid.NewGuid();
+    MailboxDrainedEvent drained = new(AgentId.NewId(), DateTimeOffset.UtcNow, [first, second]);
+
+    Assert.Equal([first, second], drained.MessageIds);
+    Assert.Equal(2, drained.Count);
+  }
+
   [Fact]
   public void ActionNames_ExposeResume()
   {

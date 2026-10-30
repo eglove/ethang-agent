@@ -281,60 +281,45 @@ public class InProcessAgentRuntimeQueueTests
   }
 
   [Fact]
-  public async Task AdmissionFault_TerminalizesTheRecord_AndSettlesItsWaiterWithTheFailure()
+  public async Task RunFault_TerminalizesTheRecord_AndSettlesItsWaiterWithTheFailure()
   {
-    KeyedGateRunner runner = new();
+    // A RUN fault is the fault this runtime can actually meet: the runner throws instead of
+    // running. It must become a well-formed Failed outcome the parent can retrieve, never an
+    // escaping exception that strands a Running row.
+    //
+    // WHY NOT A CORRUPT CONTRACT (issue #316): that used to fault ADMISSION, because the
+    // runtime decoded the agreement to read the preemption grant. Preemption is retired with
+    // agent-to-agent messaging, so nothing on the admission path reads the contract any more -
+    // the spawner still does, and its fault now surfaces through the runner, which is exactly
+    // the path this test drives. Keeping the old fixture would have asserted a fault that no
+    // longer exists rather than the invariant that must survive.
+    FaultingRunner runner = new();
     RecordingStore store = new();
-    InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 1);
-    AgentRecord running = QueuedChild("first") with { Status = AgentStatus.Running };
-    // A corrupt contract column is the real-world admission fault: the runtime cannot
-    // decode the agreement it is about to enact.
-    AgentRecord corrupt = QueuedChild("corrupt") with { Contract = "{not-json" };
-    store.Records[running.Id.Value] = running;
-    store.Records[corrupt.Id.Value] = corrupt;
+    InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 2);
+    AgentRecord child = QueuedChild("faulty") with { Status = AgentStatus.Running };
+    store.Records[child.Id.Value] = child;
 
-    _ = await runtime.Start(running, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = await runner.DispatchedAsync(running.Id).ConfigureAwait(true);
-    _ = await runtime.Start(corrupt, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Task<Result<AgentRunOutcome>> waiting = runtime.WhenSettledAsync(corrupt.Id, TestContext.Current.CancellationToken);
-
-    runner.Complete(running.Id, "first done");
+    _ = await runtime.Start(child, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Task<Result<AgentRunOutcome>> waiting = runtime.WhenSettledAsync(child.Id, TestContext.Current.CancellationToken);
 
     Result<AgentRunOutcome> outcome = await waiting.WaitAsync(TimeSpan.FromSeconds(10),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(outcome.IsSuccess, outcome.Error?.Message);
     Assert.Equal(AgentStatus.Failed, outcome.Value.Status);
+    Assert.Equal(AgentFailureReason.ProviderError, outcome.Value.Reason);
 
     bool failed = await SpinUntilAsync(() =>
-        store.Records[corrupt.Id.Value].Status is AgentStatus.Failed).ConfigureAwait(true);
-    Assert.True(failed, "an admission fault must terminalize the record, never leave it Running");
-    Assert.Contains("admission", store.Records[corrupt.Id.Value].FinalReport!, StringComparison.OrdinalIgnoreCase);
+        store.Records[child.Id.Value].Status is AgentStatus.Failed).ConfigureAwait(true);
+    Assert.True(failed, "a run fault must terminalize the record, never leave it Running");
+    Assert.Contains("ProviderError", store.Records[child.Id.Value].FinalReport!, StringComparison.OrdinalIgnoreCase);
   }
 
-  [Fact]
-  public async Task Deliver_QueuedSpawn_IsAcceptedIntoItsMailbox()
+  /// <summary>A runner that always throws: the run never completes normally, so the runtime
+  ///     must convert the fault into a terminal outcome for its waiters.</summary>
+  private sealed class FaultingRunner : IAgentRunner
   {
-    KeyedGateRunner runner = new();
-    RecordingStore store = new();
-    ChildMailboxRegistry registry = new();
-    InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 1, mailboxes: registry);
-    AgentRecord running = QueuedChild("first") with { Status = AgentStatus.Running };
-    AgentRecord queued = QueuedChild("second");
-    store.Records[running.Id.Value] = running;
-    store.Records[queued.Id.Value] = queued;
-
-    _ = await runtime.Start(running, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = await runner.DispatchedAsync(running.Id).ConfigureAwait(true);
-    _ = await runtime.Start(queued, TestContext.Current.CancellationToken).ConfigureAwait(true);
-
-    Result<bool> delivered = runtime.Deliver(queued.Id,
-        PendingMessage.New("steer while queued", MessageUrgency.Normal, "parent"));
-
-    Assert.True(delivered.IsSuccess, delivered.Error?.Message);
-    Assert.True(runtime.InboxFor(queued.Id)!.TryTake(out string steered, out Guid _), "the queued child's mailbox must hold the message");
-    Assert.Equal("steer while queued", steered);
-    runner.Complete(running.Id, "first done");
-    runner.Complete(queued.Id, "second done");
+    public Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
+        => throw new InvalidOperationException("the runner refused this record");
   }
 
   [Fact]

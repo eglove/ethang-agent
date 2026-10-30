@@ -1,9 +1,14 @@
 namespace eThangAgent.AgentDomain;
 
-/// <summary>Per-session registry of live child mailboxes: the runtime's Deliver path and
-///     the child loop's InboxFor both meet here, so composition can wire the spawner's
-///     inbox source without resolving the runtime itself (which is registered AS
-///     IAgentRuntime and may not exist concretely in remote mode). Thread-safe.</summary>
+/// <summary>Per-session registry of live child mailboxes: the child loop resolves its own
+///     inbox here, so composition can wire the spawner's inbox source without resolving the
+///     runtime itself (which is registered AS IAgentRuntime and may not exist concretely in
+///     remote mode). Thread-safe.
+///     <para>THE SENDER-SIDE LOOKUP IS DELETED (issue #316), the loop's side is KEPT. Nothing
+///     pushes into a child's mailbox any more - agent-to-agent messaging is gone - but the
+///     child loop still takes its inbox from here at start, and the issue's scope note is
+///     explicit that this issue must not remove a mailbox a future per-agent steering channel
+///     would need. So the registry stays, one accessor narrower.</para></summary>
 public sealed class ChildMailboxRegistry
 {
   private readonly Lock _gate = new();
@@ -33,15 +38,6 @@ public sealed class ChildMailboxRegistry
     lock (_gate)
     {
       return _mailboxes.TryGetValue(id.Value, out IAgentMailbox? mailbox) ? mailbox as IAgentInbox : null;
-    }
-  }
-
-  /// <summary>The addressable mailbox for an id, or null (sender-side lookup).</summary>
-  public IAgentMailbox? MailboxFor(AgentId id)
-  {
-    lock (_gate)
-    {
-      return _mailboxes.TryGetValue(id.Value, out IAgentMailbox? mailbox) ? mailbox : null;
     }
   }
 }

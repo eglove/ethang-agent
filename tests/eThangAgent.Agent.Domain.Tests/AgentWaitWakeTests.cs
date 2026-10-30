@@ -39,8 +39,6 @@ public class AgentWaitWakeTests
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
         => Task.FromResult(Result.Success(id));
 
-    public Result<bool> Deliver(AgentId id, PendingMessage message) => Result.Success(true);
-
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
     public void Interrupt(AgentId? childId = null) { }
@@ -182,8 +180,6 @@ public class AgentWaitWakeTests
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
         => Task.FromResult(Result.Success(id));
 
-    public Result<bool> Deliver(AgentId id, PendingMessage message) => Result.Success(true);
-
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
     public void Interrupt(AgentId? childId = null) { }
@@ -199,8 +195,6 @@ public class AgentWaitWakeTests
 
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
         => Task.FromResult(Result.Success(id));
-
-    public Result<bool> Deliver(AgentId id, PendingMessage message) => Result.Success(true);
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 

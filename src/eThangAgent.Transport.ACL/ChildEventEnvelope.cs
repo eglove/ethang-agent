@@ -64,8 +64,6 @@ public sealed record ChildEventEnvelope(Guid ChildId, string EventKind, string E
     [nameof(ChildStreamStalledEvent)] = typeof(ChildStreamStalledEvent),
     [nameof(MessageDeliveredEvent)] = typeof(MessageDeliveredEvent),
     [nameof(MailboxDrainedEvent)] = typeof(MailboxDrainedEvent),
-    [nameof(MailboxUndeliveredEvent)] = typeof(MailboxUndeliveredEvent),
-    [nameof(PreemptedEvent)] = typeof(PreemptedEvent),
     [nameof(PlanChangedEvent)] = typeof(PlanChangedEvent),
     [nameof(ChainChangedEvent)] = typeof(ChainChangedEvent),
     [nameof(StateChangedEvent)] = typeof(StateChangedEvent),

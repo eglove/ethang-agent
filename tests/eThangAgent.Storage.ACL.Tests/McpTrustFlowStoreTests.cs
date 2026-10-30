@@ -123,6 +123,8 @@ public sealed class McpTrustFlowStoreTests : IDisposable
         _ = await drop.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
         // A V15 database still carried plan_steps.todo_id, which V24 drops.
         LegacyPlanStepsShape.Restore(c);
+        // A V15 database still carried the messaging tables, which V30 drops (issue #316).
+        LegacyMessagingTablesShape.Restore(c);
         using Microsoft.Data.Sqlite.SqliteCommand stamp = c.CreateCommand();
         stamp.CommandText = "PRAGMA user_version = 15;";
         _ = await stamp.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);

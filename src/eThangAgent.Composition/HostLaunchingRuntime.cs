@@ -257,17 +257,6 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
   }
 
   /// <inheritdoc />
-  public Result<bool> Deliver(AgentId id, PendingMessage message)
-  {
-    ArgumentNullException.ThrowIfNull(message);
-    RemoteAgentRuntime? runtime = RuntimeFor(id);
-    return runtime is null
-        ? Result.Failure<bool>(new DomainError(MailboxErrors.NotRunning,
-            $"agent '{id}' is not running in this host; the message was refused."))
-        : runtime.Deliver(id, message);
-  }
-
-  /// <inheritdoc />
   public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
   {
     RemoteAgentRuntime? runtime = RuntimeFor(id);

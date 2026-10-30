@@ -249,6 +249,7 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
       // A V16 database still carried plan_steps.todo_id, which V24 drops.
       LegacyPlanStepsShape.Restore(connection);
       using SqliteCommand drop = connection.CreateCommand();
+      LegacyMessagingTablesShape.Restore(connection);
       drop.CommandText = "DROP TABLE IF EXISTS model_catalog_cache; PRAGMA user_version = 16;";
       _ = await drop.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
     }

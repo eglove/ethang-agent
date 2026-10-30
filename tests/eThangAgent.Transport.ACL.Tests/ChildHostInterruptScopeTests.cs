@@ -192,7 +192,6 @@ public class ChildHostInterruptScopeTests
         => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", "not exercised")));
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised")));
-    public Result<bool> Deliver(AgentId id, PendingMessage message) => Result.Success(true);
     public void InterruptSubtree(AgentId rootOfSubtree) { }
     public void Interrupt(AgentId? childId = null)
     {

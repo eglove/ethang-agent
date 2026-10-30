@@ -25,12 +25,6 @@ public interface IAgentRuntime
   Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default);
 #pragma warning restore CA1716
 
-  /// <summary>Push-delivers a steering message into the child's mailbox. Fails NotRunning
-  ///     for unknown/finished ids and MailboxFull when the box is at capacity — the
-  ///     failure flows to the SENDER as a tool result (P3). Delivery to self is rejected
-  ///     at the tool's validation, before this seam.</summary>
-  Result<bool> Deliver(AgentId id, PendingMessage message);
-
   /// <summary>Interrupts an agent and ALL its running descendants (FR-C6): deepest-first
   ///     cancellation so parents observe children settling before their own repair.
   ///     Unknown ids are a no-op. The parent-control path for tree teardown.</summary>

@@ -14,7 +14,7 @@ namespace eThangAgent.Agent.Application;
 ///       burn while alerts fire is the watchdog's strongest stuck evidence), and it is
 ///       published from inside the supervisor's non-reentrant lock, which a self-echo
 ///       would deadlock.
-///     - PreemptedEvent: NO beat — preemption interrupts the receiver immediately
+///     - (a retired event kind's line was removed with issue #316)
 ///       after publish; the interrupt must be allowed to stall the idle window.
 ///     - MessageDeliveredEvent: NO beat — mailbox lifecycle is not run progress.
 ///     - ChildIdleAlertEvent: NEVER feeds — it is published from inside CheckIdle

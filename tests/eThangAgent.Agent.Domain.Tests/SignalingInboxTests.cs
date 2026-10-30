@@ -16,7 +16,7 @@ public class SignalingInboxTests
     public int UnreadCount => _pending.Count;
 
     public Result<bool> TryPost(string text)
-        => Deliver(PendingMessage.New(text, MessageUrgency.Normal, "human"));
+        => Deliver(PendingMessage.New(text, "human"));
 
     public Result<bool> Deliver(PendingMessage message)
     {
@@ -122,7 +122,7 @@ public class SignalingInboxTests
     Guid sent = Guid.NewGuid();
 
     Result<bool> delivered = inbox.Deliver(
-        new PendingMessage("steer me", MessageUrgency.Normal, DateTimeOffset.UtcNow, "human", sent));
+        new PendingMessage("steer me", DateTimeOffset.UtcNow, "human", sent));
 
     Assert.True(delivered.IsSuccess);
     Assert.True(inbox.TryTake(out string text, out Guid drained));
@@ -143,7 +143,7 @@ public class SignalingInboxTests
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
 
-    _ = inbox.Deliver(PendingMessage.New("steer me", MessageUrgency.Normal, "human"));
+    _ = inbox.Deliver(PendingMessage.New("steer me", "human"));
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.UserMessage, signal.Reason);

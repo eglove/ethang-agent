@@ -6,16 +6,15 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     with MailboxFull, NotRunning after Close, and the legacy IAgentInbox adapter shape.</summary>
 public class AgentMailboxTests
 {
-  private static PendingMessage Message(string text, string sender = "parent",
-      MessageUrgency urgency = MessageUrgency.Normal)
-      => PendingMessage.New(text, urgency, sender);
+  private static PendingMessage Message(string text, string sender = "parent")
+      => PendingMessage.New(text, sender);
 
   [Fact]
   public void Drain_IsFifo_AcrossSenders()
   {
     BoundedAgentMailbox box = new(capacity: 8);
     Assert.True(box.Deliver(Message("a")).IsSuccess);
-    Assert.True(box.Deliver(Message("b", sender: "sibling", urgency: MessageUrgency.Attention)).IsSuccess);
+    Assert.True(box.Deliver(Message("b", sender: "sibling")).IsSuccess);
     Assert.True(box.Deliver(Message("c")).IsSuccess);
 
     IReadOnlyList<PendingMessage> drained = box.Drain();
@@ -66,7 +65,6 @@ public class AgentMailboxTests
     IReadOnlyList<PendingMessage> drained = box.Drain();
     _ = Assert.Single(drained);
     Assert.Equal("steer now", drained[0].Text);
-    Assert.Equal(MessageUrgency.Normal, drained[0].Urgency);
     Assert.Equal("human", drained[0].Sender);
   }
 

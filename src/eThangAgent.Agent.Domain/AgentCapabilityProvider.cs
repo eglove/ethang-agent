@@ -17,8 +17,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   ///     grant-surface computation needs the names at composition time, where
   ///     resolving the provider itself would re-enter its singleton (R1).</summary>
   public static readonly string[] ActionNames =
-      ["spawn", "status", "result", "wait", "send", "receipts", "resume", "cancel", "route", "escalate",
-        "fanout", "notify-subtree", "notify-ancestors"];
+      ["spawn", "status", "result", "wait", "resume", "cancel", "fanout"];
 
   /// <summary>Builds the dispatch map eagerly: every handler closes over this
   ///     provider's collaborators, so the map is per provider (one per session).</summary>
@@ -29,14 +28,10 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     _queries = services.Queries ?? throw new ArgumentNullException(nameof(services), "Queries must not be null.");
     _parentContext = services.ParentContext ?? throw new ArgumentNullException(nameof(services), "ParentContext must not be null.");
     _runtime = services.Runtime;
-    _links = services.Links;
     _fanout = services.Fanout;
-    _locator = services.Locator;
-    _eventsFor = services.EventsFor;
     _wakeSource = services.WakeSource;
     _clock = services.Clock;
     _progress = services.Progress;
-    _receipts = services.Receipts;
     _handlers = BuildHandlers();
   }
 
@@ -44,14 +39,10 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   private readonly IAgentQueries _queries;
   private readonly Func<AgentRecord> _parentContext;
   private readonly IAgentRuntime? _runtime;
-  private readonly AgentLinkRegistry? _links;
   private readonly Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? _fanout;
-  private readonly IAgentMailboxLocator? _locator;
-  private readonly Func<AgentId, IAgentEvents?>? _eventsFor;
   private readonly IWaitWakeSource? _wakeSource;
   private readonly TimeProvider? _clock;
   private readonly ChildProgressLedger? _progress;
-  private readonly MessageReceiptLedger? _receipts;
   private readonly FrozenDictionary<string, ActionHandler> _handlers;
 
   public string Id => ProviderId;
@@ -113,26 +104,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
                 new ActionParameter("wakeOn", ActionParameterTypes.StringType, "Optional: 'all' or comma list of message|idle|settled|state|stream|budget|mailbox (default 'message'). Matching events wake the wait early with the child still running. There is no progress reason — a child's progress beats fire on every tool call, so waking on them would never let the wait rest."),
                 new ActionParameter("timeoutSeconds", ActionParameterTypes.IntegerType, "Optional soft cap in seconds; expiry returns a [wait: woken reason=timeout] annotation with the child still running — never an error. Must fit inside the exec call's own timeoutSeconds budget."),
             ]),
-        new("send", "Send a steering message to one of your running child agents mid-run.",
-            """
-            Delivers into the child's mailbox; the child drains it at its next safe point (iteration boundary; never between a tool call and its result). Normal urgency drains at boundaries. Fails to you: NotRunning (unknown/finished child), MailboxFull (child's box at capacity — batch or retry), InvalidMessage (empty text). Content lands in the child's transcript on drain, attributed to you.
-             The receipt names the message handle: delivered to=<id> urgency=<U> msg=<guid> state=queued. state=queued means ENQUEUED, not received — ask agent.receipts with that msg to learn whether the child actually drained it.
-            """,
-            [
-                new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
-                new ActionParameter("text", ActionParameterTypes.StringType, "Steering message for the child. Non-empty."),
-                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
-            ]),
-         new("receipts", "Report what became of a steering message: queued, received, or undelivered.",
-             """
-             The delivery handshake's read side. A message is queued from the moment it lands in the child's mailbox, becomes received when the child's loop drains it at a safe point (so the model WILL see it on its next provider call), and becomes undelivered when the run settles with it still queued (it was persisted for the next start — the model never saw it in that run).
-             With 'msg': one line, msg=<guid> child=<id> state=queued|received|undelivered. Without 'msg': one line per receipt for that child, in delivery order, or child=<id> receipts=0 when it has none.
-             Fails to you: NotFound (this session never saw that message delivered — the ledger never invents a state), NotAvailable (no ledger wired), InvalidActionInput (bad id/msg).
-             """,
-             [
-                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
-                 new ActionParameter("msg", ActionParameterTypes.StringType, "Optional message handle from agent.send's receipt (msg=<guid>). Omit to list every receipt for that child."),
-             ]),
         new("resume", "Resume a settled child agent with a new message (same id, same context).",
             """
             Continues a SETTLED child (completed or failed) on the SAME id: its persisted transcript,
@@ -155,51 +126,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
             ]),
-        new("route", "Send a message to a linked agent outside your local tree.",
-            """
-            Resolves 'name' through the session's consented link registry and delivers 'text' to that agent's runtime mailbox. Isolation by default: an unlinked name fails Error [NotLinked]. Unknown or finished targets fail Error [NotRunning]; a full mailbox fails Error [MailboxFull]. Receipt: delivered to=<address> link=<name>.
-            """,
-            [
-                new ActionParameter("name", ActionParameterTypes.StringType, "The linked agent's registry name."),
-                new ActionParameter("text", ActionParameterTypes.StringType, "Message text. Non-empty."),
-                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
-            ]),
-        new("escalate", "Send a message upward: to your parent, or N hops up the agent tree.",
-            """
-            Delivers 'text' to your parent agent (hops=1, the default); hops=N walks N ancestor links. Every hop emits a delivery event and the result lists per-hop receipts: hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull. The walk stops at the tree root with receipt reached=root.
-            """,
-            [
-                new ActionParameter("text", ActionParameterTypes.StringType, "Message text. Non-empty."),
-                new ActionParameter("hops", ActionParameterTypes.IntegerType, "Optional ancestor hops (default 1, minimum 1)."),
-                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
-            ]),
-        new("notify-subtree", "Broadcast one message to every live descendant of yours.",
-            """
-            Walks your persisted descendant links downward (the same chain a subtree
-            interrupt tears down) and push-delivers 'text' into every live descendant's
-            mailbox - grandchildren included. Best-effort, per-target receipts, never
-            retried: settled or foreign ids report NotRunning and are skipped. The result
-            lists one receipt per target - hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull
-            (hop counts tree depth below you, direct children are hop=1) - then a summary
-            line: reached=<count> delivered=<count>. An empty subtree succeeds with
-            reached=0 delivered=0.
-            """,
-            [
-                new ActionParameter("text", ActionParameterTypes.StringType, "Message text for every descendant. Non-empty."),
-                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
-            ]),
-        new("notify-ancestors", "Broadcast one message to every ancestor, all the way to the root.",
-            """
-            The sibling of escalate without the hop bound: delivers 'text' to your parent,
-            grandparent, ... up to the root, using escalate's per-hop receipt format -
-            hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull - then closes with
-            reached=root delivered=<count>. A receiver whose row is gone reports NotRunning;
-            the walk continues to the root regardless.
-            """,
-            [
-                new ActionParameter("text", ActionParameterTypes.StringType, "Message text for every ancestor. Non-empty."),
-                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
-            ]),
         new("fanout", "Spawn several children in one call and wait for ALL of them.",
             """
             Fan-out/fan-in: spawns every child described in 'children' (same shape as agent.spawn, one object each), waits for the whole set to settle, and joins. Per-member receipts name each child's id and terminal state; failed STARTS fail the join immediately; settled failures are collected and fail the join at the end. Receipts: <id>=COMPLETED|FAILED(reason).
@@ -221,14 +147,8 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
       ["status"] = Status,
       ["result"] = GetResult,
       ["wait"] = Wait,
-      ["send"] = (json, _) => Send(json),
-      ["receipts"] = (json, _) => Task.FromResult(Receipts(json)),
       ["resume"] = (json, _) => Resume(json),
       ["cancel"] = Cancel,
-      ["route"] = (json, _) => Task.FromResult(Route(json)),
-      ["escalate"] = Escalate,
-      ["notify-subtree"] = NotifySubtree,
-      ["notify-ancestors"] = NotifyAncestors,
       ["fanout"] = Fanout,
     }.ToFrozenDictionary();
   }
@@ -432,178 +352,8 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     WakeReason.Plan => "plan",
     _ => "unknown",
   };
-  /// <summary>agent.send: parent-to-child steering through the runtime's push-delivery.
-  ///     Delivery to self is rejected at validation; unknown targets surface NotFound;
-  ///     overflow surfaces MailboxFull — every failure has a recipient (A3). A COMPLETED
-  ///     child is auto-resumed with the message as its next instruction (the resume
-  ///     contract's receipt); a Failed/Interrupted child is refused with NotRunning —
-  ///     messaging it cannot restart it, agent.resume is the explicit restart path.</summary>
-  private async Task<CapabilityInvocationResult> Send(string json)
-  {
-    if (_runtime is null)
-    {
-      return CapabilityInvocationResult.Fail(
-          "Error [NotAvailable]: agent.send needs a runtime wired into this session's capability provider.");
-    }
-
-    string? parseError = SendArgs(json, out AgentId? id, out string? text, out MessageUrgency urgency);
-    if (parseError is not null)
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
-    }
-
-    AgentRecord parent = _parentContext();
-    if (id!.Value == parent.Id)
-    {
-      return CapabilityInvocationResult.Fail("Error [InvalidActionInput]: an agent cannot send to itself.");
-    }
-
-    // A settled target changes the send's meaning: the user messaging a done child
-    // wants it to keep going, so a completed child resumes with the text verbatim,
-    // while a failed/interrupted child cannot be restarted by a message (refusal).
-    Result<AgentRecord> target = await _queries.GetStatus(id.Value, CancellationToken.None).ConfigureAwait(false);
-    CapabilityInvocationResult? settled = target.IsSuccess
-        ? await SettledSendOutcome(_runtime, id.Value, target.Value.Status, text!, CancellationToken.None).ConfigureAwait(false)
-        : null;
-    if (settled is not null)
-    {
-      return settled;
-    }
-
-    PendingMessage message = PendingMessage.New(text!, urgency, SenderLabel(parent));
-    Result<bool> delivered = _runtime.Deliver(id.Value, message);
-    if (!delivered.IsSuccess)
-    {
-      return CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
-    }
-
-    // The handshake (issue #92): the receipt names the message handle and states the
-    // honest fact — the message is ENQUEUED, not yet received. Ask agent.receipts for
-    // msg=<id> to learn whether the child's loop actually drained it. Legacy wiring (no
-    // ledger) keeps the pre-handshake receipt byte-identical: without a ledger the
-    // handle could never be asked about, so naming one would be noise.
-    return CapabilityInvocationResult.Ok(_receipts is null
-        ? $"delivered to={id.Value} urgency={urgency.ToString().ToUpperInvariant()}"
-        : $"delivered to={id.Value} urgency={urgency.ToString().ToUpperInvariant()} msg={message.Id} state=queued");
-  }
-
-  /// <summary>agent.receipts (issue #92): what became of a steering message. With 'msg'
-  ///     it answers one message's state — queued (enqueued, not yet drained), received
-  ///     (drained into the child's conversation at a safe point, so the model WILL see it),
-  ///     or undelivered (the run settled with it still queued; it was persisted for the
-  ///     next start). Without 'msg' it lists the child's receipts in delivery order.
-  ///     A message this session never saw delivered is NotFound — the ledger never invents
-  ///     a state for an id it did not observe.</summary>
-  private CapabilityInvocationResult Receipts(string json)
-  {
-    if (_receipts is null)
-    {
-      return CapabilityInvocationResult.Fail(
-          "Error [NotAvailable]: agent.receipts needs a message receipt ledger wired into this session's capability provider.");
-    }
-
-    string? parseError = ReceiptsArgs(json, out AgentId? id, out Guid? messageId);
-    if (parseError is not null)
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
-    }
-
-    if (messageId is { } wanted)
-    {
-      return _receipts.Find(id!.Value, wanted) is { } receipt
-          ? CapabilityInvocationResult.Ok(ReceiptLine(receipt))
-          : CapabilityInvocationResult.Fail(
-              $"Error [NotFound]: no receipt for msg={wanted} on agent {id.Value}; this session never saw it delivered.");
-    }
-
-    IReadOnlyList<MessageReceipt> receipts = _receipts.ForChild(id!.Value);
-    return receipts.Count == 0
-        ? CapabilityInvocationResult.Ok($"child={id.Value} receipts=0")
-        : CapabilityInvocationResult.Ok(string.Join("\n", receipts.Select(ReceiptLine)));
-  }
-
-  /// <summary>One receipt line: the message handle, its child, and its state.</summary>
-  private static string ReceiptLine(MessageReceipt receipt)
-      => $"msg={receipt.MessageId} child={receipt.ChildId} state={ReceiptStateWord(receipt.State)}";
-
-  /// <summary>Lowercase state words for the receipt line (CA1308 forbids ToLowerInvariant
-  ///     normalization; the words are pinned, not computed).</summary>
-  private static string ReceiptStateWord(MessageReceiptState state) => state switch
-  {
-    MessageReceiptState.Queued => "queued",
-    MessageReceiptState.Received => "received",
-    MessageReceiptState.Undelivered => "undelivered",
-    _ => throw new InvalidOperationException($"Unknown message receipt state '{state}'."),
-  };
-
-  /// <summary>Strict receipts-argument parsing: 'id' (Guid D) required, 'msg' (Guid D)
-  ///     optional. Anything else names the offending member.</summary>
-  private static string? ReceiptsArgs(string json, out AgentId? id, out Guid? messageId)
-  {
-    id = null;
-    messageId = null;
-    JsonDocument doc;
-    try
-    {
-      doc = JsonDocument.Parse(json);
-    }
-    catch (JsonException ex)
-    {
-      return $"arguments must be a JSON object ({ex.Message}).";
-    }
-
-    using (doc)
-    {
-      if (!doc.RootElement.TryGetProperty("id", out JsonElement idElement) || idElement.ValueKind is not JsonValueKind.String
-          || !Guid.TryParseExact(idElement.GetString(), "D", out Guid parsedId))
-      {
-        return "'id' must be a GUID string.";
-      }
-
-      id = new AgentId(parsedId);
-      if (!doc.RootElement.TryGetProperty("msg", out JsonElement msgElement))
-      {
-        return null;
-      }
-
-      if (msgElement.ValueKind is not JsonValueKind.String
-          || !Guid.TryParseExact(msgElement.GetString(), "D", out Guid parsedMsg))
-      {
-        return "'msg' must be a GUID string.";
-      }
-
-      messageId = parsedMsg;
-      return null;
-    }
-  }
-
-  /// <summary>The settled-target half of agent.send: a completed child auto-resumes
-  ///     with the text verbatim (the resume contract's receipt); a failed/interrupted
-  ///     child is refused — messaging it cannot restart it, agent.resume is the
-  ///     explicit restart path. A running child returns null: the ordinary delivery
-  ///     path below owns it.</summary>
-  private static async Task<CapabilityInvocationResult?> SettledSendOutcome(IAgentRuntime runtime, AgentId id, AgentStatus status, string text, CancellationToken ct)
-  {
-    switch (status)
-    {
-      case AgentStatus.Completed:
-        Result<AgentId> resumed = await runtime.Resume(id, text, ct).ConfigureAwait(false);
-        return resumed.IsSuccess
-            ? CapabilityInvocationResult.Ok($"id={resumed.Value} status=running")
-            : CapabilityInvocationResult.Fail($"Error [{resumed.Error.Code}]: {resumed.Error.Message}");
-      case AgentStatus.Failed:
-      case AgentStatus.Interrupted:
-        return CapabilityInvocationResult.Fail(
-            $"Error [NotRunning]: agent {id} is {StatusWord(status)}; messaging it cannot restart it — use agent.resume to restart it explicitly.");
-      case AgentStatus.Running:
-      case AgentStatus.Queued:
-      default:
-        return null; // the ordinary delivery path owns a running or queued target
-    }
-  }
-
   /// <summary>agent.resume: same-id fix-round continuation of a SETTLED child. Reuses
-  ///     the send-argument parsing (id + text; no urgency). Every failure has a recipient:
+  ///     resume-argument parsing (id + text; no urgency). Every failure has a recipient:
   ///     NotRunning (unknown/still-running/foreign), InvalidMessage, and ResumeUnsupported
   ///     on remote runtimes.</summary>
   private async Task<CapabilityInvocationResult> Resume(string json)
@@ -614,7 +364,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
           "Error [NotAvailable]: agent.resume needs a runtime wired into this session's capability provider.");
     }
 
-    string? parseError = SendArgs(json, out AgentId? id, out string? text, out MessageUrgency _);
+    string? parseError = ResumeArgs(json, out AgentId? id, out string? text);
     if (parseError is not null)
     {
       return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
@@ -665,42 +415,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     return CapabilityInvocationResult.Ok($"interrupted id={id.Value}");
   }
 
-  private static string SenderLabel(AgentRecord record)
-      => string.IsNullOrEmpty(record.Label) ? "parent" : "parent:" + record.Label;
-
-  /// <summary>Strict send-argument parsing: id (Guid D), non-empty text, urgency within
-  ///     the enum range. Anything else returns a validation error naming the member.</summary>
-  private static string? SendArgs(string json, out AgentId? id, out string? text, out MessageUrgency urgency)
-  {
-    id = null;
-    text = null;
-    urgency = MessageUrgency.Normal;
-    JsonDocument doc;
-    try
-    {
-      doc = JsonDocument.Parse(json);
-    }
-    catch (JsonException ex)
-    {
-      return $"arguments must be a JSON object ({ex.Message}).";
-    }
-
-    // Deliberately no object-kind gate and no unknown-member rejection here: send
-    // predates the strict Args contract and resume reuses it — the id check owns a
-    // non-object root (byte-identical legacy behavior).
-    using (doc)
-    {
-      if (!doc.RootElement.TryGetProperty("id", out JsonElement idElement) || idElement.ValueKind is not JsonValueKind.String
-          || !Guid.TryParseExact(idElement.GetString(), "D", out Guid parsed))
-      {
-        return "'id' must be a GUID string.";
-      }
-
-      id = new AgentId(parsed);
-      return RequireNonEmpty(doc.RootElement, "text", out text)
-          ?? TryReadUrgency(doc.RootElement, out urgency);
-    }
-  }
   private async Task<CapabilityInvocationResult> Status(string json, CancellationToken ct)
   {
     Result<AgentId> id = ParseIdArgument(json);
@@ -796,239 +510,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
   };
 
-  /// <summary>agent.route (R2.1): resolve a consented link by name, then push-deliver
-  ///     to the linked agent's address. The registry reveals only the address (R2.4);
-  ///     unresolved names surface the pinned NotLinked contract.</summary>
-  private CapabilityInvocationResult Route(string json)
-  {
-    if (_runtime is null || _links is null)
-    {
-      return CapabilityInvocationResult.Fail(
-          "Error [NotAvailable]: agent.route needs a runtime and a link registry wired into this session's capability provider.");
-    }
-
-    string? parseError = RouteArgs(json, out string? name, out string? text, out MessageUrgency urgency);
-    if (parseError is not null)
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
-    }
-
-    Result<LinkAddress> resolved = _links.Resolve(name!);
-    if (!resolved.IsSuccess)
-    {
-      return CapabilityInvocationResult.Fail($"Error [{resolved.Error.Code}]: {resolved.Error.Message}");
-    }
-
-    if (!Guid.TryParseExact(resolved.Value.AgentAddress, "D", out Guid target))
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidLink]: link '{resolved.Value.Name}' does not address an agent id.");
-    }
-
-    AgentRecord sender = _parentContext();
-    PendingMessage message = PendingMessage.New(text!, urgency, SenderLabel(sender));
-    AgentId targetId = new(target);
-
-    Result<bool> delivered = DeliverToTarget(targetId, message, urgency, text!);
-    return delivered.IsSuccess
-        ? CapabilityInvocationResult.Ok($"delivered to={resolved.Value.AgentAddress} link={resolved.Value.Name}")
-        : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
-  }
-
-  /// <summary>Delivers one route/send message to a target id: the local half first
-  ///     (W3.1 — the session's own runtime owns its children's mailboxes), then the
-  ///     cross-container half (W3.2) when the local runtime reports NotRunning and
-  ///     the process-wide locator resolves the OWNING container's live mailbox.</summary>
-  private Result<bool> DeliverToTarget(AgentId targetId, PendingMessage message, MessageUrgency urgency, string text)
-  {
-    Result<bool> delivered = _runtime!.Deliver(targetId, message);
-    if (!delivered.IsSuccess
-        && MailboxErrors.NotRunning.Equals(delivered.Error.Code, StringComparison.Ordinal)
-        && _locator?.TryGet(targetId) is { } foreign)
-    {
-      delivered = DeliverCrossContainer(foreign, targetId, message, urgency, text);
-    }
-
-    return delivered;
-  }
-
-  /// <summary>The cross-container delivery half of agent.route (W3.2): the local
-  ///     runtime holds no mailbox for the target, so the process-wide locator resolved
-  ///     the OWNING container's live mailbox. Delivery and receipt contracts are
-  ///     identical to the local half; the audit event marks the delivery
-  ///     cross-container on the target's stream (3.3).</summary>
-  private Result<bool> DeliverCrossContainer(IAgentMailbox foreign, AgentId targetId, PendingMessage message, MessageUrgency urgency, string text)
-  {
-    Result<bool> delivered = foreign.Deliver(message);
-    if (delivered.IsSuccess)
-    {
-      // The audit event publishes on the OWNER's stream — the resolver returns the
-      // target container's own event stream (3.3: the host-side audit trail reads it
-      // where the target's host listens), never the sender's.
-      _eventsFor?.Invoke(targetId)?.Publish(new MessageDeliveredEvent(targetId,
-          DateTimeOffset.UtcNow, "cross-container", (int)urgency,
-          System.Text.Encoding.UTF8.GetByteCount(text)));
-    }
-
-    return delivered;
-  }
-
-  /// <summary>agent.escalate (R2.2): walk up to N ancestor links, one delivery per hop,
-  ///     every hop rendered as a receipt (FR-C7 per-hop visibility). The walk stops
-  ///     early at the root with reached=root.</summary>
-  private async Task<CapabilityInvocationResult> Escalate(string json, CancellationToken ct)
-  {
-    if (_runtime is null)
-    {
-      return CapabilityInvocationResult.Fail(
-          "Error [NotAvailable]: agent.escalate needs a runtime wired into this session's capability provider.");
-    }
-
-    string? parseError = EscalateArgs(json, out string? text, out int hops, out MessageUrgency urgency);
-    if (parseError is not null)
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
-    }
-
-    AgentRecord sender = _parentContext();
-    List<string> receipts = [];
-    AgentId? current = sender.ParentId;
-    for (int hop = 1; hop <= hops; hop++)
-    {
-      if (current is null)
-      {
-        receipts.Add($"reached=root at hop={hop}");
-        break;
-      }
-
-      Result<AgentRecord> ancestor = await _queries.GetStatus(current.Value, ct).ConfigureAwait(false);
-      if (!ancestor.IsSuccess)
-      {
-        receipts.Add($"hop={hop} to={current.Value} NotRunning");
-        break;
-      }
-
-      Result<bool> delivered = _runtime.Deliver(current.Value,
-          PendingMessage.New(text!, urgency, SenderLabel(sender)));
-      receipts.Add(delivered.IsSuccess
-          ? $"hop={hop} to={current.Value} delivered"
-          : $"hop={hop} to={current.Value} {delivered.Error.Code}");
-      current = ancestor.Value.ParentId;
-    }
-
-    return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
-  }
-
-  /// <summary>agent.notify-subtree (W4.1): one message to every live descendant.
-  ///     The walk rides the store's parent-link index — the same chain
-  ///     InterruptSubtree tears down — breadth-first so receipts read near-to-far.
-  ///     Delivery goes through the runtime's push seam exactly like agent.send;
-  ///     per-target failures render in escalate's receipt format and are never
-  ///     retried (A1/A3). The unknown-parent walk terminates (FR-L8 honesty):
-  ///     a pruned branch is skipped, never invented.</summary>
-  private async Task<CapabilityInvocationResult> NotifySubtree(string json, CancellationToken ct)
-  {
-    if (_runtime is null)
-    {
-      return CapabilityInvocationResult.Fail(
-          "Error [NotAvailable]: agent.notify-subtree needs a runtime wired into this session's capability provider.");
-    }
-
-    string? parseError = NotifyArgs(json, out string? text, out MessageUrgency urgency);
-    if (parseError is not null)
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
-    }
-
-    AgentRecord sender = _parentContext();
-    List<string> receipts = [];
-    int delivered = 0;
-    HashSet<Guid> seen = [sender.Id.Value];
-    List<(AgentRecord Record, int Hop)> frontier = [];
-    Result<IReadOnlyList<AgentRecord>> children = await _queries.ListChildrenAsync(sender.Id, ct).ConfigureAwait(false);
-    if (children.IsSuccess)
-    {
-      frontier.AddRange(children.Value.Select(child => (child, 1)));
-    }
-
-    while (frontier.Count > 0)
-    {
-      List<(AgentRecord Record, int Hop)> next = [];
-      foreach ((AgentRecord record, int hop) in frontier)
-      {
-        if (!seen.Add(record.Id.Value))
-        {
-          continue;
-        }
-
-        Result<bool> attempt = _runtime.Deliver(record.Id,
-            PendingMessage.New(text!, urgency, SenderLabel(sender)));
-        if (attempt.IsSuccess)
-        {
-          delivered++;
-        }
-
-        receipts.Add($"hop={hop} to={record.Id} {(attempt.IsSuccess ? "delivered" : attempt.Error.Code)}");
-        Result<IReadOnlyList<AgentRecord>> grandchildren = await _queries.ListChildrenAsync(record.Id, ct).ConfigureAwait(false);
-        if (grandchildren.IsSuccess)
-        {
-          next.AddRange(grandchildren.Value.Select(grandchild => (grandchild, hop + 1)));
-        }
-      }
-
-      frontier = next;
-    }
-
-    receipts.Add($"reached={receipts.Count} delivered={delivered}");
-    return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
-  }
-
-  /// <summary>agent.notify-ancestors (W4.2): escalate's walk and receipt semantics with
-  ///     no hop bound — every ancestor up to the root receives the message. A pruned
-  ///     parent row reports NotRunning and the walk continues; reached=root closes the
-  ///     contract.</summary>
-  private async Task<CapabilityInvocationResult> NotifyAncestors(string json, CancellationToken ct)
-  {
-    if (_runtime is null)
-    {
-      return CapabilityInvocationResult.Fail(
-          "Error [NotAvailable]: agent.notify-ancestors needs a runtime wired into this session's capability provider.");
-    }
-
-    string? parseError = NotifyArgs(json, out string? text, out MessageUrgency urgency);
-    if (parseError is not null)
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
-    }
-
-    AgentRecord sender = _parentContext();
-    List<string> receipts = [];
-    int delivered = 0;
-    AgentId? current = sender.ParentId;
-    int hop = 1;
-    while (current is { } target)
-    {
-      Result<AgentRecord> ancestor = await _queries.GetStatus(target, ct).ConfigureAwait(false);
-      Result<bool> attempt = _runtime.Deliver(target,
-          PendingMessage.New(text!, urgency, SenderLabel(sender)));
-      if (attempt.IsSuccess)
-      {
-        delivered++;
-      }
-
-      receipts.Add($"hop={hop} to={target} {(attempt.IsSuccess ? "delivered" : attempt.Error.Code)}");
-      if (!ancestor.IsSuccess)
-      {
-        break; // pruned row: the walk cannot see past the gap; reached=root still closes
-      }
-
-      current = ancestor.Value.ParentId;
-      hop++;
-    }
-
-    receipts.Add($"reached=root delivered={delivered}");
-    return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
-  }
-
   /// <summary>Parses the raw arguments into a detached JSON object root: malformed
   ///     JSON and non-object roots both name the object requirement (the shared first
   ///     gate of every strict Args parser). The document is disposed here; the root
@@ -1069,43 +550,39 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
         : null;
   }
 
-  /// <summary>Reads one required non-empty string member, naming it on violation
-  ///     (the shared text/name field gate).</summary>
-  private static string? RequireNonEmpty(JsonElement root, string name, out string? value)
+  /// <summary>Strict resume-argument parsing: 'id' (Guid D) and a non-empty 'text',
+  ///     with no other members accepted. This used to be shared with the retired
+  ///     agent.send; a resume is not a message, so it owns its own gate rather than
+  ///     inheriting a message-shaped one that no longer has a caller.</summary>
+  private static string? ResumeArgs(string json, out AgentId? id, out string? text)
   {
-    value = null;
-    if (!root.TryGetProperty(name, out JsonElement element) || element.ValueKind is not JsonValueKind.String
-        || string.IsNullOrWhiteSpace(element.GetString()))
+    id = null;
+    text = null;
+    if (RequireObject(json, out JsonElement root) is { } objectError)
     {
-      return $"'{name}' must be a non-empty string.";
+      return objectError;
     }
 
-    value = element.GetString();
+    if (RejectUnknown(root, "id", "text") is { } unknownError)
+    {
+      return unknownError;
+    }
+
+    if (!root.TryGetProperty("id", out JsonElement idElement) || idElement.ValueKind is not JsonValueKind.String
+        || !Guid.TryParseExact(idElement.GetString(), "D", out Guid parsed))
+    {
+      return "'id' must be a GUID string.";
+    }
+
+    id = new AgentId(parsed);
+    if (!root.TryGetProperty("text", out JsonElement textElement) || textElement.ValueKind is not JsonValueKind.String
+        || string.IsNullOrWhiteSpace(textElement.GetString()))
+    {
+      return "'text' must be a non-empty string.";
+    }
+
+    text = textElement.GetString();
     return null;
-  }
-
-  /// <summary>Reads the optional urgency member: absent keeps Normal; present must be
-  ///     a string naming one of the enum values case-insensitively.</summary>
-  private static string? TryReadUrgency(JsonElement root, out MessageUrgency urgency)
-  {
-    urgency = MessageUrgency.Normal;
-    return root.TryGetProperty("urgency", out JsonElement urgencyElement)
-        && (urgencyElement.ValueKind is not JsonValueKind.String
-            || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
-        ? "'urgency' must be one of: normal, attention, urgent."
-        : null;
-  }
-
-  /// <summary>Strict notify-argument parsing: non-empty text, urgency in range; no other
-  ///     members accepted.</summary>
-  private static string? NotifyArgs(string json, out string? text, out MessageUrgency urgency)
-  {
-    text = null;
-    urgency = MessageUrgency.Normal;
-    return RequireObject(json, out JsonElement root)
-        ?? RejectUnknown(root, "text", "urgency")
-        ?? RequireNonEmpty(root, "text", out text)
-        ?? TryReadUrgency(root, out urgency);
   }
 
   /// <summary>agent.fanout (D12): fan-out/fan-in over the normal spawn command +
@@ -1293,51 +770,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     }
 
     value = element.GetBoolean();
-    return null;
-  }
-
-  /// <summary>Strict route-argument parsing: non-empty name and text, urgency in range.</summary>
-  private static string? RouteArgs(string json, out string? name, out string? text, out MessageUrgency urgency)
-  {
-    name = null;
-    text = null;
-    urgency = MessageUrgency.Normal;
-    return RequireObject(json, out JsonElement root)
-        ?? RejectUnknown(root, "name", "text", "urgency")
-        ?? RequireNonEmpty(root, "name", out name)
-        ?? RequireNonEmpty(root, "text", out text)
-        ?? TryReadUrgency(root, out urgency);
-  }
-
-  /// <summary>Strict escalate-argument parsing: non-empty text, positive hops, urgency in range.</summary>
-  private static string? EscalateArgs(string json, out string? text, out int hops, out MessageUrgency urgency)
-  {
-    text = null;
-    hops = 1;
-    urgency = MessageUrgency.Normal;
-    return RequireObject(json, out JsonElement root)
-        ?? RejectUnknown(root, "text", "hops", "urgency")
-        ?? RequireNonEmpty(root, "text", out text)
-        ?? ReadHops(root, out hops)
-        ?? TryReadUrgency(root, out urgency);
-  }
-
-  /// <summary>Reads the optional hops member: absent keeps 1; present must be a
-  ///     positive integer.</summary>
-  private static string? ReadHops(JsonElement root, out int hops)
-  {
-    hops = 1;
-    if (!root.TryGetProperty("hops", out JsonElement hopsElement))
-    {
-      return null;
-    }
-
-    if (hopsElement.ValueKind is not JsonValueKind.Number || !hopsElement.TryGetInt32(out int parsed) || parsed < 1)
-    {
-      return "'hops' must be a positive integer.";
-    }
-
-    hops = parsed;
     return null;
   }
 

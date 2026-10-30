@@ -118,7 +118,7 @@ public sealed class BoundedAgentMailbox : IAgentInbox, IAgentMailbox
   public Result<bool> TryPost(string text)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(text);
-    return Deliver(PendingMessage.New(text, MessageUrgency.Normal, "human"));
+    return Deliver(PendingMessage.New(text, "human"));
   }
 
   /// <inheritdoc cref="IAgentInbox.TryTake"/>

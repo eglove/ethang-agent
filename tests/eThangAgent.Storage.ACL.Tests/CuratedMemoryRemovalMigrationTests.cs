@@ -79,6 +79,8 @@ public sealed class CuratedMemoryRemovalMigrationTests : IDisposable
         "PRAGMA user_version = 17;");
     // A V17 database still carried plan_steps.todo_id, which V24 drops.
     LegacyPlanStepsShape.Restore(connection);
+    // A V17 database still carried the messaging tables, which V30 drops (issue #316).
+    LegacyMessagingTablesShape.Restore(connection);
 #pragma warning restore CA2100
     _ = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
   }

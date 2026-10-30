@@ -1438,7 +1438,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   {
     if (_inbox is IAgentMailbox mailbox)
     {
-      return mailbox.Deliver(PendingMessage.New(input, MessageUrgency.Normal, "human") with { Id = messageId });
+      return mailbox.Deliver(PendingMessage.New(input, "human") with { Id = messageId });
     }
 
     Result<bool> posted = _inbox!.TryPost(input);

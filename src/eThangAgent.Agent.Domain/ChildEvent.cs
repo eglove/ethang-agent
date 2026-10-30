@@ -30,12 +30,17 @@ public sealed record ChildSettledEvent(AgentId ChildId, DateTimeOffset At, Agent
     : ChildEvent(ChildId, At);
 
 /// <summary>A message landed in a mailbox. Size in bytes; content stays out (D5).
-///     <para><paramref name="MessageId"/> is the delivered message's identity (issue #92) —
-///     the handle the sender's receipt names and the id the drain/remainder facts carry.
-///     <see cref="Guid.Empty"/> means the publisher predates the handshake: the ledger
-///     records no receipt for it, because a receipt keyed on an unknown id could never be
-///     asked about.</para></summary>
-public sealed record MessageDeliveredEvent(AgentId ChildId, DateTimeOffset At, string Direction, int Urgency, int Size,
+///     <para><paramref name="MessageId"/> is the delivered message's identity (issue #92):
+///     the id the DRAIN fact names back, which is what releases the app's pinned steering
+///     echo and clears the tab's unread badge. <see cref="Guid.Empty"/> means the publisher
+///     could not carry an identity, so that message stays unaddressable.</para>
+///     <para>THE URGENCY FIELD IS GONE (issue #316). It existed so a receiver could grade a
+///     peer's message; with the human as the only sender there is one class of steering, and
+///     the field could only ever carry that one value.</para>
+///     <para>THE ONLY PUBLISHER IS THE ROOT STEER ACCEPTANCE PATH (issue #316 D6): the human
+///     is the only remaining sender, so this fact means "a steering message this session sent
+///     has been queued for the agent", published on ACCEPTANCE and never on a refused post.</para></summary>
+public sealed record MessageDeliveredEvent(AgentId ChildId, DateTimeOffset At, string Direction, int Size,
     Guid MessageId = default)
     : ChildEvent(ChildId, At);
 
@@ -50,18 +55,6 @@ public sealed record MailboxDrainedEvent(AgentId ChildId, DateTimeOffset At, IRe
   /// <summary>The number of messages taken — derived from the ids, never a second fact.</summary>
   public int Count => MessageIds.Count;
 }
-
-/// <summary>The run settled with these messages still queued (issue #92): they were
-///     persisted for the next start, so the model never saw them in the run that just
-///     ended. This is the fact that stops a settle from reading as "received" — before it,
-///     a message left in the mailbox at settle was indistinguishable from a drained one.
-///     Content stays out (D5).</summary>
-public sealed record MailboxUndeliveredEvent(AgentId ChildId, DateTimeOffset At, IReadOnlyList<Guid> MessageIds)
-    : ChildEvent(ChildId, At);
-
-/// <summary>A turn was interrupted by an Urgent message under an audited policy grant (D4-revised).</summary>
-public sealed record PreemptedEvent(AgentId ChildId, DateTimeOffset At, string ByWhom, int Urgency)
-    : ChildEvent(ChildId, At);
 
 /// <summary>A durable PLAN record changed (issue #8 follow-up): created, a step added/
 ///     updated/removed, or a status moved. This is what makes the workbench's Plans view

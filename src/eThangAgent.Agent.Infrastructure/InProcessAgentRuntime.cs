@@ -30,14 +30,11 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   // retry REUSES the source so existing waiters survive the retry (FR-L3).
   private readonly ConcurrentDictionary<AgentId, TaskCompletionSource<AgentRunOutcome>> _settling = [];
 
-  // Per-child mailbox registry: Deliver from any sender; Drain by the owner loop at safe
-  // points. Between-turn durability rides IMailboxStore (FR-C5).
+  // Per-child mailbox registry: the owning loop drains at safe points. Nothing else
+  // delivers here any more (issue #316): the only sender left is the human steering the
+  // ROOT, whose message goes to the root container's inbox, not through this registry.
   private readonly ConcurrentDictionary<AgentId, BoundedAgentMailbox> _mailboxes = [];
   private readonly ChildMailboxRegistry? _registry;
-
-  // Per-agent preemption grant (D1): whether THIS agent's contract grants Urgent
-  // preemption. Consulted by Deliver when the sender is a granted agent.
-  private readonly ConcurrentDictionary<Guid, bool> _preemptGrants = [];
 
   // Concurrency-boundary admission (FR-B6, issue #238): ONE gate owns both the slot count
   // and the waiter list, so a settled run hands its slot DIRECTLY to the head waiter
@@ -48,12 +45,11 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   private int _running;
 
   private sealed record SpawnWaiter(AgentRecord Record, int Priority, DateTimeOffset EnqueuedAt);
-  private readonly IMailboxStore? _mailboxStore;
   private readonly IAgentEvents? _events;
   private readonly ChildSupervisorRegistry? _supervisors;
 
   public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents,
-      IMailboxStore? mailboxStore = null, IAgentEvents? events = null,
+      IAgentEvents? events = null,
       ChildSupervisorRegistry? supervisors = null, ChildMailboxRegistry? mailboxes = null)
   {
     ArgumentNullException.ThrowIfNull(runner);
@@ -66,7 +62,6 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
     _runner = runner;
     _store = store;
-    _mailboxStore = mailboxStore;
     _events = events;
     _supervisors = supervisors;
     _registry = mailboxes;
@@ -85,7 +80,6 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     BoundedAgentMailbox mailbox = new();
     _mailboxes[record.Id] = mailbox;
     _registry?.Register(record.Id, mailbox);
-    _ = RehydrateAsync(record.Id, mailbox);
     _ = _settling.AddOrUpdate(record.Id,
         static _ => NewSettleSource(),
         static (_, existing) => existing.Task.IsCompleted ? NewSettleSource() : existing);
@@ -232,11 +226,6 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         _supervisors.Register(record.Id, supervisor);
       }
 
-      // Admission needs the REAL agreement (queue ordering may tolerate a corrupt
-      // contract as a priority hint, but the run cannot enact a grant set it cannot read):
-      // a decode fault here is the admission fault the catch below terminalizes.
-      _preemptGrants[record.Id.Value] = record.Contract is { } contractJson
-          && SpawnContract.Decode(contractJson).PreemptGrant;
       _ = Task.Run(() => RunToCompletionAsync(record, cts), CancellationToken.None);
       return Result.Success(record.Id);
     }
@@ -616,80 +605,19 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
     return depth;
   }
-  /// <summary>The mailbox for an id, or null when the runtime owns none (never started
-  ///     or already retired). The Agent loop obtains its inbox through the runner's
-  ///     SubAgentServices; senders go through the runtime's Deliver.</summary>
   /// <summary>The owning loop's inbox via the shared registry, or null when this
-  ///     runtime owns no live run for the id (never started, settled, or foreign).</summary>
+  ///     runtime owns no live run for the id (never started, settled, or foreign).
+  ///     <para>THIS IS THE HUMAN-STEERING PATH THAT SURVIVES (issue #316): the root
+  ///     loop takes its inbox from here, and that is the only sender left. The
+  ///     agent-to-agent push-delivery that used to sit beside it is deleted, along with
+  ///     the preemption ladder it fed and the between-turn persistence that only existed
+  ///     because a run could settle with a peer's mail still queued.</para></summary>
   public IAgentInbox? InboxFor(AgentId id) => _registry?.InboxFor(id);
 
-
-  /// <summary>Push-delivers into a child's mailbox. Fails NotRunning when the runtime
-  ///     owns no live mailbox for the id (FR-C2's NotRunning contract).</summary>
-  public Result<bool> Deliver(AgentId id, PendingMessage message)
-  {
-    ArgumentNullException.ThrowIfNull(message);
-    if (!_mailboxes.TryGetValue(id, out BoundedAgentMailbox? mailbox))
-    {
-      return Result.Failure<bool>(new DomainError(MailboxErrors.NotRunning,
-          $"agent '{id}' is not running; the message was refused."));
-    }
-
-    Result<bool> delivered = mailbox.Deliver(message);
-    if (delivered.IsSuccess)
-    {
-      _events?.Publish(new MessageDeliveredEvent(id, DateTimeOffset.UtcNow, "inbound",
-          (int)message.Urgency, System.Text.Encoding.UTF8.GetByteCount(message.Text), message.Id));
-
-      // Urgent + sender-granted + receiver running => audited preemption (approved D1).
-      // The interrupted turn repairs via the cancelled-turn path; the urgent message
-      // drains at the repaired turn's start.
-      bool senderGranted = message.Sender.StartsWith("agent:", StringComparison.Ordinal)
-          && Guid.TryParse(message.Sender[6..], out Guid senderId)
-          && _preemptGrants.TryGetValue(senderId, out bool granted)
-          && granted;
-      if (PreemptionPolicy.Decide(senderGranted, message.Urgency, receiverRunning: true)
-          is PreemptionDecision.PreemptGranted)
-      {
-        _events?.Publish(new PreemptedEvent(id, DateTimeOffset.UtcNow, message.Sender,
-            (int)message.Urgency));
-        Interrupt(id);
-      }
-    }
-
-    return delivered;
-  }
-
-  /// <summary>Rehydrates persisted undelivered messages at start (FR-C5); fires on a
-  ///     background flow — the loop's first drain races benignly with enqueue.
-  ///     Errors are swallowed by design: rehydration is best-effort recovery, and the
-  ///     messages remain persisted for the next start.</summary>
-  private async Task RehydrateAsync(AgentId id, BoundedAgentMailbox mailbox)
-  {
-    if (_mailboxStore is null)
-    {
-      return;
-    }
-
-    Result<IReadOnlyList<PendingMessage>> loaded = await _mailboxStore.LoadUndeliveredAsync(id).ConfigureAwait(false);
-    if (!loaded.IsSuccess)
-    {
-      return;
-    }
-
-    foreach (PendingMessage message in loaded.Value)
-    {
-      _ = mailbox.Deliver(message);
-    }
-
-    if (loaded.Value.Count > 0)
-    {
-      _ = await _mailboxStore.ClearAsync(id).ConfigureAwait(false);
-    }
-  }
-
-  /// <summary>Closes the delivery side and persists any still-undelivered remainder
-  ///     (FR-C5) — called exactly once per run, before waiters observe settlement.</summary>
+  /// <summary>Closes the delivery side — called exactly once per run, before waiters
+  ///     observe settlement. Anything still queued is dropped: with agent-to-agent
+  ///     messaging retired, a queued message can only be a human steering a run that has
+  ///     already ended, which the app reports as a refusal rather than replaying later.</summary>
   private void CloseMailbox(AgentId id, AgentRunOutcome outcome)
   {
     if (_mailboxes.TryRemove(id, out BoundedAgentMailbox? mailbox))
@@ -697,37 +625,9 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       _registry?.Unregister(id);
       _supervisors?.Unregister(id);
       mailbox.Close();
-      IReadOnlyList<PendingMessage> remainder = mailbox.Drain();
-      if (remainder.Count > 0)
-      {
-        // Issue #92: the settle fact that stops an undrained message from reading as
-        // received. Published BEFORE the settle event so a ledger observing both applies
-        // the remainder first and the terminal event last (a received message stays
-        // received either way - the ledger never regresses that state).
-        _events?.Publish(new MailboxUndeliveredEvent(id, DateTimeOffset.UtcNow,
-            [.. remainder.Select(m => m.Id)]));
-      }
-
-      if (_mailboxStore is not null && remainder.Count > 0)
-      {
-        _ = PersistRemainderAsync(id, remainder);
-      }
-
       _events?.Publish(new ChildSettledEvent(id, DateTimeOffset.UtcNow, outcome.Status,
           outcome.Reason, System.Text.Encoding.UTF8.GetByteCount(outcome.Report)));
     }
-  }
-
-  private async Task PersistRemainderAsync(AgentId id, IReadOnlyList<PendingMessage> remainder)
-  {
-    if (_mailboxStore is null)
-    {
-      return;
-    }
-
-    // A failed remainder write is survivable (messages were undelivered steering, not
-    // protocol state); the result is intentionally ignored — never crash the settle path.
-    _ = await _mailboxStore.PersistUndeliveredAsync(id, remainder).ConfigureAwait(false);
   }
 }
 

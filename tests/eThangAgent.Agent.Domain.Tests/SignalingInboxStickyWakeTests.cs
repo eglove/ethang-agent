@@ -18,7 +18,7 @@ public class SignalingInboxStickyWakeTests
     public int UnreadCount => _pending.Count;
 
     public Result<bool> TryPost(string text)
-        => Deliver(PendingMessage.New(text, MessageUrgency.Normal, "human"));
+        => Deliver(PendingMessage.New(text, "human"));
 
     public Result<bool> Deliver(PendingMessage message)
     {

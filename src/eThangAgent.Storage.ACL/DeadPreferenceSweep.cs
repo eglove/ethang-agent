@@ -34,6 +34,14 @@ public static class DeadPreferenceSweep
   ///     <c>subagent_remote_host_*</c> sibling, and the toggle's key has no suffix to anchor
   ///     on. Every conversation runs in its own child host unconditionally (spec D6/D7), so
   ///     the toggle and its key are deleted; zero references remain in <c>src/</c>.</summary>
+  ///     <para>ISSUE #316 D3 CHECKED, AND THE SWEEP IS CORRECTLY UNCHANGED. D3 anticipated
+  ///     that retiring <c>agent_links</c> would leave a preference-key cousin to sweep. It
+  ///     does not: verified across the whole history (<c>git log --all -S agent_link_target</c>
+  ///     returns nothing, and no <c>agent_link*</c> key appears in any stored row), the link
+  ///     registry was persisted in the <c>agent_links</c> TABLE and never in a preference, so
+  ///     V30's DROP is the whole cleanup. Naming a key here that never existed would make
+  ///     this sweep claim a removal it cannot perform - the same class of lie as a dormant
+  ///     table, which is what D2 exists to forbid.</para>
   public static IReadOnlyList<string> DeadKeys { get; } = ["subagent_remote_host"];
 
   /// <summary>STATE namespaces whose feature is deleted (issue #310). The todo list was the

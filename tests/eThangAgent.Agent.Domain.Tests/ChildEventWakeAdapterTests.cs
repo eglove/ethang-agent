@@ -92,11 +92,11 @@ public class ChildEventWakeAdapterTests
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
 
-    events.Subscriber!.OnEvent(new MessageDeliveredEvent(child, Now, "parent", 1, 42));
+    events.Subscriber!.OnEvent(new MessageDeliveredEvent(child, Now, "root-steer", 42));
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.Mailbox, signal.Reason);
-    Assert.Contains("parent", signal.DigestLine, StringComparison.Ordinal);
+    Assert.Contains("root-steer", signal.DigestLine, StringComparison.Ordinal);
   }
 
   [Fact]

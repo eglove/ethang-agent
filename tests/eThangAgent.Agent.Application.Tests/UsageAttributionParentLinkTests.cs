@@ -75,9 +75,6 @@ public class UsageAttributionParentLinkTests
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentId>(new DomainError("Unused", "not used in this test")));
 
-    public Result<bool> Deliver(AgentId id, PendingMessage message)
-        => Result.Success(true);
-
     public void InterruptSubtree(AgentId rootOfSubtree)
     {
       // No runs to interrupt in this test.

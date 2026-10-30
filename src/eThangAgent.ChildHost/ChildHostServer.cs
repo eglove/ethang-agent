@@ -19,12 +19,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   private volatile NamedPipeChildTransport? _transport;
   private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _active = [];
 
-  // W3 delivery fix: the delivery target for each running child is the mailbox in the
-  // CHILD CONTAINER's own registry — the SAME box the runtime registers at BeginRun and
-  // the child loop drains. The server previously kept its own parallel map of boxes the
-  // loop never saw, so wire-delivered steering landed in a box nobody drains.
-  private readonly ConcurrentDictionary<Guid, ChildMailboxRegistry> _delivery = [];
-
   // Subtree resolution (task 1, scoped stop): each active child's parent link, read
   // from the record the start command loaded. Interrupt dispatch walks these edges
   // deepest-first so a subtree-root interrupt cancels only that session's descendants.
@@ -149,9 +143,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       case "start":
         await HandleStartAsync(envelope).ConfigureAwait(false);
         break;
-      case "deliver":
-        HandleDeliver(envelope);
-        break;
       case "root-steer":
         // Synchronous on purpose: the handler only enqueues into the root inbox (no I/O,
         // no model call), so it must not leave the serve loop. The DRAIN happens in the
@@ -216,7 +207,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     try
     {
       SessionHost host = SessionHost.Create(settingsPath, databasePath);
-      AttachDeliveryRegistry(command.RecordId, host.Mailboxes);
       Result<AgentRecord> loaded = await host.Store.GetAsync(new AgentId(command.RecordId), CancellationToken.None).ConfigureAwait(false);
       if (!loaded.IsSuccess)
       {
@@ -284,7 +274,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       }
 
       _ = _active.TryRemove(command.RecordId, out _);
-      _ = _delivery.TryRemove(command.RecordId, out _);
       _ = _parents.TryRemove(command.RecordId, out _);
       _ = _runtimes.TryRemove(command.RecordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
@@ -626,32 +615,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     }, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
   }
 
-  /// <summary>Delivers a steering envelope into the running child's mailbox (FR-C2).
-  ///     NotRunning (unknown/finished child) and MailboxFull are dropped here: the
-  ///     APP-side runtime already returned those receipts to the sender synchronously —
-  ///     the wire path is the at-least-once replay, and a replay after a settle is
-  ///     stale by definition (A3: no silent drops on the live path).</summary>
-  private void HandleDeliver(TransportEnvelope envelope)
-  {
-    DeliverCommand? command = JsonSerializer.Deserialize<DeliverCommand>(envelope.Json);
-    if (command is null)
-    {
-      return;
-    }
-
-    if (_delivery.TryGetValue(command.RecordId, out ChildMailboxRegistry? registry)
-        && registry.MailboxFor(new AgentId(command.RecordId)) is { } mailbox)
-    {
-      // The identity travels with the message (issue #92): the app-side sender's receipt
-      // named this handle, so the host's drain/remainder facts must name the same one.
-      // An older app's frame carries no id; minting one here keeps delivery working while
-      // leaving that message unaddressable - the pre-handshake behavior.
-      Guid messageId = command.MessageId == Guid.Empty ? Guid.NewGuid() : command.MessageId;
-      _ = mailbox.Deliver(new PendingMessage(command.Text, (MessageUrgency)command.Urgency,
-          DateTimeOffset.UtcNow, command.Sender, messageId));
-    }
-  }
-
   /// <summary>Delivers one steering message into the ROOT container's inbox (issue #253).
   ///     <para>WHY THIS EXISTS: every conversation runs its turn in a host process (spec
   ///     D6), so the app's own container runs no agent work. The app's steering inbox was
@@ -677,8 +640,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 
   /// <summary>Delivers one steering message to a LIVE root turn's inbox, or drops it when
   ///     the turn is not live here. Public so the wire tests can drive the production
-  ///     delivery path without a full provider stack (the same seam shape
-  ///     <see cref="AttachDeliveryRegistry"/> gives the child path).</summary>
+  ///     delivery path without a full provider stack.</summary>
   public void DeliverToRootTurn(string turnId, string text, string sender, Guid messageId = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(turnId);
@@ -702,8 +664,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     if (inbox is IAgentMailbox mailbox)
     {
       Guid id = messageId == Guid.Empty ? Guid.NewGuid() : messageId;
-      _ = mailbox.Deliver(new PendingMessage(text, MessageUrgency.Normal, DateTimeOffset.UtcNow,
-          sender, id));
+      Result<bool> accepted = mailbox.Deliver(new PendingMessage(text, DateTimeOffset.UtcNow, sender, id));
+      PublishRootSteerDelivered(accepted, id);
       return;
     }
 
@@ -712,7 +674,48 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     // is never released. Reached only by a container that wired a non-addressable
     // decorator; the production root inbox is a SignalingInbox, which forwards Deliver
     // (issue #319 D2).
-    _ = inbox.TryPost(text);
+    Result<bool> legacy = inbox.TryPost(text);
+    PublishRootSteerDelivered(legacy, Guid.Empty);
+  }
+
+  /// <summary>Publishes the ROOT STEER ACCEPTANCE fact (issue #316 D6) on the root container's
+  ///     own stream, which the root forwarder already carries to the app.
+  ///     <para>WHY THIS EXISTS AT ALL: <c>MessageDeliveredEvent</c> was the only thing that
+  ///     ever raised a tab's unread badge, and both of its publishers were the agent-to-agent
+  ///     paths this issue deletes (the in-process child delivery and cross-container routing).
+  ///     This path calls the mailbox directly and published nothing, so once the messaging
+  ///     surface was gone the badge would have had NO increment source - a working affordance
+  ///     removed by tidying up machinery around it, which is exactly what D6 refuses.</para>
+  ///     <para>THE HUMAN IS NOW THE ONLY SENDER, so the count means what a person expects it
+  ///     to mean: steering messages this session sent that the agent has not read yet.</para>
+  ///     <para>PUBLISHED ON ACCEPTANCE, NEVER ON SEND (the issue's explicit contract): a
+  ///     refused post (full or closed box) increments nothing, the same rule the transcript
+  ///     echo already follows. The id is carried so the drain fact can name the same message
+  ///     back and clear the count - the #92 handshake, unchanged.</para></summary>
+  private void PublishRootSteerDelivered(Result<bool> accepted, Guid messageId)
+  {
+    if (!accepted.IsSuccess || _rootHost is not { } runner)
+    {
+      return; // refused posts raise nothing; a host with no bound session has no stream
+    }
+
+    if (runner.Services.GetService(typeof(IAgentEvents)) is not IAgentEvents events)
+    {
+      return;
+    }
+
+    // The owner id is the container's OWN root session id - the same value the badge
+    // subscribes with - never a guess: publishing under any other id would raise a count
+    // nothing could ever clear. An unfilled identity means the container has no bound
+    // session yet, and a host in that state serves no turn to steer anyway.
+    if (runner.Services.GetService(typeof(RootSessionIdentity)) is not RootSessionIdentity identity
+        || identity.Id is not { } owner)
+    {
+      return;
+    }
+
+    events.Publish(new MessageDeliveredEvent(owner, DateTimeOffset.UtcNow, "root-steer",
+        System.Text.Encoding.UTF8.GetByteCount("steer"), messageId));
   }
 
   /// <summary>Subscribes the child-event forwarder to the ROOT container's event stream
@@ -771,13 +774,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     return resolved;
   }
 
-  /// <summary>Registers the per-child container registry whose MailboxFor answers the
-  ///     deliver path (RunChildAsync attaches each child's own; tests may attach a rig
-  ///     registry). MailboxFor returns null once the runtime unregisters the box at
-  ///     settle — stale delivers stay silent drops (the pinned HandleDeliver contract).</summary>
-  public void AttachDeliveryRegistry(Guid recordId, ChildMailboxRegistry registry)
-      => _delivery[recordId] = registry;
-
   /// <summary>Registers a live child run the way RunChildAsync does (a cancellable CTS
   ///     in the active set) together with the record's parent link and the CHILD
   ///     CONTAINER's runtime — the runtime whose internal CTS is the run's ACTUAL
@@ -791,9 +787,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     _runtimes[recordId] = runtime;
   }
 
-  /// <summary>Registers the ROOT runner the server dispatches 'root-turn' envelopes to,
-  ///     the way <see cref="AttachDeliveryRegistry"/> registers a delivery target: tests
-  ///     drive the real dispatch path over a real pipe with a scripted runner, without
+  /// <summary>Registers the ROOT runner the server dispatches 'root-turn' envelopes to:
+  ///     tests drive the real dispatch path over a real pipe with a scripted runner, without
   ///     building a full provider stack. Production resolves its runner from the host's own
   ///     container (<see cref="ResolveRootHostAsync"/>).</summary>
   public void AttachRootRun(RootRunHost runner)
@@ -919,7 +914,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     try
     {
       SessionHost host = SessionHost.Create(settingsPath, databasePath);
-      AttachDeliveryRegistry(recordId, host.Mailboxes);
       Result<AgentRecord> loaded = await host.Store.GetAsync(new AgentId(recordId), CancellationToken.None).ConfigureAwait(false);
       if (!loaded.IsSuccess)
       {
@@ -968,7 +962,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       }
 
       _ = _active.TryRemove(recordId, out _);
-      _ = _delivery.TryRemove(recordId, out _);
       _ = _parents.TryRemove(recordId, out _);
       _ = _runtimes.TryRemove(recordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);

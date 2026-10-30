@@ -13,7 +13,14 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>Two facts make this contract load-bearing even though re-attach is retired
 ///     (issue #274): the declared set is the EXACT input to startup orphan repair, and it is
 ///     what the host says about the children it is actually running. The wire shape is
-///     unchanged; only the 'survived a restart' motivation is gone.</para></summary>
+///     unchanged; only the 'survived a restart' motivation is gone.</para>
+///     <para>WHY THESE ASSERT ON <c>OwnedChildren</c> AND NOT ON A DELIVERY (issue #316):
+///     the ownership gate used to be observed through <c>IAgentRuntime.Deliver</c>, and
+///     agent-to-agent messaging is retired, so that seam is gone. The ownership FACT is not:
+///     <c>OwnedChildren</c> is still what startup orphan repair reads to decide which child
+///     rows are live, so getting it wrong would still strand rows or mark live ones dead.
+///     These tests now assert the fact itself rather than a receipt that happened to expose
+///     it - a narrower claim about the same rule, not a weaker one.</para></summary>
 public class RemoteRuntimeReAttachOwnershipTests
 {
   private static async Task<(NamedPipeChildTransport App, NamedPipeChildTransport Host)> ConnectAsync()
@@ -28,9 +35,6 @@ public class RemoteRuntimeReAttachOwnershipTests
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     return (app, host);
   }
-
-  private static PendingMessage Steering(string text) =>
-      PendingMessage.New(text, MessageUrgency.Attention, "parent:root");
 
   /// <summary>Waits until the runtime has observed the host's declared set. The declare
   ///     envelope is asynchronous on the wire, so the test polls the OBSERVABLE fact
@@ -50,7 +54,7 @@ public class RemoteRuntimeReAttachOwnershipTests
   }
 
   [Fact]
-  public async Task Deliver_ToAChildTheHostDeclaredLive_Succeeds()
+  public async Task DeclaredChild_IsOwned_EvenByARuntimeThatNeverStartedIt()
   {
     AgentId child = new(Guid.NewGuid());
 
@@ -64,8 +68,7 @@ public class RemoteRuntimeReAttachOwnershipTests
         TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10),
             TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(started.IsSuccess, started.Error?.Message);
-    Assert.True(firstRuntime.Deliver(child, Steering("before reconnect")).IsSuccess,
-        "the first runtime must steer a child it started");
+    Assert.Contains(child.Value, firstRuntime.OwnedChildren);
 
     // The first connection goes away (the runtime is replaced, as it is whenever a session
     // reconnects). Both halves are disposed so the pipes are released.
@@ -80,16 +83,15 @@ public class RemoteRuntimeReAttachOwnershipTests
       RemoteAgentRuntime secondRuntime = new(secondApp);
       using CancellationTokenSource secondLoop = new();
       _ = secondRuntime.RunReceiveLoopAsync(secondLoop.Token);
+      Assert.DoesNotContain(child.Value, secondRuntime.OwnedChildren);
       await secondHost.SendAsync(new TransportEnvelope("declare",
           JsonSerializer.Serialize(new DeclareCommand([child.Value])), 1),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       await WaitForDeclaredAsync(secondRuntime, child.Value).ConfigureAwait(true);
 
-      // The host declares it live, so this runtime owns it: steering must reach it.
-      // Before the fix this failed NotRunning and the message was lost.
-      Result<bool> delivered = secondRuntime.Deliver(child, Steering("after reconnect"));
-      Assert.True(delivered.IsSuccess,
-          "a child the host declared live must be steerable: " + delivered.Error?.Message);
+      // The host declares it live, so this runtime OWNS it. Before the fix the declared set
+      // never seeded ownership, so orphan repair would have called a live child dead.
+      Assert.Contains(child.Value, secondRuntime.OwnedChildren);
     }
     finally
     {
@@ -99,7 +101,7 @@ public class RemoteRuntimeReAttachOwnershipTests
   }
 
   [Fact]
-  public async Task Deliver_ToAnIdTheHostNeverDeclared_StillFailsNotRunning()
+  public async Task AnIdTheHostNeverDeclared_IsNotOwned()
   {
     (NamedPipeChildTransport app, NamedPipeChildTransport host) = await ConnectAsync().ConfigureAwait(true);
     try
@@ -115,9 +117,7 @@ public class RemoteRuntimeReAttachOwnershipTests
       await Task.Delay(TimeSpan.FromMilliseconds(200),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-      Result<bool> delivered = runtime.Deliver(new AgentId(Guid.NewGuid()), Steering("nobody home"));
-      Assert.False(delivered.IsSuccess);
-      Assert.Equal(MailboxErrors.NotRunning, delivered.Error.Code);
+      Assert.Empty(runtime.OwnedChildren);
     }
     finally
     {
@@ -125,14 +125,14 @@ public class RemoteRuntimeReAttachOwnershipTests
       await host.DisposeAsync().ConfigureAwait(true);
     }
   }
+
   /// <summary>Ownership must be RECONCILED, not merely accumulated (review round 2, minor
   ///     4): the host re-declares its live set after every start and settle, so an id it
   ///     stops declaring is a child that is no longer live there. Keeping it owned would
-  ///     report a delivery as successful while the host silently drops it
-  ///     (ChildHostServer.HandleDeliver ignores ids it does not run) - a lying receipt,
-  ///     which is worse than the honest NotRunning this answered before the seed existed.</summary>
+  ///     report a dead row as live to orphan repair - the stranded-row defect in the other
+  ///     direction.</summary>
   [Fact]
-  public async Task Deliver_ToAChildTheHostStoppedDeclaring_FailsNotRunningAgain()
+  public async Task AChildTheHostStoppedDeclaring_StopsBeingOwned()
   {
     AgentId child = new(Guid.NewGuid());
     (NamedPipeChildTransport app, NamedPipeChildTransport host) = await ConnectAsync().ConfigureAwait(true);
@@ -142,13 +142,12 @@ public class RemoteRuntimeReAttachOwnershipTests
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 
-      // The host declares the child live: it is owned, and steering reaches it.
+      // The host declares the child live: it is owned.
       await host.SendAsync(new TransportEnvelope("declare",
           JsonSerializer.Serialize(new DeclareCommand([child.Value])), 1),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       await WaitForDeclaredAsync(runtime, child.Value).ConfigureAwait(true);
-      Assert.True(runtime.Deliver(child, Steering("while live")).IsSuccess,
-          "a declared child must be steerable");
+      Assert.Contains(child.Value, runtime.OwnedChildren);
 
       // The child settles host-side, so the host re-declares an EMPTY live set.
       await host.SendAsync(new TransportEnvelope("declare",
@@ -156,12 +155,7 @@ public class RemoteRuntimeReAttachOwnershipTests
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       await WaitForDeclaredCountAsync(runtime, 0).ConfigureAwait(true);
 
-      // It is no longer live there: the runtime must stop claiming it. A success here
-      // would be a receipt for a message the host drops on the floor.
-      Result<bool> delivered = runtime.Deliver(child, Steering("after it settled"));
-      Assert.False(delivered.IsSuccess,
-          "a child the host no longer declares must not accept deliveries");
-      Assert.Equal(MailboxErrors.NotRunning, delivered.Error.Code);
+      // It is no longer live there: the runtime must stop claiming it.
       Assert.DoesNotContain(child.Value, runtime.OwnedChildren);
     }
     finally

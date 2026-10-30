@@ -127,38 +127,6 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     return await SendStartAsync(command, record.Id, ct).ConfigureAwait(false);
   }
 
-  /// <summary>Synchronous-by-contract delivery (the domain seam is sync): the underlying
-  ///     wire send blocks only until the host's always-running pump consumes the frame,
-  ///     which the pump model guarantees. Named decision: GetAwaiter().GetResult() over
-  ///     .Wait() to avoid SyncCtx deadlocks in this ACL.</summary>
-  public Result<bool> Deliver(AgentId id, PendingMessage message)
-  {
-    ArgumentNullException.ThrowIfNull(message);
-    // The domain contract (IAgentRuntime.Deliver): an id this runtime does not OWN fails
-    // NotRunning. Ownership is what makes the capability provider's cross-container
-    // fallback reachable - a wire send for a foreign id would otherwise claim delivery
-    // and the process-wide locator would never be consulted (the in-process runtime
-    // answers exactly this way for an id it holds no mailbox for).
-    bool owned;
-    lock (_owned)
-    {
-      owned = _owned.ContainsKey(id.Value);
-    }
-
-    if (!owned)
-    {
-      return Result.Failure<bool>(new DomainError(MailboxErrors.NotRunning,
-          $"agent '{id}' is not running in this container; the message was refused."));
-    }
-
-    DeliverCommand command = new(id.Value, message.Text, (int)message.Urgency, message.Sender, message.Id);
-    bool sent = SendEnvelopeAsync("deliver", JsonSerializer.Serialize(command), id, CancellationToken.None)
-        .GetAwaiter().GetResult();
-    return sent
-        ? Result.Success(true)
-        : Result.Failure<bool>(new DomainError("HostUnavailable", "the child host refused the delivery."));
-  }
-
   /// <inheritdoc cref="IAgentRuntime.WhenSettledAsync"/>
   /// <remarks>Remote waits do NOT wake on events (user steering, child events, stream
   ///     stalls, state writes) in this build — wire forwarding is a planned follow-up;
@@ -251,7 +219,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     ArgumentException.ThrowIfNullOrWhiteSpace(turnId);
     ArgumentException.ThrowIfNullOrWhiteSpace(text);
     _ = SendEnvelopeAsync("root-steer",
-        JsonSerializer.Serialize(new RootSteerCommand(turnId, text, (int)MessageUrgency.Normal,
+        JsonSerializer.Serialize(new RootSteerCommand(turnId, text,
             "human", messageId)),
         new AgentId(Guid.NewGuid()), CancellationToken.None);
   }
@@ -878,7 +846,7 @@ public sealed record StartCommand(Guid RecordId, int MaxConcurrent, string Model
 ///     name it back. <see cref="Guid.Empty"/> (an older app's frame) is re-minted
 ///     host-side, which keeps delivery working while leaving that message unaddressable —
 ///     the pre-handshake behavior, never a fabricated receipt.</summary>
-public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, string Sender, Guid MessageId = default);
+
 /// <summary>One steering delivery addressed to a LIVE ROOT TURN (issue #253). A root turn
 ///     has no record id - the same reason <see cref="InterruptCommand.TurnId"/> exists - so
 ///     the child deliver path cannot address it. Without this kind the app's steering landed
@@ -887,7 +855,7 @@ public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, str
 ///     <para><see cref="MessageId"/> carries the sender's identity for the same reason the
 ///     child path does (issue #92): the host's drain fact must name the handle the sender's
 ///     receipt named.</para></summary>
-public sealed record RootSteerCommand(string TurnId, string Text, int Urgency, string Sender, Guid MessageId = default);
+public sealed record RootSteerCommand(string TurnId, string Text, string Sender, Guid MessageId = default);
 /// <summary>One interrupt request. <paramref name="RecordId"/> addresses a CHILD subtree
 ///     (the FR-C6 scoped teardown); <paramref name="TurnId"/> addresses a live ROOT turn,
 ///     which has no record id of its own. A stop button sends both: the subtree and the

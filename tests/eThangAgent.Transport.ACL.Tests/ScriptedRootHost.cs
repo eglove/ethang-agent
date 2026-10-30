@@ -91,6 +91,8 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     the ROOT container's forwarder is subscribed at all.</summary>
   public long ForwardedEventCount => Server.ForwardedEventCount;
 
+
+
   /// <summary>Builds a host whose provider streams <paramref name="deltas"/> and then
   ///     completes with <paramref name="answer"/>. <paramref name="betweenDeltas"/> runs
   ///     between the first and second delta, so a test can observe what the caller had

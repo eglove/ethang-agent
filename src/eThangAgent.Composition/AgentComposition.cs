@@ -38,9 +38,6 @@ public sealed record CompositionOverrides
   /// <summary>Messages the session conversation starts from.</summary>
   public IEnumerable<Message>? ConversationSeed { get; init; }
 
-  /// <summary>The process-wide mailbox locator for cross-container delivery.</summary>
-  public ProcessMailboxLocator? MailboxLocator { get; init; }
-
   /// <summary>The computer-use access provider; null disables the computer tool.</summary>
   public IComputerAccessProvider? ComputerAccessProvider { get; init; }
 
@@ -70,7 +67,6 @@ public static class AgentComposition
   {
     CompositionOverrides knobs = overrides ?? new CompositionOverrides();
     IEnumerable<Message>? conversationSeed = knobs.ConversationSeed;
-    ProcessMailboxLocator? mailboxLocator = knobs.MailboxLocator;
     IComputerAccessProvider? computerAccessProvider = knobs.ComputerAccessProvider;
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
@@ -89,7 +85,7 @@ public static class AgentComposition
     wired = AddAgentTools(wired, settings);
     wired = AddPersistenceServices(wired, host, database, providerName);
     wired = AddSkillServices(wired, settings);
-    wired = AddWakeAndMailboxServices(wired, mailboxLocator);
+    wired = AddWakeAndMailboxServices(wired);
     wired = AddModelServices(wired, providerName);
     wired = AddSubAgentServices(wired, providerName);
     wired = AddCapabilityServices(wired);
@@ -751,7 +747,7 @@ public static class AgentComposition
   /// <summary>The wait wake bus and its adapters, the root inbox, the mailbox stores, and the
   ///     supervisor and mailbox registries.
   /// </summary>
-  private static IServiceCollection AddWakeAndMailboxServices(IServiceCollection wired, ProcessMailboxLocator? mailboxLocator)
+  private static IServiceCollection AddWakeAndMailboxServices(IServiceCollection wired)
   {
     return wired
         // The wait wake bus (spec #62): one hub per session; the child-event adapter and
@@ -782,31 +778,15 @@ public static class AgentComposition
           _ = sp.GetRequiredService<IAgentEvents>().Subscribe(ledger);
           return ledger;
         })
-        // The message receipt ledger (issue #92): the read surface agent.receipts uses to
-        // answer what became of a steering message. Constructed eagerly for the same reason
-        // the progress ledger is - DI is lazy and nothing else resolves it, so a plain
-        // registration would never subscribe. It feeds agent.receipts only.
-        .AddSingleton(sp =>
-        {
-          MessageReceiptLedger ledger = new();
-          _ = sp.GetRequiredService<IAgentEvents>().Subscribe(ledger);
-          return ledger;
-        })
         .AddSingleton<IStateChangeBus, InProcessStateChangeBus>()
         .AddSingleton<IAgentInbox>(sp => new SignalingInbox(
             new BoundedAgentMailbox(),
             sp.GetRequiredService<WaitWakeHub>(),
             ownerId: sp.GetRequiredService<RootSessionIdentity>().Id ?? AgentId.NewId()))
-        .AddSingleton<IMailboxStore, SqliteMailboxStore>()
         .AddSingleton<IAgentEvents, InProcessAgentEvents>()
 
         .AddSingleton<ChildSupervisorRegistry>()
-        .AddSingleton<ChildMailboxRegistry>()
-        // W3.2: the cross-container mailbox locator. Hosts opening several sessions pass
-        // ONE shared instance (AgentSessionFactory does), so every container's provider
-        // consults the same process-wide registry of live mailboxes; a lone container
-        // gets its own, which changes nothing (its source is itself).
-        .AddSingleton(_ => mailboxLocator ?? new ProcessMailboxLocator());
+        .AddSingleton<ChildMailboxRegistry>();
   }
 
   /// <summary>The sub-agent stack: the workspace anchor scope, the spawner and its services, and
@@ -883,9 +863,6 @@ public static class AgentComposition
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
-        .AddSingleton(sp => new AgentLinkRegistry(
-            new SqliteLinkStore(sp.GetRequiredService<AppDatabase>()),
-            () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddSingleton<SpawnGraphHandler>()
         .AddSingleton(sp =>
         {
@@ -902,13 +879,9 @@ public static class AgentComposition
                   // RootAgentHolder resolves the agent's request identity.
                   () => SubAgentSpawner.RunningChild ?? RootParentRecord(sp),
                   sp.GetRequiredService<IAgentRuntime>(),
-                  sp.GetRequiredService<AgentLinkRegistry>(),
-                  Locator: sp.GetRequiredService<ProcessMailboxLocator>(),
-                  EventsFor: id => sp.GetRequiredService<ProcessMailboxLocator>().EventsFor(id),
                   WakeSource: sp.GetRequiredService<WaitWakeHub>(),
                   Clock: TimeProvider.System,
                   Progress: sp.GetRequiredService<ChildProgressLedger>(),
-                  Receipts: sp.GetRequiredService<MessageReceiptLedger>(),
                   // Fail-fast join: agent.fanout's advertised contract - failed STARTS
                   // (DepthExceeded, InvalidSpawnRequest, ...) fail the join immediately
                   // and surface under their own error code.
@@ -1256,7 +1229,6 @@ public static class AgentComposition
               sp.GetRequiredService<SubAgentSpawner>(),
               sp.GetRequiredService<IAgentStore>(),
               settings.SubAgents.MaxConcurrentAgents,
-              sp.GetRequiredService<IMailboxStore>(),
               sp.GetRequiredService<IAgentEvents>(),
               sp.GetRequiredService<ChildSupervisorRegistry>(),
               sp.GetRequiredService<ChildMailboxRegistry>()))

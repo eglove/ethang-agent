@@ -90,23 +90,11 @@ public partial class SupervisorFeedContractTests
   }
 
   [Fact]
-  public void Preempted_DoesNotBeat()
-  {
-    (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
-
-    stream.Publish(new PreemptedEvent(child, T0, "agent:" + Guid.NewGuid(), (int)MessageUrgency.Urgent));
-
-    clock.Now = T0.AddMinutes(15).AddTicks(1);
-    ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
-    Assert.NotNull(alert); // no beat: preemption must be allowed to stall the idle window
-  }
-
-  [Fact]
   public void MessageDelivered_DoesNotBeat()
   {
     (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
 
-    stream.Publish(new MessageDeliveredEvent(child, T0, "inbound", 0, 64));
+    stream.Publish(new MessageDeliveredEvent(child, T0, "root-steer", 64));
 
     clock.Now = T0.AddMinutes(15).AddTicks(1);
     ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
@@ -165,8 +153,7 @@ public partial class SupervisorFeedContractTests
       stream.Publish(new ChildStartedEvent(stranger, T0, null, "m/sub", 1));
       stream.Publish(new ChildProgressEvent(stranger, T0, ChildPhase.ModelCall, "iteration"));
       stream.Publish(new ChildBudgetAlertEvent(stranger, T0, "tokens", 1, 10, 0));
-      stream.Publish(new PreemptedEvent(stranger, T0, "agent:" + Guid.NewGuid(), 2));
-      stream.Publish(new MessageDeliveredEvent(stranger, T0, "inbound", 0, 8));
+      stream.Publish(new MessageDeliveredEvent(stranger, T0, "root-steer", 8));
       stream.Publish(new ChildIdleAlertEvent(stranger, T0, TimeSpan.FromMinutes(15), "ModelCall"));
       stream.Publish(new ChildSettledEvent(stranger, T0, AgentStatus.Failed, AgentFailureReason.Hung, 0));
     });

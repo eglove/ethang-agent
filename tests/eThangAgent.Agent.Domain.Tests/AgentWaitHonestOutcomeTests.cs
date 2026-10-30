@@ -19,8 +19,6 @@ public class AgentWaitHonestOutcomeTests
     public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
         => Task.FromResult(Result.Success(record.Id));
 
-    public Result<bool> Deliver(AgentId id, PendingMessage message) => Result.Success(true);
-
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
     public void Interrupt(AgentId? childId = null) { }

@@ -52,7 +52,7 @@ public class TabBadgeViewModelTests
     AgentId root = new(Guid.NewGuid());
     (TabBadgeViewModel badge, List<int> rendered) = Make(stream, root);
 
-    stream.Publish(new MessageDeliveredEvent(root, DateTimeOffset.UtcNow, "inbound", 0, 8));
+    stream.Publish(new MessageDeliveredEvent(root, DateTimeOffset.UtcNow, "inbound", 8));
     Assert.Equal(1, badge.UnreadCount);
     Assert.True(badge.HasUnread);
 
@@ -68,11 +68,11 @@ public class TabBadgeViewModelTests
     CaptureStream stream = new();
     AgentId root = new(Guid.NewGuid());
     (TabBadgeViewModel badge, List<int> rendered) = Make(stream, root);
-    stream.Publish(new MessageDeliveredEvent(root, DateTimeOffset.UtcNow, "inbound", 0, 8));
+    stream.Publish(new MessageDeliveredEvent(root, DateTimeOffset.UtcNow, "inbound", 8));
     Assert.Equal(1, badge.UnreadCount);
 
     badge.Dispose();
-    stream.Publish(new MessageDeliveredEvent(root, DateTimeOffset.UtcNow, "inbound", 0, 8));
+    stream.Publish(new MessageDeliveredEvent(root, DateTimeOffset.UtcNow, "inbound", 8));
 
     Assert.Equal(1, badge.UnreadCount); // frozen: the detached badge takes no further events
     Assert.Equal([1], rendered); // and rendered nothing after dispose

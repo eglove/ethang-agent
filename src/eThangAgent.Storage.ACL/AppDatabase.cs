@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 29;
+  public const int LatestSchemaVersion = 30;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -137,6 +137,7 @@ public sealed class AppDatabase
     (27, ApplyV27),
     (28, ApplyV28),
     (29, ApplyV29),
+    (30, ApplyV30),
   ];
 
   private void Migrate()
@@ -1308,4 +1309,20 @@ public sealed class AppDatabase
       Execute(connection, "PRAGMA foreign_keys = ON;");
     }
   }
+
+  /// <summary>V30 drops the agent-to-agent messaging tables (issue #316):
+  ///     <c>agent_links</c> (V12, consented named links) and <c>mailbox_messages</c>
+  ///     (V11, between-turn durability for undelivered peer mail, plus V19's identity
+  ///     column). The surface they serve is DELETED, not dormant (D2): a table nothing
+  ///     writes and nothing reads is a lie about what the harness can do, and a future
+  ///     session that found it would reasonably assume the protocol still exists.
+  ///     <para>IN-FLIGHT ROWS ARE LOST, which D2 accepts: the actions that produced them
+  ///     are gone, so no reader could ever consume what survived. Human steering is
+  ///     unaffected - it never used either table, because the root inbox is in-memory
+  ///     and the app reports a refused post to the person who sent it.</para>
+  ///     <para>V11 and V12 are deliberately left CREATING their tables so a fresh
+  ///     database walks the same path an existing one did and the two cannot diverge
+  ///     (the V4/V18 and V22 precedents); V30 is the only step that removes them.</para></summary>
+  private static void ApplyV30(SqliteConnection connection)
+      => Execute(connection, "DROP TABLE IF EXISTS mailbox_messages; DROP TABLE IF EXISTS agent_links;");
 }

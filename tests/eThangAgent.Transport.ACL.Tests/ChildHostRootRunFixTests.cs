@@ -83,11 +83,19 @@ public sealed class ChildHostRootRunFixTests
   public async Task RootTurnEnvelope_InFlightTurn_DoesNotBlockOtherEnvelopes()
   {
     // Finding 4: the serve loop awaited each turn inline, so a slow turn stopped the host
-    // processing ANY envelope - start, deliver, interrupt. A gate parks turn one inside the
-    // provider while a DELIVER envelope is sent: the host must still reach its mailbox.
+    // processing ANY envelope - start, interrupt, steer. A gate parks turn one inside the
+    // provider while a root-steer envelope is sent: the host must still reach its inbox.
+    //
+    // WHY ROOT-STEER AND NOT A DELIVER (issue #316): the deliver envelope was retired with
+    // agent-to-agent messaging, so this test now names the fact it always depended on - the
+    // loop is not blocked - through a surviving envelope. Root steering is the one messaging
+    // channel the issue keeps, which makes it the right vehicle: the defect it pins is
+    // unchanged, because an inline `await` on the turn would still serialize them.
     using ManualResetEventSlim gate = new(initialState: false);
+    RecordingMailbox box = new();
     using ScriptedRootHost host = ScriptedRootHost.Start("the answer", ["the ", "answer"],
-        betweenDeltas: () => gate.Wait(TimeSpan.FromSeconds(15)));
+        betweenDeltas: () => gate.Wait(TimeSpan.FromSeconds(15)),
+        options: new ScriptedOptions(Inbox: box));
     // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
 #pragma warning disable CA2007
     await using NamedPipeChildTransport app = await ConnectToServerAsync(host.Server).ConfigureAwait(true);
@@ -96,45 +104,94 @@ public sealed class ChildHostRootRunFixTests
     using CancellationTokenSource loop = new();
     _ = runtime.RunReceiveLoopAsync(loop.Token);
 
-    // A steering target the host can resolve, registered through the server's own seam.
-    AgentId child = AgentId.NewId();
-    ChildMailboxRegistry mailboxes = new();
-    RecordingMailbox box = new();
-    mailboxes.Register(child, box);
-    host.Server.AttachDeliveryRegistry(child.Value, mailboxes);
+    // The ROOT steering inbox the handler drains. The root-steer handler is SYNCHRONOUS and
+    // never reaches the provider, so the mailbox filling is unambiguous evidence that the
+    // serve loop dispatched the envelope while turn one was still parked. (A second ROOT
+    // TURN cannot prove this: RootRunHost's turn gate serializes turns BY DESIGN, so a
+    // queued turn is correct behaviour, not blocking.)
 
     Task<Result<string>> turn = runtime.SendRootTurnAsync(
         new RootTurnRequest("turn-slow", "hello", []), _ => { },
         TestContext.Current.CancellationToken);
     await WaitUntilAsync(() => host.ProviderCalls > 0).ConfigureAwait(true);
 
-    // Turn one is parked inside the provider. A deliver envelope must still be handled.
-    await app.SendAsync(new TransportEnvelope("deliver",
-        /*lang=json,strict*/ "{\"RecordId\":\"" + child.Value + "\",\"Text\":\"steer\",\"Urgency\":1,\"Sender\":\"app\"}",
+    // Turn one is parked inside the provider. A root-steer envelope must still be handled.
+    await app.SendAsync(new TransportEnvelope("root-steer",
+        /*lang=json,strict*/ "{\"TurnId\":\"turn-slow\",\"Text\":\"steer\",\"Sender\":\"app\",\"MessageId\":\"00000000-0000-0000-0000-000000000001\"}",
         9100), TestContext.Current.CancellationToken).ConfigureAwait(true);
     await WaitUntilAsync(() => box.UnreadCount > 0, TimeSpan.FromSeconds(8)).ConfigureAwait(true);
     bool reached = box.UnreadCount > 0;
     gate.Set();
     _ = await turn.WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-    Assert.True(reached, "a deliver envelope was blocked behind an in-flight turn: the serve loop awaits turns inline");
+    Assert.True(reached, "a root-steer envelope was blocked behind an in-flight turn: the serve loop awaits turns inline");
   }
 
   /// <summary>A mailbox that only records delivery, so a test can observe the host's
-  ///     deliver path without a running child.</summary>
-  private sealed class RecordingMailbox : IAgentMailbox
+  ///     steering path without a running child. It implements BOTH halves because the
+  ///     production root inbox does (<c>SignalingInbox</c> forwards the whole contract): the
+  ///     container registers it as <see cref="IAgentInbox"/> while the host delivers through
+  ///     <see cref="IAgentMailbox"/>, and a double exposing only one would not model the shape
+  ///     the identity handshake depends on (issue #319).</summary>
+  private sealed class RecordingMailbox : IAgentInbox, IAgentMailbox
   {
-    private int _unread;
+    private readonly List<PendingMessage> _pending = [];
 
-    public int UnreadCount => Volatile.Read(ref _unread);
+    public int UnreadCount
+    {
+      get
+      {
+        lock (_pending)
+        {
+          return _pending.Count;
+        }
+      }
+    }
 
     public Result<bool> Deliver(PendingMessage message)
     {
-      _ = Interlocked.Increment(ref _unread);
+      lock (_pending)
+      {
+        _pending.Add(message);
+      }
+
       return Result.Success(true);
     }
 
-    public IReadOnlyList<PendingMessage> Drain() => [];
+    public Result<bool> TryPost(string text)
+    {
+      ArgumentException.ThrowIfNullOrWhiteSpace(text);
+      return Deliver(PendingMessage.New(text, "human"));
+    }
+
+    public bool TryTake(out string text, out Guid messageId)
+    {
+      lock (_pending)
+      {
+        if (_pending.Count == 0)
+        {
+          text = "";
+          messageId = Guid.Empty;
+          return false;
+        }
+
+        PendingMessage message = _pending[0];
+        _pending.RemoveAt(0);
+        text = message.Text;
+        messageId = message.Id;
+        return true;
+      }
+    }
+
+    public IReadOnlyList<PendingMessage> Drain()
+    {
+      lock (_pending)
+      {
+        IReadOnlyList<PendingMessage> drained = [.. _pending];
+        _pending.Clear();
+        return drained;
+      }
+    }
   }
 
   [Fact]

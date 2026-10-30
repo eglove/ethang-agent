@@ -97,12 +97,6 @@ public class AgentCapabilityProviderTests
 
     public List<(Guid Id, string Message)> Delivered { get; } = [];
 
-    public Result<bool> Deliver(AgentId id, PendingMessage message)
-    {
-      Delivered.Add((id.Value, message.Text));
-      return Result.Success(true);
-    }
-
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
     public void Interrupt(AgentId? childId = null) { }
@@ -519,58 +513,6 @@ public class AgentCapabilityProviderTests
 #pragma warning restore JSON002
 
   // --- send auto-resume (task 5) --------------------------------------------
-
-  [Fact]
-  public async Task Send_ToCompletedChild_ResumesWithSameText_AndReturnsRunningReceipt()
-  {
-    AgentRecord child = ChildIn(AgentStatus.Completed, report: "done");
-    FakeRuntime runtime = new();
-    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
-        ParentAtDepth(0), runtime: runtime, seed: q => q._statuses[child.Id] = Result.Success(child));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("send",
-        $"{{\"id\":\"{child.Id}\",\"text\":\"keep going\"}}", TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError, result.Content);
-    Assert.Equal($"id={child.Id} status=running", result.Content);
-    Assert.Equal([(child.Id.Value, "keep going")], runtime.Resumed);
-    Assert.Empty(runtime.Delivered);
-  }
-
-  [Fact]
-  public async Task Send_ToFailedChild_RefusesNotRunning_WithoutDeliverOrResume()
-  {
-    AgentRecord child = ChildIn(AgentStatus.Failed, AgentFailureReason.ProviderError);
-    FakeRuntime runtime = new();
-    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
-        ParentAtDepth(0), runtime: runtime, seed: q => q._statuses[child.Id] = Result.Success(child));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("send",
-        $"{{\"id\":\"{child.Id}\",\"text\":\"go\"}}", TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Equal($"Error [NotRunning]: agent {child.Id} is failed; messaging it cannot restart it — use agent.resume to restart it explicitly.",
-        result.Content);
-    Assert.Empty(runtime.Resumed);
-    Assert.Empty(runtime.Delivered);
-  }
-
-  [Fact]
-  public async Task Send_ToRunningChild_DeliversAsToday()
-  {
-    AgentRecord child = ChildIn(AgentStatus.Running);
-    FakeRuntime runtime = new();
-    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
-        ParentAtDepth(0), runtime: runtime, seed: q => q._statuses[child.Id] = Result.Success(child));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("send",
-        $"{{\"id\":\"{child.Id}\",\"text\":\"steer\"}}", TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError, result.Content);
-    Assert.Equal($"delivered to={child.Id} urgency=NORMAL", result.Content);
-    Assert.Equal([(child.Id.Value, "steer")], runtime.Delivered);
-    Assert.Empty(runtime.Resumed);
-  }
 
   // --- shared dispatch behavior --------------------------------------------
 

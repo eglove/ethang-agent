@@ -55,6 +55,7 @@ public sealed class McpMigrationTests : IDisposable
     // A V14 database still carried plan_steps.todo_id, which V24 drops.
     LegacyPlanStepsShape.Restore(connection);
     using SqliteCommand version = connection.CreateCommand();
+    LegacyMessagingTablesShape.Restore(connection);
     version.CommandText = "PRAGMA user_version = 14;";
     _ = await version.ExecuteNonQueryAsync().ConfigureAwait(false);
   }

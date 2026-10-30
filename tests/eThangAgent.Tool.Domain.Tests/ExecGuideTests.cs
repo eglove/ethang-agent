@@ -182,20 +182,32 @@ public class ExecGuideTests
     Assert.Equal(markers.OrderBy(m => m), markers);
   }
 
+  /// <summary>Issue #316 retired the agent-to-agent messaging surface, so the guide must
+  ///     stop teaching it (a documented action that 404s is worse than none - the #288
+  ///     finding) AND must say so, because a model that has seen messaging elsewhere will
+  ///     otherwise go looking for it. This pins both halves.</summary>
   [Fact]
-  public void Guide_TeachesTheBroadcastActions()
+  public void Guide_TeachesThatAgentsDoNotMessageEachOther()
   {
     int delegationStart = ExecGuide.Text.IndexOf("### Delegating subtasks", StringComparison.Ordinal);
     int recallStart = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
     Assert.True(delegationStart >= 0 && recallStart > delegationStart, "section anchors missing");
     string section = ExecGuide.Text[delegationStart..recallStart];
 
-    Assert.Contains("agent.notify-subtree", section, StringComparison.Ordinal);
-    Assert.Contains("agent.notify-ancestors", section, StringComparison.Ordinal);
-    Assert.Contains("hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull", section, StringComparison.Ordinal);
-    Assert.Contains("reached=<count> delivered=<count>", section, StringComparison.Ordinal);
-    Assert.Contains("reached=root delivered=<count>", section, StringComparison.Ordinal);
-    Assert.Contains("never retried", section, StringComparison.Ordinal);
+    Assert.Contains("AGENTS DO NOT MESSAGE EACH OTHER", section, StringComparison.Ordinal);
+    Assert.Contains("agents communicate by STATUS only", section, StringComparison.Ordinal);
+    Assert.Contains("Steering a running agent is the HUMAN's channel", section, StringComparison.Ordinal);
+
+    // And it teaches NONE of the retired surface, anywhere in the guide.
+    foreach (string retired in new[]
+    {
+      "agent.send", "agent.receipts", "agent.route", "agent.escalate",
+      "agent.notify-subtree", "agent.notify-ancestors",
+    })
+    {
+      Assert.True(ExecGuide.Text.IndexOf(retired, StringComparison.Ordinal) < 0,
+          "the guide still teaches the retired action '" + retired + "'");
+    }
   }
 
   [Fact]

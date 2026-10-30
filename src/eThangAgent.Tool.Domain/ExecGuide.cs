@@ -197,7 +197,7 @@ public static class ExecGuide
     Await the outcome when you need it — one wait replaces repeated status polls:
 
         Tools.Invoke("agent.wait", new { timeoutSeconds = 300, id = "<guid>" })   → the child's outcome (unbounded by design; your stop cancels it)
-        Tools.Invoke("agent.wait", new { timeoutSeconds = 120, id = "<guid>", wakeOn = "all" })   → wakes early on child idles/stream stalls/state writes/budget/mail; returns [wait: woken ...] with the child still running — then steer (agent.send), re-wait, or intervene
+        Tools.Invoke("agent.wait", new { timeoutSeconds = 120, id = "<guid>", wakeOn = "all" })   → wakes early on child idles/stream stalls/state writes/budget/mail; returns [wait: woken ...] with the child still running — then re-wait, or intervene
 
     USER STEERING ALWAYS WAKES a wait: if the user sends a message while you wait,
     the wait returns immediately with reason=user-message — read it and act.
@@ -232,8 +232,8 @@ public static class ExecGuide
         Tools.Invoke("agent.resume", new { timeoutSeconds = 30, id = "<guid>", text = "tests still fail - fix them" })
         → id=<guid> status=running
 
-    - Only SETTLED children (completed or failed) take agent.resume; RUNNING children
-      take agent.send. Await the fresh outcome with agent.wait.
+    - Only SETTLED children (completed or failed) take agent.resume; a RUNNING child is
+      not resumable — await it with agent.wait instead.
     - Every fix round on a settled child beats re-spawning from scratch.
     - `Error [NotComplete]` means the child is still running — try again later
       (one agent.wait beats repeated polling).
@@ -245,47 +245,12 @@ public static class ExecGuide
       refused the start outright (a remote-host ceiling).
     - Children see the full tool surface and may spawn their own children — depth limit 3.
 
-    Broadcasting to the agent tree - notify-subtree / notify-ancestors:
-
-        Tools.Invoke("agent.notify-subtree", new { timeoutSeconds = 60, text = "wrap up now", urgency = "attention" })
-        Tools.Invoke("agent.notify-ancestors", new { timeoutSeconds = 60, text = "blocked on CI" })
-
-    - notify-subtree delivers one message to EVERY live descendant (grandchildren
-      included); notify-ancestors delivers to EVERY ancestor up to the root.
-    - Per-target receipt lines, one per receiver, in this exact format:
-        hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull
-      (notify-subtree counts hop as tree depth below you, direct children hop=1),
-      then a summary line:
-        reached=<count> delivered=<count>          (notify-subtree)
-        reached=root delivered=<count>             (notify-ancestors)
-    - Best-effort push, never retried: settled or foreign ids report NotRunning in
-      their receipt line and are skipped; MailboxFull means that receiver's box is
-      full - the rest still received it. An empty target set succeeds with zero counts.
-    - urgency is optional: normal (default) | attention | urgent. Urgent may preempt
-      a receiver's turn only under its own preemption grant.
-    - To reach one agent, use agent.send (a child of yours); to reach a linked agent
-      outside your tree, use agent.route. To reach yourself upward one hop with a hop
-      cap, use agent.escalate.
-
-     Checking a steering message actually arrived - agent.send + agent.receipts:
-
-         Tools.Invoke("agent.send", new { timeoutSeconds = 30, id = "<guid>", text = "stop and report" })
-         → delivered to=<guid> urgency=NORMAL msg=<guid> state=queued
-
-         Tools.Invoke("agent.receipts", new { timeoutSeconds = 30, id = "<guid>", msg = "<msg guid>" })
-         → msg=<guid> child=<guid> state=received
-
-     - state=queued means ENQUEUED, not received: the message is in the child's mailbox
-       and the child has not reached a safe point yet. The receipt is not a claim that
-       the child saw it.
-     - state=received means the child's loop drained it at a safe point and appended it
-       to its conversation — the model WILL see it on its next provider call.
-     - state=undelivered means the run settled with the message still queued: it was
-       persisted for the child's next start, so the model never saw it in that run.
-     - Omit msg to list every receipt for that child in delivery order (oldest first),
-       or child=<guid> receipts=0 when it has none.
-     - `Error [NotFound]` means this session never saw that message delivered — the
-       ledger never invents a state for a message it did not observe.
+    AGENTS DO NOT MESSAGE EACH OTHER. There is no send, route, escalate, notify, or receipt
+    surface: agents communicate by STATUS only, through the database (a plan step, a chain
+    record, a state key). Steering a running agent is the HUMAN's channel — the person typing
+    in the session tab — and it reaches the model at its next safe point without any action
+    from you. If you need another agent's outcome, wait for it or read its record; do not look
+    for a message channel, because there is not one.
 
         ### Recalling earlier work
 

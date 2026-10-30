@@ -63,12 +63,6 @@ public class AgentCapabilityQueuedTests
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentId>(new DomainError("NotRunning", "not settled.")));
 
-    public Result<bool> Deliver(AgentId id, PendingMessage message)
-    {
-      Delivered.Add((id.Value, message.Text));
-      return Result.Success(true);
-    }
-
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
     public void Interrupt(AgentId? childId = null) => Interrupted.Add(childId);
@@ -138,21 +132,6 @@ public class AgentCapabilityQueuedTests
     Assert.False(result.IsError, result.Content);
     Assert.Contains($"interrupted id={child.Id}", result.Content, StringComparison.Ordinal);
     Assert.Equal(child.Id, Assert.Single(runtime.Interrupted));
-  }
-
-  [Fact]
-  public async Task Send_QueuedChild_TakesTheOrdinaryDeliveryPath()
-  {
-    (AgentCapabilityProvider provider, RecordingRuntime runtime, AgentRecord child) = BuildProvider();
-    const string quote = "\"";
-    string json = "{" + quote + "id" + quote + ":" + quote + child.Id.Value.ToString("D") + quote
-        + "," + quote + "text" + quote + ":" + quote + "keep going" + quote + "}";
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("send", json,
-        TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError, result.Content);
-    Assert.Equal((child.Id.Value, "keep going"), Assert.Single(runtime.Delivered));
   }
 
   [Fact]

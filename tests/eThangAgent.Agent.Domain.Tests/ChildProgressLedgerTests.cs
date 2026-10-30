@@ -50,7 +50,7 @@ public class ChildProgressLedgerTests
     ChildProgressLedger ledger = new();
     AgentId child = AgentId.NewId();
 
-    ledger.OnEvent(new MessageDeliveredEvent(child, T0, "inbound", 0, 64));
+    ledger.OnEvent(new MessageDeliveredEvent(child, T0, "root-steer", 64));
     ledger.OnEvent(new ChildIdleAlertEvent(child, T0, TimeSpan.FromMinutes(3), "ModelCall"));
 
     Assert.Null(ledger.Find(child));
