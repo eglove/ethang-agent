@@ -447,7 +447,11 @@ public static class AgentComposition
         // The orphan check (issue #317 D7): a chain whose workspace directory is gone renders as
         // ORPHANED rather than vanishing. The read crosses workspace boundaries by definition -
         // that is the question - so it is its own read-only port, never a widening of IChainStore.
-        .AddChainOrphanServices()
+        // The chain RECORD's read-only views (issues #317, #309): the orphan check, and the
+        // telemetry report with its four read ports and the model-facing action over them.
+        // Grouped in one call because AddPersistenceServices is at the length limit S138
+        // enforces, and because both are reads over the chain record rather than writes to it.
+        .AddChainReadServices()
         // The workbench's Plans view and a waiting parent agent both need to know a plan
         // moved (issue #8 follow-up). ONE subscribable serves both: the Plan Domain's
         // in-process events become PlanChangedEvent facts on the session's stream, which
@@ -660,15 +664,55 @@ public static class AgentComposition
         "not a plan review verdict."),
   };
 
-  /// <summary>The chain orphan check (issue #317 D7): a chain whose workspace directory is gone
-  ///     renders as ORPHANED rather than vanishing. The read crosses workspace boundaries by
-  ///     definition - that is the question it answers - so it is its own READ-ONLY port, never a
-  ///     widening of <see cref="IChainStore"/>, which is bound to one workspace on purpose.</summary>
-  private static IServiceCollection AddChainOrphanServices(this IServiceCollection wired)
+  /// <summary>The chain record's READ-ONLY views: the orphan check (issue #317 D7) and the
+  ///     telemetry report (issue #309), registered together because both answer questions
+  ///     ABOUT chains rather than mutating one.
+  ///     <para>THE ORPHAN CHECK answers 'which chains lost their workspace' across workspaces by
+  ///     definition, so it is its own read-only port rather than a widening of
+  ///     <c>IChainStore</c>. The telemetry report answers 'how did these chains actually run',
+  ///     measured from persisted rows against thresholds fixed in advance.</para>
+  ///     <para>Its own method for the reason every grouped registration here has one:
+  ///     <c>AddPersistenceServices</c> is at the length limit S138 enforces.</para></summary>
+  private static IServiceCollection AddChainReadServices(this IServiceCollection wired)
   {
     return wired
         .AddSingleton<IChainWorkspaceQuery, SqliteChainWorkspaceQuery>()
-        .AddSingleton<ChainOrphanQuery>();
+        .AddSingleton<ChainOrphanQuery>()
+        .AddChainTelemetryServices();
+  }
+
+  /// <summary>Chain telemetry (issue #309): the report that measures how chains actually ran,
+  ///     against thresholds fixed in a durable artifact before the first measurement.
+  ///     <para>FOUR READ PORTS, ONE COMPUTATION. Each source answers one question the report needs
+  ///     — the chain record's execution columns, the usage ledger's totals for the sessions a
+  ///     chain started, the plan review record plus each plan's current version, and the
+  ///     subagent-era baseline. The arithmetic itself is the Agent Domain's pure
+  ///     <c>ChainTelemetry</c>, so it is testable with no database and the same rows always
+  ///     produce the same numbers.</para>
+  ///     <para>THE THRESHOLD SOURCE IS SEPARATE AND THAT IS THE POINT (D5): it reads workspace
+  ///     state, and the report REFUSES without it — so 'the bounds were fixed before the
+  ///     measurement' is enforced by the code path rather than asserted in a comment.</para>
+  ///     <para>Its own method because <c>AddPersistenceServices</c> is at the length limit S138
+  ///     enforces — the same reason <c>AddPlanServices</c>, <c>AddChainServices</c> and
+  ///     <c>AddLedgerViewServices</c> exist.</para></summary>
+  private static IServiceCollection AddChainTelemetryServices(this IServiceCollection wired)
+  {
+    return wired
+        .AddSingleton<IChainTelemetrySource>(sp => new SqliteChainTelemetrySource(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<IChainSessionCostSource, SqliteChainSessionCostSource>()
+        .AddSingleton<IChainReviewTelemetrySource>(sp => new SqliteChainReviewTelemetrySource(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<IChainBaselineSource>(sp => new SqliteChainBaselineSource(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<IChainThresholdSource, StateChainThresholdSource>()
+        .AddSingleton<ChainTelemetryService>()
+        .AddSingleton(sp => new ChainTelemetryCapabilityProvider(
+            sp.GetRequiredService<ChainTelemetryService>(),
+            sp.GetRequiredService<IChainStore>()));
   }
 
   /// <summary>The composite skill catalog, its hot-reload watcher, the registry service and tools,
@@ -1608,6 +1652,9 @@ public static class AgentComposition
         sp.GetRequiredService<PlanCapabilityProvider>(),
         sp.GetRequiredService<MemoryCapabilityProvider>(),
         sp.GetRequiredService<ChainCapabilityProvider>(),
+        // The telemetry report (issue #309): a READ over every chain in the workspace, beside
+        // the chain provider's write action so a reader can tell which one measures.
+        sp.GetRequiredService<ChainTelemetryCapabilityProvider>(),
   ];
 
   /// <summary>Child-agent options with the default-model fallback applied: when

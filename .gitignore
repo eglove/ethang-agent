@@ -297,6 +297,10 @@ dist/
 # Agent scratch space
 .work/
 
+# Workspace identity marker (issue #317): a per-directory generated id, so it is local
+# state like the scratch folders above, never a repo artifact.
+.ethang/
+
 # Agent session state (ZCode harness)
 .zcode/
 
