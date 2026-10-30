@@ -278,9 +278,9 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     insert.Transaction = transaction;
     insert.CommandText = """
         INSERT INTO chain_steps (chain_id, position, status, session_id, attempts, outcome, actor,
-            claimed_at, completed_at, role, role_model)
+            claimed_at, completed_at, role, role_model, served_model)
         VALUES (@chainId, @position, @status, @session, @attempts, @outcome, @actor, @claimedAt,
-            @completedAt, @role, @roleModel);
+            @completedAt, @role, @roleModel, @servedModel);
         """;
     Add(insert, "@chainId", chainId);
     Add(insert, "@position", step.Position);
@@ -293,6 +293,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     Add(insert, "@completedAt", step.CompletedAt is { } completed ? Format(completed) : null);
     Add(insert, "@role", step.Role.Encoded);
     Add(insert, "@roleModel", step.Role.Model);
+    Add(insert, "@servedModel", step.ServedModel);
     _ = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
   }
 
@@ -322,7 +323,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
       SqliteConnection connection, int chainId, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
-    command.CommandText = "SELECT position, status, session_id, attempts, outcome, actor, claimed_at, completed_at, role, role_model FROM chain_steps WHERE chain_id=@chainId ORDER BY position;";
+    command.CommandText = "SELECT position, status, session_id, attempts, outcome, actor, claimed_at, completed_at, role, role_model, served_model FROM chain_steps WHERE chain_id=@chainId ORDER BY position;";
     Add(command, "@chainId", chainId);
     List<ChainStep> steps = [];
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -377,8 +378,14 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     DateTimeOffset? completedAt = await reader.IsDBNullAsync(7, ct).ConfigureAwait(false)
         ? null
         : ParseTimestamp(reader.GetString(7));
+    // NULL means 'not recorded', never 'no model' (issue #218): a step that settled before
+    // served_model existed carries none, and the separation rule treats that as nothing to
+    // compare against rather than as a match.
+    string? servedModel = await reader.IsDBNullAsync(10, ct).ConfigureAwait(false)
+        ? null
+        : reader.GetString(10);
     return (new ChainStep(reader.GetInt32(0), stepStatus, sessionId, reader.GetInt32(3),
-        outcome, actor, claimedAt, completedAt, role), null);
+        outcome, actor, claimedAt, completedAt, role, servedModel), null);
   }
 
   private async Task<int?> ReadCurrentVersionAsync(SqliteConnection connection, SqliteTransaction transaction,

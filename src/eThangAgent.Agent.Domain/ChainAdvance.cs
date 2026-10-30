@@ -22,6 +22,11 @@ public static class ChainAdvanceCode
   /// <summary>The chain cannot advance because steps are neither Done nor Skipped - the
   ///     lifecycle question #303 owns, reported rather than guessed.</summary>
   public const string StepsUnsettled = "ChainStepsUnsettled";
+
+  /// <summary>A review step's reviewer was not separated from the implementer, so the chain was
+  ///     PARKED instead of started (issue #218 D5). Distinct from a refusal: the record already
+  ///     carries the park reason, and the step holds no claim - nothing was attempted.</summary>
+  public const string ReviewerNotSeparated = "ReviewerNotSeparated";
 }
 
 /// <summary>What the advance decided.</summary>

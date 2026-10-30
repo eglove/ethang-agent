@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 27;
+  public const int LatestSchemaVersion = 28;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -135,6 +135,7 @@ public sealed class AppDatabase
     (25, ApplyV25),
     (26, ApplyV26),
     (27, ApplyV27),
+    (28, ApplyV28),
   ];
 
   private void Migrate()
@@ -1164,5 +1165,73 @@ public sealed class AppDatabase
     command.CommandText = sql;
 #pragma warning restore CA2100
     _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V28 adds <c>chain_steps.served_model</c>: the model the step's session actually
+  ///     served on (issue #218).
+  ///     <para>WHY THE STEP CARRIES IT AT ALL. The reviewer-separation rule compares a review
+  ///     step's model to the IMPLEMENTER's, and by the time the review starts the implementer's
+  ///     session is CLOSED. The chain record is the durable answer (D3), so the comparison
+  ///     survives a restart and works when that session no longer exists - which a live parent's
+  ///     configuration could not.</para>
+  ///     <para>NULLABLE, WITH NO BACKFILL VALUE. Every step that settled before this migration ran
+  ///     on a model nobody recorded, and writing a guess would fabricate a comparison the rule
+  ///     would then act on. NULL reads as 'not recorded', and the rule treats it as 'nothing to
+  ///     compare against' rather than as a match.</para>
+  ///     <para>THE TABLE IS REBUILT (the V20/V21/V24/V26 idiom) rather than altered in place: the
+  ///     rebuild carries the status and role CHECK constraints forward VERBATIM, so the doors
+  ///     those migrations closed against a direct writer stay closed, and rows, ids, positions and
+  ///     every execution column are copied verbatim so no chain changes identity or CAS state.
+  ///     Foreign-key enforcement is suspended around the swap for the same reason V20/V21/V24/V26
+  ///     do it.</para>
+  ///     <para>CONDITIONAL ON <c>chain_steps</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database and one stamped below V23 does not have the table yet
+  ///     (the V26 precedent, where the unconditional form failed on a legacy fixture). V23 does not
+  ///     create this column: V28 is the only place it is introduced, and the rebuild is what a
+  ///     fresh database walks too, so the two paths cannot diverge.</para></summary>
+  private static void ApplyV28(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "chain_steps"))
+    {
+      return;
+    }
+
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE chain_steps_v28 (
+              chain_id INTEGER NOT NULL REFERENCES chains(id),
+              position INTEGER NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('Pending', 'Running', 'Done', 'Failed', 'Skipped', 'Parked')),
+              session_id TEXT,
+              attempts INTEGER NOT NULL,
+              outcome TEXT,
+              actor TEXT NOT NULL,
+              claimed_at TEXT,
+              completed_at TEXT,
+              role TEXT NOT NULL DEFAULT 'Implement' CHECK (role IN ('Implement', 'Review')),
+              role_model TEXT,
+              served_model TEXT,
+              PRIMARY KEY (chain_id, position)
+          );
+          INSERT INTO chain_steps_v28 (chain_id, position, status, session_id, attempts, outcome,
+              actor, claimed_at, completed_at, role, role_model, served_model)
+              SELECT chain_id, position, status, session_id, attempts, outcome, actor,
+                  claimed_at, completed_at, role, role_model, NULL FROM chain_steps;
+          DROP TABLE chain_steps;
+          ALTER TABLE chain_steps_v28 RENAME TO chain_steps;
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
   }
 }

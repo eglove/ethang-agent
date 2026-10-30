@@ -24,14 +24,23 @@ public sealed class PlanReviewMigrationTests : IDisposable
 #pragma warning restore CA1031, S108
   }
 
+  /// <summary>The schema version immediately BEFORE V27, which is the state a database that has
+  ///     not yet seen this migration is in.
+  ///     <para>IT IS A LITERAL, AND THAT IS THE FIX RATHER THAN A REGRESSION. This used to be
+  ///     <c>LatestSchemaVersion - 1</c>, on the reasoning that a hard-coded number breaks on the
+  ///     next migration. It broke the OTHER way: once V28 landed, 'latest minus one' was 27 - the
+  ///     version this migration PRODUCES - so the fixture stamped a database that had already
+  ///     migrated, V27 never re-ran, and the test failed for a reason unrelated to what it
+  ///     asserts. The version before a given migration is a fact about THAT migration, and
+  ///     migrations are never renumbered, so 26 is stable forever; 'latest' is not.</para></summary>
+  private const int VersionBeforeV27 = 26;
+
   /// <summary>Builds a fully-migrated database, drops the V27 table and stamps the version
-  ///     BELOW it - the exact pre-V27 state a shipped database is in.
-  ///     <para>The stamp is the constant minus one, never a literal: a test that hard-codes
-  ///     26 breaks on the next migration for a reason unrelated to what it asserts.</para></summary>
+  ///     BELOW it - the exact pre-V27 state a shipped database is in.</summary>
   private void SeedPreviousVersion()
   {
     _ = new AppDatabase(_dbPath);
-    Execute($"DROP TABLE IF EXISTS plan_reviews; PRAGMA user_version = {AppDatabase.LatestSchemaVersion - 1};");
+    Execute($"DROP TABLE IF EXISTS plan_reviews; PRAGMA user_version = {VersionBeforeV27};");
   }
 
   private void Execute(string sql)

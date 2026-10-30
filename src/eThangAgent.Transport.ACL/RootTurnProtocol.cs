@@ -51,7 +51,14 @@ public sealed record SessionRequestPayload(string RequestId, string Prompt, stri
 /// <param name="PlanId">The plan the chain executes.</param>
 /// <param name="Position">The 1-based chain step position.</param>
 /// <param name="Role">The step's assigned role name.</param>
-public sealed record SessionRequestChainStep(int ChainId, int PlanId, int Position, string Role);
+/// <param name="Model">The reviewer's model for a review step, or null (issue #218).
+///     <para>IT TRAVELS BECAUSE THE APP IS WHERE A SESSION'S MODEL IS SET. The role name alone
+///     told the app a step was a review and left it inheriting this workspace's model choice,
+///     which is the implementer's model in a single-model run - the exact condition the
+///     separation rule exists to remove. Recording the reviewer's model without carrying it
+///     would make the rule a claim about a session that never ran on it.</para></param>
+public sealed record SessionRequestChainStep(int ChainId, int PlanId, int Position, string Role,
+    string? Model = null);
 
 /// <summary>One root turn sent to a conversation host (spec D6): the user's input, the
 ///     images attached to it, the app-supplied messages that precede it, and the seed the app

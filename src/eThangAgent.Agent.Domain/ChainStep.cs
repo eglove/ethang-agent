@@ -21,7 +21,8 @@ public sealed record ChainStep(
   ChainActor Actor,
   DateTimeOffset? ClaimedAt,
   DateTimeOffset? CompletedAt,
-  ChainStepRole Role)
+  ChainStepRole Role,
+  string? ServedModel = null)
 {
   /// <summary>A fresh Pending step with the IMPLEMENTER role (issue #313 D7): the default a
   ///     step takes when nobody assigned one. Use the two-argument overload to assign a
@@ -38,7 +39,7 @@ public sealed record ChainStep(
     ArgumentOutOfRangeException.ThrowIfLessThan(position, 1);
     ArgumentNullException.ThrowIfNull(role);
     return new ChainStep(position, ChainStepStatus.Pending, null, 0, null, ChainActor.Harness,
-        null, null, role);
+        null, null, role, ServedModel: null);
   }
 
   /// <summary>True while this step's Running claim is still live. A Running step with NO
@@ -146,6 +147,18 @@ public sealed record ChainStep(
           $"step {Position} was run by session {SessionId ?? "(none recorded)"}, not {sessionId}; "
           + "a retry resumes the SAME session, because that is the transcript the work continues from.");
   }
+
+  /// <summary>Records the model this step's session actually SERVED on (issue #218).
+  ///     <para>WHY THE STEP CARRIES IT: the separation rule compares a reviewer's model to the
+  ///     IMPLEMENTER's, and the implementer's session is closed by the time the review runs. The
+  ///     chain record is the durable answer (D3) - a live parent's configuration is neither
+  ///     available after a restart nor authoritative about what ran.</para>
+  ///     <para>NULL MEANS 'NOT RECORDED', never 'no model'. A step that settled before this field
+  ///     existed carries none, and the rule treats that as 'nothing to compare against' rather
+  ///     than fabricating a match.</para></summary>
+  /// <param name="modelId">The model id the session served on, or null to clear it.</param>
+  public ChainStep WithServedModel(string? modelId) =>
+      this with { ServedModel = string.IsNullOrWhiteSpace(modelId) ? null : modelId.Trim() };
 
   /// <summary>Records this step's outcome. <paramref name="status"/> must be one of the
   ///     SETTLED step statuses (Done, Failed, Skipped, Parked); a chain step does not move

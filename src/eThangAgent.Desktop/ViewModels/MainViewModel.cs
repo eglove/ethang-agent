@@ -1280,8 +1280,13 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     a chain step (issue #311). It travels with the seed because both describe the SAME
   ///     launch: the seed is the brief the session works from, the contract is the standing
   ///     rule its system prompt carries.</param>
+  /// <param name="role">The chain step's assigned role, or null when this launch is not a chain
+  ///     step (issue #218). A review role carries the reviewer's model, which is applied to the
+  ///     new session AFTER the workspace's preferences restore - see
+  ///     <see cref="ApplyChainStepModel"/>.</param>
   public async Task<Result<AgentTabViewModel>> StartNewSessionAsync(AgentTabViewModel tab,
-      string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract = null)
+      string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract = null,
+      ChainStepRole? role = null)
   {
     ArgumentNullException.ThrowIfNull(tab);
     if (!Tabs.Contains(tab))
@@ -1349,7 +1354,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return Result.Failure<AgentTabViewModel>(created.Error);
     }
 
-    return Result.Success(await ReplaceSessionAsync(tab, created.Value, index, prompt));
+    return Result.Success(await ReplaceSessionAsync(tab, created.Value, index, prompt, role));
   }
 
   /// <summary>Replaces the PRIMARY CELL of <paramref name="tab"/> with a cell over
@@ -1367,7 +1372,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     importantly a teardown fault must never leave the tab with no cell at all.</para>
   ///     <para>Must run on the UI thread.</para></summary>
   private async Task<AgentTabViewModel> ReplaceSessionAsync(AgentTabViewModel tab,
-      AgentSession session, int index, string? prompt)
+      AgentSession session, int index, string? prompt, ChainStepRole? role = null)
   {
     // A tab that vanished while the container was building is not resurrected: the new
     // session is attached as its own tab so the work is not lost.
@@ -1393,6 +1398,11 @@ internal sealed partial class MainViewModel : ObservableObject
     session.DeliverPendingNotices();
     await RestorePinnedModelAsync(session, freshVm);
     await RestoreSessionPreferencesAsync(session, freshVm);
+    // THE REVIEWER'S MODEL IS APPLIED AFTER THE WORKSPACE RESTORES (issue #218), never before:
+    // RestoreSessionPreferencesAsync overwrites the live preference with this workspace's saved
+    // choice, so applying it earlier would leave the reviewer serving on the implementer's model
+    // while the record claimed separation.
+    ApplyChainStepModel(session, freshVm, role);
     await freshVm.SeedUsageAsync().ConfigureAwait(true);
     freshVm.Transcript.Restore(session.Conversation.Messages);
 
@@ -1460,12 +1470,34 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     Result<AgentTabViewModel> started = await StartNewSessionAsync(tab, prompt: null,
-        seed: launch.Value.Seed, chainContract: launch.Value.Contract).ConfigureAwait(true);
+        seed: launch.Value.Seed, chainContract: launch.Value.Contract,
+        role: assignment.Role).ConfigureAwait(true);
     return started.IsSuccess
         ? Result.Success(started.Value.Container.RootId.ToString())
         : Result.Failure<string>(started.Error);
   }
 
+
+  /// <summary>Applies a chain step's reviewer model to a launching session (issue #218).
+  ///     <para>ONLY A REVIEW STEP CARRIES ONE, and only when the record named it: an implementer
+  ///     step keeps the workspace's model choice, which is B6's inheritance rule, and a review
+  ///     step that named no model could not have been launched (the gate refuses it first).</para>
+  ///     <para>WITHOUT THIS THE RULE WOULD BE A CLAIM ABOUT A SESSION THAT NEVER RAN ON IT: the
+  ///     chain record would say the reviewer was separated while the session served on the
+  ///     workspace's model - the implementer's model in a single-model run.</para></summary>
+  /// <param name="session">The session being launched.</param>
+  /// <param name="sessionVm">Its view-model, whose live preferences the resolver reads.</param>
+  /// <param name="role">The step's assigned role, or null for a launch that is not a chain step.</param>
+  private static void ApplyChainStepModel(AgentSession session, AgentSessionViewModel sessionVm,
+      ChainStepRole? role)
+  {
+    if (role is not { IsReview: true, Model: { } reviewer } || session.Preferences is null)
+    {
+      return;
+    }
+
+    sessionVm.ApplyModelChoice(reviewer, variant: null);
+  }
 
   /// <summary>Re-enters a live session with a message, keeping its transcript (issue #303 D1).
   ///     <para>THIS IS A RETRY, NOT A RESTART: the cell already exists, its conversation is
@@ -1746,9 +1778,11 @@ internal sealed partial class MainViewModel : ObservableObject
     // discarded here, so every review step's session was seeded as an implementer - which is
     // the defect this issue exists for. A role that does not parse is an IMPLEMENT step, the
     // same default the chain record applies, rather than a failed launch.
-    ChainStepRole role = ChainStepRole.TryDecode(step.Role, model: null, out ChainStepRole? decoded)
-        ? decoded
-        : ChainStepRole.Implement;
+    // THE REVIEWER'S MODEL SURVIVES TOO (issue #218): the role alone told this launch it was a
+    // review and left the session inheriting the workspace's model choice, which is the
+    // implementer's model in a single-model run. The model crossed the wire beside the role, so
+    // the assignment carries both.
+    ChainStepRole role = RoleOf(request) ?? ChainStepRole.Implement;
     return briefs is null
         ? Result.Failure<ChainBriefLaunch>(new DomainError("BriefUnsupported",
             "this host cannot render a chain brief; the chain step's session was not started."))
@@ -1790,7 +1824,7 @@ internal sealed partial class MainViewModel : ObservableObject
 
     try
     {
-      _ = await ReplaceSessionAsync(tab, session, index, request.Prompt).ConfigureAwait(true);
+      _ = await ReplaceSessionAsync(tab, session, index, request.Prompt, RoleOf(request)).ConfigureAwait(true);
     }
     // Named decision (CA1031): a failed replacement surfaces as a notice — the turn is
     // already over and there is no tool left to report to.
@@ -1823,6 +1857,15 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 #pragma warning restore CA1031
   }
+
+  /// <summary>The role a session-request's chain step was assigned, or null when the request is
+  ///     not a chain launch (issue #218). One decode, used by both the seed and the model
+  ///     application, so the brief and the model that serves cannot disagree about the role.</summary>
+  private static ChainStepRole? RoleOf(SessionRequestPayload request) =>
+      request.ChainStep is { } step
+          && ChainStepRole.TryDecode(step.Role, step.Model, out ChainStepRole? decoded)
+          ? decoded
+          : null;
 
   /// <summary>Sends one session-request's answer (issue #234): exactly one of a session id
   ///     or a typed failure. Every path funnels here so no request can be left unanswered.</summary>

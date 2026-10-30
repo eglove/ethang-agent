@@ -42,10 +42,13 @@ public interface IChainAdvanceHost
 ///     chain has no owner for the step it is about to run.</para>
 ///     <para>A refusal is returned as a <see cref="ChainAdvance"/> value, never thrown: the
 ///     model receives it as a tool result and can correct itself.</para></summary>
-public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost host)
+public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost host,
+    ChainReviewerGate? reviewers = null, IAgentStore? agents = null)
 {
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly IChainAdvanceHost _host = host ?? throw new ArgumentNullException(nameof(host));
+  private readonly ChainReviewerGate? _reviewers = reviewers;
+  private readonly IAgentStore? _agents = agents;
 
   /// <summary>Handles one completion fact: settle the step the session was assigned, then
   ///     advance the cursor.
@@ -149,6 +152,24 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
   private async Task<ChainAdvance> StartStepAsync(Chain chain, int position, string predecessorSessionId,
       DateTimeOffset now, CancellationToken ct)
   {
+    // THE SEPARATION RULE RUNS BEFORE THE CLAIM (issue #218): a refused review step must spend
+    // no attempt and hold no claim, or it would be unavailable to the next advance while nothing
+    // was ever started for it.
+    Result<ChainReviewerCheck> checkedOk = await CheckReviewerAsync(chain, position, now, ct)
+        .ConfigureAwait(false);
+    if (!checkedOk.IsSuccess)
+    {
+      return ChainAdvance.Refused(checkedOk.Error.Code, checkedOk.Error.Message);
+    }
+
+    // A PARKED CHAIN IS NOT STARTED: the refusal is already on the record, so there is nothing
+    // to release and nothing to report as a failure - the chain is waiting for a human.
+    if (checkedOk.Value.Parked)
+    {
+      return new ChainAdvance(ChainAdvanceKind.Blocked, position,
+          ChainAdvanceCode.ReviewerNotSeparated, checkedOk.Value.Reason);
+    }
+
     string provisional = "pending-" + Guid.NewGuid().ToString("N");
     Result<Chain> claimed = await _chains.ClaimStepAsync(chain.Id, position, provisional, now, ct)
         .ConfigureAwait(false);
@@ -181,6 +202,74 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
         .ConfigureAwait(false);
     return new ChainAdvance(ChainAdvanceKind.StartStep, position, null, started.Value);
   }
+
+  /// <summary>Runs the reviewer-separation rule for the step about to start (issue #218), and
+  ///     records what the step that just COMPLETED served on.
+  ///     <para>BOTH HALVES IN ONE PLACE, because they are one fact: the implementer's model is
+  ///     recorded so a later review step can be compared against it, and a review step is
+  ///     compared against what was recorded. Splitting them across two call sites would let one
+  ///     be added and the other forgotten.</para>
+  ///     <para>THE RECORDED MODEL IS READ FROM THE AGENT ROW, which is the durable record of what
+  ///     actually served (D3). A session that never served (a launch that failed, a headless
+  ///     stub) records nothing, and NULL reads as 'not recorded' rather than as a match.</para>
+  ///     <para>A GATE THAT IS NOT WIRED CLEARS THE STEP. A container with no chain machinery
+  ///     (headless or test hosts) behaves exactly as it did before this issue.</para></summary>
+  private async Task<Result<ChainReviewerCheck>> CheckReviewerAsync(Chain chain, int position,
+      DateTimeOffset now, CancellationToken ct)
+  {
+    if (_reviewers is null)
+    {
+      return Result.Success(ChainReviewerCheck.Cleared);
+    }
+
+    // THE STAMP RUNS FIRST because the gate reads the record afterwards: the implementer's model
+    // must already be on the row when the comparison happens.
+    await RecordPredecessorModelAsync(chain, now, ct).ConfigureAwait(false);
+    return await _reviewers.CheckAsync(chain.Id, position, now, ct).ConfigureAwait(false);
+  }
+
+  /// <summary>Stamps the model the step that just completed served on (issue #218 D3), so a
+  ///     review step that follows it can be compared against a RECORDED fact rather than a live
+  ///     parent that has already closed.
+  ///     <para>BEST EFFORT BY CONTRACT, and it does not swallow the rule: a stamp that fails
+  ///     leaves the model unrecorded, which makes a later review step clear rather than refuse.
+  ///     That is the honest direction - refusing a review because an unrelated write failed would
+  ///     park a chain on an infrastructure fault.</para></summary>
+  private async Task RecordPredecessorModelAsync(Chain chain, DateTimeOffset now, CancellationToken ct)
+  {
+    if (_agents is null)
+    {
+      return;
+    }
+
+    // EVERY step that holds a session and has no recorded model yet: the completion fact names
+    // one, but a chain resumed after a restart may carry several settled sessions whose models
+    // were never stamped, and a review step anywhere after them needs all of them.
+    foreach (ChainStep step in chain.Steps)
+    {
+      if (step.SessionId is not { } sessionId || step.ServedModel is not null
+          || !Guid.TryParse(sessionId, out Guid parsed))
+      {
+        continue;
+      }
+
+      Result<AgentRecord> record = await _agents.GetAsync(new AgentId(parsed), ct).ConfigureAwait(false);
+      if (!record.IsSuccess || !IsRealModel(record.Value.ModelUsed))
+      {
+        continue;
+      }
+
+      _ = await _chains.RecordServedModelAsync(chain.Id, step.Position, record.Value.ModelUsed, now, ct)
+          .ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>True when a persisted <c>ModelUsed</c> names a model that actually served. The
+  ///     sentinel and the provider's bootstrap fallback both mean 'nothing was selected', and
+  ///     recording either would fabricate a comparison the separation rule would then act on.
+  ///     </summary>
+  private static bool IsRealModel(string? modelUsed) =>
+      !string.IsNullOrWhiteSpace(modelUsed) && modelUsed != AgentRecord.UnassignedModel;
 
   /// <summary>Parks a chain that can no longer advance (issue #303 D3/D9): nothing is available
   ///     to start and nothing can complete, so the work is waiting for a human.

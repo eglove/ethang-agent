@@ -34,7 +34,12 @@ internal static class ChainAdvanceFactory
           startSession: (assignment, predecessor) => shell() is { } live
               ? live.StartChainStepSessionAsync(assignment, predecessor)
               : Task.FromResult(Result.Failure<string>(new DomainError("TabClosed",
-                  "the shell is not ready; the next chain step was not started.")))))
+                  "the shell is not ready; the next chain step was not started.")))),
+          // The separation rule and the implementer's recorded model (issue #218): the gate parks
+          // a review step whose reviewer matches the implementer, and the agent store is where the
+          // durable record of what actually served lives.
+          reviewers: session.Services.GetService<ChainReviewerGate>(),
+          agents: session.Services.GetService<IAgentStore>())
       : null;
   }
 

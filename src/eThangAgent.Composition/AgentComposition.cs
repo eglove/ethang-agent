@@ -530,6 +530,11 @@ public static class AgentComposition
             // about whether a rubric exists.
             sp.GetRequiredService<ISkillCatalog>()))
         .AddSingleton<ChainBriefService>()
+        // The reviewer-separation gate (issue #218): the ONE place a review step's model is
+        // checked before its session starts. Both launch sites - the mechanical advance and the
+        // creation action - resolve it, so the rule cannot be enforced on one path and forgotten
+        // on the other.
+        .AddSingleton<ChainReviewerGate>()
         // The plan-to-execution transition (issue #313): the plan port the creation action
         // validates against, and the session-start port it launches step 1 through. The start
         // port rides the SAME session-request channel new_session uses - the act is identical,
@@ -544,7 +549,8 @@ public static class AgentComposition
             sp.GetRequiredService<IChainPlanSource>(),
             sp.GetRequiredService<IChainStartPort>(),
             () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
-            TimeProvider.System));
+            TimeProvider.System,
+            sp.GetRequiredService<ChainReviewerGate>()));
   }
 
   /// <summary>The chain orphan check (issue #317 D7): a chain whose workspace directory is gone

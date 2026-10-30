@@ -29,8 +29,12 @@ namespace eThangAgent.AgentDomain;
 ///     passes the session's persisted root id, and a child's create must stamp the owning
 ///     ROOT session rather than the child (the Plan provider's precedent).</param>
 /// <param name="clock">The clock the claim window is measured against.</param>
+/// <param name="reviewers">The reviewer-separation gate (issue #218), or null when the host
+///     wired no chain machinery - a null gate clears the step, exactly as the pre-#218
+///     behaviour.</param>
 public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSource plans,
-    IChainStartPort start, Func<string?> sessionId, TimeProvider clock) : ICapabilityProvider
+    IChainStartPort start, Func<string?> sessionId, TimeProvider clock,
+    ChainReviewerGate? reviewers = null) : ICapabilityProvider
 {
   public const string ProviderId = "chain";
 
@@ -60,6 +64,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private readonly IChainStartPort _start = start ?? throw new ArgumentNullException(nameof(start));
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+  private readonly ChainReviewerGate? _reviewers = reviewers;
 
   public string Id => ProviderId;
 
@@ -189,6 +194,23 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
 
     Chain chain = created.Value;
     int first = chain.Steps[0].Position;
+    // THE SEPARATION RULE RUNS BEFORE STEP 1 IS CLAIMED (issue #218). Creation already refuses a
+    // review step with no model, so what this catches is a MATCH against an implementer recorded
+    // by an earlier run - and a refused step must spend no attempt and hold no claim.
+    Result<ChainReviewerCheck> separated = await CheckReviewerAsync(chain, first, now, ct)
+        .ConfigureAwait(false);
+    if (!separated.IsSuccess)
+    {
+      return Gutter(separated.Error);
+    }
+
+    if (separated.Value.Parked)
+    {
+      return CapabilityInvocationResult.Ok(string.Create(CultureInfo.InvariantCulture,
+          $"[chain] created #{chain.Id} from plan #{plan.PlanId} v{plan.Version}: "
+          + $"{chain.Steps.Count} step(s), PARKED - {separated.Value.Reason}"));
+    }
+
     string provisional = "pending-" + Guid.NewGuid().ToString("N");
     Result<Chain> claimed = await _chains.ClaimStepAsync(chain.Id, first, provisional, now, ct)
         .ConfigureAwait(false);
@@ -213,6 +235,15 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
         $"[chain] created #{chain.Id} from plan #{plan.PlanId} v{plan.Version}: "
         + $"{chain.Steps.Count} step(s), step {first} started as session {started.Value}"));
   }
+
+  /// <summary>Runs the reviewer-separation rule for the step about to start (issue #218).
+  ///     <para>A GATE THAT IS NOT WIRED CLEARS THE STEP: a container with no chain machinery
+  ///     behaves exactly as it did before this issue.</para></summary>
+  private Task<Result<ChainReviewerCheck>> CheckReviewerAsync(Chain chain, int position,
+      DateTimeOffset now, CancellationToken ct) =>
+      _reviewers is null
+          ? Task.FromResult(Result.Success(ChainReviewerCheck.Cleared))
+          : _reviewers.CheckAsync(chain.Id, position, now, ct);
 
   // ---- strict argument parsing --------------------------------------------
 

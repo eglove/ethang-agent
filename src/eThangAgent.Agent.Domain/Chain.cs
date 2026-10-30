@@ -182,6 +182,24 @@ public sealed record Chain(
           $"chain #{Id} step {position} is {step.EffectiveStatus(now)}; only a live claim can be reassigned.");
   }
 
+  /// <summary>Records the model a step's session actually served on (issue #218).
+  ///     <para>WHY THE CHAIN OWNS THIS WRITE: the value is a fact about the step's SESSION, and
+  ///     the chain is the record of what each step did. The implementer's model must outlive its
+  ///     session (D3), so it is stamped on the step rather than read back from a live parent that
+  ///     is closed by the time the review runs.</para>
+  ///     <para>Deliberately NOT part of <see cref="ClaimStep"/>: the model is not known until the
+  ///     session exists and resolves one, which is AFTER the claim. Claiming is an attempt; this
+  ///     is what the attempt ran on.</para></summary>
+  /// <param name="position">The 1-based step position.</param>
+  /// <param name="modelId">The model id the session served on, or null to clear it.</param>
+  /// <param name="now">The clock.</param>
+  public Chain RecordServedModel(int position, string? modelId, DateTimeOffset now)
+  {
+    EnsureMutable();
+    int index = IndexOf(position);
+    return ReplaceStep(index, Steps[index].WithServedModel(modelId), now);
+  }
+
   /// <summary>Returns a claimed step to Pending WITHOUT settling it (issue #301): the launch
   ///     that claimed it failed, so no session ever existed to run it.
   ///     <para>The ATTEMPT COUNT IS KEPT. A launch that failed is still an attempt the bound
