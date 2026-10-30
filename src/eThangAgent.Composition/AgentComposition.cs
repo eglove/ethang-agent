@@ -514,7 +514,21 @@ public static class AgentComposition
         .AddSingleton<IChainStore>(sp => new SqliteChainStore(
             sp.GetRequiredService<AppDatabase>(),
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
-        .AddSingleton<ChainService>()
+        // The chain-change publisher is WIRED INSIDE THE SERVICE'S OWN FACTORY (issue #312),
+        // for the reason PlanChangePublisher is wired inside PlanService's: DI is lazy and
+        // nothing resolves the publisher by name, so a separate registration would never be
+        // constructed - it would subscribe to nothing and every chain event would fire into no
+        // listener. Wiring it as ChainService is built makes the subscription a property of the
+        // service existing at all, which is the only ordering that cannot be forgotten.
+        .AddSingleton(sp =>
+        {
+          ChainService service = new(sp.GetRequiredService<IChainStore>());
+          _ = new ChainChangePublisher(service, sp.GetRequiredService<IAgentEvents>(),
+              () => SubAgentSpawner.RunningChild?.Id
+                  ?? sp.GetRequiredService<RootSessionIdentity>().Id
+                  ?? AgentId.NewId());
+          return service;
+        })
         // The ownership gate (issue #301 D3): what makes a completion the RIGHT one. The Plan
         // Domain reaches it through its own port, so it never references this assembly.
         .AddSingleton<IPlanStepOwnershipGate>(sp => new ChainStepOwnershipGate(

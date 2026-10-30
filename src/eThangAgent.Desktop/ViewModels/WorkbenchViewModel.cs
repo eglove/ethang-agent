@@ -3,12 +3,16 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>The workbench's view identities (design D8: six icons for nine views, grouped).
-///     <see cref="Plans"/>, <see cref="Git"/>, and <see cref="Progress"/> are implemented;
-///     the rest are named here so the strip's shape is settled and a later view is a
-///     case, not a redesign.</summary>
+///     <see cref="Plans"/>, <see cref="Chains"/>, <see cref="Git"/>, <see cref="GitHub"/>, and
+///     <see cref="Progress"/> are implemented; the rest are named here so the strip's shape is
+///     settled and a later view is a case, not a redesign.
+///     <para><see cref="Chains"/> sits BESIDE <see cref="Plans"/> rather than inside it (issue
+///     #312 D5): a plan is the design and a chain is its execution, so they are different
+///     artifacts with different lifetimes and each gets its own entry.</para></summary>
 internal enum WorkbenchView
 {
   Plans,
+  Chains,
   Git,
   Files,
   Progress,
@@ -49,15 +53,21 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
       PlansViewViewModel plans,
       GitViewViewModel git,
       SubagentPanelViewModel subagents,
-      PullRequestPaneViewModel pullRequests)
+      PullRequestPaneViewModel pullRequests,
+      ChainsViewViewModel? chains = null)
   {
     Plans = plans ?? throw new ArgumentNullException(nameof(plans));
     Git = git ?? throw new ArgumentNullException(nameof(git));
     Subagents = subagents ?? throw new ArgumentNullException(nameof(subagents));
     PullRequests = pullRequests ?? throw new ArgumentNullException(nameof(pullRequests));
+    Chains = chains ?? ChainsViewViewModel.CreateUnavailable();
     Icons =
     [
       new WorkbenchIconViewModel(WorkbenchView.Plans, "\U0001F4CB", "Plans") { IsAvailable = true },
+      // The CHAIN view (issue #312) is its own entry beside Plans (D5): the plan is the design,
+      // the chain is its execution, and the badge count on this icon is what makes a chain
+      // waiting for a human visible from the strip without opening the pane.
+      new WorkbenchIconViewModel(WorkbenchView.Chains, "\U0001F517", "Chains") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Git, "\U0001F33F", "Git status and diff") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Files, "\U0001F5C2", "File tree (not yet built)"),
       // The Progress view IS the subagent accordion this workbench generalizes (D5):
@@ -71,6 +81,15 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   }
 
   public PlansViewViewModel Plans { get; }
+
+  /// <summary>The chains view (issue #312): every chain in the workspace with its status, its
+  ///     current step, and each step's outcome. Its OWN rail entry beside Plans (D5) - a plan is
+  ///     the design and a chain is its execution, so a user looking for one does not scan past
+  ///     the other.
+  ///     <para>Its <see cref="ChainsViewViewModel.ParkedCountChanged"/> is what the status line's
+  ///     badge mirrors (D6): the rail may be closed, and a chain waiting for a human is the one
+  ///     thing in this application that needs attention.</para></summary>
+  public ChainsViewViewModel Chains { get; }
 
   /// <summary>The git status and diff view (issue #9): branch, working-tree changes, and
   ///     the selected path's diff, refreshed by a watch over the workspace root.</summary>
@@ -99,6 +118,9 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   /// <summary>True while the Plans view is the selected one, so the view can swap content
   ///     without a converter per view.</summary>
   public bool IsPlansSelected => SelectedView == WorkbenchView.Plans;
+
+  /// <summary>True while the Chains view is the selected one (issue #312).</summary>
+  public bool IsChainsSelected => SelectedView == WorkbenchView.Chains;
 
   /// <summary>True while the live-progress view is the selected one.</summary>
   public bool IsProgressSelected => SelectedView == WorkbenchView.Progress;
@@ -129,6 +151,7 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     }
 
     OnPropertyChanged(nameof(IsPlansSelected));
+    OnPropertyChanged(nameof(IsChainsSelected));
     OnPropertyChanged(nameof(IsProgressSelected));
     OnPropertyChanged(nameof(IsGitSelected));
     OnPropertyChanged(nameof(IsGitHubSelected));
@@ -146,6 +169,12 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
       Plans.Start();
       _ = Plans.RefreshAsync(CancellationToken.None);
+    }
+
+    if (view == WorkbenchView.Chains)
+    {
+      Chains.Start();
+      _ = Chains.RefreshAsync(CancellationToken.None);
     }
 
     if (view == WorkbenchView.Git)
@@ -175,6 +204,7 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   public void Dispose()
   {
     Plans.Dispose();
+    Chains.Dispose();
     Git.Dispose();
     PullRequests.Dispose();
   }

@@ -126,6 +126,16 @@ internal sealed record AgentSessionViewModelOptions
   ///     its unavailable state (headless stubs), never a blank pane.</summary>
   public IGitHubAccess? GitHub { get; init; }
 
+  /// <summary>The workbench's chain view seam (issue #312): the chain application service the
+  ///     rail reads. Null = the view renders its unavailable state (headless stubs), never a blank
+  ///     pane - the shape every other rail view follows.</summary>
+  public ChainService? Chains { get; init; }
+
+  /// <summary>Opens a chain step's session from the rail (issue #312): the same act the Sessions
+  ///     menu performs, which is what keeps the view read-only except for this one operation.
+  ///     Null = the view reports that it has no way to open a session.</summary>
+  public Func<string, Task>? ResumeSession { get; init; }
+
   /// <summary>The workspace tab's workbench rail (issue #307 D6), when the shell built one for
   ///     the tab. The rail is WORKSPACE-scoped, so every cell in a tab shares one instance and a
   ///     cell swap must not rebuild it.
@@ -465,7 +475,25 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       new PullRequestPaneViewModel(
           options.WorkspaceRoot,
           options.GitHub,
-          render => Avalonia.Threading.Dispatcher.UIThread.Post(render)));
+          render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
+      // The chain view (issue #312). A session that was handed no chain seam renders the view's
+      // unavailable state rather than a blank pane - the shape every other rail view follows.
+      BuildChainsView(options));
+
+  /// <summary>The chain view this session's own rail carries (issue #312). Production never takes
+  ///     this path - the shell builds one rail per tab and shares it - but a headless host gets a
+  ///     working pane rather than a blank one.</summary>
+  private static ChainsViewViewModel BuildChainsView(AgentSessionViewModelOptions options)
+  {
+    ChainsViewViewModel view = new(
+        options.Chains,
+        options.ChangeSignal,
+        render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
+        events: options.Events,
+        resumeSession: options.ResumeSession);
+    view.Start();
+    return view;
+  }
 
   /// <summary>Seeds the status bar's session cost from the persisted rollup (issue #24):
   ///     the ledger rows a resumed or reopened session already has. Called at tab open,

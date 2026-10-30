@@ -86,4 +86,40 @@ public class ReceiptEventWireTests
 
     Assert.Equal(Guid.Empty, restored.MessageId);
   }
+
+  /// <summary>Issue #312: the chain fact must survive the wire, for the reason the plan fact
+  ///     must. Every production conversation runs in a host process, so a chain the model
+  ///     advances there only reaches the app's Chains view if this kind is REGISTERED - an
+  ///     unregistered kind decodes to null and is silently dropped by the pump, which is exactly
+  ///     how the rail would go dark in production while every unit test passed.</summary>
+  [Fact]
+  public void ChainChangedEvent_IsRegisteredAndRoundTrips()
+  {
+    AgentId author = AgentId.NewId();
+    ChainChangedEvent original = new(author, DateTimeOffset.UtcNow, 7, "status", "Parked");
+
+    ChildEventEnvelope envelope = ChildEventEnvelope.From(original);
+    ChildEvent? decoded = envelope.Decode();
+
+    Assert.Equal(nameof(ChainChangedEvent), envelope.EventKind);
+    ChainChangedEvent restored = Assert.IsType<ChainChangedEvent>(decoded);
+    Assert.Equal(7, restored.ChainId);
+    Assert.Equal("status", restored.Change);
+    Assert.Equal("Parked", restored.Status);
+    Assert.Equal(author, restored.ChildId);
+  }
+
+  /// <summary>A step fact carries no status: the change tag says a step moved and the STORE says
+  ///     what it moved to, so a null status must round-trip as null rather than as an empty
+  ///     string a view would render as a status it does not have.</summary>
+  [Fact]
+  public void ChainStepChangedEvent_RoundTripsANullStatus()
+  {
+    ChainChangedEvent original = new(AgentId.NewId(), DateTimeOffset.UtcNow, 3, "step", null);
+
+    ChainChangedEvent restored = Assert.IsType<ChainChangedEvent>(
+        ChildEventEnvelope.From(original).Decode());
+
+    Assert.Null(restored.Status);
+  }
 }

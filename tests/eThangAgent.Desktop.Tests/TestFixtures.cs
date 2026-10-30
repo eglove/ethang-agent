@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.VisualTree;
 using eThangAgent.Agent.Application;
@@ -228,4 +229,71 @@ runner,
     }
 #pragma warning restore IDE0060, S1172 // Delegate-shape parameters are unused by design.
   }
+
+  /// <summary>Builds a workspace tab whose rail renders CHAINS (issue #312), so a layout test can
+  ///     assert the pane really draws and a parked card really carries its own style class.
+  ///     <para>The rail is built HERE rather than by the tab, because the tab's own rail comes
+  ///     from the session's container and a headless fixture has no chain store - the same reason
+  ///     <see cref="CreateTab"/> hands the tab nothing.</para></summary>
+  /// <param name="chains">The chains the rail renders.</param>
+  internal static AgentTabViewModel CreateTabWithChains(IReadOnlyList<Chain> chains)
+  {
+    ArgumentNullException.ThrowIfNull(chains);
+    AgentSessionViewModel vm = CreateViewModel();
+    FakeChainStore store = new();
+    foreach (Chain chain in chains)
+    {
+      store.Chains.Add(chain);
+    }
+
+    // OWNERSHIP TRANSFERS TO THE TAB, which is what CA2000 cannot see: the rail owns its
+    // views, the tab owns the rail, and the tab disposes it - the MainViewModel.BuildWorkbench
+    // shape. Named decision, not leniency.
+#pragma warning disable CA2000 // Ownership is transferred to the tab, which disposes the rail.
+    WorkbenchViewModel workbench = BuildChainWorkbench(vm.WorkspaceRoot, store);
+#pragma warning restore CA2000
+    // The parked count is needed before anyone opens the rail (issue #312 D6).
+    workbench.Chains.Start();
+    return new AgentTabViewModel(FakeSessionFor(vm), vm, workbench);
+  }
+
+  /// <summary>An in-memory chain store for the UI fixtures: enough to render, never to mutate.
+  ///     </summary>
+  internal sealed class FakeChainStore : IChainStore
+  {
+    public Collection<Chain> Chains { get; } = [];
+
+    public Task<Result<Chain>> CreateAsync(Chain draft, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(draft));
+
+    public Task<Result<Chain>> GetAsync(int id, CancellationToken ct = default)
+      => Task.FromResult(Chains.FirstOrDefault(c => c.Id == id) is { } chain
+          ? Result.Success(chain)
+          : Result.Failure<Chain>(new DomainError("ChainNotFound", $"no chain #{id}")));
+
+    public Task<Result<ChainCatalog>> ListAsync(ChainStatus? status, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(new ChainCatalog(
+          [.. Chains.Where(c => status is null || c.Status == status)], [])));
+
+    public Task<Result<Chain>> SaveAsync(Chain chain, int expectedVersion, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(chain));
+
+    public Task<Result<Chain?>> FindBySessionAsync(string sessionId, CancellationToken ct = default)
+      => Task.FromResult(Result.Success<Chain?>(null));
+  }
+
+  /// <summary>The rail for a chain fixture. The rail OWNS its views and the tab owns the rail,
+  ///     so ownership transfers here and nothing is leaked un-disposed - the
+  ///     <c>MainViewModel.BuildWorkbench</c> shape.</summary>
+  /// <param name="workspaceRoot">The workspace the views read.</param>
+  /// <param name="store">The chain store the Chains view renders.</param>
+  // CA2000: the caller owns the rail and disposes it; the views are the rail's to dispose.
+#pragma warning disable CA2000 // Ownership is transferred to the caller.
+  private static WorkbenchViewModel BuildChainWorkbench(string workspaceRoot, IChainStore store) => new(
+      new PlansViewViewModel(plans: null, signal: null, render => render()),
+      new GitViewViewModel(workspaceRoot, git: null, render => render()),
+      new SubagentPanelViewModel(store: null),
+      new PullRequestPaneViewModel(workspaceRoot, github: null, render => render()),
+      new ChainsViewViewModel(new ChainService(store), signal: null, render => render()));
+#pragma warning restore CA2000
 }

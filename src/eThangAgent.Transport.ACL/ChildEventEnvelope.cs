@@ -67,6 +67,7 @@ public sealed record ChildEventEnvelope(Guid ChildId, string EventKind, string E
     [nameof(MailboxUndeliveredEvent)] = typeof(MailboxUndeliveredEvent),
     [nameof(PreemptedEvent)] = typeof(PreemptedEvent),
     [nameof(PlanChangedEvent)] = typeof(PlanChangedEvent),
+    [nameof(ChainChangedEvent)] = typeof(ChainChangedEvent),
   };
 
   private static Type? EventTypeFor(string eventKind)

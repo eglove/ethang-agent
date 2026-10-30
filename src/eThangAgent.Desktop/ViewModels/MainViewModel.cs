@@ -1960,7 +1960,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     agent's - so it is built per TAB and shared by every cell in it.
   ///     <para>Every view renders its own unavailable state when its seam is null, so a host
   ///     without one of these services gets a working rail rather than a blank pane.</para></summary>
-  private static WorkbenchViewModel BuildWorkbench(AgentSession session) => new(
+  private WorkbenchViewModel BuildWorkbench(AgentSession session) => new(
       new PlansViewViewModel(
           session.Services.GetService<PlanService>(),
           session.Services.GetService<IChangeSignal>(),
@@ -1980,7 +1980,51 @@ internal sealed partial class MainViewModel : ObservableObject
       new PullRequestPaneViewModel(
           session.WorkspaceRoot,
           session.Services.GetService<IGitHubAccess>(),
-          render => Avalonia.Threading.Dispatcher.UIThread.Post(render)));
+          render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
+      // The CHAIN view (issue #312): the chain store is workspace-scoped, so the view is the
+      // tab's. Its PRIMARY source is the ChainChangedEvent the host forwards over the wire; the
+      // change signal is the backstop for a write that published no fact.
+      BuildChainsView(session));
+
+  /// <summary>The tab's chain view (issue #312): the workspace's chains, event-driven off
+  ///     <see cref="ChainChangedEvent"/> with the change signal as a backstop, and the one action
+  ///     opening a chain step's session through the same resume path the Sessions menu uses.
+  ///     <para>EVERY SEAM IS OPTIONAL, so a container that wired no chain machinery renders the
+  ///     view's unavailable state rather than a blank pane - the shape every other rail view
+  ///     follows.</para></summary>
+  private ChainsViewViewModel BuildChainsView(AgentSession session)
+  {
+    ChainsViewViewModel view = new(
+        session.Services.GetService<ChainService>(),
+        session.Services.GetService<IChangeSignal>(),
+        render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
+        events: session.Services.GetService<IAgentEvents>(),
+        // The ONE action (D8): opening a chain step's session is the Sessions menu's own
+        // operation, so the view drives the same resume path rather than a second one.
+        resumeSession: sessionId => Guid.TryParse(sessionId, out Guid id)
+            ? ResumeChainStepSessionAsync(new AgentId(id))
+            : Task.CompletedTask);
+    // The parked count is needed BEFORE anyone opens the rail (D6), so the read starts with the
+    // tab rather than with the first selection of the view.
+    view.Start();
+    return view;
+  }
+
+  /// <summary>Opens a chain step's session from the rail: the same act the Sessions menu
+  ///     performs, which is what keeps the view read-only except for this one operation.
+  ///     <para>BEST EFFORT AND REPORTED: the click comes from the UI thread and the resume
+  ///     builds a container and launches a host, so a failure must land as a notice rather than
+  ///     as an escaping exception with no handler.</para></summary>
+  /// <param name="sessionId">The session to resume.</param>
+  private async Task ResumeChainStepSessionAsync(AgentId sessionId)
+  {
+    Result<AgentTabViewModel> resumed = await ResumeSessionAsync(sessionId).ConfigureAwait(true);
+    if (!resumed.IsSuccess)
+    {
+      SelectedTab?.ViewModel.AddSystemNotice(
+          "[chain] that chain step's session could not be opened: " + resumed.Error.Message);
+    }
+  }
 
   /// <summary>The tab's live-progress accordion, subscribed to the session's child-event
   ///     stream. Events arrive on stream threads, so the marshal posts each application onto
@@ -2062,6 +2106,12 @@ internal sealed partial class MainViewModel : ObservableObject
           // token storage, so a container without the seam renders the view's own unavailable
           // state instead of a blank pane.
           GitHub = session.Services.GetService<IGitHubAccess>(),
+          // Issue #312: the chain view's seams, so a session that builds its OWN rail (a
+          // headless host) renders chains rather than the unavailable state.
+          Chains = session.Services.GetService<ChainService>(),
+          ResumeSession = sessionId => Guid.TryParse(sessionId, out Guid id)
+              ? ResumeChainStepSessionAsync(new AgentId(id))
+              : Task.CompletedTask,
           // Issue #307 D6: the tab's own rail, shared by every cell in it.
           Workbench = workbench,
         });
@@ -2165,6 +2215,9 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     tab.AttachBadge(session.Services.GetService<IAgentEvents>());
     tab.AttachBranchWatcher(session.Services.GetService<IGitQueryAccess>());
+    // Issue #312 D6: a parked chain badges the tab header, because the rail may be closed and a
+    // chain waiting for a human is the one thing here that needs attention.
+    tab.AttachParkedChains(tab.Workbench.Chains);
     AttachChainAdvance(session, tab);
   }
 

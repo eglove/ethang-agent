@@ -286,6 +286,108 @@ public class WorkbenchLayoutTests
 
   /// <summary>The grid column's width, read from the cell scroll host itself so the
   ///     assertion never re-derives layout.</summary>
+
+  /// <summary>Issue #312 D5: the Chains view is its OWN rail entry BESIDE Plans, so selecting it
+  ///     renders the chain list and hides the plan list. The assertion is against real visibility
+  ///     in the SAME content border - a view-model flag alone never proved a pane drew.</summary>
+  [AvaloniaFact]
+  public void SelectingTheChainsIcon_RendersTheChainPane_AndHidesThePlans()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTabWithChains([ParkedChain()]);
+    Window window = new() { Width = 1200, Height = 600, Content = new WorkspaceTabView { DataContext = tab } };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    WorkspaceTabView view = (WorkspaceTabView)window.Content;
+
+    tab.Workbench.Select(WorkbenchView.Chains);
+    Dispatcher.UIThread.RunJobs();
+
+    ItemsControl chainList = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "ChainCardList");
+    ItemsControl planList = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "PlanCardList");
+
+    Assert.True(chainList.IsEffectivelyVisible, "the chain list must render when the Chains icon is selected");
+    Assert.False(planList.IsEffectivelyVisible, "the plans list must not render at the same time");
+    window.Close();
+  }
+
+  /// <summary>The Chains icon is AVAILABLE: a dimmed icon is how the workbench says a view is
+  ///     not built yet, and issue #312 built this one.</summary>
+  [AvaloniaFact]
+  public void TheChainsIcon_IsAvailable_AndSelectable()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTabWithChains([ParkedChain()]);
+    Window window = new() { Width = 1200, Height = 600, Content = new WorkspaceTabView { DataContext = tab } };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    WorkbenchIconViewModel icon = tab.Workbench.Icons.First(i => i.View == WorkbenchView.Chains);
+    Assert.True(icon.IsAvailable, "the Chains view is built, so its icon must not be dimmed");
+
+    tab.Workbench.Select(WorkbenchView.Chains);
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.Equal(WorkbenchView.Chains, tab.Workbench.SelectedView);
+    Assert.True(tab.Workbench.IsChainsSelected);
+    window.Close();
+  }
+
+  /// <summary>Issue #312 D2, the criterion inherited from #303, asserted against the REAL
+  ///     RENDERED CARD rather than the view-model: a parked chain's card must carry the parked
+  ///     style class, and a running chain's must not. A card that looked identical in both cases
+  ///     would undo the whole reason the record has a Parked status.</summary>
+  [AvaloniaFact]
+  public void AParkedChainCard_CarriesItsOwnStyleClass_ARunningOneDoesNot()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTabWithChains([ParkedChain(), RunningChain()]);
+    Window window = new() { Width = 1200, Height = 900, Content = new WorkspaceTabView { DataContext = tab } };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    WorkspaceTabView view = (WorkspaceTabView)window.Content;
+
+    tab.Workbench.Select(WorkbenchView.Chains);
+    Dispatcher.UIThread.RunJobs();
+
+    // The class is asserted through the CARD it decorates rather than by counting borders: a
+    // template realizes several borders per item, and a count would be a fact about Avalonia's
+    // templating rather than about the distinction under test.
+    List<Border> parkedCards = [.. view.GetVisualDescendants().OfType<Border>()
+        .Where(b => b.Classes.Contains("chain-parked"))];
+    Border parked = Assert.Single(parkedCards);
+    Assert.True(((ChainCardViewModel)parked.DataContext!).IsParked,
+        "only a parked chain's card may carry the parked class");
+    Assert.DoesNotContain(
+        view.GetVisualDescendants().OfType<Border>()
+            .Where(b => b.DataContext is ChainCardViewModel { IsParked: false }),
+        b => b.Classes.Contains("chain-parked"));
+    window.Close();
+  }
+
+  /// <summary>A parked chain for the layout fixtures: one step claimed by a session, the chain
+  ///     waiting at it with a reason.</summary>
+  private static AgentDomain.Chain ParkedChain()
+  {
+    DateTimeOffset now = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
+    AgentDomain.Chain chain = AgentDomain.Chain.New("ws", 3, 1, "parked chain", "sess-abcdef12", [1], now)
+        with
+    { Id = 1 };
+    return chain with
+    {
+      Status = AgentDomain.ChainStatus.Parked,
+      ParkReason = "step 1 failed 3 time(s), reaching the 3-attempt cap",
+      ParkedAtPosition = 1,
+    };
+  }
+
+  /// <summary>A running chain for the same fixtures, so the parked class can be shown to be a
+  ///     DIFFERENCE rather than something every card carries.</summary>
+  private static AgentDomain.Chain RunningChain()
+  {
+    DateTimeOffset now = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
+    return AgentDomain.Chain.New("ws", 4, 1, "running chain", "sess-abcdef34", [1], now) with { Id = 2 };
+  }
+
   private static double GridWidth(WorkspaceTabView view) => view.GetVisualDescendants()
       .OfType<ScrollViewer>().First(s => s.Name == "CellScroll").Bounds.Width;
 

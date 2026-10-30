@@ -79,6 +79,26 @@ public sealed record PreemptedEvent(AgentId ChildId, DateTimeOffset At, string B
 public sealed record PlanChangedEvent(AgentId ChildId, DateTimeOffset At, int PlanId, string Change, string? Status)
     : ChildEvent(ChildId, At);
 
+/// <summary>A durable CHAIN record changed (issue #312): created, a step claimed/settled/
+///     reopened, or a status moved (including a PARK, which is the fact a human must see).
+///     <para>WHY A SECOND DURABLE-RECORD FACT BESIDE <see cref="PlanChangedEvent"/>: a plan is
+///     the design and a chain is its execution, so they are different artifacts with different
+///     lifetimes (#312 D5). One event carrying both would force every reader to ask which record
+///     it was looking at, and the rail renders them as two views.</para>
+///     <para><paramref name="ChildId"/> is the AUTHORING agent, exactly as the plan fact's is.
+///     <paramref name="Change"/> is a short tag (created | step | status) and <paramref name="Status"/>
+///     names the new chain status for a status move, null otherwise - metadata only (D5).</para>
+///     <para>THE PARK REASON AND THE PARKED STEP ARE DELIBERATELY NOT CARRIED. They are on the
+///     record, and the record is what a reader renders: duplicating them here would give a view
+///     two sources for one sentence, and the one that arrives first would win by accident. The
+///     fact says something moved; the store says what it moved to.</para>
+///     <para>Published by the Composition's <c>ChainChangePublisher</c> over the Agent Domain's
+///     own events - the <see cref="PlanChangedEvent"/> shape, for the same reason: the fact must
+///     ride the stream the ChildHost already forwards, or a chain the model writes in the host
+///     process would never reach the app.</para></summary>
+public sealed record ChainChangedEvent(AgentId ChildId, DateTimeOffset At, int ChainId, string Change, string? Status)
+    : ChildEvent(ChildId, At);
+
 /// <summary>A RUNNING child's provider stream went silent past the stall threshold.
 ///     Informational: the child is still running; consumers (waits, UI) decide.
 ///     LastActivityKind is "content" or "reasoning" — the last stream fragment type seen.</summary>

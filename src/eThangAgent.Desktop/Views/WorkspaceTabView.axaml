@@ -20,6 +20,24 @@
       <Setter Property="BorderBrush" Value="#33888888"/>
       <Setter Property="Opacity" Value="0.72"/>
     </Style>
+    <!-- Issue #312 D2: a PARKED chain is visually distinct from a running one. This is the
+         whole reason the record has a Parked status - 'waiting for you' and 'working' must not
+         look alike - so the card frame, not only the status word, carries the difference. -->
+    <Style Selector="Border.chain-parked">
+      <Setter Property="Background" Value="#2EFFB454"/>
+      <Setter Property="BorderBrush" Value="#66FFB454"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <!-- A finished chain is a RECORD (D7), so it dims like a finished cell rather than
+         disappearing. -->
+    <Style Selector="Border.chain-finished">
+      <Setter Property="Background" Value="#1AFFFFFF"/>
+      <Setter Property="Opacity" Value="0.78"/>
+    </Style>
+    <!-- An unreadable row is a named marker (#279's containment), never a blank card. -->
+    <Style Selector="Border.chain-corrupt">
+      <Setter Property="Background" Value="#2EFF6B6B"/>
+    </Style>
   </UserControl.Styles>
   <!-- Issue #307 D1/D6: a workspace tab. The tab IS the workspace; what lives inside it is
        1..N agent cells laid out in a grid, and the workbench rail beside them.
@@ -177,6 +195,107 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+
+          <!-- CHAINS (issue #312, D5): the execution side of a plan, its OWN rail view BESIDE
+               Plans rather than inside it - a plan is the design, a chain is what ran. Read-only
+               except the one action (D8), which opens a chain step's session exactly as the
+               Sessions menu does.
+               A PARKED chain is visually distinct from a running one and names its reason and
+               the step it stopped at (D2): 'waiting for you' and 'working' must not look alike,
+               and a surface that said only 'parked' would send the user to the database for the
+               answer. -->
+          <DockPanel IsVisible="{Binding Workbench.IsChainsSelected, Mode=OneWay}" Margin="8,8,8,0">
+            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
+              <TextBlock Text="CHAINS" FontWeight="SemiBold" Opacity="0.8"/>
+              <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                         Text="{Binding Workbench.Chains.StatusLine, Mode=OneWay}" Opacity="0.6"/>
+            </DockPanel>
+            <ScrollViewer>
+              <StackPanel>
+                <!-- A load failure renders HERE, never as an empty pane: 'no chains' and
+                     'cannot read chains' must not look the same. -->
+                <SelectableTextBlock Text="{Binding Workbench.Chains.LoadError, Mode=OneWay}"
+                                     Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,0,0,6"
+                                     IsVisible="{Binding Workbench.Chains.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <!-- The one action's own refusal: a click that did nothing must say why. -->
+                <SelectableTextBlock Text="{Binding Workbench.Chains.ActionMessage, Mode=OneWay}"
+                                     Foreground="#FFB454" TextWrapping="Wrap" Margin="0,0,0,6"
+                                     IsVisible="{Binding Workbench.Chains.ActionMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <TextBlock Text="No chains yet." Opacity="0.55" Margin="0,4"
+                           IsVisible="{Binding Workbench.Chains.IsEmpty, Mode=OneWay}"/>
+                <!-- The finished filter (D7): a completed chain stays listed, and the user
+                     chooses whether history is on screen. -->
+                <CheckBox Content="Show finished" FontSize="11" Margin="0,0,0,4"
+                          IsChecked="{Binding Workbench.Chains.ShowFinished, Mode=TwoWay}"
+                          IsVisible="{Binding !Workbench.Chains.IsEmpty, Mode=OneWay}"/>
+                <ItemsControl x:Name="ChainCardList" ItemsSource="{Binding Workbench.Chains.Chains, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ChainCardViewModel">
+                      <!-- The card's frame carries the status classes, so PARKED reads
+                           differently from RUNNING at a glance rather than only in the word. -->
+                      <Border Padding="6,4" Margin="0,0,0,6" CornerRadius="4"
+                              Background="#1AFFFFFF"
+                              Classes.chain-parked="{Binding IsParked}"
+                              Classes.chain-finished="{Binding IsFinished}"
+                              Classes.chain-corrupt="{Binding IsCorrupt}">
+                        <StackPanel>
+                          <DockPanel LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Right" FontSize="10.5" FontWeight="SemiBold"
+                                       Text="{Binding StatusDisplay, Mode=OneWay}"
+                                       Foreground="{Binding StatusKind, Converter={x:Static views:WorkbenchConverters.ChainStatusBrush}}"/>
+                            <SelectableTextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                                 TextWrapping="Wrap"/>
+                          </DockPanel>
+                          <TextBlock Text="{Binding Subtitle}" Opacity="0.6" FontSize="11" TextWrapping="Wrap"/>
+                          <TextBlock Text="{Binding CurrentStep}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
+                          <!-- THE PARK SENTENCE (D2, inherited from #303): the reason AND the
+                               step it stopped at. Only a parked chain renders it, so a running
+                               chain never shows a stale one. -->
+                          <SelectableTextBlock Text="{Binding ParkDetail}" Foreground="#FFB454"
+                                               FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"
+                                               IsVisible="{Binding IsParked}"/>
+                          <!-- Issue #279's containment, applied to chains: an unreadable row
+                               renders its reason so one corrupt chain never blanks the list. -->
+                          <SelectableTextBlock Text="{Binding CorruptReason}" Foreground="#FF8A80"
+                                               FontSize="11" TextWrapping="Wrap"
+                                               IsVisible="{Binding IsCorrupt}"/>
+                          <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                            <Button Content="{Binding IsExpanded, Converter={x:Static views:WorkbenchConverters.ExpandLabel}}"
+                                    Padding="6,0" FontSize="10.5" Background="Transparent"
+                                    BorderThickness="0" Tag="{Binding}"
+                                    Click="OnChainExpandClick"
+                                    IsVisible="{Binding HasSteps}"
+                                    ToolTip.Tip="Show or hide this chain's steps"/>
+                            <Button Content="Open session" Padding="6,0" FontSize="10.5"
+                                    Tag="{Binding}" Click="OnChainOpenSessionClick"
+                                    IsVisible="{Binding CanOpenSession}"
+                                    ToolTip.Tip="Open the session this chain is waiting on, the same way the Sessions menu does"/>
+                          </StackPanel>
+                          <ItemsControl ItemsSource="{Binding Steps, Mode=OneWay}"
+                                        IsVisible="{Binding IsExpanded}" Margin="0,4,0,0">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:ChainStepRowViewModel">
+                                <Grid ColumnDefinitions="Auto,*" Margin="4,1,0,1">
+                                  <TextBlock Grid.Column="0" Text="{Binding Marker}" Margin="0,0,6,0"
+                                             Foreground="{Binding Status, Converter={x:Static views:WorkbenchConverters.ChainStepBrush}}"/>
+                                  <StackPanel Grid.Column="1">
+                                    <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12"/>
+                                    <SelectableTextBlock Text="{Binding Outcome}" Opacity="0.7"
+                                                         TextWrapping="Wrap" FontSize="11"
+                                                         IsVisible="{Binding Outcome, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                  </StackPanel>
+                                </Grid>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </StackPanel>
             </ScrollViewer>
           </DockPanel>

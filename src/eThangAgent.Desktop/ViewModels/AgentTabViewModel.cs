@@ -74,6 +74,20 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   [ObservableProperty]
   public partial TabBadgeViewModel? Badge { get; private set; }
 
+  /// <summary>How many of this workspace's chains are PARKED - waiting for a human (issue #312
+  ///     D6). Mirrored from the rail's own count, so the two can never disagree.
+  ///     <para>WHY IT IS ON THE TAB AND NOT IN A CELL'S STATUS BAR: the rail is workspace-scoped
+  ///     (D6), so the count is a fact about the WORKSPACE. A cell status bar is per AGENT, and a
+  ///     tab with three cells would then show the same number three times - three places to
+  ///     disagree instead of one to trust. The tab's header strip is always visible whenever the
+  ///     tab is, which is what D6 actually requires: a chain waiting for a human cannot depend on
+  ///     the user having opened a particular view.</para></summary>
+  [ObservableProperty]
+  public partial int ParkedChains { get; private set; }
+
+  /// <summary>Whether the parked badge shows at all.</summary>
+  public bool HasParkedChains => ParkedChains > 0;
+
   /// <summary>Adds a cell for a NEW agent in this workspace (a parallel dispatch, D2).
   ///     The cell is appended, so the grid's existing cells keep their positions.
   ///     <para>A sequential chain advance does NOT come through here: it reuses the primary
@@ -192,6 +206,43 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   {
     _chainAdvanceLease?.Dispose();
     _chainAdvanceLease = null;
+  }
+
+  /// <summary>Mirrors the rail's parked-chain count into <see cref="ParkedChains"/> (issue
+  ///     #312 D6). Called by the shell at attach; idempotent because the subscription replaces
+  ///     the previous one rather than adding a second.
+  ///     <para>The render posts through the UI Dispatcher: the rail's refresh completes on pool
+  ///     threads, and the badge is bound by the view.</para></summary>
+  /// <param name="chains">The tab's chain view, whose count is the one source of truth.</param>
+  public void AttachParkedChains(ChainsViewViewModel? chains)
+  {
+    _parkedChainsFrom?.ParkedCountChanged -= HandleParkedCountChanged;
+    _parkedChainsFrom = chains;
+    if (chains is null)
+    {
+      ParkedChains = 0;
+      return;
+    }
+
+    chains.ParkedCountChanged += HandleParkedCountChanged;
+    ParkedChains = chains.ParkedCount;
+  }
+
+  /// <summary>The view whose count this tab mirrors, so a re-attach can unsubscribe.</summary>
+  private ChainsViewViewModel? _parkedChainsFrom;
+
+  private void HandleParkedCountChanged(int count)
+    => Avalonia.Threading.Dispatcher.UIThread.Post(() => ParkedChains = count);
+
+  /// <summary>Re-raises the derived visibility flag whenever the count moves, so the view never
+  ///     has to compare the number itself.
+  ///     <para>The generator's own hook, so every assignment - the attach's initial read and the
+  ///     mirrored change alike - goes through one place.</para></summary>
+  /// <param name="value">The new parked count.</param>
+  partial void OnParkedChainsChanged(int value)
+  {
+    _ = value;
+    OnPropertyChanged(nameof(HasParkedChains));
   }
 
   /// <summary>Attaches the statusline branch watcher over the tab's workspace.

@@ -134,6 +134,17 @@
                 <TextBlock Text="{Binding Badge.UnreadCount}" FontSize="10"
                            Foreground="White"/>
               </Border>
+              <!-- Issue #312 D6: the parked-chain badge. A chain waiting for a human is the one
+                   thing in this application that needs attention, so it cannot depend on the user
+                   having opened the rail - the tab header is visible whenever the tab is. Amber
+                   rather than the unread badge's blue: waiting-for-you is not unread-mail. -->
+              <Border CornerRadius="8" Padding="5,0" Background="#FFB454"
+                      VerticalAlignment="Center"
+                      IsVisible="{Binding HasParkedChains}"
+                      ToolTip.Tip="Chains waiting for you: open the Chains view in the workbench">
+                <TextBlock Text="{Binding ParkedChains}" FontSize="10"
+                           Foreground="#1B1B2F"/>
+              </Border>
               <Button Content="✕" Padding="3,0" Background="Transparent" BorderThickness="0"
                       Click="OnCloseTab" ToolTip.Tip="{Binding Subtitle}"/>
             </StackPanel>

@@ -168,6 +168,33 @@ internal partial class WorkspaceTabView : UserControl
   private void OnCancelPullRequestClick(object? sender, RoutedEventArgs e) =>
       Vm?.Workbench.PullRequests.CancelCreate();
 
+  /// <summary>Expands or collapses a chain card (issue #312 D7). The choice is recorded on the
+  ///     VIEW, not on the card, because the card is REPLACED on every refresh: a toggle held only
+  ///     on the old card would snap shut the moment anything moved.</summary>
+  private void OnChainExpandClick(object? sender, RoutedEventArgs e)
+  {
+    if (sender is Button { Tag: ChainCardViewModel card } && Vm is { } vm)
+    {
+      card.IsExpanded = !card.IsExpanded;
+      vm.Workbench.Chains.RememberExpansion(card);
+    }
+  }
+
+  /// <summary>Opens a chain step's session from the rail (issue #312 D8): the ONE action, and it
+  ///     is the Sessions menu's own operation.
+  ///     <para>Fire-and-forget by design: the resume builds a container and launches a host, and
+  ///     blocking the click handler on it would freeze the shell for its duration.</para>
+  ///     <para>The task is deliberately unobserved: the view-model records its own refusal in
+  ///     <c>ActionMessage</c>, and the shell reports a resume failure as a transcript notice - so
+  ///     there is no outcome here for a caller to act on.</para></summary>
+  private void OnChainOpenSessionClick(object? sender, RoutedEventArgs e)
+  {
+    if (sender is Button { Tag: ChainCardViewModel card } && Vm is { } vm)
+    {
+      _ = vm.Workbench.Chains.OpenSessionAsync(card, CancellationToken.None);
+    }
+  }
+
   /// <summary>Dismisses a FINISHED cell (D7). The card is removed only when the tab agrees -
   ///     a running cell or the primary cell is refused - so a click can never orphan a live
   ///     session or leave a tab whose primary session names nothing.</summary>
