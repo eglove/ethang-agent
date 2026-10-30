@@ -124,6 +124,54 @@ public class EmbeddedSkillCatalogTests
         "the ledger audit must follow the task-quality item");
   }
 
+  /// <summary>Issue #315: the privacy rule is RESTATED to match the behaviour, and the rule
+  ///     lives in a named place a rewrite can find.
+  ///     <para>WHY THIS IS A TEST AND NOT A COMMENT: the rule's citation names a file and a
+  ///     section, and a citation nothing checks is a citation that points at prose that no
+  ///     longer says this. Scoping every assertion to the section is what makes the test fail
+  ///     when the rule is relocated or quietly softened, instead of passing because the words
+  ///     survive somewhere else in the file.</para></summary>
+  [Fact]
+  public async Task ThePrivacyRule_IsRestated_AndNamesWhereItLives()
+  {
+    Result<SkillDefinition> r = await _catalog.GetAsync("experiment-driven-development",
+        ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    string ledger = Section(r.Value.Body, "### The ledger is chain scope");
+
+    // The restatement: refutations are readable across chains, conclusions are not. The old
+    // sentence claimed another chain's keys were never yours to read OR WRITE, which the
+    // shared refutations namespace now contradicts — so the contradiction is what this pins.
+    Assert.Contains("do not wander into another chain's work", ledger, StringComparison.Ordinal);
+    Assert.Contains("What IS yours to read is every REFUTATION", ledger, StringComparison.Ordinal);
+    Assert.Contains("`refutations/` namespace", ledger, StringComparison.Ordinal);
+    Assert.DoesNotContain("another chain's keys are never yours to read or write", ledger,
+        StringComparison.Ordinal);
+
+    // The citation: the file it lives in, by path, and the section, which is the durable
+    // pointer. A bare line number would be stale by the next paragraph.
+    Assert.Contains("src/eThangAgent.Skill.Domain/skills/experiment-driven-development/SKILL.md",
+        ledger, StringComparison.Ordinal);
+    Assert.Contains("### The ledger is chain scope", ledger, StringComparison.Ordinal);
+  }
+
+  /// <summary>Issue #315: the chain skill carries the same rule, so a session reading only its
+  ///     own skill is not told the opposite of what the tool does.</summary>
+  [Fact]
+  public async Task TheChainSkill_SaysRefutationsAreWorkspaceScope_AndToSearchFirst()
+  {
+    Result<SkillDefinition> r = await _catalog.GetAsync("executing-a-chain",
+        ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    string body = r.Value.Body;
+
+    Assert.Contains("### Refutations are workspace scope", body, StringComparison.Ordinal);
+    Assert.Contains("`refutations/` namespace", body, StringComparison.Ordinal);
+    Assert.Contains("search before you start", body, StringComparison.OrdinalIgnoreCase);
+    // It must NOT tell a session to write the namespace by hand: the tool writes it.
+    Assert.Contains("Do not write to", body, StringComparison.Ordinal);
+  }
+
   /// <summary>The text of one <c>##</c> section, from its heading to the next one, so an
   ///     assertion cannot be satisfied by prose in another section.</summary>
   private static string Section(string body, string heading)

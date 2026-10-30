@@ -73,11 +73,20 @@ Never start implementation on a main/master branch without your human partner's 
 Every step of a chain reads and writes the SAME key: `sci.<slug>/ledger`, where the slug is derived
 from the chain's title by the harness. A refutation recorded by step 3 is step 7's to read.
 
-**The privacy rule, restated for chains:** another chain's keys are never yours to read or write.
-A chain's conclusions are scoped to that chain's work. What is workspace-visible is REFUTATIONS —
-"approach X does not work because Y" is a fact about the world, and rediscovering it costs the next
-chain real budget. Search for them with `state.find` before you start; do not read another chain's
-conclusions, which describe work you are not doing.
+**The privacy rule, restated for chains:** do not wander into another chain's work. Its ledger
+holds its conclusions — how it built what it built — and those describe work you are not doing.
+What IS yours to read is every REFUTATION in the workspace, because "approach X does not work
+because Y" is a fact about the world rather than about one chain's work, and rediscovering it costs
+the next chain real budget. They live in the workspace-visible `refutations/` namespace: search it
+with `state.find` before you start, and never write to it by hand — a refuted verdict writes the
+shared record for you, in the same call that records the verdict in your own ledger.
+
+> **Where this rule lives, so a rewrite can find it.** File:
+> `src/eThangAgent.Skill.Domain/skills/experiment-driven-development/SKILL.md`. Section:
+> `### The ledger is chain scope`. Line: 76, as of this writing — but the SECTION is the durable
+> pointer, because a line number moves with every paragraph above it. `EmbeddedSkillCatalogTests`
+> pins the rule inside that section, so a rewrite that deletes or relocates it fails the build
+> instead of leaving a citation pointing at prose that no longer says this.
 
 An empty ledger is normal — the first step of a chain starts with one. Check with
 `state.get key="sci.<slug>/ledger"`. A ledger whose identity line names a different chain belongs to

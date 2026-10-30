@@ -278,7 +278,8 @@ public static class AgentComposition
   private static IReadOnlyList<AgentToolBinding> ContextAndGitToolBindings(IServiceProvider sp) =>
   [
       new AgentToolBinding(
-          new ExperimentTool(sp.GetRequiredService<IExperimentLedgerStore>()),
+          new ExperimentTool(sp.GetRequiredService<IExperimentLedgerStore>(),
+              sp.GetRequiredService<IRefutationStore>(), sp.GetRequiredService<IRefutationStampSource>()),
           "Record the scientific loop's hypotheses, predictions, verdicts, observations, conclusions, and skips."),
       new AgentToolBinding(
           new ContextEditTool(sp.GetRequiredService<IConversationContextService>()),
@@ -438,6 +439,7 @@ public static class AgentComposition
         .AddPlanServices()
         .AddChainServices()
         .AddLedgerViewServices()
+        .AddRefutationServices()
         // Workspace identity (issue #317 D5): the store that maps a stable id to the directory it
         // currently lives at, and the marker-file resolver over it. Registered UNSCOPED on purpose
         // - the identity table DEFINES the scopes, so binding it to one workspace would make it
@@ -483,6 +485,27 @@ public static class AgentComposition
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
             sp.GetRequiredService<AppDatabase>()));
+  }
+
+  /// <summary>The workspace-visible refutation namespace (issue #315).
+  ///     <para>ITS OWN PORT BESIDE THE LEDGER'S, because a refutation is an IDEMPOTENT WRITE
+  ///     where the ledger is an append: recording one twice must land the same bytes rather
+  ///     than duplicate a record whose whole purpose is to be found once. Folding an overwrite
+  ///     into <see cref="IExperimentLedgerStore"/> would quietly withdraw the append-only
+  ///     guarantee every ledger writer relies on.</para>
+  ///     <para>THE STAMP IS RESOLVED LIVE, per call, so it names the commit this session's
+  ///     workspace sits at rather than one captured at container build - a session whose root
+  ///     moved would otherwise stamp its findings with another tree's commit.</para>
+  ///     <para>Its own method because <c>AddPersistenceServices</c> is at the length limit S138
+  ///     enforces - the same reason <c>AddPlanServices</c> and <c>AddChainServices</c> exist.
+  ///     </para></summary>
+  private static IServiceCollection AddRefutationServices(this IServiceCollection wired)
+  {
+    return wired
+        .AddSingleton<IRefutationStore>(sp => new StateServiceRefutationStore(
+            sp.GetRequiredService<IStateService>()))
+        .AddSingleton<IRefutationStampSource>(sp => new GitRefutationStampSource(
+            sp.GetRequiredService<IGitQueryAccess>(), sp.GetRequiredService<IWorkspaceContext>()));
   }
 
   /// <summary>The workbench's ledger read port (issue #318).

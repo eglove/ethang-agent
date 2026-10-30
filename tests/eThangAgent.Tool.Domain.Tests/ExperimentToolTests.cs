@@ -13,7 +13,7 @@ public class ExperimentToolTests
     FakeExperimentLedgerStore store = ledger is null
         ? new FakeExperimentLedgerStore()
         : new FakeExperimentLedgerStore(Key, ledger);
-    return (new ExperimentTool(store), store);
+    return (new ExperimentTool(store, new FakeRefutationStore(), new FakeRefutationStampSource()), store);
   }
 
   private static Task<ToolResult> RunAsync(ExperimentTool tool, string json) =>
@@ -819,6 +819,138 @@ public class ExperimentToolTests
     });
   }
 
+  // ---- Group 12: a refuted verdict leaves the chain's ledger too (issue #315) ----
+
+  /// <summary>D8: every session that reaches a refuted verdict writes it, with no judgement
+  ///     call about whether the finding is 'broadly useful' — a session guessing its own
+  ///     audience is the unreliable half of curated.</summary>
+  [Fact]
+  public async Task RecordVerdict_Refuted_AlsoWritesAWorkspaceVisibleRefutation()
+  {
+    (ExperimentTool _, FakeExperimentLedgerStore? store) = MakeTool(
+        "hypothesis 1: The watcher sees a no-op rewrite.\n"
+        + "prediction 1 (hypothesis 1): a no-op rewrite fires Changed \u2014 falsified by: touch f.txt");
+    FakeRefutationStore refutations = new();
+    ExperimentTool shared = new(store, refutations, new FakeRefutationStampSource());
+
+    ToolResult result = await RunAsync(shared,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"record-verdict","slug":"alpha","id":1,"verdict":"refuted","evidence":"2 Changed events, bytes identical"}""");
+
+    Assert.False(result.IsError, result.Content);
+    (string key, string value) = Assert.Single(refutations.Calls);
+    Assert.Equal("refutations/alpha-p1", key);
+    // The prediction's own text carries its falsifying command, so the shared record shows a
+    // reader what was claimed AND what would have disproved it.
+    Assert.Contains("refutation alpha#1: The watcher sees a no-op rewrite.", value, StringComparison.Ordinal);
+    Assert.Contains("\u2014 predicted: a no-op rewrite fires Changed", value, StringComparison.Ordinal);
+    Assert.Contains("\u2014 refuted: 2 Changed events, bytes identical", value, StringComparison.Ordinal);
+    // D7: the commit stamp, not a clock.
+    Assert.Contains("\u2014 against: commit abc1234 (baseline)", value, StringComparison.Ordinal);
+    Assert.Contains("[experiment] refutation shared at refutations/alpha-p1", result.Content,
+        StringComparison.Ordinal);
+  }
+
+  /// <summary>A CONFIRMED verdict shares nothing: a confirmation is a fact about this chain's
+  ///     work, and putting every confirmation in a workspace-visible namespace is exactly the
+  ///     noise D1 separates the two kinds to avoid.</summary>
+  [Fact]
+  public async Task RecordVerdict_ConfirmedAndInconclusive_WriteNoRefutation()
+  {
+    (ExperimentTool _, FakeExperimentLedgerStore? store) = MakeTool(
+        "hypothesis 1: H\nprediction 1 (hypothesis 1): P \u2014 falsified by: cmd");
+    FakeRefutationStore refutations = new();
+    ExperimentTool tool = new(store, refutations, new FakeRefutationStampSource());
+
+    ToolResult confirmed = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"record-verdict","slug":"alpha","id":1,"verdict":"confirmed","evidence":"it held"}""");
+
+    Assert.False(confirmed.IsError, confirmed.Content);
+    Assert.Empty(refutations.Calls);
+    Assert.DoesNotContain("refutation", confirmed.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>A record this tool did not accept writes nothing anywhere: the refusal happens
+  ///     before either write, so a bad verdict cannot leave a shared finding behind.</summary>
+  [Fact]
+  public async Task RecordVerdict_Refused_WritesNoRefutation()
+  {
+    (ExperimentTool _, FakeExperimentLedgerStore? store) = MakeTool("hypothesis 1: H");
+    FakeRefutationStore refutations = new();
+    ExperimentTool tool = new(store, refutations, new FakeRefutationStampSource());
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"record-verdict","slug":"alpha","id":9,"verdict":"refuted","evidence":"ev"}""");
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [PredictionNotFound]:", result.Content, StringComparison.Ordinal);
+    Assert.Empty(refutations.Calls);
+  }
+
+  /// <summary>THE FAILURE THAT MUST NOT BE SILENT: the verdict stands (it is the record of the
+  ///     experiment) but the line says the finding is NOT shared and names why. A session that
+  ///     believed a refutation was visible when the write failed would rely on a record that
+  ///     does not exist.</summary>
+  [Fact]
+  public async Task RecordVerdict_Refuted_WhenTheShareFails_KeepsTheVerdictAndSaysSo()
+  {
+    (ExperimentTool _, FakeExperimentLedgerStore? store) = MakeTool(
+        "hypothesis 1: H\nprediction 1 (hypothesis 1): P \u2014 falsified by: cmd");
+    FakeRefutationStore refutations = new()
+    {
+      WriteFailure = new DomainError("VersionConflict", "the row moved"),
+    };
+    ExperimentTool tool = new(store, refutations, new FakeRefutationStampSource());
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"record-verdict","slug":"alpha","id":1,"verdict":"refuted","evidence":"ev"}""");
+
+    // The verdict was recorded and the ledger kept it.
+    _ = Assert.Single(store.AppendCalls);
+    Assert.Contains("[experiment] verdict 1 recorded in sci.alpha/ledger", result.Content, StringComparison.Ordinal);
+    // And the failure is REPORTED, naming the key and the code.
+    Assert.True(result.IsError);
+    Assert.Contains("refutation NOT shared: refutations/alpha-p1", result.Content, StringComparison.Ordinal);
+    Assert.Contains("VersionConflict", result.Content, StringComparison.Ordinal);
+    Assert.Contains("The verdict stands", result.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>Recording the same refutation twice lands the SAME bytes on the SAME key: one
+  ///     prediction takes one verdict, so the record is idempotent rather than duplicated.</summary>
+  [Fact]
+  public void RefutationRecord_IsIdempotentForOnePrediction()
+  {
+    string once = RefutationRecord.Render("alpha", 1, "H", "P", "ev", "commit abc");
+    string twice = RefutationRecord.Render("alpha", 1, "H", "P", "ev", "commit abc");
+
+    Assert.Equal(once, twice, StringComparer.Ordinal);
+    Assert.Equal(RefutationRecord.KeyFor("alpha", 1), RefutationRecord.KeyFor("alpha", 1),
+        StringComparer.Ordinal);
+  }
+
+  /// <summary>A hypothesis the ledger no longer holds is stated as absent rather than dropped:
+  ///     omitting the clause would silently change the record's shape.</summary>
+  [Fact]
+  public void RefutationRecord_WithNoHypothesis_StatesTheAbsence()
+  {
+    string value = RefutationRecord.Render("alpha", 1, null, "P", "ev", "commit abc");
+
+    Assert.Contains(RefutationRecord.HypothesisUnavailable, value, StringComparison.Ordinal);
+    Assert.Contains("\u2014 predicted: P", value, StringComparison.Ordinal);
+  }
+
+  /// <summary>The namespace is what the brief tells a session to search, so it is one constant
+  ///     rather than a string literal repeated at the writer and the reader.</summary>
+  [Fact]
+  public void RefutationRecord_NamespaceIsTheWorkspaceVisibleOne()
+  {
+    Assert.Equal("refutations", RefutationRecord.Namespace);
+    Assert.StartsWith("refutations/", RefutationRecord.KeyFor("alpha", 3), StringComparison.Ordinal);
+  }
+
   private static int CountOccurrences(string haystack, string needle)
   {
     int count = 0;
@@ -829,6 +961,45 @@ public class ExperimentToolTests
     }
 
     return count;
+  }
+
+  /// <summary>The workspace-visible refutation namespace (issue #315): an IDEMPOTENT WRITE,
+  ///     so the fake keeps a key/value map rather than an append log. A test that only counted
+  ///     writes could not tell 'recorded once' from 'recorded twice', which is the contract.</summary>
+  private sealed class FakeRefutationStore : IRefutationStore
+  {
+    public Dictionary<string, string> Writes { get; } = new(StringComparer.Ordinal);
+
+    public List<(string Key, string Value)> Calls { get; } = [];
+
+    public DomainError? WriteFailure { get; set; }
+
+    public Task<Result<int>> WriteAsync(string key, string value, CancellationToken ct = default)
+    {
+      Calls.Add((key, value));
+      if (WriteFailure is { } failure)
+      {
+        return Task.FromResult(Result.Failure<int>(failure));
+      }
+
+      Writes[key] = value;
+      return Task.FromResult(Result.Success(Writes.Count));
+    }
+  }
+
+  /// <summary>The stamp source, stubbed so the test pins the STAMPED TEXT rather than whatever
+  ///     commit the repo happens to be on. The real one is exercised by the composition tests.
+  ///     </summary>
+  private sealed class FakeRefutationStampSource(string stamp = "commit abc1234 (baseline)")
+      : IRefutationStampSource
+  {
+    public int Calls { get; private set; }
+
+    public Task<string> DescribeAsync(CancellationToken ct = default)
+    {
+      Calls++;
+      return Task.FromResult(stamp);
+    }
   }
 
   private sealed class FakeExperimentLedgerStore : IExperimentLedgerStore

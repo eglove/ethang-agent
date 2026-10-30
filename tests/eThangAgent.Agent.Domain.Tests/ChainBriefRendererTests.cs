@@ -97,6 +97,25 @@ public sealed class ChainBriefRendererTests
     Assert.Contains("declares no goal/check commands", brief.Content, StringComparison.Ordinal);
   }
 
+  /// <summary>Issue #315: the brief instructs the session to SEARCH for refutations before it
+  ///     starts, and names the workspace-visible namespace they live in. Without this the shared
+  ///     records would exist and nobody would look, which is the half of the feature that makes
+  ///     the other half worth anything.</summary>
+  [Fact]
+  public void Render_TellsTheSessionToSearchForRefutationsBeforeStarting()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
+
+    Assert.Contains("## Search for refutations before you start", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("`refutations/`", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("state.find", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("WORKSPACE scope, not chain scope", brief.Content, StringComparison.Ordinal);
+    // And it says the session does not write that namespace by hand: the tool does, in the same
+    // call that records the verdict.
+    Assert.Contains("You do not write to that namespace yourself", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("verdict=refuted", brief.Content, StringComparison.Ordinal);
+  }
+
   [Fact]
   public void Render_ListsPredecessorsAndWhatEachConcluded()
   {

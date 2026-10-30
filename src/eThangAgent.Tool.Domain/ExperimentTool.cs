@@ -7,10 +7,27 @@ namespace eThangAgent.ToolDomain;
 ///     (<c>sci.&lt;slug&gt;/ledger</c>), plus a listing that reports the open-prediction
 ///     count the finish gate reads. Enforcement sits on the two transitions that
 ///     matter: a prediction must name a falsifying check, and a confirmed or refuted
-///     verdict must name its evidence. Everything else is bookkeeping.</summary>
-public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
+///     verdict must name its evidence. Everything else is bookkeeping.
+///     <para>A REFUTED VERDICT ALSO WRITES A WORKSPACE-VISIBLE REFUTATION (issue #315 D8).
+///     The ledger is CHAIN scope, so a finding that cost a whole session to establish died
+///     with the chain that found it, and the next chain re-derived it at full price. A
+///     falsification is a fact about the world rather than about one chain's work, so it is
+///     written to the workspace's <c>refutations/</c> namespace in the SAME call that records
+///     the verdict - not offered, not asked about: a session judging its own finding 'broadly
+///     useful' is guessing about an audience it cannot see, and reliable beats curated.
+///     Conclusions stay where they were: a chain's ledger.</para>
+///     <para>THE LEDGER WRITE COMES FIRST AND THE REFUTATION SECOND, deliberately. A refutation
+///     written before the verdict would be a claim the ledger does not back - a reader who
+///     searched for it would find a record whose evidence lives in a ledger that never judged
+///     it. If the second write fails the verdict still stands (it is the record of the
+///     experiment) and the failure is REPORTED in the annotation line, never swallowed: a
+///     silent drop would leave a session believing a shared finding exists.</para></summary>
+public sealed class ExperimentTool(IExperimentLedgerStore store, IRefutationStore refutations,
+    IRefutationStampSource stamps) : ITool
 {
   private readonly IExperimentLedgerStore _store = store ?? throw new ArgumentNullException(nameof(store));
+  private readonly IRefutationStore _refutations = refutations ?? throw new ArgumentNullException(nameof(refutations));
+  private readonly IRefutationStampSource _stamps = stamps ?? throw new ArgumentNullException(nameof(stamps));
 
   public ToolDefinition Definition { get; } = new(
       "experiment",
@@ -127,10 +144,66 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
       IReadOnlyList<ExperimentRecord> records, CancellationToken ct)
   {
     Result<RecordedLine> line = BuildLine(input, records);
-    return line.IsSuccess
-      ? await AppendAsync(key, line.Value, ct).ConfigureAwait(false)
-      : Err(line.Error);
+    if (!line.IsSuccess)
+    {
+      return Err(line.Error);
+    }
+
+    ToolResult appended = await AppendAsync(key, line.Value, ct).ConfigureAwait(false);
+    return appended.IsError || !IsRefutation(input, line.Value)
+      ? appended
+      : await ShareRefutationAsync(input, records, appended, ct).ConfigureAwait(false);
   }
+
+  /// <summary>True when this call recorded a REFUTED verdict, which is the one record that also
+  ///     leaves the chain's ledger (issue #315 D1).</summary>
+  private static bool IsRefutation(ExperimentInput input, RecordedLine line) =>
+      line.Kind == ExperimentRecordKind.Verdict && input.Verdict == ExperimentVerdict.Refuted;
+
+  /// <summary>Writes the workspace-visible refutation for a verdict the ledger just accepted
+  ///     (issue #315).
+  ///     <para>THE PREDICTION'S OWN TEXT CARRIES ITS FALSIFYING COMMAND, so the shared record
+  ///     shows a reader both what was claimed and what would have disproved it - the two halves
+  ///     D6's guard demands, without asking the session to retype either. The evidence is the
+  ///     verdict's, verbatim.</para>
+  ///     <para>A FAILED SHARE DOES NOT UNDO THE VERDICT, and it is not silent. The verdict is
+  ///     the record of the experiment and stands whatever happens next; but a session that
+  ///     believed a finding was shared when it was not would rely on a record that does not
+  ///     exist, so the annotation line names the failure and the key it tried.</para></summary>
+  private async Task<ToolResult> ShareRefutationAsync(ExperimentInput input,
+      IReadOnlyList<ExperimentRecord> records, ToolResult appended, CancellationToken ct)
+  {
+    int predictionId = input.Id!.Value;
+    ExperimentRecord? prediction = records.FirstOrDefault(
+        r => r.Kind == ExperimentRecordKind.Prediction && r.Id == predictionId);
+    if (prediction is null)
+    {
+      // Unreachable: VerdictLine refuses a verdict whose prediction is absent. Stated rather
+      // than assumed, because a null dereference here would lose a verdict already written.
+      return appended;
+    }
+
+    string key = RefutationRecord.KeyFor(input.Slug, predictionId);
+    string value = RefutationRecord.Render(input.Slug, predictionId,
+        HypothesisFor(records, prediction.Reference), prediction.Text,
+        input.Evidence ?? string.Empty, await _stamps.DescribeAsync(ct).ConfigureAwait(false));
+    Result<int> written = await _refutations.WriteAsync(key, value, ct).ConfigureAwait(false);
+    return written.IsSuccess
+      ? new ToolResult($"{appended.Content}\n[experiment] refutation shared at {key}", false)
+      : new ToolResult(
+          $"{appended.Content}\n[experiment] refutation NOT shared: {key} could not be written "
+          + $"({written.Error.Code}: {written.Error.Message}). The verdict stands; the finding "
+          + "is not visible to other chains.", true);
+  }
+
+  /// <summary>The hypothesis a refuted prediction tested, or null when the ledger no longer
+  ///     holds it. Null is a real answer - a ledger is append-only but a refutation can outlive
+  ///     a rewrite - and the renderer states the absence rather than omitting the clause.</summary>
+  private static string? HypothesisFor(IReadOnlyList<ExperimentRecord> records, int? hypothesisId) =>
+      hypothesisId is { } id
+        ? records.FirstOrDefault(
+            r => r.Kind == ExperimentRecordKind.Hypothesis && r.Id == id)?.Text
+        : null;
 
   /// <summary>Appends the rendered line and reports the assigned id. CAS with a null
   ///     expectedVersion: the store re-reads the row and CASes on that fresh read, so a

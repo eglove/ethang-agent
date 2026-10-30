@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain;
 
@@ -95,6 +96,17 @@ public static class ChainBriefRenderer
       "refutation recorded by an earlier step is yours to read. An empty ledger is normal — this",
       "may be the first step. Record observations, verdicts, and refutations AS YOU WORK, not",
       "only at the end: a refutation recorded after your session ends helps nobody.",
+      "",
+      "## Search for refutations before you start",
+      "",
+      "Refutations are WORKSPACE scope, not chain scope: every one recorded in this workspace sits",
+      $"in the `{RefutationRecord.Namespace}/` namespace, and `state.find` searches it. Run",
+      "state.find with the terms your step is about before you design anything — a chain that",
+      "already disproved this approach spent a whole session learning it, and re-deriving the same",
+      "negative result costs the same again.",
+      "",
+      "You do not write to that namespace yourself. A `record-verdict` with verdict=refuted writes",
+      "the shared record for you, in the same call that records the verdict in your ledger.",
     ]);
 
     AddPredecessors(lines, facts);

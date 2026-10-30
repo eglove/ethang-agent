@@ -72,6 +72,16 @@ An empty ledger is normal — you may be the first step. Record **as you work**,
 refutation recorded after your session closes helps nobody, and a later step that re-derives what
 you already established has wasted the chain's time.
 
+### Refutations are workspace scope
+
+Your ledger's CONCLUSIONS stay yours. REFUTATIONS do not: a `record-verdict` with `verdict=refuted`
+also writes a shared record into the workspace-visible `refutations/` namespace, in the same call.
+That is deliberate — "approach X does not work because Y" is a fact about the world, and the next
+chain to try X would otherwise pay the same price to learn it again.
+
+So **search before you start**: `state.find` with the terms your step is about. Do not write to
+that namespace by hand; the tool writes it, and a hand-written record is one nothing corroborates.
+
 Use the `experiment` tool. Its actions are `record-hypothesis`, `record-prediction`,
 `record-verdict`, `record-observation`, `record-conclusion`, `record-skip`, `list`, and `summary`.
 
@@ -108,9 +118,9 @@ attempt to schedule the review yourself.
 
 1. Read the brief and the standing contract. Retrieve the plan with `plan.show id=<planId>` and
    the ledger with `state.get key="sci.<slug>/ledger"`.
-2. Search for related refutations before you start — `state.find` spans the workspace, so a
-   finding from another chain is reachable. Do not wander into another chain's conclusions; they
-   are scoped to work you are not doing.
+2. Search for related refutations before you start — `state.find` spans the workspace, and the
+   `refutations/` namespace is written for exactly this. Do not wander into another chain's
+   ledger: its conclusions are scoped to work you are not doing.
 3. Run the loop: observe, hypothesize, predict, experiment, analyze, report — with the ledger
    written as you go.
 4. Verify with `verification-before-completion` before any done-claim.
