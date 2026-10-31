@@ -146,7 +146,7 @@
                    Opacity="0.85" TextWrapping="Wrap" FontSize="12" FontStyle="Italic"/>
         <TextBox x:Name="GateCommandsBox" Text="{Binding GateCommands}"
                  AcceptsReturn="True" MinHeight="60" MaxHeight="120"
-                 Watermark="dotnet build&#10;dotnet test"
+                 PlaceholderText="dotnet build&#10;dotnet test"
                  TextWrapping="Wrap"/>
         <CheckBox x:Name="GateDeclineBox" IsChecked="{Binding GateDeclined}"
                   Content="No check for this project (remembered — I will not ask again)"/>
