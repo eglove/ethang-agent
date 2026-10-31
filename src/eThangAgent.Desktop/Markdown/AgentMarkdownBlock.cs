@@ -168,6 +168,7 @@ internal class AgentMarkdownBlock : ContentControl
     viewer.Opacity = Variant == AgentMarkdownVariant.Reasoning ? ReasoningOpacity : 1.0;
     viewer.Markdown = MarkdownText ?? string.Empty;
     Content = viewer;
+    CodeBlockScroller.Wrap(viewer);
   }
 
   private void RenderPlain()
