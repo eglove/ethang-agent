@@ -47,10 +47,10 @@ namespace eThangAgent.Desktop.Tests;
 ///     to do. So the gate is genuinely fresh at the step boundary; a chain that could only
 ///     progress by bypassing it would fail here rather than quietly pass.</para>
 ///
-///     <para>THE HUMAN'S ONE CHANNEL IS USED DELIBERATELY. A chain step's session is launched
-///     SEED-ONLY (no first turn) and nothing in this build fires one, so this test types into
-///     the step's cell the way a person would - the surviving steering channel (#316 D1). It
-///     does not invent a production mechanism that does not exist.</para></summary>
+///     <para>NO HUMAN TYPES ANYTHING (issue #323's kickoff decision). A chain step's session
+///     is launched with <c>ChainKickoff.Line</c> as its first turn, so a chain runs
+///     unattended. The earlier version of this test typed into each cell because nothing
+///     fired a turn; doing that now would hide whether the kickoff works.</para></summary>
 [Collection("Desktop E2E")]
 public class ChainExecutionE2ETests
 {
@@ -127,37 +127,31 @@ public class ChainExecutionE2ETests
     }
   }
 
-  /// <summary>BOUNDARIES 3 AND 4, WHICH THE ASSEMBLY FAILS TODAY (issue #322). This test pins the
-  ///     DEFECT rather than the intent, and it is written so the fix makes it fail: when a chain
-  ///     advances, the <c>TurnBusy</c> refusal disappears and the final assertion goes red.
+  /// <summary>BOUNDARIES 3 TO 5: THE CHAIN RUNS TO COMPLETION (issues #322, #323, and the
+  ///     kickoff decision). This is the end state the pinning test was written to be replaced
+  ///     by.
   ///
-  ///     <para>THE DEFECT, MEASURED. The completion fact arrives MID-TURN - it is published by
-  ///     the <c>plan.update-step ... status=Done</c> write, which happens inside the step's own
-  ///     exec call, before that call even returns. <c>ChainAdvanceSubscriber</c> dispatches the
-  ///     advance immediately, and the advance calls <c>MainViewModel.StartChainStepSessionAsync</c>
-  ///     -> <c>StartNewSessionAsync</c>, which refuses a busy tab with <c>TurnBusy</c>. The tab IS
-  ///     busy: it is running the very turn that reported the completion. So the launch is
-  ///     refused, <c>StartStepAsync</c> releases the claim, and NOTHING RETRIES - the chain sits
-  ///     <c>Running</c> with step 2 <c>Pending</c> and no session, forever, while every surface
-  ///     reports it in progress. Observed verbatim in the transcript:
-  ///     <c>[chain] advance refused [TurnBusy]: a turn is running in that tab; stop it before</c>
-  ///     <c>starting a new session.</c></para>
+  ///     <para>WHAT IT PROVES, in order. Step 1's session completes its step; the completion
+  ///     fact arrives MID-TURN; the advance WAITS for that turn instead of being refused
+  ///     <c>TurnBusy</c> (#322); step 2's session is launched in the same tab with its own
+  ///     brief; and the chain reaches <c>Completed</c>.</para>
   ///
-  ///     <para>THE ASYMMETRY IS THE CAUSE, and it is visible in one comparison. The
-  ///     <c>chain.start</c> launch goes through <c>HandleSessionRequestAsync</c>, which knows the
-  ///     launch happens mid-turn and therefore ANSWERS FIRST and waits
-  ///     (<c>WaitForIdleAndReplaceAsync</c>) before swapping. The ADVANCE path has no such wait: it
-  ///     calls <c>StartNewSessionAsync</c> directly and is refused. No unit test can see this,
-  ///     because <c>ChainAdvanceServiceTests</c> drives a fake <c>IChainAdvanceHost</c> that never
-  ///     checks <c>IsBusy</c> and <c>StartChainStepSessionAsync</c> has no test of its own - the app
-  ///     half of the advance was never assembled with the domain half.</para>
+  ///     <para>NO HUMAN TYPES ANYTHING. Each step's session is launched with the kickoff line
+  ///     (<c>ChainKickoff.Line</c>) as its first turn, so the whole chain runs unattended. The
+  ///     previous version of this test typed into each cell because nothing fired a turn; that
+  ///     was the gap the kickoff closes, and typing here would hide its return.</para>
   ///
-  ///     <para>WHY PIN THE BROKEN BEHAVIOUR: a skipped test would hide the bug and rot, and
-  ///     deleting it would leave the path unassembled. Pinning it means the suite fails the
-  ///     moment someone fixes the advance, which is when the assertion below must be replaced by
-  ///     the real end state - step 2 running, then the chain <c>Completed</c>.</para></summary>
+  ///     <para>THE MOCK IS SCRIPTED, AND THAT IS THE HONEST LIMIT. Each session obeys a
+  ///     scripted exec program rather than reading its brief and deciding, so this proves the
+  ///     MACHINERY runs end to end, not that a brief is sufficient instruction. A live run is
+  ///     the only thing that settles the second question.</para>
+  ///
+  ///     <para>THE GATE IS ARRANGED, NOT TRIPPED (#304): <c>goal/check</c> is <c>exit 0</c>, and
+  ///     each step runs <c>state.checkgoal</c> immediately before its <c>Done</c>, exactly as the
+  ///     <c>executing-a-chain</c> skill instructs. A chain that could only progress by bypassing
+  ///     the gate would fail here rather than quietly pass.</para></summary>
   [AvaloniaFact]
-  public async Task ChainAdvance_AfterAStepCompletes_IsRefusedTurnBusy_AndTheChainStalls()
+  public async Task Chain_FromStartToCompleted_RunsEveryStepInItsOwnHostedSession()
   {
     using E2E.HostHarness host = new();
     _ = await host.StartAsync().ConfigureAwait(true);
@@ -166,11 +160,16 @@ public class ChainExecutionE2ETests
     try
     {
       shell = await OpenShellAsync(host).ConfigureAwait(true);
+      // THE SCRIPT, IN ORDER: the creator plans and starts; then each step runs its gate and
+      // marks itself Done. The queue is per model and the mock serves it in sequence, so the
+      // two step programs are told apart by the position they complete.
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("creator_1", ExecProgram(CreatorProgram)),
           E2E.RawCompletion("chain started"),
           E2E.ExecToolCall("step1_1", ExecProgram(StepProgram(1))),
-          E2E.RawCompletion("step 1 done"));
+          E2E.RawCompletion("step 1 done"),
+          E2E.ExecToolCall("step2_1", ExecProgram(StepProgram(2))),
+          E2E.RawCompletion("step 2 done"));
 
       Result<AgentTabViewModel> opened = await shell.OpenAgentAsync(workspace, Providers.OpenRouter)
           .ConfigureAwait(true);
@@ -180,27 +179,33 @@ public class ChainExecutionE2ETests
       string workspaceId = creator.Services.GetRequiredService<IWorkspaceContext>().WorkspaceId;
       await DeclareGateAsync(creator).ConfigureAwait(true);
 
+      // ---- BOUNDARY 3: chain.start launches step 1, and NOTHING ELSE IS TYPED ----
       await RunTurnAsync(shell.Tabs[0].ViewModel, "plan the work and start executing it", StepLimit)
           .ConfigureAwait(true);
       AgentId step1Id = await WaitForCellSwapAsync(shell, creatorId, SwapLimit).ConfigureAwait(true);
+      Assert.NotEqual(creatorId, step1Id);
 
-      // ---- BOUNDARY 3: step 1 completes - and the advance is REFUSED, mid-turn ----
-      await RunTurnAsync(shell.Tabs[0].ViewModel, "work your assigned step", StepLimit).ConfigureAwait(true);
-      string step1Result = E2E.GetLastToolMessage(host.Mock.RequestBodies[3]);
-      Assert.Contains("[plan] updated step 1 in #1", step1Result, StringComparison.Ordinal);
+      // ---- BOUNDARY 4: step 1 completes, the advance WAITS, and step 2 takes its own cell ----
+      // No SubmitAsync here: the kickoff line is the step's first turn, so the chain advances
+      // itself. Waiting on the CELL SWAP is what proves the advance landed rather than stalled.
+      AgentId step2Id = await WaitForCellSwapAsync(shell, step1Id, StepLimit).ConfigureAwait(true);
+      Assert.NotEqual(step1Id, step2Id);
 
-      // THE REFUSAL IS THE EVIDENCE, read from the app's own notice rather than inferred.
-      string notices = string.Join(" / ", shell.Tabs[0].ViewModel.Transcript.Entries
+      // ---- BOUNDARY 5: step 2 completes and the chain is Completed, not merely Running ----
+      Chain finished = await WaitForRecordAsync(host.DatabasePath, workspaceId,
+          c => c.Status == ChainStatus.Completed, StepLimit).ConfigureAwait(true);
+      Assert.Equal(ChainStatus.Completed, finished.Status);
+      Assert.Equal(ChainStepStatus.Done, finished.StepAt(1)!.Status);
+      Assert.Equal(ChainStepStatus.Done, finished.StepAt(2)!.Status);
+      // EACH STEP RAN IN ITS OWN SESSION: two distinct ids, and the record names step 2's.
+      Assert.Equal(step2Id.ToString(), finished.StepAt(2)!.SessionId, StringComparer.Ordinal);
+
+      // AND NO ADVANCE WAS REFUSED along the way - the #322 symptom, asserted as an absence
+      // because a refusal is what a stalled chain leaves behind.
+      string notices = string.Join(" / ", shell.Tabs.SelectMany(t => t.ViewModel.Transcript.Entries)
           .OfType<NoticeEntry>()
           .Select(n => n.Text));
-      Assert.Contains("[chain] advance refused [TurnBusy]", notices, StringComparison.Ordinal);
-
-      // AND THE CHAIN STALLS: the cell is still step 1's, and the record never moved on.
-      Assert.Equal(step1Id, shell.Tabs[0].Container.RootId);
-      Chain stalled = await ReadChainAsync(host.DatabasePath, workspaceId).ConfigureAwait(true);
-      Assert.Equal(ChainStatus.Running, stalled.Status);
-      Assert.Equal(ChainStepStatus.Pending, stalled.StepAt(2)!.Status);
-      Assert.Null(stalled.StepAt(2)!.SessionId);
+      Assert.DoesNotContain("[chain] advance refused", notices, StringComparison.Ordinal);
     }
     finally
     {
