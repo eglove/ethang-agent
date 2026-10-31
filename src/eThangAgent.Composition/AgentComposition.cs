@@ -688,7 +688,13 @@ public static class AgentComposition
             sp.GetRequiredService<IStateService>(),
             () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
                 ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
-        .AddSingleton<ChainFloorLedger>();
+        .AddSingleton<ChainFloorLedger>()
+        // THE FLOOR'S ENACTMENT (issue #304 D4, wired by #323): the reader of the ledger the
+        // exec engine trips. Registered HERE rather than constructed only by the Desktop's
+        // factory because the turn that trips the floor runs in the ChildHost, and the host must
+        // be able to resolve it from its own container - an app-only construction would leave the
+        // host unable to read the ledger it filled.
+        .AddSingleton<ChainFloorService>();
   }
 
   /// <summary>The chain record's READ-ONLY views: the orphan check (issue #317 D7) and the

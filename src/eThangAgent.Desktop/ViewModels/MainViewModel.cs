@@ -128,6 +128,15 @@ internal sealed record MainViewModelOptions
   ///     workspace at construction and lives in the session's own container, so the session IS
   ///     the key. A path-keyed factory would have to re-derive the container it already has.</para></summary>
   public Func<AgentSession, ChainAdvanceService?>? ChainAdvance { get; init; }
+
+  /// <summary>The process's watchdog loop, so root supervision attaches to the loop the shell
+  ///     already runs rather than starting a second timer (issue #323). Null (tests, headless
+  ///     hosts): a chain step is launched but never supervised, exactly as before.</summary>
+  public WatchdogLoop? WatchdogLoop { get; init; }
+
+  /// <summary>The idle threshold and wrap-up budget root supervision reads (issue #323), from the
+  ///     same configured knobs the child ladder uses.</summary>
+  public WatchdogPolicy? WatchdogPolicy { get; init; }
 }
 
 /// <summary>Shell-level state for the main window: the left menu bar (Open Workspace,
@@ -184,6 +193,21 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>The per-session advance service (issue #301). Null: no chain is advanced.</summary>
   private readonly Func<AgentSession, ChainAdvanceService?>? _chainAdvance;
+
+  /// <summary>The process's watchdog loop (issue #323): the same loop that already ticks every
+  ///     session's child watchdog. Root supervision attaches HERE rather than starting a second
+  ///     timer, so one configured tick interval governs both. Null (tests, headless hosts): no
+  ///     root supervision is attached and nothing is nudged or parked.</summary>
+  private readonly WatchdogLoop? _watchdogLoop;
+
+  /// <summary>The idle threshold and wrap-up budget root supervision reads (issue #323). The same
+  ///     policy the child ladder uses, so one configured knob governs both.</summary>
+  private readonly WatchdogPolicy? _watchdogPolicy;
+
+  /// <summary>The root watchdogs attached to this shell's chain-step sessions, by session id,
+  ///     so a closed tab's watchdog can be detached from the loop (issue #323). A detached
+  ///     watchdog is a supervisor holding a session that no longer exists.</summary>
+  private readonly Dictionary<AgentId, RootSessionWatchdog> _rootWatchdogs = [];
 
   /// <summary>Factory rebound via <see cref="AgentSessionFactory.WithSettings"/> when
   ///     saved keys change; the creation delegate always reads the current instance.</summary>
@@ -358,6 +382,7 @@ internal sealed partial class MainViewModel : ObservableObject
     _sessionOpened = options?.SessionOpened;
     _sessionClosed = options?.SessionClosed;
     _chainAdvance = options?.ChainAdvance;
+    SeedWatchdogSeams(options, out _watchdogLoop, out _watchdogPolicy);
     _sessionFactory = options?.SessionFactory;
     _keyProtector = options?.ApiKeyProtector;
     _sessionCatalog = options?.SessionCatalog;
@@ -2312,6 +2337,77 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     advance service per WORKSPACE, so a tab whose host wired none is a no-op.</para>
   ///     <para>The lease is held by the tab and disposed with it, so a closed tab cannot keep
   ///     advancing a chain.</para></summary>
+  /// <summary>Seeds the root-supervision seams (issue #323). Extracted from the constructor
+  ///     because S1541 counts branches and this is two assignments: a constructor that grew past
+  ///     the limit for two field seeds would be split for the metric's sake, not for clarity.</summary>
+  /// <param name="options">The shell configuration, or null.</param>
+  /// <param name="loop">The process's watchdog loop, or null when the host wired none.</param>
+  /// <param name="policy">The idle threshold and wrap-up budget, or null.</param>
+  private static void SeedWatchdogSeams(MainViewModelOptions? options, out WatchdogLoop? loop,
+      out WatchdogPolicy? policy)
+  {
+    loop = options?.WatchdogLoop;
+    policy = options?.WatchdogPolicy;
+  }
+
+  /// <summary>Detaches a closed session's root watchdog (issue #323). A watchdog left attached
+  ///     keeps a supervisor holding a session that no longer exists, and would keep ticking
+  ///     against it - nudging an inbox nobody reads and parking a chain by a ghost.</summary>
+  /// <param name="rootId">The session that closed.</param>
+  private void DetachRootSupervision(AgentId rootId)
+  {
+    if (_rootWatchdogs.Remove(rootId))
+    {
+      _watchdogLoop?.Detach(rootId);
+    }
+  }
+
+  /// <summary>Attaches ROOT SUPERVISION to a session that is executing a chain step (issue #301
+  ///     D5, wired by #323).
+  ///     <para>ONLY A CHAIN STEP GETS ONE, and the container says which sessions those are:
+  ///     <see cref="ChainContractCarrier"/> is filled at container build for exactly the launches
+  ///     made FOR a chain step, so a session a human started by hand carries no contract and gets
+  ///     no watchdog. That is the honest shape - a session that owes no completion cannot be idle
+  ///     IN THE SENSE THAT MATTERS, and nudging it would be a message about work it never had.</para>
+  ///     <para>THE CLOCK IS THE SESSION'S OWN TURN FACTS (<c>RootTurnActivity</c>): turn started,
+  ///     tool started, streamed, turn settled. Those are facts the view-model already produces.
+  ///     Never <c>ChildProgressEvent</c> (#305/#316 retired that runtime) and never a wall-clock
+  ///     timer (the mechanism <c>ChildTimeout</c> was deleted for).</para>
+  ///     <para>NULL IS A FIRST-CLASS ANSWER: a container without the watchdog store, or a session
+  ///     that is not a chain step, gets no watchdog and the shell behaves exactly as it did before
+  ///     this wiring existed.</para></summary>
+  /// <param name="session">The session whose turn facts to supervise.</param>
+  /// <param name="tab">The tab the session lives in.</param>
+  private RootSessionWatchdog? AttachRootSupervision(AgentSession session, AgentTabViewModel tab)
+  {
+    if (_watchdogLoop is null || _watchdogPolicy is null)
+    {
+      return null; // no loop to attach to (tests, headless hosts)
+    }
+
+    if (session.Services.GetService<ChainContractCarrier>() is not { Contract: { } contract })
+    {
+      return null; // not a chain step: nothing to complete, so nothing to supervise
+    }
+
+    if (session.Services.GetService<IWatchdogEventStore>() is not { } events)
+    {
+      return null; // no audit sink: a decision nobody can read is not a decision
+    }
+
+    RootSessionSupervisor supervisor = new(session.RootId);
+    RootSessionWatchdog watchdog = new(
+        session.RootId, supervisor,
+        new ChainStepAssignment(contract.ChainId, contract.PlanId, contract.Position, null),
+        new RootSessionHost(() => this), _watchdogPolicy, events, TimeProvider.System);
+
+    // THE FACTS FLOW FROM THE VIEW-MODEL, which is the only thing that knows when this session's
+    // turns actually start and settle; the loop only asks whether it has gone quiet.
+    tab.ViewModel.AttachRootActivity(supervisor.OnActivity);
+    _watchdogLoop.Attach(session.RootId, watchdog);
+    return watchdog;
+  }
+
   private void AttachChainAdvance(AgentSession session, AgentTabViewModel tab)
   {
     if (_chainAdvance is not { } resolve
@@ -2319,6 +2415,28 @@ internal sealed partial class MainViewModel : ObservableObject
         || session.Services.GetService<IAgentEvents>() is not { } events)
     {
       return;
+    }
+
+
+    // ROOT SUPERVISION (issue #301 D5, wired by #323): a chain step's session that goes idle
+    // without completing is nudged once, then its chain parks. The watchdog ticks from the shell's
+    // own loop (the one that already ticks every session's child watchdog), and its clock is the
+    // session view-model's OWN turn facts - never a wall clock, and never ChildProgressEvent,
+    // which describes a child run and was retired by #305/#316.
+    if (AttachRootSupervision(session, tab) is { } rootWatchdog)
+    {
+      _rootWatchdogs[session.RootId] = rootWatchdog;
+    }
+
+    // THE FAILED PATH (issue #303, wired by #323). Same stream, same session, one more fact:
+    // a step whose session settles TERMINALLY has failed, and the lifecycle decides retry
+    // versus park. It lives beside the advance because both are reactions to the same session's
+    // stream, and #323 measured what happens when a chain reaction is written and never attached.
+    if (ChainAdvanceFactory.LifecycleFor(session, () => this) is { } lifecycle)
+    {
+      ChainFailureSubscriber failures = new(lifecycle,
+          message => Avalonia.Threading.Dispatcher.UIThread.Post(() => tab.ViewModel.AddSystemNotice(message)));
+      tab.AttachChainAdvance(events.Subscribe(new ChainFailureEventSink(failures, session.RootId)));
     }
 
     ChainAdvanceSubscriber subscriber = new(
@@ -2823,6 +2941,19 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     was the session that just finished.</para>
   ///     <para>Best effort: the transcript is already persisted, so a teardown fault must not
   ///     stop the chain from advancing. Must run on the UI thread.</para></summary>
+  /// <summary>Finds the open session with this root id, across every tab and cell, or null when
+  ///     it is not open in this shell (issue #323).
+  ///     <para>THE HOST PORTS NEED THIS AND NOTHING ELSE: root supervision nudges a session's
+  ///     inbox and parks its chain, and both are reached through the session object the shell
+  ///     already holds. Exposed as a lookup rather than as two more host delegates because the
+  ///     two acts share the one resolution, and a second lookup could answer differently.</para>
+  ///     <para>A closed session answers null, which is the honest answer the nudge path turns
+  ///     into 'not delivered' - a message to nobody must not consume the wrap-up budget.</para></summary>
+  /// <param name="rootId">The session to find.</param>
+  public AgentSession? SessionFor(AgentId rootId) => Tabs
+      .SelectMany(t => t.Cells)
+      .FirstOrDefault(c => c.Container.RootId == rootId)?.Container;
+
   public async Task CloseSessionAsync(AgentId rootId)
   {
     AgentTabViewModel? tab = Tabs.FirstOrDefault(t =>
@@ -2846,6 +2977,7 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     _sessionClosed?.Invoke(rootId);
+    DetachRootSupervision(rootId);
 #pragma warning disable CA1031 // Named decision: teardown is best effort, like CloseTabAsync.
     try
     {

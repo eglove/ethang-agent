@@ -256,6 +256,12 @@ internal static class DesktopHost
           ApiKeyProtector = boot.ApiKeys,
           SessionCatalog = boot.Catalog,
           ChainAdvance = AdvanceFor,
+          // ROOT SUPERVISION (issue #301 D5, wired by #323). The SAME loop and the SAME policy
+          // the child watchdog uses, so one configured tick interval and one wrap-up budget
+          // govern both. Only a chain step's session attaches - the container's contract says
+          // which those are - so a hand-started session is untouched.
+          WatchdogLoop = watchdogLoop,
+          WatchdogPolicy = policy,
           SessionOpened = session => watchdogLoop.Attach(session.RootId,
               new AgentWatchdog(session.RootId, ServicesFor(session))),
           SessionClosed = rootId => watchdogLoop.Detach(rootId),

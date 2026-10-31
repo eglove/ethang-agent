@@ -162,7 +162,7 @@ internal sealed record AgentSessionViewModelOptions
   ///     supervisor can read them.</para>
   ///     <para>Null (the default) means the host wired no supervision and the callbacks are
   ///     no-ops, so a headless or test host is byte-identical to before.</para></summary>
-  public Action<RootTurnActivity>? RootActivity { get; init; }
+  public Action<RootTurnActivity>? RootActivitySink { get; set; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -343,6 +343,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       new("new", "Start a new session in this workspace with the rest of the input as its first prompt.", IsManual: false, IsCommand: true);
 
   private readonly IAgentInbox? _inbox;
+  /// <summary>A supervision sink attached AFTER construction (issue #323). The shell builds the
+  ///     view-model before it can decide whether the session is a chain step - the container says
+  ///     so, and the container is handed over at the same moment - so the sink is attached rather
+  ///     than passed. Null means the constructor-time option is used, which is the test shape.
+  ///     </summary>
+  private Action<RootTurnActivity>? _attachedRootActivity;
+
   private readonly Action<RootTurnActivity>? _rootActivity;
   private readonly IAgentRuntime? _childRuntime;
 
@@ -417,7 +424,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
-    _rootActivity = options.RootActivity;
+    _rootActivity = options.RootActivitySink;
     RootTurnChannel = options.RootTurnChannel;
     AttachDrainLease(options.ChildEvents, rootId);
 
@@ -901,9 +908,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     <para>Best effort by contract: the supervisor is a supervision surface, and a
   ///     callback fault must never fail the turn it is observing - the same rule the event
   ///     stream's subscribers follow.</para></summary>
+  /// <summary>Attaches a root-activity sink after construction (issue #323). See the field's
+  ///     summary for why this is an attach rather than a constructor option.</summary>
+  /// <param name="sink">Receives this session's own turn facts.</param>
+  public void AttachRootActivity(Action<RootTurnActivity> sink) => _attachedRootActivity = sink;
+
   private void BeatRootActivity(RootTurnPhase phase, string label)
   {
-    if (_rootActivity is not { } sink)
+    if ((_attachedRootActivity ?? _rootActivity) is not { } sink)
     {
       return;
     }

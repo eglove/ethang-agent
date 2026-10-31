@@ -316,6 +316,17 @@ public sealed class RootRunHost : IDisposable
     // replacement runs after the settle drains, so the request must reach it while the
     // turn is still live — and the await gives the app the new session's id first.
     await EmitHandoffIfPendingAsync(emitter, ct).ConfigureAwait(false);
+    // THE UNIVERSAL FLOOR'S CONSEQUENCE (issue #323, wiring #304 D4). The ledger is
+    // PER-CONTAINER and the acts are refused HERE - an exec script's Shell runs in this
+    // process - so the reader must live here too. Wiring it app-side would read a ledger
+    // nothing ever trips, and the refusal would arrive with no park behind it, which is
+    // exactly the state #323 measured.
+    //
+    // IT RUNS BEFORE THE SETTLE, like the handoff emit above: a turn that tripped the floor
+    // parks its chain, and the app's parked-chain badge must be able to see that before it
+    // renders the turn as finished.
+    await EnactFloorAsync(emitter, ct).ConfigureAwait(false);
+
 
     emitter.Emit("settled",
         result.IsSuccess ? result.Value : DescribeFailure(result.Error));
@@ -333,6 +344,47 @@ public sealed class RootRunHost : IDisposable
   ///     <para>THE SUMMARY TRAVELS ON THE AGENT (issue #234): the handoff outcome did NOT
   ///     compact the conversation, so there is no summary message in it to mine — the
   ///     summary rides <c>HandoffSummary</c> from the outcome.</para></summary>
+  /// <summary>Parks the chain this session is executing when its turn attempted an act on the
+  ///     universal floor (issue #304 D4, wired by #323).
+  ///     <para>WHY THE HOST AND NOT THE APP: <see cref="ChainFloorLedger"/> is resolved per
+  ///     CONTAINER and the acts are refused inside this process's exec engine, so this is the
+  ///     only container whose ledger a turn can trip. The app's own container runs no agent work
+  ///     and would read an empty ledger forever.</para>
+  ///     <para>BEST EFFORT, like every other post-turn act here: the model already received the
+  ///     refusal, and a park that faults must not fail a turn whose work is done. An ordinary
+  ///     session parks nothing (the service answers that itself, not an error).</para></summary>
+  internal async Task EnactFloorAsync(TurnEmitter emitter, CancellationToken ct)
+  {
+    if (Services.GetService(typeof(ChainFloorService)) is not ChainFloorService floor)
+    {
+      return; // a container with no chain machinery refuses nothing and parks nothing
+    }
+
+#pragma warning disable CA1031 // Named decision: a post-turn act must never fail the turn.
+    try
+    {
+      Result<ChainFloorOutcome> outcome = await floor
+          .OnTurnEndAsync(RootId.ToString(), DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
+      if (!outcome.IsSuccess)
+      {
+        emitter.Emit("notice", $"[chain] floor park failed: {outcome.Error.Code}: {outcome.Error.Message}");
+        return;
+      }
+
+      if (outcome.Value.Parked)
+      {
+        // The reason names the refused act, which is what a human has to see to decide: the
+        // chain is waiting on a decision no gate can make.
+        emitter.Emit("notice", $"[chain] parked [{ChainAdvanceCode.FloorTripped}]: {outcome.Value.Reason}");
+      }
+    }
+    catch (Exception ex)
+    {
+      emitter.Emit("notice", "[chain] floor enactment faulted: " + ex.Message);
+    }
+#pragma warning restore CA1031
+  }
+
   internal async Task EmitHandoffIfPendingAsync(TurnEmitter emitter, CancellationToken ct)
   {
     if (Services.GetService(typeof(RootAgentHolder)) is not RootAgentHolder holder
