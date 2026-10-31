@@ -1591,6 +1591,32 @@ internal sealed partial class MainViewModel : ObservableObject
     sessionVm.ApplyModelChoice(reviewer, variant: null);
   }
 
+  /// <summary>Re-enters an IDLE chain step's session with a turn (stakeholder decision,
+  ///     2026-10-31), which is what makes root supervision's nudge rung real.
+  ///     <para>WHY A TURN AND NOT AN INBOX POST: the inbox is drained DURING a turn, and the
+  ///     premise of the nudge is a session that has stopped - so a queued message would wait for
+  ///     a turn that may never come. See <see cref="RootSessionHost"/> for the full reasoning.</para>
+  ///     <para>FALSE WHEN THE CELL IS BUSY OR GONE, and the caller acts on it: a busy session is
+  ///     working (queue the nudge behind its turn), and a gone one spends no attempt.</para>
+  ///     <para>Must run on the UI thread: it touches the cell's view-model.</para></summary>
+  /// <param name="rootId">The session to re-enter.</param>
+  /// <param name="message">The nudge text.</param>
+  public bool NudgeChainStepSession(AgentId rootId, string message)
+  {
+    AgentCellViewModel? cell = Tabs
+        .SelectMany(t => t.Cells)
+        .FirstOrDefault(c => c.Container.RootId == rootId);
+    if (cell is null || cell.ViewModel.IsBusy)
+    {
+      return false;
+    }
+
+    // Fire and forget, exactly like the kickoff: the view-model owns the turn task and
+    // surfaces its own faults.
+    _ = cell.ViewModel.SubmitAsync(message);
+    return true;
+  }
+
   /// <summary>Re-enters a live session with a message, keeping its transcript (issue #303 D1).
   ///     <para>THIS IS A RETRY, NOT A RESTART: the cell already exists, its conversation is
   ///     intact, and the message is simply the next thing it reads. A session that is gone
