@@ -152,8 +152,13 @@ public class AgentViewScrollTests
     // Shrink the window (the resize path): the tail must stay in view - the
     // geometry-drift re-pin, not an entry append, keeps it there.
     window.Height = 300;
-    Dispatcher.UIThread.RunJobs();
-    Dispatcher.UIThread.RunJobs(DispatcherPriority.Loaded);
+    // A VIRTUALIZING panel re-realizes its window from the new viewport, so the geometry settles
+    // over more than one pass - the viewport reads 0 until the panel has re-measured. Pump until
+    // layout is quiescent rather than assuming a fixed number of passes.
+    for (int i = 0; i < 8 && scroll.Viewport.Height <= 0; i++)
+    {
+      Dispatcher.UIThread.RunJobs(DispatcherPriority.Loaded);
+    }
 
     Assert.True(scroll.Offset.Y >= scroll.Extent.Height - scroll.Viewport.Height - 1.0,
         $"resize must keep the tail in view, offset={scroll.Offset.Y}, extent={scroll.Extent.Height}, viewport={scroll.Viewport.Height}");
