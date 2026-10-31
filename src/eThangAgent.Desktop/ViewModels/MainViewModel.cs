@@ -1464,6 +1464,15 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     <para>THE TAB IS FOUND BY THE COMPLETING SESSION, which is what makes the advance
   ///     land in the right workspace: a chain belongs to one workspace, and the session that
   ///     completed its step is running in that workspace's tab.</para>
+  ///     <para>THE LAUNCH HAPPENS MID-TURN, SO IT WAITS (issue #322). The completion fact is
+  ///     published by the <c>plan.update-step ... status=Done</c> write, which happens INSIDE
+  ///     the step's own exec call - so the tab is busy running the very turn that reported the
+  ///     completion. <see cref="StartNewSessionAsync(AgentTabViewModel, string, IReadOnlyList{Message}, ChainContract, ChainStepRole)"/> refuses a busy tab with
+  ///     <c>TurnBusy</c>, and the creation path (<see cref="WaitForIdleAndReplaceAsync"/>) already
+  ///     solves exactly this by answering first and waiting. The advance had no such wait, so
+  ///     every advance was refused and nothing retried: the chain sat Running with the next step
+  ///     Pending and no session, forever. Waiting costs nothing here because the claim is
+  ///     already held - the step is owned for the whole window.</para>
   ///     <para>Returns the new session's id, or a typed failure. The caller (the advance) has
   ///     already claimed the step, so a failure here releases it rather than leaking it.</para></summary>
   /// <param name="assignment">The chain step the new session is started for.</param>
@@ -1498,6 +1507,30 @@ internal sealed partial class MainViewModel : ObservableObject
     if (!launch.IsSuccess)
     {
       return Result.Failure<string>(launch.Error);
+    }
+
+    // THE COMPLETING TURN MUST FINISH FIRST (issue #322), for the reason in the summary above:
+    // the fact that requested this advance was published from inside that turn, so the tab is
+    // busy by construction and StartNewSessionAsync would refuse it with TurnBusy. This is the
+    // same wait the creation path performs, in the place the advance needs it. A faulted turn is
+    // already surfaced in the transcript and must not strand the chain.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      await tab.ViewModel.WaitForTurnAsync().ConfigureAwait(true);
+    }
+    catch (Exception)
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
+
+    // The tab may have closed while that turn finished; a replacement for a gone tab must not
+    // resurrect it (the same re-check the creation path performs after its own wait).
+    if (!Tabs.Contains(tab))
+    {
+      return Result.Failure<string>(new DomainError("TabClosed",
+          "the tab that completed the previous chain step was closed while its turn finished; the next step was not started."));
     }
 
     Result<AgentTabViewModel> started = await StartNewSessionAsync(tab, prompt: null,
