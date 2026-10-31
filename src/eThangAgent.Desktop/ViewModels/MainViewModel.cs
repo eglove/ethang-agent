@@ -1558,7 +1558,10 @@ internal sealed partial class MainViewModel : ObservableObject
           "the tab that completed the previous chain step was closed while its turn finished; the next step was not started."));
     }
 
-    Result<AgentTabViewModel> started = await StartNewSessionAsync(tab, prompt: null,
+    // THE KICKOFF LINE IS THE FIRST TURN (issue #323): a chain step is launched FOR work, so
+    // it begins on its own. The brief stays the seeded prefix and the contract stays in the
+    // system prompt - this line adds no instruction, it only says 'begin'.
+    Result<AgentTabViewModel> started = await StartNewSessionAsync(tab, prompt: ChainKickoff.Line,
         seed: launch.Value.Seed, chainContract: launch.Value.Contract,
         role: assignment.Role).ConfigureAwait(true);
     return started.IsSuccess

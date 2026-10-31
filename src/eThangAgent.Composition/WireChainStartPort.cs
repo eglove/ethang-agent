@@ -33,9 +33,10 @@ public sealed class WireChainStartPort(NewSessionRequestChannel channel) : IChai
           "a chain launch needs a chain id, a plan id, and a step position; " + assignment + " names none."));
     }
 
-    // EMPTY PROMPT: a chain step starts SEED-ONLY. The brief IS what it works from, and
-    // firing a turn with text this harness invents would be a handoff written by a model,
-    // which D5 forbids.
+    // THE KICKOFF LINE IS THE FIRST TURN (issue #323). A chain step is launched FOR a piece
+    // of work, so it starts itself; a session opened by hand still starts idle, because its
+    // prompt is empty and ReplaceSessionAsync fires no turn for one. The line is a constant a
+    // human wrote (ChainKickoff), not a handoff a model invented, which is what D5 forbids.
     // THE ROLE TRAVELS when the caller read it from the record; an assignment that did not
     // is an implementer step, which is the same default the record itself applies.
     ChainStepRole role = assignment.Role ?? ChainStepRole.Implement;
@@ -43,7 +44,8 @@ public sealed class WireChainStartPort(NewSessionRequestChannel channel) : IChai
     // is set, so a role without its model would leave a review step inheriting the workspace's
     // choice - the implementer's model in a single-model run, which is the condition the
     // separation rule exists to remove.
-    SessionRequestPayload payload = new(Guid.NewGuid().ToString("N"), Prompt: "", HandoffSummary: null)
+    SessionRequestPayload payload = new(Guid.NewGuid().ToString("N"),
+        Prompt: ChainKickoff.Line, HandoffSummary: null)
     {
       ChainStep = new SessionRequestChainStep(assignment.ChainId, assignment.PlanId,
           assignment.Position, role.Encoded, role.Model),
