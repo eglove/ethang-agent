@@ -23,7 +23,8 @@ public sealed record ChainStep(
   DateTimeOffset? CompletedAt,
   ChainStepRole Role,
   string? ServedModel = null,
-  int ReviewAttempts = 0)
+  int ReviewAttempts = 0,
+  string? InvalidatedBy = null)
 {
   /// <summary>A fresh Pending step with the IMPLEMENTER role (issue #313 D7): the default a
   ///     step takes when nobody assigned one. Use the two-argument overload to assign a
@@ -200,6 +201,34 @@ public sealed record ChainStep(
   /// <param name="modelId">The model id the session served on, or null to clear it.</param>
   public ChainStep WithServedModel(string? modelId) =>
       this with { ServedModel = string.IsNullOrWhiteSpace(modelId) ? null : modelId.Trim() };
+
+  /// <summary>True when a later refutation disproved something this step concluded (issue
+  ///     #304 D5).
+  ///     <para>THE MARKER DOES NOT CHANGE THE STATUS, and that is the whole point: the step's work
+  ///     genuinely was done, so rewriting it to Pending would be a lie about what happened, and
+  ///     re-running it may not help. Both facts survive - it was done, and its conclusion no
+  ///     longer holds - which is the truthful record.</para></summary>
+  public bool IsInvalidated => InvalidatedBy is not null;
+
+  /// <summary>Marks this step INVALIDATED by a refutation, keeping its status (issue #304 D5).
+  ///     <para>SET BY THE FALSIFICATION, NEVER BY A HUMAN OR AN AGENT. The caller is the
+  ///     refutation's own record site, so an agent cannot un-invalidate its own disproof and
+  ///     cannot invalidate a peer's step by hand - <see cref="ClearInvalidation"/> is the only
+  ///     way back, and that one is the human's.</para>
+  ///     <para>IDEMPOTENT AND FIRST-WINS: a second refutation against an already-invalidated
+  ///     step keeps the FIRST marker, because the completion refusal names one refutation and
+  ///     the earlier disproof is the one that made the claim untrue.</para></summary>
+  /// <param name="refutationKey">The refutation record that did it, so a refusal can name it.</param>
+  public ChainStep Invalidate(string refutationKey)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(refutationKey);
+    return IsInvalidated ? this : this with { InvalidatedBy = refutationKey.Trim() };
+  }
+
+  /// <summary>Clears the invalidation marker (issue #304 D5). A HUMAN DECISION, which is the
+  ///     correct place for it: the marker says a conclusion no longer holds, and only someone
+  ///     who can weigh the new evidence may say it holds again.</summary>
+  public ChainStep ClearInvalidation() => this with { InvalidatedBy = null };
 
   /// <summary>Records this step's outcome. <paramref name="status"/> must be one of the
   ///     SETTLED step statuses (Done, Failed, Skipped, Parked); a chain step does not move

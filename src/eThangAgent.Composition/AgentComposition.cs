@@ -398,16 +398,7 @@ public static class AgentComposition
         // a repository, and build output is gitignored anyway.
         .AddSingleton<IWorkspaceSnapshotAccess, DirectWorkspaceSnapshotAccess>()
         .AddSingleton<CompletionGate>()
-        // The Plan Domain asks the completion question through its own port; the answer
-        // comes from the Tool Domain's gate over the State Domain's two keys. Only the
-        // composition root may know all three.
-        .AddSingleton<IPlanCompletionGate>(sp => new StateServicePlanCompletionGate(
-            sp.GetRequiredService<CompletionGate>(),
-            sp.GetRequiredService<IStateService>(),
-            () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
-                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
-        .AddSingleton<ICommitCompletionNotice>(sp => new PlanCompletionGateCommitNotice(
-            sp.GetRequiredService<IPlanCompletionGate>()))
+        .AddCompletionGatePorts()
         .AddSingleton<DirectShellAccess>()
         .AddSingleton<IShellCommandAccess>(sp => sp.GetRequiredService<DirectShellAccess>())
         .AddSingleton<ICommandRunStore>(sp => new SqliteCommandRunStore(
@@ -502,8 +493,16 @@ public static class AgentComposition
   private static IServiceCollection AddRefutationServices(this IServiceCollection wired)
   {
     return wired
-        .AddSingleton<IRefutationStore>(sp => new StateServiceRefutationStore(
-            sp.GetRequiredService<IStateService>()))
+        // THE D5 WRITER (issue #304): a refutation marks the chain step whose conclusion it
+        // disproved, and D5 says that marker is set BY THE FALSIFICATION - so it happens where
+        // the refutation is written rather than at a second call site somebody can forget.
+        .AddSingleton<IRefutationStore>(sp => new ChainInvalidatingRefutationStore(
+            new StateServiceRefutationStore(sp.GetRequiredService<IStateService>()),
+            // Resolved LAZILY and OPTIONALLY: a container with no chain machinery (a headless or
+            // test host) shares the finding and invalidates nothing, exactly as before.
+            () => sp.GetService<ChainService>(),
+            () => sp.GetService<RootSessionIdentity>()?.Id?.ToString(),
+            TimeProvider.System))
         .AddSingleton<IRefutationStampSource>(sp => new GitRefutationStampSource(
             sp.GetRequiredService<IGitQueryAccess>(), sp.GetRequiredService<IWorkspaceContext>()));
   }
@@ -663,6 +662,34 @@ public static class AgentComposition
     _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict,
         "not a plan review verdict."),
   };
+
+  /// <summary>The completion gate's two domain ports and the floor's turn ledger (issues
+  ///     #283, #285, #304).
+  ///     <para>WHY ITS OWN METHOD: <c>AddPersistenceServices</c> is at the length limit S138
+  ///     enforces, and these are one subject - 'who may claim completion, and what may never be
+  ///     claimed at all'. The Plan Domain and the Agent Domain each ask through their OWN port,
+  ///     because neither may reference the other; both are answered by the ONE Tool Domain
+  ///     evaluator over the ONE command set, which is what D1 actually requires.</para>
+  ///     <para>THE FLOOR LEDGER IS REGISTERED HERE TOO because it is the other half of the same
+  ///     floor: one instance per container, because one container is one session's turn.
+  ///     </para></summary>
+  private static IServiceCollection AddCompletionGatePorts(this IServiceCollection wired)
+  {
+    return wired
+        .AddSingleton<IPlanCompletionGate>(sp => new StateServicePlanCompletionGate(
+            sp.GetRequiredService<CompletionGate>(),
+            sp.GetRequiredService<IStateService>(),
+            () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
+                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
+        .AddSingleton<ICommitCompletionNotice>(sp => new PlanCompletionGateCommitNotice(
+            sp.GetRequiredService<IPlanCompletionGate>()))
+        .AddSingleton<IChainCompletionGate>(sp => new StateServiceChainCompletionGate(
+            sp.GetRequiredService<CompletionGate>(),
+            sp.GetRequiredService<IStateService>(),
+            () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
+                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
+        .AddSingleton<ChainFloorLedger>();
+  }
 
   /// <summary>The chain record's READ-ONLY views: the orphan check (issue #317 D7) and the
   ///     telemetry report (issue #309), registered together because both answer questions
@@ -1071,7 +1098,11 @@ public static class AgentComposition
             // The change report (issue #283): the engine snapshots the workspace before
             // and after every run and reports what actually changed. The ACL walks the
             // filesystem, never git - the harness does not assume a repository exists.
-            sp.GetRequiredService<IWorkspaceSnapshotAccess>()))
+            sp.GetRequiredService<IWorkspaceSnapshotAccess>(),
+            // The universal floor (issue #304): resolved per execution like the workspace and
+            // the verification sink, so concurrent sessions in one process each refuse against
+            // their own ledger and park their own chain.
+            () => sp.GetRequiredService<ChainFloorLedger>()))
         .AddSingleton<ITool>(sp => new ExecTool(
             sp.GetRequiredService<IExecEngine>(),
             sp.GetRequiredService<ExecOptions>(),

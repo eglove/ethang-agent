@@ -362,7 +362,13 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     List<string> blocking = [];
     foreach (string command in commands)
     {
-      EvidenceResult result = await _goalRunner.RunAsync(_workspace.WorkspaceId, command, ct).ConfigureAwait(false);
+      // THE ROOT, NOT THE IDENTITY (issue #317 D5/D6, found by #304). The runner takes a
+      // WORKING DIRECTORY; WorkspaceId is an opaque scope that survives a move and is a minted
+      // token ('ws-bb01...') for every workspace opened after #317. Passing the id spawned the
+      // shell with a non-existent working directory, so the gate could not run AT ALL in this
+      // workspace - the completion gate was unrunnable while reporting 'Violated'. A seam that
+      // takes a path gets WorkspaceRoot; a seam that takes a scope gets WorkspaceId.
+      EvidenceResult result = await _goalRunner.RunAsync(_workspace.WorkspaceRoot, command, ct).ConfigureAwait(false);
       results.Add(result);
       if (!result.Confirmed)
       {
@@ -401,9 +407,12 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
   ///     is wired, which the gate reads as 'unverifiable' rather than 'fresh'.</summary>
   private async Task RecordGoalRunAsync(bool passed, CancellationToken ct)
   {
+    // THE ROOT, for the same reason the runner gets it: a snapshot walks a DIRECTORY, and a
+    // digest taken against a minted identity path is Unavailable, which reads as 'unverifiable'
+    // forever - a gate that could never be fresh.
     string? digest = _snapshots is null
         ? null
-        : (await _snapshots.CaptureAsync(_workspace.WorkspaceId, ct).ConfigureAwait(false)).Digest;
+        : (await _snapshots.CaptureAsync(_workspace.WorkspaceRoot, ct).ConfigureAwait(false)).Digest;
 
     string value = JsonSerializer.Serialize(new
     {

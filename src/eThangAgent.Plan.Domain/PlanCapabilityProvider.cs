@@ -82,7 +82,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present.")],
             [IdParam, Title]),
         new("update-step", "Change one step's title, detail, or status.",
-            "At least one optional field is required. Output contract: '[plan] updated step <position> in #<id>'. status must be exactly Pending|InProgress|Done|Skipped. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. A session executing a CHAIN step may mark only the step it was started for Done; completing any other step fails Error [ChainStepNotAssigned] naming the step it IS assigned. A session outside a chain is unaffected. VersionConflict errors instruct re-get + reconcile + retry. Errors: InvalidActionInput, PlanNotFound, PlanStepNotFound, ChainStepNotAssigned, InvalidTransition (frozen plan), VersionConflict.",
+            "At least one optional field is required. Output contract: '[plan] updated step <position> in #<id>'. status must be exactly Pending|InProgress|Done|Skipped. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. A session executing a CHAIN step may mark only the step it was started for Done; completing any other step fails Error [ChainStepNotAssigned] naming the step it IS assigned. A session outside a chain is unaffected. COMPLETING A STEP IS A COMPLETION CLAIM, so when the workspace declares a gate (goal/check) a Done also requires that gate to be FRESH: a stale, failed, or never-run gate fails Error [CompletionGateNotFresh] naming the remedy, and an unset or declined gate never blocks (the same rule plan completion follows - one mechanism, one command set, D1). VersionConflict errors instruct re-get + reconcile + retry. Errors: InvalidActionInput, PlanNotFound, PlanStepNotFound, ChainStepNotAssigned, CompletionGateNotFresh, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position."),
               new ActionParameter(Title, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
@@ -228,6 +228,19 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
         && await OwnershipRefusalAsync(id, position).ConfigureAwait(false) is { } refusal)
     {
       return refusal;
+    }
+
+    // ISSUE #304 D1: THE SAME GATE, ONE LEVEL DOWN. A step claiming Done is a completion
+    // claim, and 'done' means the same thing at step level as at plan level - so it is the
+    // same check against the same workspace-declared command set, never a second evaluator.
+    // Checked BEFORE the write, so a refusal leaves the plan byte-identical and the version
+    // unspent; ownership runs first because 'this is not your step' is the more specific
+    // answer. Skipped is deliberately NOT gated: it is the truthful exit the completion
+    // invariant depends on, and gating it would make the honest answer unreachable.
+    if (stepStatus == PlanStepStatus.Done
+        && await StepCompletionGateRefusalAsync().ConfigureAwait(false) is { } gateRefusal)
+    {
+      return gateRefusal;
     }
 
     int expected = plan.Value.Version;
@@ -522,6 +535,30 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
 
     (bool allowed, string message) = await _completionGate.EvaluateAsync().ConfigureAwait(false);
     return allowed ? null : Gutter(new DomainError(CompletionGateCode, message));
+  }
+
+  /// <summary>The STEP-level gate refusal (issue #304 D1): the same gate, with the step's own
+  ///     exit appended.
+  ///     <para>WHY THE SUFFIX AND NOT A SECOND MESSAGE: the gate's sentence is the one every
+  ///     refusal renders verbatim, so the gate itself stays the single source of the wording.
+  ///     What differs at step level is the truthful exit - a step is deliberately skipped far
+  ///     more often than a whole plan is dropped - and the gate's own message names only the
+  ///     plan's exit because a plan is all it knew about. Adding the missing exit here keeps
+  ///     D3 ('every refusal names its exit') true without a second copy of the reasoning.
+  ///     </para></summary>
+  private async Task<CapabilityInvocationResult?> StepCompletionGateRefusalAsync()
+  {
+    if (_completionGate is null)
+    {
+      return null;
+    }
+
+    (bool allowed, string message) = await _completionGate.EvaluateAsync().ConfigureAwait(false);
+    return allowed
+        ? null
+        : Gutter(new DomainError(CompletionGateCode,
+            message + " To record that this step is deliberately NOT being done instead, set it "
+            + "Skipped - that is the truthful exit and it is always allowed."));
   }
 
   // ---- rendering -----------------------------------------------------------

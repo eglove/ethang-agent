@@ -15,7 +15,7 @@ namespace eThangAgent.Roslyn.ACL;
 
 public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     Func<string>? workspaceRoot = null, Func<IVerificationLedger>? verificationSink = null,
-    IWorkspaceSnapshotAccess? snapshots = null) : IExecEngine
+    IWorkspaceSnapshotAccess? snapshots = null, Func<ChainFloorLedger?>? floor = null) : IExecEngine
 {
   private readonly Func<ICapabilityRegistry> _registry = registry ?? throw new ArgumentNullException(nameof(registry));
   private readonly Func<string> _workspaceRoot = workspaceRoot ?? ThrowMissingWorkspace;
@@ -26,6 +26,12 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
   // keeps its exact contract.
   private readonly IWorkspaceSnapshotAccess? _snapshots = snapshots;
 
+  // The universal floor (issue #304). Resolved per EXECUTION like the workspace and the
+  // verification sink, so concurrent sessions in one process each see their own ledger.
+  // Optional: a host that wires none refuses nothing, which is the pre-#304 behaviour and
+  // the honest one for a session outside any chain.
+  private readonly Func<ChainFloorLedger?>? _floor = floor;
+
   private static readonly ScriptOptions ScriptOpts = ScriptOptions.Default
       .AddImports("System", "System.IO", "System.Linq",
           "System.Collections.Generic", "System.Diagnostics",
@@ -34,8 +40,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
 
   public CSharpScriptExecEngine(ICapabilityRegistry registry,
       Func<string>? workspaceRoot = null, Func<IVerificationLedger>? verificationSink = null,
-      IWorkspaceSnapshotAccess? snapshots = null)
-      : this(() => registry, workspaceRoot, verificationSink, snapshots) { }
+      IWorkspaceSnapshotAccess? snapshots = null, Func<ChainFloorLedger?>? floor = null)
+      : this(() => registry, workspaceRoot, verificationSink, snapshots, floor) { }
 
   /// <summary>Executes against the ambient workspace identity when the host supplies
   ///     none. The scripts' globals must name the agent's own workspace root; without
@@ -191,7 +197,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
           Path.GetTempPath(),
           shellToken: cts.Token,
           verificationSink: _verificationSink?.Invoke(),
-          execBudget: program.Budget);
+          execBudget: program.Budget,
+          floor: _floor?.Invoke());
 
   /// <summary>Compile-diagnostic failure result, or null when the compilation is
   ///     clean. Validation reads GetDiagnostics only — pure analysis, never

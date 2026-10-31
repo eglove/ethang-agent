@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 30;
+  public const int LatestSchemaVersion = 31;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -138,6 +138,7 @@ public sealed class AppDatabase
     (28, ApplyV28),
     (29, ApplyV29),
     (30, ApplyV30),
+    (31, ApplyV31),
   ];
 
   private void Migrate()
@@ -1325,4 +1326,73 @@ public sealed class AppDatabase
   ///     (the V4/V18 and V22 precedents); V30 is the only step that removes them.</para></summary>
   private static void ApplyV30(SqliteConnection connection)
       => Execute(connection, "DROP TABLE IF EXISTS mailbox_messages; DROP TABLE IF EXISTS agent_links;");
+
+  /// <summary>V31 adds <c>chain_steps.invalidated_by</c>: the refutation record that disproved a
+  ///     conclusion the step reached (issue #304 D5).
+  ///     <para>NULL IS THE ORDINARY CASE AND MEANS 'NOT INVALIDATED', never 'not recorded':
+  ///     every step that existed before this migration is genuinely un-invalidated, because the
+  ///     refutation half of the floor did not exist to invalidate it. Unlike <c>served_model</c>
+  ///     (V28) this default is a FACT rather than a guess, which is why no backfill is needed.
+  ///     </para>
+  ///     <para>WHY THE REFUTATION KEY AND NOT A BOOLEAN: the completion refusal NAMES what
+  ///     invalidated the step, and a boolean would leave a reader searching the ledger for why a
+  ///     finished chain cannot complete.</para>
+  ///     <para>THE TABLE IS REBUILT (the V20/V21/V24/V26/V28/V29 idiom) rather than altered in
+  ///     place: the rebuild carries the status, role and non-negative CHECK constraints forward
+  ///     VERBATIM, so the doors those migrations closed against a direct writer stay closed, and
+  ///     rows, positions and every execution column are copied verbatim so no chain changes
+  ///     identity or CAS state.</para>
+  ///     <para>CONDITIONAL ON <c>chain_steps</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database and one stamped below V23 does not have the table yet
+  ///     (the V26/V28/V29 precedent).</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV31(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "chain_steps"))
+    {
+      return;
+    }
+
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE chain_steps_v31 (
+              chain_id INTEGER NOT NULL REFERENCES chains(id),
+              position INTEGER NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('Pending', 'Running', 'Done', 'Failed', 'Skipped', 'Parked')),
+              session_id TEXT,
+              attempts INTEGER NOT NULL,
+              outcome TEXT,
+              actor TEXT NOT NULL,
+              claimed_at TEXT,
+              completed_at TEXT,
+              role TEXT NOT NULL DEFAULT 'Implement' CHECK (role IN ('Implement', 'Review')),
+              role_model TEXT,
+              served_model TEXT,
+              review_attempts INTEGER NOT NULL DEFAULT 0 CHECK (review_attempts >= 0),
+              invalidated_by TEXT,
+              PRIMARY KEY (chain_id, position)
+          );
+          INSERT INTO chain_steps_v31 (chain_id, position, status, session_id, attempts, outcome,
+              actor, claimed_at, completed_at, role, role_model, served_model, review_attempts,
+              invalidated_by)
+              SELECT chain_id, position, status, session_id, attempts, outcome, actor,
+                  claimed_at, completed_at, role, role_model, served_model, review_attempts,
+                  NULL FROM chain_steps;
+          DROP TABLE chain_steps;
+          ALTER TABLE chain_steps_v31 RENAME TO chain_steps;
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
+  }
 }

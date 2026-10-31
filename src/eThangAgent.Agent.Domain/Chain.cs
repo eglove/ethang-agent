@@ -271,6 +271,47 @@ public sealed record Chain(
         .OrderByDescending(candidate => candidate.Position)
         .FirstOrDefault();
 
+  /// <summary>Marks the step at <paramref name="position"/> INVALIDATED by a refutation,
+  ///     keeping its status (issue #304 D5).
+  ///     <para>THE REFUTATION IS THE ACTOR, not a session and not a human: a later step's ledger
+  ///     disproved something this step concluded, and the marker records that fact rather than
+  ///     anyone's decision. That is why this mutation takes no <see cref="ChainActor"/> - the
+  ///     other mutations do because a person or a session chose them.</para>
+  ///     <para>THE CHAIN'S OWN STATUS IS UNTOUCHED. An invalidated step makes the chain
+  ///     UNCOMPLETABLE (see <see cref="ChainStatusTransition"/>), but it does not park it: the
+  ///     remaining steps can still run, and parking would stop work that is still valid.
+  ///     </para></summary>
+  /// <param name="position">The 1-based step position to invalidate.</param>
+  /// <param name="refutationKey">The refutation record that did it.</param>
+  /// <param name="now">The clock.</param>
+  public Chain InvalidateStep(int position, string refutationKey, DateTimeOffset now)
+  {
+    EnsureMutable();
+    int index = IndexOf(position);
+    return ReplaceStep(index, Steps[index].Invalidate(refutationKey), now);
+  }
+
+  /// <summary>Clears every invalidation marker (issue #304 D5). THE HUMAN'S EXIT: a person who
+  ///     has weighed the refutation and decided the conclusion still holds says so here, and
+  ///     the chain may complete again.
+  ///     <para>CLEARS ALL OF THEM rather than one by position, because the decision being
+  ///     recorded is 'these conclusions stand' - a per-step clear would be a way to walk a chain
+  ///     into completion one marker at a time, which is the shape D5 exists to prevent.
+  ///     </para></summary>
+  /// <param name="now">The clock.</param>
+  public Chain ClearInvalidation(DateTimeOffset now)
+  {
+    EnsureMutable();
+    return Steps.Any(step => step.IsInvalidated)
+      ? this with { Steps = [.. Steps.Select(step => step.ClearInvalidation())], UpdatedAt = now }
+      : this;
+  }
+
+  /// <summary>The steps a refutation has invalidated, in position order. What the completion
+  ///     refusal names.</summary>
+  public IReadOnlyList<ChainStep> InvalidatedSteps =>
+      [.. Steps.Where(step => step.IsInvalidated).OrderBy(step => step.Position)];
+
   /// <summary>The first step a session may claim now, or null when none is available.</summary>
   public ChainStep? NextAvailableStep(DateTimeOffset now)
     => Steps.FirstOrDefault(step => step.IsAvailable(now));

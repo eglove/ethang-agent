@@ -147,6 +147,23 @@ public sealed class ChainService(IChainStore store)
     => MutateAsync(id, chain => chain.ReleaseStep(position, actor, now), now,
         (_, _) => StepChanged?.Invoke(new ChainStepChanged(id, position, "pending", actor, now)), ct);
 
+  /// <summary>Marks a step INVALIDATED by a refutation, keeping its status (issue #304 D5).
+  ///     <para>The step-change event reports <c>invalidated</c>, so a surface watching the stream
+  ///     sees the marker appear without diffing the record.</para></summary>
+  public Task<Result<Chain>> InvalidateStepAsync(int id, int position, string refutationKey,
+      DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.InvalidateStep(position, refutationKey, now), now,
+        (_, _) => StepChanged?.Invoke(new ChainStepChanged(id, position, "invalidated",
+            ChainActor.Harness, now)), ct);
+
+  /// <summary>Clears every invalidation marker (issue #304 D5): the HUMAN's exit, which is why
+  ///     it takes <see cref="ChainActor.User"/> at the only call site.</summary>
+  public Task<Result<Chain>> ClearInvalidationAsync(int id, ChainActor actor, DateTimeOffset now,
+      CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.ClearInvalidation(now), now,
+        (_, _) => StatusChanged?.Invoke(new ChainStatusChanged(id, ChainStatus.Running,
+            ChainStatus.Running, actor, null, now)), ct);
+
   /// <summary>Parks the chain, naming why and which step stopped it.</summary>
   public Task<Result<Chain>> ParkAsync(int id, string reason, int? position, ChainActor actor,
       DateTimeOffset now, CancellationToken ct = default)

@@ -27,6 +27,17 @@ public static class ChainAdvanceCode
   ///     PARKED instead of started (issue #218 D5). Distinct from a refusal: the record already
   ///     carries the park reason, and the step holds no claim - nothing was attempted.</summary>
   public const string ReviewerNotSeparated = "ReviewerNotSeparated";
+
+  /// <summary>The chain reached its last step but its completion claim has no fresh passing gate,
+  ///     so it was PARKED instead of completed (issue #304 D1). Distinct from a refusal: nothing
+  ///     is wrong with the work, the workspace simply has not proved itself since the last change,
+  ///     and the gate's own sentence names the remedy.</summary>
+  public const string CompletionGateNotFresh = "CompletionGateNotFresh";
+
+  /// <summary>An act on the universal floor was attempted, so the chain was PARKED (issue #304).
+  ///     Distinct from every other park: no gate could have licensed the act, so the remedy is a
+  ///     human's decision rather than a re-run.</summary>
+  public const string FloorTripped = "ChainFloorTripped";
 }
 
 /// <summary>What the advance decided.</summary>

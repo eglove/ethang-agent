@@ -3,6 +3,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop;
@@ -43,7 +44,26 @@ internal static class ChainAdvanceFactory
           // THE REVIEW CURSOR'S ONE READ (issue #320): the verdict a review step's session
           // recorded. Without it a review step would advance exactly as it did before, which
           // is the silent discard this issue closes.
-          reviews: session.Services.GetService<IChainReviewSource>())
+          reviews: session.Services.GetService<IChainReviewSource>(),
+          // THE CHAIN-LEVEL COMPLETION GATE (issue #304 D1): the same gate a step's Done claim
+          // asks, asked once more when an UNATTENDED chain claims it is finished - the claim no
+          // human is watching. Null in a container with no gate machinery, which clears the
+          // chain exactly as before.
+          completionGate: session.Services.GetService<IChainCompletionGate>())
+      : null;
+  }
+
+  /// <summary>The floor service for <paramref name="session"/> (issue #304): park the chain when
+  ///     the turn attempted an act on the universal floor.
+  ///     <para>The same null-is-an-answer contract as <see cref="For"/>: a container that wired
+  ///     no floor refuses nothing, and the shell behaves exactly as it did before.</para></summary>
+  /// <param name="session">The session whose container owns the chain store and the ledger.</param>
+  public static ChainFloorService? FloorFor(AgentSession session)
+  {
+    ArgumentNullException.ThrowIfNull(session);
+    return session.Services.GetService<ChainService>() is { } chains
+        && session.Services.GetService<ChainFloorLedger>() is { } floor
+      ? new ChainFloorService(chains, floor)
       : null;
   }
 

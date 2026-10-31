@@ -44,13 +44,19 @@ public interface IChainAdvanceHost
 ///     model receives it as a tool result and can correct itself.</para></summary>
 public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost host,
     ChainReviewerGate? reviewers = null, IAgentStore? agents = null,
-    IChainReviewSource? reviews = null)
+    IChainReviewSource? reviews = null, IChainCompletionGate? completionGate = null)
 {
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly IChainAdvanceHost _host = host ?? throw new ArgumentNullException(nameof(host));
   private readonly ChainReviewerGate? _reviewers = reviewers;
   private readonly IAgentStore? _agents = agents;
   private readonly IChainReviewSource? _reviews = reviews;
+
+  // The completion gate (issue #304 D1). THE SAME GATE the Plan Domain asks, one level up: a
+  // chain claiming Completed is a completion claim, so it needs a gate that passed since the
+  // newest workspace change. Optional, so a container with no gate machinery behaves exactly
+  // as it did before.
+  private readonly IChainCompletionGate? _completionGate = completionGate;
 
   /// <summary>Handles one completion fact: settle the step the session was assigned, then
   ///     advance the cursor.
@@ -487,6 +493,41 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
   private static bool IsRealModel(string? modelUsed) =>
       !string.IsNullOrWhiteSpace(modelUsed) && modelUsed != AgentRecord.UnassignedModel;
 
+  /// <summary>Parks a chain whose completion claim the gate refused (issue #304 D1).
+  ///     <para>ITS OWN PARK PATH RATHER THAN <see cref="ParkBlockedAsync"/>: that one reports
+  ///     <see cref="ChainAdvanceCode.StepsUnsettled"/> because a chain that cannot advance has
+  ///     unsettled steps. Here nothing is unsettled - the work is done and the workspace simply
+  ///     has not proved itself - so reporting 'steps unsettled' would send the reader looking for
+  ///     a step that is fine. The position is the step that made the claim, so the record says
+  ///     which step's completion is unbacked.</para></summary>
+  private async Task<ChainAdvance> ParkForGateAsync(Chain chain, string refusal, DateTimeOffset now,
+      CancellationToken ct)
+  {
+    int? position = chain.Steps.Count > 0 ? chain.Steps[^1].Position : null;
+    Result<Chain> parked = await _chains
+        .ParkAsync(chain.Id, refusal, position, ChainActor.Harness, now, ct).ConfigureAwait(false);
+    return parked.IsSuccess
+        ? new ChainAdvance(ChainAdvanceKind.Blocked, null, ChainAdvanceCode.CompletionGateNotFresh,
+            refusal)
+        : ChainAdvance.Refused(parked.Error.Code, parked.Error.Message);
+  }
+
+  /// <summary>Asks the chain-level completion gate; null means 'proceed' (issue #304 D1).
+  ///     <para>A GATE THAT IS NOT WIRED CLEARS THE CHAIN, exactly as the Plan Domain's unwired
+  ///     gate does: a headless host or a test container behaves as it did before this issue.
+  ///     </para></summary>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<string?> CompletionGateRefusalAsync(CancellationToken ct)
+  {
+    if (_completionGate is null)
+    {
+      return null;
+    }
+
+    (bool allowed, string message) = await _completionGate.EvaluateAsync(ct).ConfigureAwait(false);
+    return allowed ? null : message;
+  }
+
   /// <summary>Parks a chain that can no longer advance (issue #303 D3/D9): nothing is available
   ///     to start and nothing can complete, so the work is waiting for a human.
   ///     <para>THE REASON NAMES THE STEP AND WHAT BLOCKED IT, taken from the walker's own
@@ -510,10 +551,25 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
 
   /// <summary>Moves a fully settled chain to Completed, with the harness as the actor (D6).
   ///     A refusal here is the chain's own consistency rule (#300's completion invariant),
-  ///     reported rather than forced.</summary>
+  ///     reported rather than forced.
+  ///     <para>THE CHAIN-LEVEL GATE RUNS FIRST (issue #304 D1), because this is where an
+  ///     UNATTENDED chain claims completion: no human is watching to notice that the last step
+  ///     finished on a workspace whose gate never ran. A blocking verdict PARKS the chain rather
+  ///     than refusing the advance - a parked chain is waiting for a human, which is exactly
+  ///     what a completion claim nobody can back is. The refusal does NOT close the session:
+  ///     the person un-parking the chain will want to read the transcript that got it there.
+  ///     </para>
+  ///     <para>A gate that is unset, declined, or unverifiable does not block (D2, #285 D1): the
+  ///     workspace has nothing to be checked against, and refusing there would demand a check the
+  ///     project never wrote.</para></summary>
   private async Task<ChainAdvance> CompleteAsync(Chain chain, string sessionId, DateTimeOffset now,
       CancellationToken ct)
   {
+    if (await CompletionGateRefusalAsync(ct).ConfigureAwait(false) is { } refusal)
+    {
+      return await ParkForGateAsync(chain, refusal, now, ct).ConfigureAwait(false);
+    }
+
     await _host.CloseSessionAsync(sessionId, ct).ConfigureAwait(false);
     Result<Chain> completed = await _chains
         .SetStatusAsync(chain.Id, ChainStatus.Completed, ChainActor.Harness, now, ct)

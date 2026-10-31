@@ -42,7 +42,7 @@ public sealed class ScriptGlobals
   public ScriptGlobals(ICapabilityRegistry registry, string workspace, string temp,
       bool captureStdout = true, IVerificationLedger? verificationSink = null,
       TimeSpan? execBudget = null, ScriptCeilings? ceilings = null,
-      CancellationToken shellToken = default)
+      ChainFloorLedger? floor = null, CancellationToken shellToken = default)
   {
     Workspace = workspace;
     // The resolver is built from the SAME workspace root the scripts see, so
@@ -54,8 +54,16 @@ public sealed class ScriptGlobals
     VerificationSink = verificationSink;
     ExecBudget = execBudget;
     Ceilings = ceilings ?? ScriptCeilings.Default;
+    // The universal floor (issue #304): OPTIONAL, so a host that wires no chain machinery
+    // produces byte-identical behaviour to before and every existing fake keeps its contract.
+    Floor = floor;
     Tools = new ScriptTools(registry, this);
   }
+
+  /// <summary>The universal floor this script's acts are measured against (issue #304), or null
+  ///     when the host wired none. A null floor refuses nothing - the pre-#304 behaviour, and
+  ///     the honest one for a session outside any chain.</summary>
+  public ChainFloorLedger? Floor { get; }
 
   /// <summary>The resource ceilings every program this script spawns runs under
   ///     (spec D10). Optional with documented defaults: the exec engine and the
@@ -170,8 +178,23 @@ public sealed class ScriptGlobals
     }
 
     args ??= [];
-
     string[] argv = [exe, .. args];
+
+    // THE FLOOR IS CHECKED BEFORE ANYTHING SPAWNS (issue #304). Some acts are not completion
+    // claims at all - a force-push, a history rewrite, a release publication - so no gate
+    // licenses them and the refusal is unconditional. The refusal is an ordinary ShellResult
+    // with a non-zero exit and the sentence on stderr: the program keeps running and reads
+    // why, and the trip is recorded so the turn can park the chain once. A throw here would
+    // kill the program mid-way and lose what it had already done, which is neither the
+    // refusal nor the park.
+    if (Floor is { } floor)
+    {
+      string command = string.Join(' ', argv);
+      if (ChainFloorRules.TripFor(command) is { } tripped)
+      {
+        return new ShellResult(-1, "", floor.Trip(tripped, command));
+      }
+    }
     DateTimeOffset startedUtc = DateTimeOffset.UtcNow;
     ProcessStartInfo psi = new()
     {
