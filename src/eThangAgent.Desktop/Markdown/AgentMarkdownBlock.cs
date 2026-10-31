@@ -166,9 +166,14 @@ internal class AgentMarkdownBlock : ContentControl
     RenderCount++;
     MarkdownViewer viewer = Viewer();
     viewer.Opacity = Variant == AgentMarkdownVariant.Reasoning ? ReasoningOpacity : 1.0;
+    // The offsets are captured BEFORE the markdown is replaced. This block reuses ONE viewer
+    // instance, so assigning Markdown rebuilds the very tree the offsets live in - reading them
+    // afterwards returns zeros, silently, and every streamed delta would snap the code block back
+    // to its left edge mid-drag.
+    IReadOnlyList<double> offsets = CodeBlockScroller.CaptureOffsets(viewer);
     viewer.Markdown = MarkdownText ?? string.Empty;
     Content = viewer;
-    CodeBlockScroller.Wrap(viewer);
+    CodeBlockScroller.Wrap(viewer, offsets);
   }
 
   private void RenderPlain()
