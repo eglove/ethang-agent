@@ -76,6 +76,12 @@ internal sealed record MainViewModelOptions
   ///     remembered).</summary>
   public IAppPreferenceStore? Preferences { get; init; }
 
+  /// <summary>The gate store the Open Workspace dialog reads and writes a workspace's
+  ///     completion gate through (issue #285). Null (test seam, headless host): the dialog's
+  ///     gate section shows nothing and persists nothing, so a caller that has not been taught
+  ///     about gates behaves exactly as it did before.</summary>
+  public WorkspaceGateStore? GateStore { get; init; }
+
   /// <summary>Commit style the settings modal prefills; the host loads it from the
   ///     preference store at startup (async) and passes it in. Null (hosts that load
   ///     nothing) means the Conventional default — the same one the tool side uses.</summary>
@@ -345,6 +351,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // Each member is an optional seam: a null one behaves exactly as the
     // corresponding absent parameter always did.
     _preferences = options?.Preferences;
+    SeedGateStore(options);
     SeedSettingsPrefills(options);
     _streamSink = options?.UiStreamSink;
     _settings = options?.Settings;
@@ -1088,6 +1095,30 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     path (the 2026-10-20 crash: an ArgumentNullException inside the dialog's
   ///     async-void handler took the whole process down). A missing root is a NAMED
   ///     failure, never an exception, and it persists NOTHING.</para></summary>
+  /// <summary>The gate store, or null when this host wired none (issue #285).</summary>
+  public WorkspaceGateStore? GateStore { get; private set; }
+
+  /// <summary>Seeds the gate store, extracted so the constructor's cyclomatic complexity stays
+  ///     inside S1541's limit - every optional seam it assigns adds a branch.</summary>
+  /// <param name="options">The shell configuration, or null.</param>
+  private void SeedGateStore(MainViewModelOptions? options) => GateStore = options?.GateStore;
+
+  /// <summary>Persists the dialog's gate decision (issue #285). An <c>Unchanged</c> decision
+  ///     writes nothing, so opening a workspace without answering leaves its gate exactly as it
+  ///     was.
+  ///     <para>CALLED BEFORE THE OPEN, like the file lists: the first completion claim in the new
+  ///     session must already be gated by what the user just declared. A host with no gate store
+  ///     is a no-op success, which is what keeps every pre-#285 test host working.</para></summary>
+  /// <param name="choice">The confirmed launch choice.</param>
+  public async Task<Result<bool>> ApplyGateDeclarationAsync(NewAgentChoice choice)
+  {
+    ArgumentNullException.ThrowIfNull(choice);
+    return GateStore is null || choice.Gate is null
+        ? Result.Success(true)
+        : await GateStore.ApplyAsync(choice.WorkspaceRoot, choice.Gate, DateTimeOffset.UtcNow)
+            .ConfigureAwait(true);
+  }
+
   public async Task<Result<bool>> ApplyLaunchFilesAsync(NewAgentChoice choice)
   {
     ArgumentNullException.ThrowIfNull(choice);

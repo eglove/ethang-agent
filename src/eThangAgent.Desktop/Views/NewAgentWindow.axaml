@@ -134,6 +134,23 @@
           Text="Approved external roots the file tools may reach directly, so recurring outside work needs no exec workaround. A checked row is readable; 'write' also allows edits. Nothing outside the workspace and these roots is reachable."
           Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
 
+      <Separator Margin="0,4,0,0"/>
+      <TextBlock Text="Completion gate" FontWeight="Bold" Margin="0,4,0,0"/>
+      <TextBlock Text="This workspace only" Opacity="0.8" FontSize="12"/>
+      <StackPanel x:Name="GateSection" IsVisible="{Binding ShowGateQuestion}" Spacing="4">
+        <TextBlock
+            Text="How should this project's work be checked before the agent reports it finished? One command per line. Leave both answers empty to decide later."
+            Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        <TextBlock x:Name="GateSuggestionText" Text="{Binding GateSuggestion}"
+                   IsVisible="{Binding GateSuggestion, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Opacity="0.85" TextWrapping="Wrap" FontSize="12" FontStyle="Italic"/>
+        <TextBox x:Name="GateCommandsBox" Text="{Binding GateCommands}"
+                 AcceptsReturn="True" MinHeight="60" MaxHeight="120"
+                 Watermark="dotnet build&#10;dotnet test"
+                 TextWrapping="Wrap"/>
+        <CheckBox x:Name="GateDeclineBox" IsChecked="{Binding GateDeclined}"
+                  Content="No check for this project (remembered — I will not ask again)"/>
+      </StackPanel>
       <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
         <Button Content="Cancel" Click="OnCancel"/>
         <Button x:Name="OpenButton" Content="Open" Command="{Binding OpenCommand}"/>

@@ -12,6 +12,11 @@ internal delegate Task<(IReadOnlyList<SessionFileEntry> Files,
     IReadOnlyList<SessionFileEntry> Directories,
     IReadOnlyList<TrustedDirectoryEntry> TrustedDirectories)> WorkspaceRowsLoader(string workspaceRoot);
 
+/// <summary>Reads a workspace's gate state for the dialog (issue #285). The dialog edits the
+///     workspace it is ABOUT to open, so no session container exists to ask - the shell supplies
+///     this over the app-owned database.</summary>
+internal delegate Task<WorkspaceGateState> WorkspaceGateLoader(string workspaceRoot);
+
 /// <summary>The dialog's prefill rows, grouped so the window constructor stays
 /// parameter-light (S107: constructor parameter count) - the same shape the adjacent
 /// settings modal uses through <c>SettingsValues</c>. Every member is optional and its
@@ -39,11 +44,13 @@ internal partial class NewAgentWindow : Window
 {
   private readonly NewAgentViewModel? _vm;
   private readonly WorkspaceRowsLoader? _loadWorkspaceRows;
+  private readonly WorkspaceGateLoader? _loadGate;
 
   public NewAgentWindow() => InitializeComponent();
 
   public NewAgentWindow(IReadOnlyList<ProviderOption> providers, string preferredProviderId,
-      LaunchRows? rows = null, WorkspaceRowsLoader? loadWorkspaceRows = null) : this()
+      LaunchRows? rows = null, WorkspaceRowsLoader? loadWorkspaceRows = null,
+      WorkspaceGateLoader? loadGate = null) : this()
   {
     LaunchRows seeded = rows ?? new LaunchRows();
     _vm = new NewAgentViewModel(providers, preferredProviderId,
@@ -51,6 +58,7 @@ internal partial class NewAgentWindow : Window
         seeded.GlobalSkillDirectories, seeded.WorkspaceSkillDirectories,
         seeded.TrustedDirectories);
     _loadWorkspaceRows = loadWorkspaceRows;
+    _loadGate = loadGate;
     DataContext = _vm;
     _vm.WorkspaceRequested += async (_, _) => await ChooseWorkspaceAsync();
     _vm.GlobalFilePickRequested += async (_, _) => await PickFileAsync("global");
@@ -92,6 +100,14 @@ internal partial class NewAgentWindow : Window
     (IReadOnlyList<SessionFileEntry> files, IReadOnlyList<SessionFileEntry> directories,
         IReadOnlyList<TrustedDirectoryEntry> trusted) = await _loadWorkspaceRows(root);
     _vm.ReplaceWorkspaceRows(files, directories, trusted);
+
+    // The gate section reflects THIS workspace (issue #285): a declared gate prefills, a
+    // declined one shows nothing to answer, and an unasked one asks. Reading it here rather
+    // than in the view-model keeps the view-model free of a database.
+    if (_loadGate is not null)
+    {
+      _vm.ApplyGateState(await _loadGate(root));
+    }
   }
 
   /// <summary>Shows the native open-file picker and feeds the picked path back in.

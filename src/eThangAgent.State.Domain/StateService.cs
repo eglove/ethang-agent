@@ -15,6 +15,10 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
   public const string GoalNs = "goal";
   public const string GoalName = "check";
 
+  /// <summary>The key name recording a DECLINED gate (issue #285 D1), under the same
+  ///     <c>goal</c> namespace as the commands themselves. Its presence is the fact.</summary>
+  public const string DeclinedName = "declined";
+
   /// <summary>Where the last goal/check run leaves its outcome (digest, pass/fail, time).
   ///     Written here, read by the completion gate - see CompletionGate.LastCheckKey.</summary>
   public const string LastGoalRunNs = "goal";
@@ -324,7 +328,12 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     StateKeyValue? goal = await _store.GetKeyAsync(_workspace.WorkspaceId, GoalNs, GoalName, ct).ConfigureAwait(false);
     if (goal is null)
     {
-      return new CertificationReport(false, true, [], ["No goal/check commands stored."]);
+      // AN ABSENT GATE IS NOT A VIOLATION (issue #285). It reported Certified:false,
+      // Violated:true, which contradicts the gating rule's own promise that an unset gate never
+      // blocks - the same error as rendering a cost of zero for spend nobody measured. The
+      // report now says WHICH absence it is, because 'you declined one' and 'nobody asked' are
+      // different facts (D1).
+      return NotGated(await DeclinedAsync(ct).ConfigureAwait(false));
     }
 
     List<string> commands;
@@ -365,6 +374,26 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     await RecordGoalRunAsync(passed, ct).ConfigureAwait(false);
     return new CertificationReport(passed, !passed, results, blocking);
   }
+
+  /// <summary>True when the user was asked and declined a gate for this workspace (issue #285
+  ///     D1). Read only by the absent-gate report, so a declared gate is never affected.
+  ///     </summary>
+  private async Task<bool> DeclinedAsync(CancellationToken ct) =>
+      await _store.GetKeyAsync(_workspace.WorkspaceId, GoalNs, DeclinedName, ct).ConfigureAwait(false)
+          is not null;
+
+  /// <summary>The report for a workspace with no gate: NOT certified, and NOT violated.
+  ///     <para><c>Violated</c> means 'a check ran and failed'. Nothing ran, so nothing failed -
+  ///     reporting a violation here told the user something broke when nothing was ever
+  ///     configured. The reason string names which absence it is.</para></summary>
+  private static CertificationReport NotGated(bool declined) =>
+      new(false, false, [],
+      [
+          declined
+              ? "No completion gate: one was DECLINED for this workspace, so nothing is required."
+              : "No completion gate is configured for this workspace (nobody has been asked), so "
+                  + "nothing is required. Declare one by storing goal/check, or decline one.",
+      ]);
 
   /// <summary>Records the run's outcome for the completion gate. Best-effort by design:
   ///     the gate's own result is already decided, and a store fault must not report a

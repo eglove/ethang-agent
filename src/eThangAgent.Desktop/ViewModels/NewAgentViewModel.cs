@@ -16,7 +16,8 @@ internal sealed record NewAgentChoice(string ProviderId, string WorkspaceRoot,
     IReadOnlyList<SessionFileEntry> WorkspaceFiles,
     IReadOnlyList<SessionFileEntry> GlobalSkillDirectories,
     IReadOnlyList<SessionFileEntry> WorkspaceSkillDirectories,
-    IReadOnlyList<TrustedDirectoryEntry>? TrustedDirectories = null)
+    IReadOnlyList<TrustedDirectoryEntry>? TrustedDirectories = null,
+    GateDeclaration? Gate = null)
 {
   /// <summary>Converts one dialog row list to its persisted entry shape.</summary>
   private static IReadOnlyList<SessionFileEntry> Entries(IEnumerable<SessionFileRow> rows) =>
@@ -25,16 +26,36 @@ internal sealed record NewAgentChoice(string ProviderId, string WorkspaceRoot,
   /// <summary>Builds the choice from the dialog's live row lists. The trusted-directory
   ///     rows carry one extra field (the write permission), so they convert separately:
   ///     the two shapes differ and a shared converter would have to lie about one.</summary>
+  /// <param name="providerId">The chosen provider.</param>
+  /// <param name="workspaceRoot">The chosen workspace directory.</param>
+  /// <param name="rows">Every configured row list, grouped so the parameter count stays
+  ///     inside S107's limit - the <c>LaunchRows</c> shape the dialog's own seeding uses.
+  ///     </param>
+  /// <param name="gate">What the dialog decided about the completion gate, or null when it
+  ///     said nothing (issue #285).</param>
   internal static NewAgentChoice FromRows(string providerId, string workspaceRoot,
-      IReadOnlyList<SessionFileRow> globalFiles, IReadOnlyList<SessionFileRow> workspaceFiles,
-      IReadOnlyList<SessionFileRow> globalSkillDirectories,
-      IReadOnlyList<SessionFileRow> workspaceSkillDirectories,
-      IReadOnlyList<TrustedDirectoryRow> trustedDirectories) => new(
+      DialogRowSet rows, GateDeclaration? gate = null) => new(
       providerId, workspaceRoot,
-      Entries(globalFiles), Entries(workspaceFiles),
-      Entries(globalSkillDirectories), Entries(workspaceSkillDirectories),
-      [.. trustedDirectories.Select(r => new TrustedDirectoryEntry(r.Path, r.Enabled, r.Editable))]);
+      Entries(rows.GlobalFiles), Entries(rows.WorkspaceFiles),
+      Entries(rows.GlobalSkillDirectories), Entries(rows.WorkspaceSkillDirectories),
+      [.. rows.TrustedDirectories.Select(r => new TrustedDirectoryEntry(r.Path, r.Enabled, r.Editable))],
+      gate);
 }
+
+/// <summary>Every row list the dialog edits, grouped so a caller passes one value rather than
+///     five positional lists (S107). The same grouping <c>LaunchRows</c> uses on the seeding
+///     side, so the two directions of the dialog read alike.</summary>
+/// <param name="GlobalFiles">Session files loaded for every workspace.</param>
+/// <param name="WorkspaceFiles">Session files loaded for this workspace only.</param>
+/// <param name="GlobalSkillDirectories">Skill directories scanned for every workspace.</param>
+/// <param name="WorkspaceSkillDirectories">Skill directories scanned for this workspace only.</param>
+/// <param name="TrustedDirectories">External roots this workspace may reach.</param>
+internal sealed record DialogRowSet(
+    IReadOnlyList<SessionFileRow> GlobalFiles,
+    IReadOnlyList<SessionFileRow> WorkspaceFiles,
+    IReadOnlyList<SessionFileRow> GlobalSkillDirectories,
+    IReadOnlyList<SessionFileRow> WorkspaceSkillDirectories,
+    IReadOnlyList<TrustedDirectoryRow> TrustedDirectories);
 
 /// <summary>One editable row in the launch dialog: the absolute path and its
 ///     checkbox state. Same shape the settings editor used; shared with
@@ -137,6 +158,94 @@ internal sealed partial class NewAgentViewModel : ObservableObject
   /// <summary>Open is only actionable once BOTH a provider and a workspace are chosen.</summary>
   public bool CanOpen => SelectedProvider is not null && !string.IsNullOrWhiteSpace(WorkspaceRoot);
 
+  // ---- the completion gate (issue #285) ------------------------------------
+
+  /// <summary>True when the gate section should be SHOWN: a workspace is chosen and nobody has
+  ///     answered for it yet.
+  ///     <para>THE PROMPT IS FOR THE UNASKED ONLY (D1). A workspace that already declares commands
+  ///     shows them as an editable prefill; one that was DECLINED shows nothing to answer, because
+  ///     asking again is the nagging the issue forbids.</para></summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ShowGateQuestion))]
+  public partial bool GateNeedsAnswer { get; set; }
+
+  /// <summary>True when the section renders at all: a question to answer, or a declaration to
+  ///     edit.</summary>
+  public bool ShowGateQuestion => GateNeedsAnswer || GateCommands.Length > 0;
+
+  /// <summary>The declared commands, ONE PER LINE, as the user wrote them.
+  ///     <para>NEVER AUTO-FILLED FROM A TEMPLATE (D2): a suggestion the user clicks past would
+  ///     turn a decision into a default. The box starts empty for a workspace nobody has asked,
+  ///     and shows only what the user themselves stored.</para></summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ShowGateQuestion))]
+  public partial string GateCommands { get; set; } = string.Empty;
+
+  /// <summary>True when the user chose to decline. Mutually exclusive with typing commands:
+  ///     a workspace either has a gate or has a recorded no.</summary>
+  [ObservableProperty]
+  public partial bool GateDeclined { get; set; }
+
+  /// <summary>What the agent observed about this project, in prose, or null when nothing was
+  ///     observed.
+  ///     <para>THIS IS A SUGGESTION, NOT A VALUE. It is rendered as text beside an EMPTY box
+  ///     (D2): the user reads the reasoning and types or ignores it. Filling the box would make
+  ///     the suggestion a default, which is exactly what the user rejected.</para></summary>
+  [ObservableProperty]
+  public partial string? GateSuggestion { get; set; }
+
+  /// <summary>What the dialog will persist about the gate, derived from the three controls.
+  ///     <para>THE DECISION IS READ FROM THE CONTROLS AT OPEN TIME, never latched earlier: a user
+  ///     who types commands and then ticks 'decline' must get the decline, and one who ticks
+  ///     decline and then types must get the declaration. Whichever control states an answer last
+  ///     wins, which is why typing CLEARS the decline and declining CLEARS the box.</para></summary>
+  internal GateDeclaration GateChoice()
+  {
+    if (GateDeclined)
+    {
+      return GateDeclaration.Decline();
+    }
+
+    string[] commands = [.. GateCommands
+        .Split('\n')
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0)];
+    return commands.Length > 0 ? GateDeclaration.Declare(commands) : GateDeclaration.Unchanged;
+  }
+
+  /// <summary>Applies a workspace's stored gate state to the controls (called when a workspace is
+  ///     picked). An unknown state asks the question rather than assuming a decision.</summary>
+  /// <param name="state">What the workspace's gate keys say.</param>
+  public void ApplyGateState(WorkspaceGateState state)
+  {
+    ArgumentNullException.ThrowIfNull(state);
+    GateCommands = state.Kind == GateStateKind.Declared ? string.Join("\n", state.Commands) : string.Empty;
+    GateDeclined = state.Kind == GateStateKind.Declined;
+    GateNeedsAnswer = state.NeedsAnswer;
+    GateSuggestion = null;
+  }
+
+  /// <summary>Typing in the command box is an ANSWER, so it clears a ticked decline: two
+  ///     contradictory statements would otherwise reach the store and the last writer would win
+  ///     invisibly.</summary>
+  partial void OnGateCommandsChanged(string value)
+  {
+    if (value.Length > 0 && GateDeclined)
+    {
+      GateDeclined = false;
+    }
+  }
+
+  /// <summary>Ticking decline is an ANSWER, so it clears any typed commands for the same reason.
+  ///     </summary>
+  partial void OnGateDeclinedChanged(bool value)
+  {
+    if (value && GateCommands.Length > 0)
+    {
+      GateCommands = string.Empty;
+    }
+  }
+
   public NewAgentViewModel(IReadOnlyList<ProviderOption> providers, string preferredProviderId,
       IReadOnlyList<SessionFileEntry>? globalFiles = null,
       IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
@@ -212,9 +321,9 @@ internal sealed partial class NewAgentViewModel : ObservableObject
       return;
     }
 
-    OpenRequested?.Invoke(this, NewAgentChoice.FromRows(
-        provider.Id, WorkspaceRoot, GlobalFiles, WorkspaceFiles,
-        GlobalSkillDirectories, WorkspaceSkillDirectories, TrustedDirectories));
+    OpenRequested?.Invoke(this, NewAgentChoice.FromRows(provider.Id, WorkspaceRoot,
+        new DialogRowSet(GlobalFiles, WorkspaceFiles, GlobalSkillDirectories,
+            WorkspaceSkillDirectories, TrustedDirectories), GateChoice()));
   }
 
   /// <summary>Appends one persisted entry list to a row list as checked rows. The

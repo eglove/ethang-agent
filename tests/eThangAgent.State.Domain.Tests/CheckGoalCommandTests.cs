@@ -184,7 +184,74 @@ public class CheckGoalCommandTests
     CertificationReport report = await service.CheckGoalAsync(TestContext.Current.CancellationToken);
 
     Assert.False(report.Certified);
-    Assert.Contains("No goal/check", report.BlockingReasons.Single(), StringComparison.Ordinal);
+    Assert.Contains("No completion gate", report.BlockingReasons.Single(), StringComparison.Ordinal);
+  }
+
+  // Issue #285: an absent gate is NOT a violation. Nothing ran, so nothing failed - reporting
+  // Violated:true here told the user something broke when nothing was ever configured.
+  [Fact]
+  public async Task CheckGoal_NoGateConfigured_IsNotAViolation()
+  {
+    StateService service = new(new FakeStateStore(), new ForbiddenEvidenceRunner(),
+        new StubWorkspace(),
+        goalRunner: new FakeGoalRunner(c => new EvidenceResult(c, true, string.Empty)));
+
+    CertificationReport report = await service.CheckGoalAsync(TestContext.Current.CancellationToken);
+
+    Assert.False(report.Certified);
+    Assert.False(report.Violated);
+    Assert.Contains("nobody has been asked", report.BlockingReasons.Single(), StringComparison.Ordinal);
+  }
+
+  // Issue #285 D1: 'you declined' and 'nobody asked' must not render alike - a recorded
+  // decision is auditable, an omission is not.
+  [Fact]
+  public async Task CheckGoal_DeclinedGate_SaysItWasDeclined()
+  {
+    FakeStateStore store = new();
+    StateService service = new(store, new ForbiddenEvidenceRunner(), new StubWorkspace(),
+        goalRunner: new FakeGoalRunner(c => new EvidenceResult(c, true, string.Empty)));
+    _ = await service.SetAsync("goal/declined", "{}", null,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    CertificationReport report = await service.CheckGoalAsync(TestContext.Current.CancellationToken);
+
+    Assert.False(report.Certified);
+    Assert.False(report.Violated);
+    Assert.Contains("DECLINED", report.BlockingReasons.Single(), StringComparison.Ordinal);
+    Assert.DoesNotContain("nobody has been asked", report.BlockingReasons.Single(),
+        StringComparison.Ordinal);
+  }
+
+  // The fix must not soften a REAL failure: a gate that runs and fails still violates.
+  [Fact]
+  public async Task CheckGoal_AFailingGate_StillReportsViolated()
+  {
+    FakeStateStore store = new();
+    StateService service = new(store, new ForbiddenEvidenceRunner(), new StubWorkspace(),
+        goalRunner: new FakeGoalRunner(c => new EvidenceResult(c, false, "exit code 1")));
+    _ = await service.SetAsync("goal/check", "[\"dotnet build\"]", null,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    CertificationReport report = await service.CheckGoalAsync(TestContext.Current.CancellationToken);
+
+    Assert.False(report.Certified);
+    Assert.True(report.Violated);
+  }
+
+  // The verdict type's own rule, pinned here beside the report that renders it: a workspace
+  // with no gate never blocks, and a declined one is a distinct state.
+  [Fact]
+  public void NoGate_And_Declined_NeverBlock_AndAreDistinct()
+  {
+    CompletionGateVerdict unset = new(GoalGateStatus.Unset, "unset");
+    CompletionGateVerdict declined = new(GoalGateStatus.Declined, "declined");
+
+    Assert.False(unset.BlocksCompletion);
+    Assert.False(declined.BlocksCompletion);
+    Assert.True(unset.HasNoGate);
+    Assert.True(declined.HasNoGate);
+    Assert.NotEqual(unset.Status, declined.Status);
   }
 
   [Fact]

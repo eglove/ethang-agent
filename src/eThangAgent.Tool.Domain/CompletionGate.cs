@@ -26,19 +26,53 @@ public sealed class CompletionGate(IWorkspaceSnapshotAccess snapshots)
   ///     the evaluator - never hand-edited, and never trusted for anything but freshness.</summary>
   public const string LastCheckKey = "goal/lastcheck";
 
+  /// <summary>State key recording that the user was asked and DECLINED a gate (issue #285 D1).
+  ///     <para>A SIBLING KEY, deliberately not a sentinel inside <see cref="GoalCheckKey"/>: an
+  ///     empty array there already means BROKEN CONFIG to the checkgoal runner, so storing a
+  ///     decline in it would conflate a deliberate choice with a fault. Its PRESENCE is the whole
+  ///     fact - the value carries when and why, for a human reading the record.</para></summary>
+  public const string DeclinedKey = "goal/declined";
+
+  /// <summary>What an unset gate says: nobody has ever been asked.
+  ///     <para>WORDED TO BE TRUE RATHER THAN REASSURING: it names the state (never configured),
+  ///     not merely that nothing is required, so a reader cannot mistake it for a gate that
+  ///     passed.</para></summary>
+  private const string UnsetMessage =
+      "No completion gate is configured for this workspace (nobody has been asked), so nothing "
+      + "is required of this claim.";
+
+  /// <summary>What a DECLINED gate says (issue #285 D1). Deliberately different wording from
+  ///     <see cref="UnsetMessage"/>: 'you declined one' and 'nobody asked' are different facts,
+  ///     and a user auditing their own workspaces must be able to tell them apart.</summary>
+  private const string DeclinedMessage =
+      "A completion gate was DECLINED for this workspace, so nothing is required of this claim.";
+
   private readonly IWorkspaceSnapshotAccess _snapshots =
       snapshots ?? throw new ArgumentNullException(nameof(snapshots));
 
-  /// <summary>Decides whether a completion claim may proceed. <paramref name="workspaceRoot"/>
-  ///     is the session workspace or the child's anchor, never the process directory.</summary>
+  /// <summary>Decides whether a completion claim may proceed, for a workspace with no gate.
+  ///     <paramref name="workspaceRoot"/> is the session workspace or the child's anchor, never
+  ///     the process directory.
+  ///     <para>THIS OVERLOAD EXISTS SO THE #283 CALLERS STAY BYTE-IDENTICAL (issue #285). Every
+  ///     pre-existing caller passes <c>(root, configured, lastCheck, ct)</c> and means exactly
+  ///     this: no decline recorded. A parameter inserted before <c>ct</c> would have silently
+  ///     reinterpreted a token as a bool at every call site.</para></summary>
+  public Task<CompletionGateVerdict> EvaluateAsync(string workspaceRoot, bool gateConfigured,
+      string? lastCheckJson, CancellationToken ct = default) =>
+      EvaluateAsync(workspaceRoot, gateConfigured, lastCheckJson, gateDeclined: false, ct);
+
+  /// <summary>Decides whether a completion claim may proceed.
+  ///     <para><paramref name="gateDeclined"/> distinguishes 'the user said no' from 'nobody has
+  ///     asked' (issue #285 D1). Both never block; they are different STATES, so a report can
+  ///     tell them apart.</para></summary>
   public async Task<CompletionGateVerdict> EvaluateAsync(string workspaceRoot,
-      bool gateConfigured, string? lastCheckJson, CancellationToken ct = default)
+      bool gateConfigured, string? lastCheckJson, bool gateDeclined,
+      CancellationToken ct = default)
   {
     if (!gateConfigured)
     {
-      return new CompletionGateVerdict(GoalGateStatus.Unset,
-          "No completion gate is configured for this workspace (state key goal/check is unset), "
-          + "so nothing is required of this claim.");
+      return new CompletionGateVerdict(gateDeclined ? GoalGateStatus.Declined : GoalGateStatus.Unset,
+          gateDeclined ? DeclinedMessage : UnsetMessage);
     }
 
     if (lastCheckJson is null)

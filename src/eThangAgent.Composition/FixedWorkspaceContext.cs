@@ -21,6 +21,16 @@ public sealed class FixedWorkspaceContext(string workspaceId, string workspaceRo
   ///     table). Explicitly named so the equivalence reads as a decision, not an oversight.</summary>
   public static FixedWorkspaceContext ForPath(string path) => new(path, path);
 
+  /// <summary>A context for a caller that knows a workspace's IDENTITY but not, or not yet, its
+  ///     directory (issue #285): the Open Workspace dialog writes a gate key for a workspace it
+  ///     has resolved an id for, and no path-taking seam is involved in a key write.
+  ///     <para>THE ROOT IS THE ID because there is nothing better to put there and a blank would
+  ///     throw. That is honest rather than clever: a caller reaching the root from this context is
+  ///     reaching for a directory it does not have, and the next reader should see that in the
+  ///     one place it could happen. Every seam this context is built for takes a SCOPE.</para>
+  ///     </summary>
+  public static FixedWorkspaceContext ForIdentity(string workspaceId) => new(workspaceId, workspaceId);
+
   private static string Validate(string value, string name) => string.IsNullOrWhiteSpace(value)
       ? throw new ArgumentException("A workspace id and root must both be non-empty.", name)
       : value;
