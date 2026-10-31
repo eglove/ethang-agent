@@ -76,7 +76,10 @@ public class CodeBlockScrollPositionTests
     return window;
   }
 
-  private static ScrollViewer CodeScroller(Window window) => window.GetVisualDescendants()
-      .OfType<ScrollViewer>()
-      .First(s => s.HorizontalScrollBarVisibility == Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
+  private static ScrollViewer CodeScroller(Window window)
+  {
+    Border block = window.GetVisualDescendants().OfType<Border>()
+        .First(b => b.Classes.Contains("markdown-code-block"));
+    return (ScrollViewer)block.Parent!;
+  }
 }

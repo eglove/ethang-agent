@@ -32,7 +32,10 @@ public class CodeBlockScrollTests
     Assert.Equal(TextWrapping.NoWrap, line.TextWrapping);
     Assert.True(line.Bounds.Width > scroller.Viewport.Width + 1,
         $"the line must keep its full width ({line.Bounds.Width:F0}) rather than be squeezed into the viewport ({scroller.Viewport.Width:F0})");
-    Assert.Equal(Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, scroller.HorizontalScrollBarVisibility);
+    // The frame supplies its own scrollbar (the scroll viewer's internal one is hidden), so the
+    // contract is 'this block can be scrolled sideways', asserted through the bar's range.
+    Assert.True(HasScrollRange(window),
+        "the code block must offer a horizontal range to scroll");
     Assert.True(scroller.Extent.Width > scroller.Viewport.Width + 1,
         $"the block must report overflow to scroll ({scroller.Extent.Width:F0} > {scroller.Viewport.Width:F0})");
     window.Close();
@@ -76,6 +79,12 @@ public class CodeBlockScrollTests
   /// <summary>The code line's TextBlock and the scroll viewer that must carry the overflow.
   ///     The scroller is the NEAREST ancestor offering horizontal scrolling, which is what
   ///     makes the assertion independent of how many wrappers the renderer adds.</summary>
+  private static bool HasScrollRange(Window window)
+  {
+    return window.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ScrollBar>()
+        .Any(b => b.Orientation == Avalonia.Layout.Orientation.Horizontal && b.Maximum > 0);
+  }
+
   private static (TextBlock Line, ScrollViewer Scroller) CodeLineAndScroller(Window window)
   {
     Border block = window.GetVisualDescendants().OfType<Border>()

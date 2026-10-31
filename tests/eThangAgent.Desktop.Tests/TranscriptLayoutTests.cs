@@ -76,9 +76,10 @@ public class TranscriptLayoutTests
 
     Border block = window.GetVisualDescendants().OfType<Border>()
         .First(b => b.Classes.Contains("markdown-code-block"));
-    ScrollViewer scroller = block.GetVisualAncestors().OfType<ScrollViewer>()
-        .First(s => s.HorizontalScrollBarVisibility != Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
-    Assert.Equal(Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, scroller.HorizontalScrollBarVisibility);
+    ScrollViewer scroller = Assert.IsType<ScrollViewer>(block.Parent);
+    Grid frame = Assert.IsType<Grid>(scroller.Parent);
+    Assert.Contains(frame.Children.OfType<Avalonia.Controls.Primitives.ScrollBar>(),
+        b => b.Orientation == Avalonia.Layout.Orientation.Horizontal);
     // The card's body spans the card, not a narrow box inside it: the exec program used to be
     // laid out at 416 px inside a 1210 px card.
     Assert.True(block.Bounds.Width > 0, "the code block must be laid out");
