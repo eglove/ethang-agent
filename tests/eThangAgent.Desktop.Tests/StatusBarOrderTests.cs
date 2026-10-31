@@ -8,7 +8,11 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Status-bar ordering contract: the info line reads [spinner] [phase]
 ///     [ctx] [provider] [model] [effort]; the Session Id control sits docked right
-///     (pinned by FullWidthLayoutTests) and is not part of the info-line order.</summary>
+///     (pinned by FullWidthLayoutTests) and is not part of the info-line order.
+///     <para>The row is a DockPanel, not a StackPanel: a horizontal StackPanel reports the SUM of
+///     its children as its desired width and never constrains them, so one long model id made the
+///     chat overflow sideways (ChatNeverScrollsSidewaysTests). The ORDER asserted here is
+///     unchanged - only the container that holds it.</para></summary>
 public class StatusBarOrderTests
 {
   [AvaloniaFact]
@@ -19,7 +23,7 @@ public class StatusBarOrderTests
     window.Show();
     AgentView view = (AgentView)window.Content;
 
-    StackPanel bar = view.GetControl<StackPanel>("StatusInfo");
+    DockPanel bar = view.GetControl<DockPanel>("StatusInfo");
     List<string> names = [];
     foreach (object? child in bar.Children)
     {
@@ -49,7 +53,7 @@ public class StatusBarOrderTests
     window.Show();
     AgentView view = (AgentView)window.Content;
 
-    StackPanel bar = view.GetControl<StackPanel>("StatusInfo");
+    DockPanel bar = view.GetControl<DockPanel>("StatusInfo");
     List<string> names = [.. bar.Children
         .OfType<Avalonia.StyledElement>()
         .Select(child => child.Name)

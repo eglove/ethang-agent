@@ -63,26 +63,36 @@
         <Button x:Name="SessionIdButton" DockPanel.Dock="Right" Content="Sess. Id ⧉" Padding="6,0"
                 Click="OnCopySessionId" VerticalAlignment="Center"
                 ToolTip.Tip="{Binding SessionIdFull}"/>
-        <StackPanel x:Name="StatusInfo" Orientation="Horizontal" Spacing="12">
-          <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}"/>
-          <TextBlock x:Name="PhaseText" Text="{Binding Status.PhaseLabel}"/>
-          <TextBlock x:Name="ContextText" Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}"/>
+        <!-- A DockPanel, NOT a StackPanel: a horizontal StackPanel reports the SUM of its
+             children as its desired width and never constrains them, so one long model id made
+             the bar desire more width than the chat column had. Because the bar stretches to fill
+             the chat's dock panel, that desire travelled up into the grid cell and the tab's Auto
+             scroll viewer turned it into a horizontal scrollbar across the bottom of the chat.
+             A DockPanel gives the LAST segment the remaining space and lets it wrap, so the row
+             always fits what it is given. -->
+        <DockPanel x:Name="StatusInfo" LastChildFill="True">
+          <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
+          <TextBlock x:Name="PhaseText" Text="{Binding Status.PhaseLabel}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
+          <TextBlock x:Name="ContextText" Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <!-- Session spend (issue #24): cumulative cost of every recorded provider call in
                this session and its subagents. Hidden until the session has spend, so a
                fresh session's bar is unchanged. -->
-          <TextBlock x:Name="CostText" Text="{Binding Status.CostDisplay}" ToolTip.Tip="{Binding Status.CostBreakdownText}" IsVisible="{Binding Status.CostDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-          <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-          <TextBlock Text="{Binding Status.Provider}"/>
-          <TextBlock x:Name="ModelIdText" Text="{Binding Status.ModelId}"/>
+          <TextBlock x:Name="CostText" Text="{Binding Status.CostDisplay}" ToolTip.Tip="{Binding Status.CostBreakdownText}" IsVisible="{Binding Status.CostDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
+          <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
+          <TextBlock Text="{Binding Status.Provider}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
+          <TextBlock x:Name="ModelIdText" Text="{Binding Status.ModelId}" DockPanel.Dock="Left" Margin="0,0,12,0" TextTrimming="CharacterEllipsis"/>
           <!-- The committed routing variant (issue #296, D7/B6): the pair is the decision, so
                the bar names both halves. The name is BARE ('Nitro', 'Floor') - the tradeoff it
                stands for is stated once beneath the Routing dropdown. Hidden for Standard and
                for a session that never committed a variant. -->
           <TextBlock x:Name="ServingVariantText" Text="{Binding Status.ServingVariant}"
                      ToolTip.Tip="The routing variant committed for this session"
-                     IsVisible="{Binding Status.ServingVariant, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-          <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
-        </StackPanel>
+                     IsVisible="{Binding Status.ServingVariant, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                     DockPanel.Dock="Left" Margin="0,0,12,0"/>
+          <!-- The LAST child fills the remaining width and wraps, so the effort readout absorbs
+               whatever slack is left instead of pushing the row wider than the chat. -->
+          <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}" TextWrapping="Wrap"/>
+        </DockPanel>
       </DockPanel>
     </Border>
 
