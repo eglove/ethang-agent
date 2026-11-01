@@ -10,12 +10,13 @@ eThang Agent exists to make model quality stop mattering.
 
 The harness is not a developer tool. It is a stakeholder tool: anyone who can state what should be true can use it, and everyone who uses it becomes a stakeholder in the outcome. Implementation details — decomposition, tool selection, sequencing, verification, recovery — belong to the harness and the model, not to the person directing the work.
 
-Two commitments follow:
+Three commitments follow:
 
 1. **Any work is doable by any model.** Complex work is decomposed until none of it requires smartness. The least intelligent model can complete complex tasks because the harness supplies the structure: skills for matched procedures, the scientific method for non-trivial work, verification gates, and tool contracts that make the next step obvious.
 2. **Judgment is the only scarce resource.** The one thing the harness cannot supply is judgment about what the constitution should say — what the work is, why it matters, and when it is done. That remains with the user.
+3. **The harness is the orchestrator.** Agents do not supervise other agents. A model is asked to do work, not to decide what runs next, in what order, or when another agent should start — that scheduling belongs to the harness, driven by the records the work itself produces. One agent blocking on another's outcome is orchestration by another name, and it is the harness's job instead.
 
-In short: the user decides what should be true. The harness figures out how to make it true.
+In short: the user decides what should be true. The harness figures out how to make it true. The model does the work the harness hands it, and only that.
 
 ## Guiding Philosophy
 
