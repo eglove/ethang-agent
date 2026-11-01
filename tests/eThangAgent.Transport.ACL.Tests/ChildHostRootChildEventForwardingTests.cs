@@ -1,6 +1,7 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.ChildHost;
+using eThangAgent.Composition;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -85,28 +86,39 @@ public class ChildHostRootChildEventForwardingTests
     }
   }
 
-  /// <summary>WHY THE ROOT FORWARDER IS THE ONLY ONE THAT MATTERS (the issue's third
-  ///     question, answered as an assertion so it cannot quietly stop being true).
-  ///     <para>A child runs inside the HOST process, in the HOST's own container, so
-  ///     <c>SubAgentSpawner</c> publishes <c>ChildStartedEvent</c> onto that container's
-  ///     stream - the same object the root forwarder subscribes. The per-child forwarder
-  ///     in <c>RunChildAsync</c> belongs to the wire <c>StartCommand</c> path, which the
-  ///     app never exercises: it addresses children through the WIRE runtime, whose
-  ///     <c>Start</c> sends a start envelope, but the host's own container resolves the
-  ///     IN-PROCESS runtime and runs the child directly.</para>
-  ///     <para>If this assertion ever fails, the host was wired to a remote runtime and the
-  ///     root forwarder alone would stop being sufficient - which is exactly the change
-  ///     someone needs to notice rather than discover from an app that shows no live agent.</para></summary>
+  /// <summary>THE HOST'S ORCHESTRATION SEAM LAUNCHES A HOST (issue #330 review F3), and this
+  ///     assertion replaces the one that used to pin the opposite.
+  ///     <para>WHAT IT USED TO SAY, AND WHY THAT WAS WRONG: it asserted the root container's
+  ///     <see cref="IAgentRuntime"/> was the IN-PROCESS runner, reasoning that a child therefore
+  ///     runs in the host's own container and the root forwarder alone carries its events. That
+  ///     was a description of the registration fault, not a contract: `SessionHost.Create`
+  ///     registered the host-launching runtime and then the in-process one, and
+  ///     last-registration-wins made the second win. So every <c>agent.spawn</c> inside a host
+  ///     ran in the conversation host - the condition issue #305 D1 exists to end - and because
+  ///     no <c>start</c> envelope was ever sent, nothing registered the leaf mailbox a cell's
+  ///     steer is delivered to, so the app's steer was answered <c>NotRunning</c>.</para>
+  ///     <para>THE ROOT FORWARDER IS STILL WHAT CARRIES A ROOT-CONTAINER CHILD'S EVENTS: the two
+  ///     tests above publish onto the root container's stream directly and assert arrival, and
+  ///     they are unchanged. A child a HOST launches has its own host and its own per-child
+  ///     forwarder (<c>RunChildAsync</c>), which is the path the app actually takes.</para></summary>
   [Fact]
-  public async Task HostContainer_RunsItsChildrenInProcess_SoTheRootForwarderCarriesThem()
+  public async Task HostContainer_LaunchesAHostPerAgent_WhileKeepingItsLeafExecutorInProcess()
   {
     HostRig rig = await HostRig.StartAsync().ConfigureAwait(true);
     try
     {
       RootRunHost? runner = await rig.Server.ResolveRootHostForTest().ConfigureAwait(true);
       Assert.True(runner is not null);
+
+      // The orchestration seam launches a host per agent, so an agent.spawn does not run here.
       object runtime = runner.Services.GetRequiredService(typeof(IAgentRuntime));
-      _ = Assert.IsType<InProcessAgentRuntime>(runtime);
+      _ = Assert.IsType<HostLaunchingRuntime>(runtime);
+
+      // The leaf executor still exists and is still in-process: it runs the one agent THIS host
+      // owns, which is what the server dispatches a start envelope through.
+      object leaf = runner.Services.GetRequiredService(typeof(InProcessAgentRuntime));
+      _ = Assert.IsType<InProcessAgentRuntime>(leaf);
+      Assert.NotSame(runtime, leaf);
     }
     finally
     {

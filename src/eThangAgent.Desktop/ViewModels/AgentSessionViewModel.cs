@@ -676,8 +676,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 
     // A drained steer IS persisted by the agent loop, so its store copy is the same message this
-    // echo shows. Registered as awaiting that copy for the same reason the resume path is.
-    NoteLocalEcho(input);
+    // echo shows. Registered as awaiting that copy for the same reason the resume path is, and
+    // under the identity the host echoed back, so the release finds THIS entry.
+    NoteLocalEcho(input, pendingId);
     MessageCount++;
     Transcript.AddPendingUser(input, pendingId);
   }
@@ -707,9 +708,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // the same message this echo shows: the echo is registered as awaiting its store copy, and
     // the poll's reconciliation renders exactly one of the two (see AppendPersistedMessagesAsync).
     // Nothing names a message id on a resume, so the store's copy is what releases the pin.
-    NoteLocalEcho(input);
+    Guid resumedId = Guid.NewGuid();
+    NoteLocalEcho(input, resumedId);
     MessageCount++;
-    Transcript.AddPendingUser(input, Guid.NewGuid());
+    Transcript.AddPendingUser(input, resumedId);
     // The agent is running again, so the cell leaves its finished state and follows it.
     IsSettled = false;
   }
@@ -1759,10 +1761,16 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     <para>A STEERED MESSAGE ARRIVES TWICE AND MUST RENDER ONCE (issue #330): the submit
   ///     echoes it locally the moment the host confirmed the deliver, and the agent loop
   ///     persists the same message when it drains it. The local echo is registered in
-  ///     <c>_awaitingStoreCopy</c>; a persisted user message matching one of those entries
-  ///     RELEASES it instead of appending a second copy. Matching is on text plus that the
-  ///     entry is still pending, and it consumes the registration, so two identical messages
-  ///     typed twice still render twice.</para></summary>
+  ///     <c>_awaitingStoreCopy</c> under the identity it was rendered with; a persisted user
+  ///     message matching one of those registrations RELEASES it instead of appending a second
+  ///     copy.</para>
+  ///     <para>MATCHED ANYWHERE IN THE QUEUE, NEVER ONLY AT THE HEAD (issue #330 review F2). A
+  ///     steer the host accepted but the run never drained - it settled first, or an interrupt
+  ///     landed before the safe point - leaves a registration with no store copy ever coming.
+  ///     A head-only comparison wedges on that entry and every later message renders beside its
+  ///     own echo for the rest of the session. Matching the whole queue means a lost
+  ///     registration costs its own message nothing but a stale entry, which
+  ///     <see cref="StaleEchoHorizon"/> bounds.</para></summary>
   /// <param name="messages">The messages to render, in store order.</param>
   public Task AppendPersistedMessagesAsync(IReadOnlyList<Message> messages)
   {
@@ -1772,6 +1780,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     }
 
+    // Every read is a chance to retire registrations no store copy will ever release.
+    DropStaleEchoes(DateTimeOffset.UtcNow);
     TaskCompletionSource applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
     _uiMarshal(() =>
     {
@@ -1793,36 +1803,125 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Registers a locally rendered message whose store copy is still to arrive (issue
   ///     #330): the resumed run persists this text as its prompt, and a drained steer is
   ///     persisted by the agent loop, so both land in the store as a user message the poll will
-  ///     read back.</summary>
+  ///     read back.
+  ///     <para>THE IDENTITY IS THE PIN: the same value the echo was rendered under, so the
+  ///     release can find THAT entry rather than the first one whose text happens to match.
+  ///     </para></summary>
   /// <param name="text">The text the local echo shows.</param>
-  private void NoteLocalEcho(string text)
+  /// <param name="pendingId">The identity the echo was rendered under.</param>
+  private void NoteLocalEcho(string text, Guid pendingId)
   {
     ArgumentNullException.ThrowIfNull(text);
-    _awaitingStoreCopy.Enqueue(text);
+    lock (_echoGate)
+    {
+      _awaitingStoreCopy.Enqueue(new PendingEcho(text, pendingId, DateTimeOffset.UtcNow));
+    }
   }
 
   /// <summary>Releases the local echo whose store copy just arrived (issue #330), so the
-  ///     message renders once. Consumes one registration: an entry whose text does not match
-  ///     is left alone, and the queue is drained in order so two identical messages release
-  ///     one apiece.</summary>
+  ///     message renders once. Consumes ONE registration - the oldest whose text matches, which
+  ///     is the one this store copy belongs to when a text is submitted twice - and leaves the
+  ///     rest alone, so a later message releases its own entry.
+  ///     <para>REBUILDS THE QUEUE rather than peeking: the entry being released is not
+  ///     necessarily at the head, because a registration whose store copy never comes (a steer
+  ///     the run settled before draining) sits ahead of it forever. <see cref="StaleEchoHorizon"/>
+  ///     is what stops those from accumulating.</para></summary>
   /// <param name="text">The persisted user message's text.</param>
   /// <returns>True when a local echo was released and the caller must not append.</returns>
   private bool ReleaseLocalEcho(string text)
   {
     ArgumentNullException.ThrowIfNull(text);
-    if (_awaitingStoreCopy.Count == 0 || !string.Equals(_awaitingStoreCopy.Peek(), text, StringComparison.Ordinal))
+    PendingEcho? released = null;
+    lock (_echoGate)
     {
-      return false;
+      if (_awaitingStoreCopy.Count == 0)
+      {
+        return false;
+      }
+
+      List<PendingEcho> kept = [];
+      foreach (PendingEcho pending in _awaitingStoreCopy)
+      {
+        if (released is null && string.Equals(pending.Text, text, StringComparison.Ordinal))
+        {
+          released = pending;
+          continue;
+        }
+
+        kept.Add(pending);
+      }
+
+      if (released is null)
+      {
+        return false;
+      }
+
+      _awaitingStoreCopy.Clear();
+      foreach (PendingEcho pending in kept)
+      {
+        _awaitingStoreCopy.Enqueue(pending);
+      }
     }
 
-    _ = _awaitingStoreCopy.Dequeue();
-    Transcript.ReleasePendingEcho(text);
+    Transcript.MarkDrained(released.PendingId);
     return true;
   }
 
-  /// <summary>Texts this cell rendered locally whose store copy has not been read back yet
+  /// <summary>Drops the registrations older than <see cref="StaleEchoHorizon"/> (issue #330):
+  ///     a steer the host accepted but the run never drained leaves a registration no store
+  ///     copy will ever release, and an unbounded queue of them is a leak on a long session.
+  ///     <para>AGE, NOT COUNT: a count would drop registrations a slow agent still owes a copy
+  ///     for, and the cost of keeping one too long is a single entry that renders once instead
+  ///     of twice - while the cost of dropping one too early is a message rendered twice. The
+  ///     horizon is far longer than any safe point, so an owed copy always wins.</para>
+  ///     <para>Dropping a registration does NOT retract its echo: the user typed it, the host
+  ///     accepted it, and it belongs on screen. It only stops that echo being released, which
+  ///     costs a duplicate only if the store later produces a copy - the case the horizon is
+  ///     long enough to make implausible.</para></summary>
+  /// <param name="now">The instant the read ran, so the horizon is measured against it.</param>
+  private void DropStaleEchoes(DateTimeOffset now)
+  {
+    lock (_echoGate)
+    {
+      if (_awaitingStoreCopy.Count == 0)
+      {
+        return;
+      }
+
+      List<PendingEcho> kept = [.. _awaitingStoreCopy.Where(pending => now - pending.NotedAt < StaleEchoHorizon)];
+      if (kept.Count == _awaitingStoreCopy.Count)
+      {
+        return;
+      }
+
+      _awaitingStoreCopy.Clear();
+      foreach (PendingEcho pending in kept)
+      {
+        _awaitingStoreCopy.Enqueue(pending);
+      }
+    }
+  }
+
+  /// <summary>How long a local echo may wait for its store copy before the registration is
+  ///     abandoned (issue #330). Longer than any agent's safe point, so an owed copy is never
+  ///     dropped early.</summary>
+  private static readonly TimeSpan StaleEchoHorizon = TimeSpan.FromMinutes(10);
+
+  /// <summary>One locally rendered message whose store copy has not been read back yet (issue
+  ///     #330): the text the copy is matched on, the identity the echo was rendered under, and
+  ///     when it was registered, so a copy that never comes cannot accumulate.</summary>
+  /// <param name="Text">The text the store copy is matched against.</param>
+  /// <param name="PendingId">The identity the transcript entry was rendered under.</param>
+  /// <param name="NotedAt">When the echo was registered.</param>
+  private sealed record PendingEcho(string Text, Guid PendingId, DateTimeOffset NotedAt);
+
+  /// <summary>Guards <see cref="_awaitingStoreCopy"/>, which the submit path writes on the UI
+  ///     thread and the store read releases on its own.</summary>
+  private readonly Lock _echoGate = new();
+
+  /// <summary>Echoes this cell rendered locally whose store copy has not been read back yet
   ///     (issue #330), in submission order.</summary>
-  private readonly Queue<string> _awaitingStoreCopy = new();
+  private readonly Queue<PendingEcho> _awaitingStoreCopy = new();
 
   private void ReportPersistenceError(string message) => Transcript.AddNotice(message);
 

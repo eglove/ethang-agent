@@ -72,10 +72,18 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     Entries.Add(new UserMessageEntry(text, Pending: true, PendingId: pendingId));
   }
 
-  /// <summary>Releases the pinned steering echo whose id the loop's drain fact named
-  ///     (issue #253 B3): it stops being pending and stops being pinned, so later stream
-  ///     text flows below it and it reads at its true chronological position. Idempotent;
-  ///     an id no entry carries is ignored.</summary>
+  /// <summary>Releases the pinned steering echo whose id a fact named (issue #253 B3): it stops
+  ///     being pending and stops being pinned, so later stream text flows below it and it reads
+  ///     at its true chronological position. Idempotent; an id no entry carries is ignored.
+  ///     <para>TWO FACTS MEAN THE SAME THING HERE (issue #330): the loop's drain fact says the
+  ///     model has the message, and the store copy arriving says the message is now the record.
+  ///     Either way the echo is no longer waiting on anything, so one release serves both.
+  ///     </para>
+  ///     <para>RELEASED BY IDENTITY, NEVER BY TEXT (issue #330 review F2): two messages with the
+  ///     same text are two entries, and releasing by text would unpin whichever came first -
+  ///     leaving the other pinned forever. <see cref="UserMessageEntry.PendingId"/> is the
+  ///     identity the submit minted for exactly this entry.</para></summary>
+  /// <param name="pendingId">The identity the echo was rendered under.</param>
   public void MarkDrained(Guid pendingId)
   {
     if (pendingId == Guid.Empty)
@@ -93,24 +101,6 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     }
   }
 
-  /// <summary>Releases the pinned echo whose message has landed in the store (issue #330): the
-  ///     copy the store holds is now the record, so the local entry stops being pending and
-  ///     stops claiming the model has not seen it. Idempotent; a text no pending entry carries
-  ///     is ignored.</summary>
-  /// <param name="text">The message text the store persisted.</param>
-  public void ReleasePendingEcho(string text)
-  {
-    ArgumentNullException.ThrowIfNull(text);
-    for (int i = 0; i < Entries.Count; i++)
-    {
-      if (Entries[i] is UserMessageEntry { Pending: true } entry
-          && string.Equals(entry.Text, text, StringComparison.Ordinal))
-      {
-        Entries[i] = entry with { Pending = false };
-        return;
-      }
-    }
-  }
 
   public void AddToolCall(string name, string arguments)
   {

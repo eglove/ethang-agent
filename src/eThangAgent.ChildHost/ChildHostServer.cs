@@ -402,7 +402,14 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     WatchdogOptions options = host.EffectiveWatchdogOptions;
     IAgentEvents? stream = host.Services.GetService(typeof(IAgentEvents)) as IAgentEvents;
     ChildSupervisorRegistry? supervisors = host.Services.GetService(typeof(ChildSupervisorRegistry)) as ChildSupervisorRegistry;
-    WatchdogServices services = new(host.Store, host.Runtime, heartbeat, audit,
+    // THE LEAF EXECUTOR, NOT THE ORCHESTRATION SEAM (issue #330 review F3). The watchdog
+    // supervises the one agent THIS host runs, and every act it takes - interrupt the idle run,
+    // start the wrap-up retry - must land on the runtime that owns that run's cancellation token
+    // and settle source. That is LocalRunner. The orchestration seam launches a NEW host process
+    // per agent, so enacting through it would interrupt nothing and retry into a second process
+    // nobody is watching. The two were the same object only because of the registration fault
+    // this issue fixed, which is why the distinction had never had to be stated.
+    WatchdogServices services = new(host.Store, host.LocalRunner, heartbeat, audit,
         WatchdogPolicyFactory.FromOptions(options),
         options, TimeProvider.System, stream, supervisors);
     return new HostChildWatchdog(childId, services);

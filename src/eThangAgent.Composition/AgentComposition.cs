@@ -1279,14 +1279,28 @@ public static class AgentComposition
   }
 
   /// <summary>Registers the IN-PROCESS runtime as this container's <see cref="IAgentRuntime"/>.
-  ///     PRODUCTION NEVER CALLS THIS: every conversation runs in its own host process
-  ///     (spec D6/D7), and the app's runtime is the wire runtime. Two kinds of container do
-  ///     call it, both deliberately in-process — the ChildHost itself (its session host runs
-  ///     the children it was handed, and a second remote hop would have no supervisor and
-  ///     fail every start HostUnavailable) and test hosts that drive this composition
+  ///     PRODUCTION NEVER CALLS THIS FOR ITS ORCHESTRATION: every conversation runs in its own
+  ///     host process (spec D6/D7), and the app's runtime is the wire runtime. Two kinds of
+  ///     container do call it, both deliberately in-process — the ChildHost itself (its session
+  ///     host runs the one agent it was handed, and a second remote hop would have no supervisor
+  ///     and fail every start HostUnavailable) and test hosts that drive this composition
   ///     without a ChildHost. Last registration wins, so call it AFTER
-  ///     <see cref="AddEThangAgentCore"/>.</summary>
-  public static IServiceCollection AddInProcessAgentRuntime(this IServiceCollection services, AgentSettings settings)
+  ///     <see cref="AddEThangAgentCore"/>.
+  ///     <para>THE CONCRETE RUNNER IS REGISTERED EITHER WAY (issue #330 review F3): a host that
+  ///     passes <paramref name="asOrchestrationRuntime"/> false still gets the
+  ///     <see cref="InProcessAgentRuntime"/> it runs its OWN agent through, and only stops
+  ///     claiming the orchestration seam. That is the shape <c>SessionHost.Create</c> needs: it
+  ///     registers the host-launching runtime as the orchestration mechanism (D1/D2) and keeps
+  ///     this one as the leaf executor. Passing true everywhere would leave the LAST
+  ///     registration in charge, so a spawned agent would run in the conversation host and never
+  ///     reach a host of its own.</para></summary>
+  /// <param name="services">The container being built.</param>
+  /// <param name="settings">The settings the runner's cap comes from.</param>
+  /// <param name="asOrchestrationRuntime">True to also register this runner as the container's
+  ///     <see cref="IAgentRuntime"/> — the pre-#330 behaviour every in-process test host relies
+  ///     on. False keeps it reachable as the concrete leaf executor only.</param>
+  public static IServiceCollection AddInProcessAgentRuntime(this IServiceCollection services,
+      AgentSettings settings, bool asOrchestrationRuntime = true)
   {
     ArgumentNullException.ThrowIfNull(services);
     ArgumentNullException.ThrowIfNull(settings);
@@ -1297,15 +1311,17 @@ public static class AgentComposition
     // error. The channel's presence IS the thin-client decision (see IRootTurnChannel), so
     // an in-process container must have none: the app then runs the turn locally.
     _ = services.RemoveAll<IRootTurnChannel>();
-    return services
+    IServiceCollection wired = services
           .AddSingleton(sp => new InProcessAgentRuntime(
               sp.GetRequiredService<SubAgentSpawner>(),
               sp.GetRequiredService<IAgentStore>(),
               settings.SubAgents.MaxConcurrentAgents,
               sp.GetRequiredService<IAgentEvents>(),
               sp.GetRequiredService<ChildSupervisorRegistry>(),
-              sp.GetRequiredService<ChildMailboxRegistry>()))
-          .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<InProcessAgentRuntime>());
+              sp.GetRequiredService<ChildMailboxRegistry>()));
+    return asOrchestrationRuntime
+        ? wired.AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<InProcessAgentRuntime>())
+        : wired;
   }
 
   /// <summary>Registers the HOST's orchestration runtime (issue #305 D1/D2): the

@@ -116,6 +116,85 @@ public class AgentCellSteeringTests
     Assert.Empty(shell.Steering.Steers);
   }
 
+  /// <summary>A RESUMED CELL FOLLOWS THE NEW RUN (issue #330 review F1). The card must keep
+  ///     READING the store after a resume, not merely stop claiming to be finished.
+  ///     <para>WHY THE DELAY IS THE TEST: the resume happens after the user has been reading the
+  ///     finished card for longer than one poll interval, which is the ordinary way a person
+  ///     resumes an agent. That is exactly the window in which a poller that exits on settle
+  ///     while leaving its claim held has already given up: the card looks live and never reads
+  ///     again. Resuming within milliseconds of the settle - which the flag-only test does -
+  ///     wins the race against the next tick and passes with the defect in place.</para>
+  ///     <para>THE ASSERTION IS THE TRANSCRIPT, because that is the acceptance item: the agent's
+  ///     next turn persists work, and the cell must render it.</para></summary>
+  [Fact]
+  public async Task AResumedCell_ReadsTheNewRunsTranscript_AfterThePollerHadSettled()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync("C:\\work\\theta");
+    AgentId agent = shell.StartAgent(tab, "reviewer");
+    AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
+    shell.Settle(agent);
+    await WaitUntilAsync(() => cell.IsFinished);
+
+    // The user reads the finished card for longer than one poll interval before resuming, so
+    // the settled poller has already taken its last tick and exited.
+    await Task.Delay(AgentCellViewModel.TranscriptPollInterval * 3, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true);
+
+    await cell.ViewModel.SubmitAsync("carry on").ConfigureAwait(true);
+
+    // The resumed run persists its work at its own safe points; the store is where the cell sees
+    // it.
+    shell.Store.Transcripts[agent.Value] =
+    [
+      new Message(Role.User, "carry on", DateTimeOffset.UtcNow),
+      new Message(Role.Assistant, "RESUMED-WORK-MARKER", DateTimeOffset.UtcNow),
+    ];
+
+    await WaitUntilAsync(() => cell.ViewModel.Transcript.Entries
+        .OfType<AssistantTextEntry>()
+        .Any(entry => entry.Text.Contains("RESUMED-WORK-MARKER", StringComparison.Ordinal)));
+
+    Assert.False(cell.IsFinished, "a resumed agent is running again");
+    Assert.False(cell.ViewModel.IsSettled);
+  }
+
+  /// <summary>A LOST STEER DOES NOT WEDGE THE ECHO QUEUE (issue #330 review F2). A steer the
+  ///     host accepts but the run never drains leaves a registration no store copy will ever
+  ///     release; the next message must still render exactly once.
+  ///     <para>THE DEFECT THIS PINS: matching only the queue's HEAD. With a stale entry at the
+  ///     front, a later message whose text differs never matched, so its store copy was
+  ///     appended beside its own echo - rendered twice for the rest of the session. A
+  ///     positional match turns one undelivered message into a permanent display fault.</para>
+  ///     <para>The first message is never drained on purpose: the run settled first, which is
+  ///     one of the two ways the host's acceptance outlives the safe point.</para></summary>
+  [Fact]
+  public async Task ASteerTheRunNeverDrained_DoesNotMakeTheNextMessageRenderTwice()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync("C:\\work\\iota");
+    AgentId agent = shell.StartAgent(tab, "tester");
+    AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
+    DateTimeOffset at = DateTimeOffset.UtcNow;
+
+    // Accepted by the host, never drained by the run: no store copy will ever arrive for it.
+    await cell.ViewModel.SubmitAsync("A - never drained").ConfigureAwait(true);
+    // The next message IS drained, so its store copy arrives normally.
+    await cell.ViewModel.SubmitAsync("B - drained").ConfigureAwait(true);
+
+    await cell.ViewModel.AppendPersistedMessagesAsync(
+        [new Message(Role.User, "B - drained", at)]).ConfigureAwait(true);
+
+    UserMessageEntry only = Assert.Single(cell.ViewModel.Transcript.Entries.OfType<UserMessageEntry>(),
+        entry => entry.Text == "B - drained");
+    Assert.False(only.Pending, "the store holds B, so the model has seen it");
+    // The undelivered message keeps its own echo - the user typed it - and stays pending, which
+    // is the honest state of a message nothing consumed.
+    UserMessageEntry lost = Assert.Single(cell.ViewModel.Transcript.Entries.OfType<UserMessageEntry>(),
+        entry => entry.Text == "A - never drained");
+    Assert.True(lost.Pending, "nothing drained A, so it is still waiting");
+  }
+
   /// <summary>The resumed run persists the text it was given as its prompt, so the store copy is
   ///     the same message the cell already shows - one entry, not two.
   ///     <para>The cursor the poll resumes from is advanced past the local entry, so the copy

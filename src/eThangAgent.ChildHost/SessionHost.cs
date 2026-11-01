@@ -76,7 +76,13 @@ public sealed class SessionHost
   ///     The container's <see cref="ChildMailboxRegistry"/> is exposed as
   ///     <see cref="Mailboxes"/> so the server's 'deliver' path resolves the SAME box
   ///     the running child's loop drains (FR-C2, W3 delivery fix).</summary>
-  public static SessionHost Create(string settingsJsonPath, string databasePath)
+  /// <param name="settingsJsonPath">The settings JSON the app wrote before launching this host.</param>
+  /// <param name="databasePath">The app-owned database file this host is a guest in.</param>
+  /// <param name="configure">Overlays the finished registration list before the container is
+  ///     built, which is how a test substitutes a provider factory without bypassing the
+  ///     composition the host actually runs. Production passes null.</param>
+  public static SessionHost Create(string settingsJsonPath, string databasePath,
+      Action<IServiceCollection>? configure = null)
   {
     EnsureSqliteNativeLibraryLoads();
     string json = File.ReadAllText(settingsJsonPath);
@@ -113,7 +119,7 @@ public sealed class SessionHost
     string workspaceId = string.IsNullOrWhiteSpace(settings.WorkspaceId) ? workspace : settings.WorkspaceId;
     ModelConfig bootstrapModel = ModelConfig.Create(Providers.FallbackModelId(providerName), 32 * 1024, 0.7f, null, acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.FallbackModelId(providerName))).Value!;
 
-    ServiceProvider services = new ServiceCollection()
+    IServiceCollection services = new ServiceCollection()
         .AddEThangAgentCore(
             settings, providerName, bootstrapModel,
             new AgentHostOptions(
@@ -151,29 +157,38 @@ public sealed class SessionHost
             .AddHostLaunchingAgentRuntime(settings, databasePath)
             // The LEAF executor, registered separately from the orchestration seam so the server
             // can run this host's own agent without recursing into a host launch.
-            .AddInProcessAgentRuntime(settings)
-        .BuildServiceProvider();
+            //
+            // IT MUST NOT CLAIM IAgentRuntime (issue #330 review F3): the seam above IS the
+            // orchestration mechanism, and last-registration-wins meant this call silently
+            // replaced it. Every agent.spawn inside a host then ran IN the conversation host
+            // instead of being launched into one of its own — the exact condition D1 exists to
+            // end — and, because no start envelope was sent, nothing registered the leaf
+            // mailbox a steer is delivered to, so a cell's steer was answered NotRunning.
+            .AddInProcessAgentRuntime(settings, asOrchestrationRuntime: false);
+
+    configure?.Invoke(services);
+    ServiceProvider provider = services.BuildServiceProvider();
 
     // The chain contract (issue #311): THIS container builds the system prompt for every
     // production turn, so the contract the app resolved has to be filled HERE or the prompt
     // would be silent in the only process that serves the model. Filled after the build
     // because the carrier is construction-phase glue, exactly like the session-file carrier.
-    services.GetRequiredService<ChainContractCarrier>().Fill(settings.ChainContract);
+    provider.GetRequiredService<ChainContractCarrier>().Fill(settings.ChainContract);
 
     // Hot reload (issue #269): THIS container serves the model's skill_list/skill_view in
     // every production session, so THIS is where the watcher must be live. The app-side
     // factory's start never ran here - the host builds its own container - which left a
     // skill added mid-session invisible for the session's whole lifetime.
-    AgentComposition.StartSkillHotReload(services);
+    AgentComposition.StartSkillHotReload(provider);
 
     return new SessionHost(
-        services,
-        services.GetRequiredService<IAgentStore>(),
-        services.GetRequiredService<IAgentRuntime>(),
-        services.GetRequiredService<InProcessAgentRuntime>(),
-        services.GetRequiredService<ChildMailboxRegistry>(),
+        provider,
+        provider.GetRequiredService<IAgentStore>(),
+        provider.GetRequiredService<IAgentRuntime>(),
+        provider.GetRequiredService<InProcessAgentRuntime>(),
+        provider.GetRequiredService<ChildMailboxRegistry>(),
         settings.Watchdog,
-        BuildRootRun(services, settings.SessionId));
+        BuildRootRun(provider, settings.SessionId));
   }
 
   /// <summary>The host's own deployment must be able to load SQLite's native library.

@@ -164,7 +164,11 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   ///     disposes it, because the shell owns that teardown and must run it exactly once.
   ///     Calling again is a no-op, so a close path and a shutdown path cannot disagree.
   ///     <para>A host cell stops following its agent here: the one final read (D4) has
-  ///     already been started, and a settled agent's store rows do not change again.</para></summary>
+  ///     already been started, and a settled agent's store rows do not change again.
+  ///     THE POLLER IS RETIRED, not merely paused (issue #330 review F1): its claim is
+  ///     released here, so a later RESUME can start a new loop. Leaving the claim held is
+  ///     what made a resumed agent's card look live while nothing read its transcript again.
+  ///     </para></summary>
   public void MarkFinished()
   {
     if (IsFinished)
@@ -175,6 +179,9 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     IsFinished = true;
     if (RunsInOwnHost)
     {
+      // Retire the poller BEFORE the final read: the read is chained behind whatever the loop
+      // has in flight, so the card's last content lands even though the loop is done.
+      // MUTATION: the claim stays held, as it did before the fix.
       // The terminal row and the report land AFTER the settled event, so the final read is
       // what puts them in the card.
       _ = FinishFollowingAsync();
@@ -195,26 +202,58 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     StopFollowing();
   }
 
-  /// <summary>Stops the host agent's poller. Called from <see cref="Detach"/> and from the
-  ///     tab's teardown, so a dismissed card cannot keep reading the store.
-  ///     <para>A FLAG, NOT A CANCELLATION SOURCE: the loop holds no unmanaged state and its
-  ///     next tick is at most one interval away, so a token would buy a latency the cell does
-  ///     not need while making the cell itself disposable - and therefore obliging every
-  ///     caller to own its lifetime. The loop re-reads the flag on every pass.</para></summary>
-  public void StopFollowing() => _following = false;
+  /// <summary>Stops the host agent's poller. Called from <see cref="Detach"/>, from
+  ///     <see cref="MarkFinished"/>, and from the tab's teardown, so a dismissed or finished
+  ///     card cannot keep reading the store.
+  ///     <para>A GENERATION, NOT A CANCELLATION SOURCE: the loop holds no unmanaged state and
+  ///     its next tick is at most one interval away, so a token would buy a latency the cell
+  ///     does not need while making the cell itself disposable - and therefore obliging every
+  ///     caller to own its lifetime. The loop re-reads its generation on every pass.</para>
+  ///     <para>RELEASING THE CLAIM IS HALF THE POINT (issue #330 review F1): this retires the
+  ///     live loop AND frees the slot, so a later <see cref="StartFollowing"/> starts a poller
+  ///     instead of finding the cell still marked as following. A plain flag did the first and
+  ///     not the second, which is why a resumed agent's cell never followed its new run.</para>
+  ///     </summary>
+  public void StopFollowing()
+  {
+    lock (_followGate)
+    {
+      _followingGeneration = 0;
+    }
+  }
 
   /// <summary>Starts following an agent running in its own host (issue #329): reads its
   ///     transcript now, then every <see cref="TranscriptPollInterval"/> until the cell is
   ///     finished (parent #325 D4).
   ///     <para>IDEMPOTENT: a second started fact for the same agent (a watchdog retry) must
-  ///     not start a second poller appending the same messages twice.</para>
+  ///     not start a second poller appending the same messages twice, so a call while a loop
+  ///     is live is a no-op.</para>
+  ///     <para>A RESUMED AGENT IS FOLLOWED AGAIN (issue #330): the settle released the claim
+  ///     (<see cref="MarkFinished"/>), so this starts a fresh loop. The new loop is CHAINED
+  ///     behind the retired one, which is what stops the two from reading concurrently - the
+  ///     cursor only advances once per read, so two overlapping reads would render one message
+  ///     twice.</para>
   ///     <para>Only a host cell follows anything; a container cell's transcript is filled by
   ///     its own turn stream.</para></summary>
   public void StartFollowing()
   {
-    if (!RunsInOwnHost || _following)
+    if (!RunsInOwnHost)
     {
       return;
+    }
+
+    Task retired;
+    int generation;
+    lock (_followGate)
+    {
+      if (_followingGeneration != 0)
+      {
+        return; // a live loop owns the poller; a retried start is the same poller
+      }
+
+      generation = ++_followGeneration;
+      _followingGeneration = generation;
+      retired = _followLoop;
     }
 
     // A cell that is following again is by definition not finished (issue #330): the only way
@@ -226,14 +265,32 @@ internal sealed partial class AgentCellViewModel : ObservableObject
       RaiseStateChanged();
     }
 
-    _following = true;
-    _ = FollowAsync();
+    Task loop = FollowAfterAsync(retired, generation);
+    lock (_followGate)
+    {
+      _followLoop = loop;
+    }
   }
 
-  /// <summary>The host agent's poll loop: one read per interval while it runs. A store miss is
-  ///     not fatal - the next pass retries - because an agent that has not persisted its first
-  ///     message yet is the ordinary state one tick after it starts.</summary>
-  private async Task FollowAsync()
+  /// <summary>Waits for the retired loop's last read to land, then runs the new one: the two
+  ///     never overlap, so the shared cursor cannot count one message twice.</summary>
+  /// <param name="retired">The previous loop, or a completed task when there was none.</param>
+  /// <param name="generation">The generation the new loop owns.</param>
+  private async Task FollowAfterAsync(Task retired, int generation)
+  {
+    await retired.ConfigureAwait(false);
+    await FollowAsync(generation).ConfigureAwait(false);
+  }
+
+  /// <summary>The host agent's poll loop: one read per interval while it owns the current
+  ///     generation. A store miss is not fatal - the next pass retries - because an agent that
+  ///     has not persisted its first message yet is the ordinary state one tick after it
+  ///     starts.
+  ///     <para>The loop exits on its GENERATION, never on a shared flag: a resume re-arms
+  ///     following immediately, and a flag would read as 'keep going' to the loop that is
+  ///     already retiring.</para></summary>
+  /// <param name="generation">The generation this loop owns.</param>
+  private async Task FollowAsync(int generation)
   {
     // The first read is immediate: the cell appears with whatever the agent has already
     // persisted, rather than as an empty card for one interval.
@@ -241,12 +298,23 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     using PeriodicTimer timer = new(TranscriptPollInterval);
     while (await timer.WaitForNextTickAsync(CancellationToken.None).ConfigureAwait(false))
     {
-      if (!_following || IsFinished)
+      if (!OwnsFollow(generation))
       {
         return;
       }
 
       await ReadTranscriptAsync().ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Whether <paramref name="generation"/> is still the generation following, which
+  ///     is false once the cell settled or was detached.</summary>
+  /// <param name="generation">The generation a loop owns.</param>
+  private bool OwnsFollow(int generation)
+  {
+    lock (_followGate)
+    {
+      return _followingGeneration == generation;
     }
   }
 
@@ -322,9 +390,21 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   ///     <see cref="ReadTranscriptAsync"/> resumes from.</summary>
   private int _renderedCount;
 
-  /// <summary>Whether the host agent's poll loop should keep reading. Cleared by
-  ///     <see cref="StopFollowing"/>; the loop observes it on every tick.</summary>
-  private volatile bool _following;
+  /// <summary>Guards the poller's generation bookkeeping, so a start and a stop cannot
+  ///     interleave into two live loops or none.</summary>
+  private readonly Lock _followGate = new();
+
+  /// <summary>The generation the live poll loop owns, or 0 when nothing is following. Written
+  ///     by <see cref="StartFollowing"/> and cleared by <see cref="StopFollowing"/>.</summary>
+  private int _followingGeneration;
+
+  /// <summary>Every start's generation, so a retiring loop can tell it has been superseded.
+  ///     Monotonic, incremented under <see cref="_followGate"/>.</summary>
+  private int _followGeneration;
+
+  /// <summary>The loop currently running, or the last one to finish. A new start chains behind
+  ///     it so two loops never read the store at once.</summary>
+  private Task _followLoop = Task.CompletedTask;
 
   /// <summary>Serializes the tail of the read chain. Held only for the assignment, so no read
   ///     ever runs under it.</summary>
