@@ -4,7 +4,7 @@ namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>The workbench's view identities (design D8: six icons for nine views, grouped).
 ///     <see cref="Plans"/>, <see cref="Chains"/>, <see cref="Ledger"/>, <see cref="Git"/>,
-///     <see cref="GitHub"/>, and <see cref="Progress"/> are implemented; the rest are named here
+///     <see cref="GitHub"/> are implemented; the rest are named here
 ///     so the strip's shape is settled and a later view is a case, not a redesign.
 ///     <para><see cref="Chains"/> sits BESIDE <see cref="Plans"/> rather than inside it (issue
 ///     #312 D5): a plan is the design and a chain is its execution, so they are different
@@ -20,7 +20,6 @@ internal enum WorkbenchView
   Ledger,
   Git,
   Files,
-  Progress,
   GitHub,
   Database,
 }
@@ -57,14 +56,12 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   public WorkbenchViewModel(
       PlansViewViewModel plans,
       GitViewViewModel git,
-      SubagentPanelViewModel subagents,
       PullRequestPaneViewModel pullRequests,
       ChainsViewViewModel? chains = null,
       LedgerViewViewModel? ledgers = null)
   {
     Plans = plans ?? throw new ArgumentNullException(nameof(plans));
     Git = git ?? throw new ArgumentNullException(nameof(git));
-    Subagents = subagents ?? throw new ArgumentNullException(nameof(subagents));
     PullRequests = pullRequests ?? throw new ArgumentNullException(nameof(pullRequests));
     Chains = chains ?? ChainsViewViewModel.CreateUnavailable();
     Ledgers = ledgers ?? LedgerViewViewModel.CreateUnavailable();
@@ -81,10 +78,6 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
       new WorkbenchIconViewModel(WorkbenchView.Ledger, "\U0001F9EA", "Scientific-method ledger") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Git, "\U0001F33F", "Git status and diff") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Files, "\U0001F5C2", "File tree (not yet built)"),
-      // The Progress view IS the subagent accordion this workbench generalizes (D5):
-      // live agent progress is exactly what it renders, so retiring the auto-open
-      // mechanism costs no functionality.
-      new WorkbenchIconViewModel(WorkbenchView.Progress, "\u26A1", "Live agent progress") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.GitHub, "\U0001F50D", "Pull requests and CI") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Database, "\U0001F6E2", "App database (not yet built)"),
     ];
@@ -113,10 +106,6 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   ///     the selected path's diff, refreshed by a watch over the workspace root.</summary>
   public GitViewViewModel Git { get; }
 
-  /// <summary>The live agent progress view (design D5): the subagent accordion, moved
-  ///     from its own auto-opening column into a workbench view.</summary>
-  public SubagentPanelViewModel Subagents { get; }
-
   /// <summary>The GitHub view (issue #10): the repository's open pull requests, one PR's
   ///     detail, and a create form. Slower realtime than the other views by design - every
   ///     read spawns the gh CLI, so it polls on a long interval and only while visible.</summary>
@@ -142,9 +131,6 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
   /// <summary>True while the ledger view is the selected one (issue #318).</summary>
   public bool IsLedgerSelected => SelectedView == WorkbenchView.Ledger;
-
-  /// <summary>True while the live-progress view is the selected one.</summary>
-  public bool IsProgressSelected => SelectedView == WorkbenchView.Progress;
 
   /// <summary>True while the git view is the selected one.</summary>
   public bool IsGitSelected => SelectedView == WorkbenchView.Git;
@@ -174,7 +160,6 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     OnPropertyChanged(nameof(IsPlansSelected));
     OnPropertyChanged(nameof(IsChainsSelected));
     OnPropertyChanged(nameof(IsLedgerSelected));
-    OnPropertyChanged(nameof(IsProgressSelected));
     OnPropertyChanged(nameof(IsGitSelected));
     OnPropertyChanged(nameof(IsGitHubSelected));
     IsOpen = true;

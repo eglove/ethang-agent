@@ -17,8 +17,8 @@ namespace eThangAgent.Composition.Tests;
 ///     argument — <c>HostLaunchingRuntime</c> built each launched host's wire runtime with
 ///     <c>events: null</c>, so <c>RemoteAgentRuntime.HandleChildEvent</c> dropped every
 ///     forwarded envelope at the process boundary and the app never observed a spawned
-///     agent's lifecycle. The Progress pane read "No subagents running" because there was
-///     never an event to render, not because a panel was mis-wired.
+///     agent's lifecycle: nothing downstream could observe a spawn because there was never
+///     an event to observe, not because a consumer was mis-wired.
 ///     <para>These tests drive the REAL composition — <c>AddHostLaunchingAgentRuntime</c>,
 ///     resolved from a container the way <c>SessionHost.Create</c> resolves it — against a
 ///     REAL child host process and a local mock provider. Asserting on the container's own

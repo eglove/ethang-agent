@@ -489,6 +489,27 @@ public class WorkbenchLayoutTests
     return AgentDomain.Chain.New("ws", 4, 1, "running chain", "sess-abcdef34", [1], now) with { Id = 2 };
   }
 
+  /// <summary>Issue #327: the rail has NO Progress view. Live agent progress moved into the
+  ///     agent grid, so the icon, the view identity, the panel, and its view-model are gone.
+  ///     <para>The assertion is against the rendered strip as well as the view-model: an icon
+  ///     restored to <c>Icons</c> without a matching enum member would still render, so both
+  ///     halves of the surface have to be checked to prove the view is actually retired.</para></summary>
+  [AvaloniaFact]
+  public void TheRail_HasNoProgressView()
+  {
+    (WorkspaceTabView view, Grid _, Window window) = ShowWindow(1200);
+    AgentTabViewModel tab = (AgentTabViewModel)view.DataContext!;
+
+    Assert.DoesNotContain(tab.Workbench.Icons, icon => icon.Tooltip.Contains("progress", StringComparison.OrdinalIgnoreCase));
+    Assert.DoesNotContain("Progress", Enum.GetNames<WorkbenchView>());
+
+    // The retired view's pane is gone from the tab too: nothing binds a progress flag, and
+    // the empty-state line that named it is not in the rendered tree.
+    Assert.DoesNotContain(view.GetVisualDescendants().OfType<TextBlock>(),
+        block => block.Text is not null && block.Text.Contains("No subagents running", StringComparison.Ordinal));
+    window.Close();
+  }
+
   private static double GridWidth(WorkspaceTabView view) => view.GetVisualDescendants()
       .OfType<ScrollViewer>().First(s => s.Name == "CellScroll").Bounds.Width;
 

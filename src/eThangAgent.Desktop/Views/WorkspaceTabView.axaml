@@ -559,84 +559,8 @@
               </StackPanel>
             </ScrollViewer>
           </DockPanel>
-          <!-- LIVE AGENT PROGRESS (design D5): the subagent accordion, unchanged in
-               substance, now a workbench view instead of an auto-opening column. -->
-          <DockPanel IsVisible="{Binding Workbench.IsProgressSelected, Mode=OneWay}" Margin="8,8,8,0">
-            <TextBlock DockPanel.Dock="Top" Text="PROGRESS" FontWeight="SemiBold"
-                       Opacity="0.8" Margin="0,0,0,4"/>
-            <TextBlock Text="No subagents running." Opacity="0.55"
-                       IsVisible="{Binding !Workbench.Subagents.HasRows, Mode=OneWay}"/>
-            <ScrollViewer>
-              <ItemsControl x:Name="SubagentList" ItemsSource="{Binding Workbench.Subagents.Rows, Mode=OneWay}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:SubagentRowViewModel">
-                    <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Margin="0,2"
-                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                              DataContextChanged="OnRowDataContextChanged">
-                      <Expander.Header>
-                        <DockPanel HorizontalAlignment="Stretch">
-                          <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0"
-                                     Foreground="{Binding StatusBrush, Mode=OneWay}"
-                                     Text="{Binding StatusDisplay, Mode=OneWay}"/>
-                          <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                        </DockPanel>
-                      </Expander.Header>
-                      <ScrollViewer x:Name="RowTranscriptScroll" MaxHeight="420" VerticalScrollBarVisibility="Auto"
-                                    HorizontalScrollBarVisibility="Disabled">
-                        <ItemsControl ItemsSource="{Binding Transcript.Entries, Mode=OneWay}" Margin="4,4">
-                          <ItemsControl.DataTemplates>
-                            <DataTemplate DataType="vm:UserMessageEntry">
-                              <SelectableTextBlock Text="{Binding Text}" FontWeight="Bold" TextWrapping="Wrap" Margin="4,2"/>
-                            </DataTemplate>
-                            <DataTemplate DataType="vm:AssistantTextEntry">
-                              <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="4,2"/>
-                            </DataTemplate>
-                            <DataTemplate DataType="vm:ToolCallEntry">
-                              <Expander Classes="tool-card" IsExpanded="True" Margin="4,2"
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                                <Expander.Header>
-                                  <Panel>
-                                    <TextBlock IsVisible="{Binding IsExecCall}" TextWrapping="Wrap" FontSize="12">
-                                      <Run Text="⚙ "/><Run Text="{Binding HeaderTitle, Mode=OneWay}" FontWeight="SemiBold"/>
-                                    </TextBlock>
-                                    <TextBlock IsVisible="{Binding !IsExecCall}" TextWrapping="Wrap" FontSize="12">
-                                      <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
-                                      <Run Foreground="Gray" Text="{Binding Preview, Mode=OneWay}"/>
-                                    </TextBlock>
-                                  </Panel>
-                                </Expander.Header>
-                                <Panel>
-                                  <md:AgentMarkdownBlock IsVisible="{Binding IsExecCall}" MarkdownText="{Binding ProgramBody, Mode=OneWay}"/>
-                                  <SelectableTextBlock IsVisible="{Binding !IsExecCall}" FontFamily="Consolas, Courier New"
-                                                       TextWrapping="Wrap" FontSize="12"
-                                                       Text="{Binding ArgumentsFormatted, Mode=OneWay}"/>
-                                </Panel>
-                              </Expander>
-                            </DataTemplate>
-                            <DataTemplate DataType="vm:ToolResultEntry">
-                              <TextBlock TextWrapping="Wrap" Margin="4,2" FontSize="12">
-                                <Run Text="↳ "/><Run Text="{Binding Name, Mode=OneWay}"/>
-                                <Run Text="{Binding Summary, Mode=OneWay}" Foreground="{Binding SummaryBrush, Mode=OneWay}"/>
-                              </TextBlock>
-                            </DataTemplate>
-                            <DataTemplate DataType="vm:NoticeEntry">
-                              <SelectableTextBlock Text="{Binding Text}" Foreground="DarkGray" TextWrapping="Wrap" Margin="4,2"/>
-                            </DataTemplate>
-                            <DataTemplate DataType="vm:SystemMessageEntry">
-                              <SelectableTextBlock Text="{Binding Text}" Foreground="#B9C7E2" TextWrapping="Wrap" Margin="4,2"/>
-                            </DataTemplate>
-                          </ItemsControl.DataTemplates>
-                        </ItemsControl>
-                      </ScrollViewer>
-                    </Expander>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </ScrollViewer>
-          </DockPanel>
         </Panel>
       </Border>
     </Grid>
   </Grid>
 </UserControl>
-

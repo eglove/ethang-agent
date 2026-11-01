@@ -79,10 +79,6 @@ internal sealed record AgentSessionViewModelOptions
   ///     done). Null = the panel attaches nothing (headless stubs).</summary>
   public IAgentEvents? ChildEvents { get; init; }
 
-  /// <summary>The session's agent store: the subagent rows poll child transcripts
-  ///     from it for the realtime view. Null = rows render events only.</summary>
-  public IAgentStore? AgentStore { get; init; }
-
   /// <summary>This conversation's host channel (spec D6). When wired, EVERY turn travels
   ///     to the host process and the app runs no agent work; when null the session is a
   ///     headless/test host that deliberately opted into the in-process runtime. The
@@ -313,11 +309,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     source (headless stubs); the view routes keys only while it is open.</summary>
   public SkillAutocompleteViewModel? Autocomplete { get; }
 
-  /// <summary>The split view's subagent accordion (right column): rows arrive by
-  ///     subscription to the session's child-event stream, transcripts poll the
-  ///     store. Always constructed; visible only while rows exist.</summary>
-  public SubagentPanelViewModel Subagents { get; }
-
   /// <summary>The right-hand workbench (issue #8, design D1/D5): a permanent column with
   ///     an icon strip, showing one view at a time. Always constructed so the shell's
   ///     layout is stable; the user's collapse is what hides it.</summary>
@@ -428,9 +419,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     RootTurnChannel = options.RootTurnChannel;
     AttachDrainLease(options.ChildEvents, rootId);
 
-    Subagents = new SubagentPanelViewModel(options.AgentStore);
-    Subagents.Attach(options.ChildEvents, apply => evt =>
-      Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(evt)));
     // The workbench renders on the UI thread (its refresh completes on pool threads).
     // Issue #307 D6: a tab hands its OWN rail to every cell, because the rail is
     // workspace-scoped - a cell swap must not rebuild a pane the user is reading.
@@ -472,7 +460,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     builds ONE rail per workspace tab and shares it, because the rail is workspace-scoped.
   ///     <para>Every view renders its own unavailable state when its seam is null, so a headless
   ///     stub gets a working rail rather than a blank pane.</para></summary>
-  private WorkbenchViewModel BuildWorkbench(AgentSessionViewModelOptions options) => new(
+  private static WorkbenchViewModel BuildWorkbench(AgentSessionViewModelOptions options) => new(
       new PlansViewViewModel(
           options.Plans,
           options.ChangeSignal,
@@ -484,7 +472,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
           options.WorkspaceRoot,
           options.Git,
           render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
-      Subagents,
       // The GitHub view (issue #10) polls the gh CLI on a long interval and ONLY while
       // visible: each read is a subprocess, and no push channel exists (design D6).
       new PullRequestPaneViewModel(

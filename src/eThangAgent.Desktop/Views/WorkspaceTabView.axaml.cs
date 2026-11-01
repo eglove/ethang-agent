@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.VisualTree;
 using eThangAgent.Desktop.ViewModels;
 
 namespace eThangAgent.Desktop.Views;
@@ -219,58 +218,5 @@ internal partial class WorkspaceTabView : UserControl
     {
       _ = vm.DismissCell(cell);
     }
-  }
-
-  /// <summary>Attaches per-row sticky auto-scroll wiring when a subagent row's Expander
-  ///     materializes (the Progress view's accordion). Re-attachment for the same row replaces
-  ///     the old wiring - a recycled container gets a fresh viewer, so the stale subscription
-  ///     must go first.
-  ///     <para>FindControl cannot be used here: this handler fires from DataContext inheritance
-  ///     DURING ContentPresenter.ApplyTemplate (mid layout pass), before the template's name
-  ///     scope registers - FindControl threw 'Could not find parent name scope' and killed the
-  ///     dispatcher (the 2026-10-18 spawn crash). The visual subtree is searched instead; when
-  ///     the Expander's content has not materialized yet the wiring attaches on the NEXT
-  ///     DataContextChanged, so a miss is a deferred attach, never a lost one.</para></summary>
-  private void OnRowDataContextChanged(object? sender, EventArgs e)
-  {
-    if (sender is not Expander { DataContext: SubagentRowViewModel row } expander)
-    {
-      return;
-    }
-
-    if (_rowWirings.TryGetValue(row, out RowScrollWiring? existing))
-    {
-      existing.Dispose();
-      _ = _rowWirings.Remove(row);
-    }
-
-    ScrollViewer? viewer = expander.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
-    if (viewer is null)
-    {
-      return;
-    }
-
-    _rowWirings.Add(row, new RowScrollWiring(row, viewer));
-  }
-
-  /// <summary>Live per-row wirings, keyed by the row VM whose DataContext materialized them.</summary>
-  private readonly Dictionary<SubagentRowViewModel, RowScrollWiring> _rowWirings = [];
-
-  protected override void OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
-  {
-    base.OnDetachedFromVisualTree(e);
-    ReleaseRowWirings(); // recycled containers outlive this view instance
-  }
-
-  /// <summary>Releases every per-row wiring: the panel's rows are about to change identity
-  ///     (tab rebuild, VM re-wire) and stale subscriptions must not outlive their row.</summary>
-  private void ReleaseRowWirings()
-  {
-    foreach (RowScrollWiring wiring in _rowWirings.Values)
-    {
-      wiring.Dispose();
-    }
-
-    _rowWirings.Clear();
   }
 }

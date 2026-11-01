@@ -60,8 +60,8 @@ public class ChildHostRootChildEventForwardingTests
   [Fact]
   public async Task RootContainerSettled_ReachesTheAppWithoutAnySteer()
   {
-    // The settle is the other half of what the Progress view needs: a row that becomes a
-    // row must also stop being 'running', or the panel shows finished work forever.
+    // The settle is the other half of the lifecycle fact: an agent that started must also be
+    // reported as no longer running, or the app shows finished work as live forever.
     HostRig rig = await HostRig.StartAsync().ConfigureAwait(true);
     try
     {
@@ -96,7 +96,7 @@ public class ChildHostRootChildEventForwardingTests
   ///     IN-PROCESS runtime and runs the child directly.</para>
   ///     <para>If this assertion ever fails, the host was wired to a remote runtime and the
   ///     root forwarder alone would stop being sufficient - which is exactly the change
-  ///     someone needs to notice rather than discover from an empty Progress view.</para></summary>
+  ///     someone needs to notice rather than discover from an app that shows no live agent.</para></summary>
   [Fact]
   public async Task HostContainer_RunsItsChildrenInProcess_SoTheRootForwarderCarriesThem()
   {
@@ -139,7 +139,7 @@ public class ChildHostRootChildEventForwardingTests
 
     public Guid RootId { get; }
 
-    /// <summary>The APP-side stream the Desktop's Progress view and badge subscribe.</summary>
+    /// <summary>The APP-side stream the Desktop's badge subscribes.</summary>
     public RecordingEvents Events { get; }
 
     public static async Task<HostRig> StartAsync()

@@ -2090,9 +2090,6 @@ internal sealed partial class MainViewModel : ObservableObject
           session.WorkspaceRoot,
           session.Services.GetService<IGitQueryAccess>(),
           render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
-      // The Progress view's accordion is the tab's too: it lists the WORKSPACE's child agents,
-      // which every cell contributes to, so it cannot belong to one cell.
-      BuildSubagentPanel(session),
       // The GitHub view (issue #10) polls the gh CLI on a long interval and ONLY while
       // visible: each read is a subprocess, and no push channel exists (design D6).
       new PullRequestPaneViewModel(
@@ -2163,17 +2160,6 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>The tab's live-progress accordion, subscribed to the session's child-event
-  ///     stream. Events arrive on stream threads, so the marshal posts each application onto
-  ///     the UI thread (the 884fc61 crash fix).</summary>
-  private static SubagentPanelViewModel BuildSubagentPanel(AgentSession session)
-  {
-    SubagentPanelViewModel panel = new(session.Services.GetService<IAgentStore>());
-    panel.Attach(session.Services.GetService<IAgentEvents>(),
-        apply => evt => Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(evt)));
-    return panel;
-  }
-
   /// <summary>Builds the session view-model with its self-referencing stream sink and
   ///     status hook. Both resolve the view-model lazily through the supplied accessors,
   ///     so the instance is captured after construction.
@@ -2218,7 +2204,6 @@ internal sealed partial class MainViewModel : ObservableObject
               ? HandleSessionRequestAsync(requestTab, request)
               : Task.CompletedTask,
           ChildEvents = session.Services.GetService<IAgentEvents>(),
-          AgentStore = session.Services.GetService<IAgentStore>(),
           // Spec D6: the app runs NO agent work. A container built with the wire runtime
           // (every production session) resolves the channel here and every turn travels to
           // this conversation's host; a headless/test container that opted into the

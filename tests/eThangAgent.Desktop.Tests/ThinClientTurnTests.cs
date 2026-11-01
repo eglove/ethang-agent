@@ -238,28 +238,6 @@ public sealed class ThinClientTurnTests
   }
 
   [Fact]
-  public async Task SendAsync_ChildEventEnvelope_AddsASubagentRow()
-  {
-    // Issue #245: the host forwards child events as child-event envelopes; the runtime
-    // republishes them onto the session's stream, and the panel's subscription adds a
-    // row. The full app-side path: wire envelope -> runtime -> IAgentEvents -> panel.
-    FakeHostSession session = await FakeHostSession.StartAsync(["ok"]).ConfigureAwait(true);
-    TestEventStream events = new();
-    session.ViewModel.Subagents.Attach(events, apply => evt => apply(evt));
-    AgentId childId = AgentId.NewId();
-
-    // The runtime republishes onto the stream the panel subscribed (the production
-    // wiring resolves the SAME IAgentEvents for both). Simulate the pump's publish:
-    // the runtime's HandleChildEvent is private, so the test drives the observable
-    // contract - an event on the stream must reach the panel.
-    events.Publish(new ChildStartedEvent(childId, DateTimeOffset.UtcNow, null, "mock/sub-model", 0));
-
-    SubagentRowViewModel row = Assert.Single(session.ViewModel.Subagents.Rows);
-    Assert.Equal(childId, row.Id);
-    Assert.True(row.IsRunning);
-  }
-
-  [Fact]
   public async Task SendAsync_UnreadableToolPayload_SurfacesANotice()
   {
     FakeHostSession session = await FakeHostSession.StartAsync(["ok"]).ConfigureAwait(true);

@@ -71,29 +71,6 @@ internal static class TestFixtures
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
   }
 
-  /// <summary>Serves one mutable transcript from GetTranscriptAsync — the subagent
-  ///     panel's realtime source: the test mutates the list, the refresh appends the
-  ///     delta.</summary>
-  internal sealed class TranscriptStore(List<Message> transcript) : IAgentStore
-  {
-    public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("saved"));
-    public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("updated"));
-    public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "not found")));
-    public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("appended"));
-    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(id.ToString()));
-    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<Message>>(transcript));
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
-  }
-
   /// <summary>Serves a fixed record list from ListAllAsync — a session's own store
   ///     read model for tests that need persisted agent rows.</summary>
   internal sealed class ListAgentStore(IReadOnlyList<AgentRecord> records) : IAgentStore
@@ -318,7 +295,6 @@ runner,
       ToolDomain.IExperimentLedgerAccess access) => new(
       new PlansViewViewModel(plans: null, signal: null, render => render()),
       new GitViewViewModel(workspaceRoot, git: null, render => render()),
-      new SubagentPanelViewModel(store: null),
       new PullRequestPaneViewModel(workspaceRoot, github: null, render => render()),
       chains: null,
       new LedgerViewViewModel(access, signal: null, render => render()));
@@ -359,7 +335,6 @@ runner,
   private static WorkbenchViewModel BuildChainWorkbench(string workspaceRoot, IChainStore store) => new(
       new PlansViewViewModel(plans: null, signal: null, render => render()),
       new GitViewViewModel(workspaceRoot, git: null, render => render()),
-      new SubagentPanelViewModel(store: null),
       new PullRequestPaneViewModel(workspaceRoot, github: null, render => render()),
       new ChainsViewViewModel(new ChainService(store), signal: null, render => render()));
 #pragma warning restore CA2000
