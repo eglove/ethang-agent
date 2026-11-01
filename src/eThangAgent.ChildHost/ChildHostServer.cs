@@ -223,6 +223,15 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // CTS (whose cancellation only ends the settle WAIT, never the run).
       _runtimes[command.RecordId] = host.LocalRunner;
 
+      // Child-event forwarding (issue #245): the app's subagent panel subscribes the
+      // APP container's event stream, and this child publishes into ITS OWN container's
+      // stream — a different object in a different process. The forwarder republishes
+      // every event as a child-event envelope, so the panel, badge, and wake adapters
+      // observe remote children exactly like in-process ones. SUBSCRIBED BEFORE THE RUN
+      // IS DISPATCHED: the run's first act is to publish its started event, and a
+      // forwarder attached after the dispatch races it and loses.
+      AttachEventForwarder(host, loaded.Value.Id.Value);
+
       // Route through the host's LEAF EXECUTOR (issue #305 D1), not through host.Runtime: that
       // seam LAUNCHES a host per agent, so using it here would launch a host for the agent this
       // host already is — infinite recursion by construction. LocalRunner is the same runner
@@ -245,12 +254,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         watchdog.Start();
       }
 
-      // Child-event forwarding (issue #245): the app's subagent panel subscribes the
-      // APP container's event stream, and this child publishes into ITS OWN container's
-      // stream — a different object in a different process. The forwarder republishes
-      // every event as a child-event envelope, so the panel, badge, and wake adapters
-      // observe remote children exactly like in-process ones.
-      AttachEventForwarder(host, loaded.Value.Id.Value);
       Result<AgentRunOutcome> outcome = await host.LocalRunner.WhenSettledAsync(loaded.Value.Id, cts.Token).ConfigureAwait(false);
       if (outcome.IsSuccess)
       {

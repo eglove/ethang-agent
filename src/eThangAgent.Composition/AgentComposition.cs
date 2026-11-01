@@ -1350,7 +1350,10 @@ public static class AgentComposition
               settings,
               databasePath,
               sp.GetRequiredService<HostAdmissionGate>(),
-              notice => sp.GetRequiredService<SessionNoticeSink>().Post(notice))
+              notice => sp.GetRequiredService<SessionNoticeSink>().Post(notice),
+              // A launched host forwards its agent's child events; the container that
+              // launched it is what observes them, so they republish onto its own stream.
+              sp.GetRequiredService<IAgentEvents>())
           {
             // Assigned after construction because the store is a sibling registration and the
             // runtime must not capture a provider that may be disposed under it.

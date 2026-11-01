@@ -42,6 +42,8 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
   private readonly Func<string> _hostExePath;
   private readonly Action<string> _reportNotice;
   private readonly HostAdmissionGate _admission;
+  // The stream a launched host's forwarded child events republish onto. Null drops them.
+  private readonly IAgentEvents? _events;
   private readonly Lock _gate = new();
 
   // One live host per agent: the supervisor (the process + its job) and the wire runtime that
@@ -57,7 +59,7 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
   ///     lists, same provider keys), differing only in the session id that keys its pipe and
   ///     scratch folder.</summary>
   public HostLaunchingRuntime(AgentSettings settings, string databasePath, HostAdmissionGate admission,
-      Action<string> reportNotice, Func<string>? hostExePath = null)
+      Action<string> reportNotice, IAgentEvents? events = null, Func<string>? hostExePath = null)
   {
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
@@ -66,6 +68,7 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
     _databasePath = databasePath;
     _admission = admission;
     _reportNotice = reportNotice;
+    _events = events;
     // null keeps the default resolution (the copy shipped next to the app, else the repo's
     // live build output) — never a null dereference.
     _hostExePath = hostExePath ?? DefaultHostExePath;
@@ -128,10 +131,12 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
           _hostExePath);
 #pragma warning restore CA2000
 
+      // The launched host forwards its child's events as child-event envelopes; this
+      // stream is where they land, so the container that launched the agent observes it.
       RemoteAgentRuntime runtime = new(
           transport: null,
           _settings.SubAgents.RootTurnBudget ?? RootTurnBudget.Default,
-          events: null);
+          events: _events);
       _ = await supervisor.AttachAsync(runtime, ct).ConfigureAwait(false);
 
       lock (_gate)
