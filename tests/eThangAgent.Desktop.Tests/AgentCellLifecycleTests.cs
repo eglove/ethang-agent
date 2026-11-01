@@ -19,7 +19,7 @@ public class AgentCellLifecycleTests
     AgentTabViewModel tab = TestFixtures.CreateTab();
     AgentCellViewModel first = tab.Cells[0];
 
-    AgentCellViewModel? finished = tab.MarkSessionFinished(first.Container.RootId);
+    AgentCellViewModel? finished = tab.MarkSessionFinished(first.RootId);
 
     Assert.Same(first, finished);
     Assert.True(first.IsFinished);
@@ -41,7 +41,7 @@ public class AgentCellLifecycleTests
 
     Assert.Equal(2, tab.Cells.Count);
 
-    _ = tab.MarkSessionFinished(running.Container.RootId);
+    _ = tab.MarkSessionFinished(running.RootId);
     Assert.True(tab.DismissCell(running), "a finished cell is dismissible");
     _ = Assert.Single(tab.Cells);
   }

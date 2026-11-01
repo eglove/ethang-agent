@@ -188,8 +188,19 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   public void Restore(IReadOnlyList<Message> messages)
   {
     ArgumentNullException.ThrowIfNull(messages);
-    Dictionary<string, string> callNames = [];
+    _persistedCallNames.Clear();
+    AppendPersisted(messages);
+  }
 
+  /// <summary>Appends persisted messages to a transcript that is already rendering (issue
+  ///     #329): a spawned agent's messages land in the shared store at its own safe points,
+  ///     so its card is filled by repeated appends rather than one replay.
+  ///     <para>THE CALL-NAME MAP PERSISTS ACROSS CALLS. A tool result can arrive in a later
+  ///     append than the call it answers, and a per-call map would render that result as
+  ///     'tool' - the name would depend on where a poll happened to fall.</para></summary>
+  public void AppendPersisted(IReadOnlyList<Message> messages)
+  {
+    ArgumentNullException.ThrowIfNull(messages);
     foreach (Message message in messages)
     {
       switch (message.Role)
@@ -198,10 +209,10 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
           AddUser(message.Content, DecodeUserImages(message));
           break;
         case Role.Assistant:
-          RestoreAssistant(callNames, message);
+          RestoreAssistant(_persistedCallNames, message);
           break;
         case Role.Tool:
-          Entries.Add(RestoredToolResult(callNames, message));
+          Entries.Add(RestoredToolResult(_persistedCallNames, message));
           break;
         case Role.System:
           AddSystemMessage(message.Content);
@@ -214,6 +225,10 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     CloseOpen();
     _runningTool = null;
   }
+
+  /// <summary>Tool-call names seen while replaying persisted messages, so a result landing in
+  ///     a LATER append can still name the call it answers.</summary>
+  private readonly Dictionary<string, string> _persistedCallNames = [];
 
   /// <summary>Restores one assistant message: its text (when non-empty) followed by one
   ///     call entry per requested tool call, recording names so the following results

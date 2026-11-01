@@ -97,6 +97,12 @@ internal sealed record MainViewModelOptions
   ///     When null, production self-marshaling applies per session view-model.</summary>
   public Func<UiStreamEvent, Task>? UiStreamSink { get; init; }
 
+  /// <summary>Marshals a cell mutation onto the UI thread (test seam). Null = the Avalonia
+  ///     UI-thread dispatcher (production). A headless test injects a synchronous executor so
+  ///     the spawned-cell feed is drivable without a window, the same seam
+  ///     <see cref="AgentSessionViewModelOptions.UiMarshal"/> provides per session.</summary>
+  public Action<Action>? UiMarshal { get; init; }
+
   /// <summary>Current settings snapshot; enables settings editing.</summary>
   public AgentSettings? Settings { get; init; }
 
@@ -177,6 +183,11 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Optional stream-sink override for every opened session (test seam).
   ///     When null, production self-marshaling applies per session view-model.</summary>
   private readonly Func<UiStreamEvent, Task>? _streamSink;
+
+  /// <summary>Marshals a spawned-cell mutation onto the UI thread. Production posts through
+  ///     the Avalonia dispatcher; a headless test injects a synchronous executor, because a
+  ///     posted action would never run without a dispatcher loop.</summary>
+  private readonly Action<Action> _uiMarshal;
 
   /// <summary>Optional API-key protector guarding durable storage (test seam: when
   ///     null, keys are never persisted — plaintext must never reach the store).</summary>
@@ -378,6 +389,7 @@ internal sealed partial class MainViewModel : ObservableObject
     SeedGateStore(options);
     SeedSettingsPrefills(options);
     _streamSink = options?.UiStreamSink;
+    _uiMarshal = ResolveUiMarshal(options);
     _settings = options?.Settings;
     _sessionOpened = options?.SessionOpened;
     _sessionClosed = options?.SessionClosed;
@@ -1508,7 +1520,7 @@ internal sealed partial class MainViewModel : ObservableObject
     ArgumentNullException.ThrowIfNull(assignment);
     ArgumentException.ThrowIfNullOrWhiteSpace(predecessorSessionId);
     AgentTabViewModel? tab = Guid.TryParse(predecessorSessionId, out Guid predecessor)
-        ? Tabs.FirstOrDefault(t => t.Cells.Any(c => c.Container.RootId.Value == predecessor))
+        ? Tabs.FirstOrDefault(t => t.FindCell(new AgentId(predecessor)) is not null)
         : null;
     if (tab is null)
     {
@@ -1605,7 +1617,7 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     AgentCellViewModel? cell = Tabs
         .SelectMany(t => t.Cells)
-        .FirstOrDefault(c => c.Container.RootId == rootId);
+        .FirstOrDefault(c => c.RootId == rootId);
     if (cell is null || cell.ViewModel.IsBusy)
     {
       return false;
@@ -1629,7 +1641,7 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     AgentCellViewModel? cell = Tabs
         .SelectMany(t => t.Cells)
-        .FirstOrDefault(c => c.Container.RootId == rootId);
+        .FirstOrDefault(c => c.RootId == rootId);
     if (cell is null)
     {
       return false; // closed, or never open in this shell: nothing to resume
@@ -2338,11 +2350,89 @@ internal sealed partial class MainViewModel : ObservableObject
   private void AttachTabWiring(AgentSession session, AgentTabViewModel tab)
   {
     tab.AttachBadge(session.Services.GetService<IAgentEvents>());
+    AttachSpawnedCells(session, tab);
     tab.AttachBranchWatcher(session.Services.GetService<IGitQueryAccess>());
     // Issue #312 D6: a parked chain badges the tab header, because the rail may be closed and a
     // chain waiting for a human is the one thing here that needs attention.
     tab.AttachParkedChains(tab.Workbench.Chains);
     AttachChainAdvance(session, tab);
+  }
+
+  /// <summary>Subscribes the tab's agent stream to the SPAWNED-CELL feed (issue #329): a
+  ///     started fact appends a cell, a settled fact finishes it.
+  ///     <para>WHY THE SESSION'S OWN STREAM: since #326 a launched host's forwarded child events
+  ///     republish onto the container that launched it, so a spawned agent's lifecycle arrives
+  ///     here and nowhere else. Reading the store instead would be the polling this design
+  ///     replaces - a scan cannot distinguish 'just spawned' from 'was already there'.
+  ///     </para>
+  ///     <para>ONE SUBSCRIPTION PER SESSION, NOT PER CELL: every session in a tab gets this
+  ///     wiring, because any of them can be the one that calls agent.spawn. A session whose
+  ///     stream is null (a headless host) subscribes nothing.
+  ///     </para>
+  ///     <para>The lease is the tab's and is replaced per attach, so a cell swap cannot leave
+  ///     two subscribers appending duplicate cells for one spawn.</para></summary>
+  private void AttachSpawnedCells(AgentSession session, AgentTabViewModel tab)
+  {
+    if (session.Services.GetService<IAgentEvents>() is not { } events)
+    {
+      return;
+    }
+
+    IAgentStore? store = session.Services.GetService<IAgentStore>();
+    SpawnedCellSubscriber subscriber = new(
+        // The spawning agent's own session is what locates its tab: D10 makes a tab the
+        // workspace, and the parent of a spawned agent is a session in exactly one of them.
+        TabForSession,
+        () => Tabs,
+        _ => store,
+        BuildSpawnedCellViewModel,
+        _uiMarshal);
+    tab.AttachSpawnedCells(events.Subscribe(subscriber));
+  }
+
+  /// <summary>The tab showing <paramref name="rootId"/>'s session, or null when no tab does.
+  ///     A spawn from a session that is not open in this shell has no cell to land in.</summary>
+  private AgentTabViewModel? TabForSession(AgentId rootId)
+    => Tabs.FirstOrDefault(t => t.FindCell(rootId) is not null);
+
+  /// <summary>Builds the view-model a SPAWNED agent's cell renders (issue #329).
+  ///     <para>IT IS AN AgentSessionViewModel OVER THE CHILD'S OWN ID, because that type owns
+  ///     everything the cell shows - the transcript collection, the scroll controller, and the
+  ///     UI marshal the append runs through. Nothing else about it is live: no turn runner is
+  ///     wired (the app runs no turn for a child in another process), no inbox, no container,
+  ///     and no status model updater.
+  ///     </para>
+  ///     <para>The bootstrap line names the model the started fact carried, so the cell states
+  ///     what is serving the agent before its first message lands.
+  ///     </para></summary>
+  private static AgentSessionViewModel BuildSpawnedCellViewModel(AgentTabViewModel tab,
+      AgentId childId, string label, IAgentStore? store)
+  {
+    ArgumentNullException.ThrowIfNull(tab);
+    ArgumentNullException.ThrowIfNull(store);
+    _ = label;
+    return new AgentSessionViewModel(
+        // A spawned agent's turns belong to its own host: this runner refuses every call
+        // rather than pretending to serve one, and the cell hides its input (#330 wires
+        // steering).
+        static (_, _, _, _) => Task.FromResult(Result.Failure<string>(new DomainError(
+            "SpawnedAgent", "a spawned agent's turns run in its own host process."))),
+        new RootSessionLifecycle(store),
+        childId,
+        new Conversation(),
+        provider: tab.Container.ProviderName,
+        modelId: string.Empty,
+        new AgentSessionViewModelOptions
+        {
+          WorkspaceRoot = tab.Container.WorkspaceRoot,
+          // The app owns no turn for this agent, so the cell renders no chat input (#330
+          // wires steering); an input that silently did nothing would be worse than none.
+          IsSpawnedAgent = true,
+          // The transcript's entries are bound by the view, so the spawned cell's appends
+          // are marshalled onto the UI thread - the same contract every other append follows.
+          UiMarshal = action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+          Workbench = tab.Workbench,
+        });
   }
 
   /// <summary>Subscribes the tab's session stream to the mechanical advance (issue #301 D1).
@@ -2351,6 +2441,13 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     advance service per WORKSPACE, so a tab whose host wired none is a no-op.</para>
   ///     <para>The lease is held by the tab and disposed with it, so a closed tab cannot keep
   ///     advancing a chain.</para></summary>
+  /// <summary>The shell's UI marshal: the injected executor when a host supplied one, else
+  ///     the Avalonia dispatcher. Extracted from the constructor because S1541 counts
+  ///     branches and this is one coalesce.</summary>
+  /// <param name="options">The shell configuration, or null.</param>
+  private static Action<Action> ResolveUiMarshal(MainViewModelOptions? options)
+    => options?.UiMarshal ?? (action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+
   /// <summary>Seeds the root-supervision seams (issue #323). Extracted from the constructor
   ///     because S1541 counts branches and this is two assignments: a constructor that grew past
   ///     the limit for two field seeds would be split for the metric's sake, not for clarity.</summary>
@@ -2915,9 +3012,18 @@ internal sealed partial class MainViewModel : ObservableObject
     List<AgentCellViewModel> cells = [.. tab.Cells];
     foreach (AgentCellViewModel cell in cells)
     {
+      // A SPAWNED cell owns nothing here (issue #329): its agent runs in its own host, so
+      // there is no session to complete and no container to dispose. Only the poller is
+      // ours to stop.
+      if (cell.IsSpawned)
+      {
+        cell.StopFollowing();
+        continue;
+      }
+
       // After the guard: a stale double-close must not detach a NEWER watchdog bound to
       // the same root id (a closed session becomes resumable, so the id can be live again).
-      _sessionClosed?.Invoke(cell.Container.RootId);
+      _sessionClosed?.Invoke(cell.RootId);
 
       // Named decision (CA1031): teardown is best effort — a failing persistence
       // write must not prevent the tab from closing.
@@ -2933,6 +3039,7 @@ internal sealed partial class MainViewModel : ObservableObject
     tab.Badge?.Dispose();
     tab.DetachBranchWatcher();
     tab.DetachChainAdvance();
+    tab.DetachSpawnedCells();
     // Issue #307 D6: the rail belongs to the tab, so the tab's close is what stops its
     // pollers. A cell's shutdown deliberately leaves a SHARED rail running.
     tab.Workbench.Dispose();
@@ -2941,7 +3048,10 @@ internal sealed partial class MainViewModel : ObservableObject
 
     foreach (AgentCellViewModel cell in cells)
     {
-      await cell.Container.Services.DisposeAsync();
+      if (cell.Container is { } container)
+      {
+        await container.Services.DisposeAsync();
+      }
     }
   }
 
@@ -2966,12 +3076,11 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="rootId">The session to find.</param>
   public AgentSession? SessionFor(AgentId rootId) => Tabs
       .SelectMany(t => t.Cells)
-      .FirstOrDefault(c => c.Container.RootId == rootId)?.Container;
+      .FirstOrDefault(c => c.RootId == rootId)?.Container;
 
   public async Task CloseSessionAsync(AgentId rootId)
   {
-    AgentTabViewModel? tab = Tabs.FirstOrDefault(t =>
-        t.Cells.Any(c => c.Container.RootId == rootId));
+    AgentTabViewModel? tab = Tabs.FirstOrDefault(t => t.FindCell(rootId) is not null);
     if (tab is null)
     {
       return; // already gone: the advance has nothing left to retire
@@ -2984,9 +3093,17 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    AgentCellViewModel? cell = tab.Cells.FirstOrDefault(c => c.Container.RootId == rootId);
+    AgentCellViewModel? cell = tab.FindCell(rootId);
     if (cell is null)
     {
+      return;
+    }
+
+    // A spawned cell has no session to complete (issue #329): its run belongs to its own
+    // host, which retires it. The card stays as a record of what ran.
+    if (cell.IsSpawned)
+    {
+      cell.MarkFinished();
       return;
     }
 
@@ -3006,7 +3123,10 @@ internal sealed partial class MainViewModel : ObservableObject
     // The card stays in the grid (D7: position carries meaning) and its container is disposed
     // so the host process dies with it.
     _ = tab.MarkSessionFinished(rootId);
-    await cell.Container.Services.DisposeAsync().ConfigureAwait(true);
+    if (cell.Container is { } container)
+    {
+      await container.Services.DisposeAsync().ConfigureAwait(true);
+    }
   }
 
   /// <summary>Synchronous fire-and-forget close used by the tab header's close button.

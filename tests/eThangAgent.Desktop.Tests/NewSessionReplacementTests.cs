@@ -117,7 +117,7 @@ public class NewSessionReplacementTests
     Assert.Same(beta, shell.ViewModel.SelectedTab);
     // The tab still holds exactly one cell, and that cell is a NEW session.
     AgentCellViewModel cell = Assert.Single(beta.Cells);
-    Assert.NotEqual(retired, cell.Container.RootId);
+    Assert.NotEqual(retired, cell.RootId);
     Assert.Same(cell.ViewModel, beta.ViewModel);
   }
 

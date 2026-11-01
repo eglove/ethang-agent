@@ -100,7 +100,8 @@
     <DockPanel DockPanel.Dock="Bottom">
       <!-- Normal input row. The input stays enabled while a turn runs: text submitted
            then steers the active turn; the Stop button interrupts it. -->
-      <StackPanel x:Name="InputArea" DockPanel.Dock="Bottom">
+      <StackPanel x:Name="InputArea" DockPanel.Dock="Bottom"
+                  IsVisible="{Binding ShowsChatInput}">
         <!-- '/' autocomplete popup (spec #28): anchored above the input, open only
              while the session view-model's state machine says so. Selection highlight
              rides the ListBox's own rendering, driven one-way by the view-model's
