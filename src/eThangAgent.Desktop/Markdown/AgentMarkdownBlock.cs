@@ -1,5 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using MarkView.Avalonia;
@@ -47,6 +50,25 @@ internal class AgentMarkdownBlock : ContentControl
   private DispatcherTimer? _throttle;
   private bool _pending;
 
+  /// <summary>How many scrollbar thumbs inside this block are mid-drag. A re-render while one is
+  ///     held is DEFERRED, because the re-render replaces the scroll viewer, its scrollbar, and the
+  ///     thumb - and the pointer keeps driving the OLD thumb it captured. That orphaned the gesture
+  ///     mid-way: the thumb advanced a couple of characters and then the visible block stopped
+  ///     moving, and only releasing and grabbing again could advance it further (measured: the
+  ///     orphan's offset climbed 626 -> 783 -> 939 while the block on screen sat at 469.9).
+  ///     <para>A count rather than a flag, because a document holds many code blocks and only the
+  ///     one under the pointer is being dragged, but nothing prevents two starting before either
+  ///     finishes (a second pointer, or a synthetic event).</para></summary>
+  private int _activeDrags;
+
+  /// <summary>A render that arrived while a thumb was held, to run once the drag ends. Without
+  ///     this the deferral would silently DROP the delta and the block would stop streaming.</summary>
+  private bool _renderDeferredByDrag;
+
+  /// <summary>The thumbs currently watched for capture loss, so the subscription is added once and
+  ///     removed when it fires.</summary>
+  private readonly HashSet<Thumb> _captureWatched = [];
+
   /// <summary>How many times this block has rebuilt its visual, exposed so a test can
   ///     assert the coalescing CONTRACT (a bounded number of rebuilds for a burst of
   ///     deltas) instead of inferring it from wall-clock-dependent text. Counting here is
@@ -79,6 +101,16 @@ internal class AgentMarkdownBlock : ContentControl
     set => SetValue(ThrottleIntervalProperty, value);
   }
 
+  /// <summary>Subscribes the drag watch once, as CLASS handlers on this block. They are attached
+  ///     here rather than per document because the thumbs a drag starts on do not exist until the
+  ///     scrollbar template is applied, and a class handler sees every thumb this block will ever
+  ///     contain without enumerating them.</summary>
+  public AgentMarkdownBlock()
+  {
+    AddHandler(Thumb.DragStartedEvent, OnThumbDragStarted, RoutingStrategies.Bubble);
+    AddHandler(Thumb.DragCompletedEvent, OnThumbDragCompleted, RoutingStrategies.Bubble);
+  }
+
   // Self-rendering: property changes drive every render. Text changes coalesce
   // while open; close/variant changes are terminal and render immediately.
   protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -106,6 +138,20 @@ internal class AgentMarkdownBlock : ContentControl
     }
 
     _pending = false;
+    RenderDeferred();
+  }
+
+  /// <summary>Renders, unless a thumb inside this block is being dragged - in which case the render
+  ///     waits for the drag to end. Every render entry point goes through here so no path can
+  ///     rebuild the tree under the pointer.</summary>
+  private void RenderDeferred()
+  {
+    if (_activeDrags > 0)
+    {
+      _renderDeferredByDrag = true;
+      return;
+    }
+
     RenderMarkdown();
   }
 
@@ -127,7 +173,7 @@ internal class AgentMarkdownBlock : ContentControl
     {
       // First content (or first after a flush): render now, then open the
       // coalescing window. Subsequent deltas inside the window only set _pending.
-      RenderMarkdown();
+      RenderDeferred();
       _throttle = new DispatcherTimer { Interval = ThrottleInterval };
       _throttle.Tick += (_, _) => FlushPendingRender();
       _throttle.Start();
@@ -149,7 +195,7 @@ internal class AgentMarkdownBlock : ContentControl
       return;
     }
 
-    RenderMarkdown();
+    RenderDeferred();
   }
 
   private MarkdownViewer Viewer()
@@ -174,6 +220,74 @@ internal class AgentMarkdownBlock : ContentControl
     viewer.Markdown = MarkdownText ?? string.Empty;
     Content = viewer;
     CodeBlockScroller.Wrap(viewer, offsets);
+  }
+
+  /// <summary>Counts a drag starting, and watches THAT thumb for the ending DragCompleted cannot
+  ///     report.
+  ///     <para>These are CLASS handlers on the block, not subscriptions to individual thumbs, and
+  ///     that is load-bearing: a freshly rendered document has no thumbs yet - the scrollbar
+  ///     template is applied during the next layout pass - so an enumeration at render time finds
+  ///     none and the watch silently never attaches. Thumb's drag events BUBBLE, so one handler on
+  ///     the block sees every thumb it will ever contain, whenever that thumb appears.</para>
+  ///     <para>A gesture can end without DragCompleted: the pointer's capture is lost when the
+  ///     window deactivates or the thumb is detached. Measured - capture loss raises no
+  ///     DragCompleted - so a count that only ever decremented there would stay above zero and
+  ///     defer every later render forever, silently freezing the block's streaming.</para>
+  ///     <para>The capture-loss subscription therefore lives on the THUMB, not on this block:
+  ///     PointerCaptureLost is a DIRECT routed event, so a handler on an ancestor never sees it,
+  ///     while the thumb that held the capture always does. It is attached here rather than at
+  ///     render time because a freshly rendered document has no thumbs until the scrollbar
+  ///     template is applied, and DragStarted is the first moment one certainly exists.</para></summary>
+  private void OnThumbDragStarted(object? sender, VectorEventArgs e)
+  {
+    _activeDrags++;
+    // e.Source, never sender: this is a BUBBLING class handler, so sender is always this block
+    // and only the event's own Source names the thumb that started the drag.
+    if (e.Source is Thumb thumb && _captureWatched.Add(thumb))
+    {
+      thumb.PointerCaptureLost += OnThumbCaptureLost;
+    }
+  }
+
+  /// <summary>A lost capture ends the gesture. The count is CLEARED rather than decremented:
+  ///     capture is per pointer, so losing it means nothing is being held any more, and a stale
+  ///     count is the one failure mode that would stop the block rendering for good.</summary>
+  private void OnThumbCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+  {
+    if (sender is Thumb thumb)
+    {
+      thumb.PointerCaptureLost -= OnThumbCaptureLost;
+      _ = _captureWatched.Remove(thumb);
+    }
+
+    _activeDrags = 0;
+    ResumeDeferredRender();
+  }
+
+  private void OnThumbDragCompleted(object? sender, VectorEventArgs e)
+  {
+    if (_activeDrags > 0)
+    {
+      _activeDrags--;
+    }
+
+    ResumeDeferredRender();
+  }
+
+  /// <summary>Applies a render that was held off by a drag, once no drag is held. The position the
+  ///     user dragged to survives because RenderMarkdown captures it before rebuilding.</summary>
+  private void ResumeDeferredRender()
+  {
+    if (_activeDrags > 0 || !_renderDeferredByDrag)
+    {
+      return;
+    }
+
+    _renderDeferredByDrag = false;
+    _pending = false;
+    _throttle?.Stop();
+    _throttle = null;
+    RenderMarkdown();
   }
 
   private void RenderPlain()
