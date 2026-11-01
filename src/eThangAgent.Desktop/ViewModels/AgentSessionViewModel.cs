@@ -156,6 +156,12 @@ internal sealed record AgentSessionViewModelOptions
   ///     claiming an affordance it does not wire.</para></summary>
   public bool RunsInOwnHost { get; init; }
 
+  /// <summary>Whether this session's transcript outlives the session (issue #329): a session
+  ///     whose cell stays in the grid as a finished card keeps its rendered entries, so the card
+  ///     shows what ran. False for a session whose cell is swapped away, which has nothing left to
+  ///     render.</summary>
+  public bool KeepsTranscript { get; init; }
+
   /// <summary>Receives this session's own ROOT TURN facts (issue #301 D5): a turn started,
   ///     a tool dispatch, a streamed fragment, a turn settled.
   ///     <para>WHY THIS EXISTS: the chain advance must be able to tell that a root session
@@ -434,6 +440,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _childRuntime = options.ChildRuntime;
     RunsInOwnHost = options.RunsInOwnHost;
     _rootActivity = options.RootActivitySink;
+    _keepsTranscript = options.KeepsTranscript;
     RootTurnChannel = options.RootTurnChannel;
     AttachDrainLease(options.ChildEvents, rootId);
 
@@ -905,9 +912,25 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     {
       Workbench.Dispose();
     }
-    Transcript.DisposeEntries();
+    // A TRANSCRIPT THAT STAYS ON SCREEN KEEPS ITS CONTENT (issue #329). A retired chain step's
+    // cell remains as a finished card (D7), so clearing its entries would leave a card that
+    // promises a transcript and renders nothing. The decoded images are released either way,
+    // which is what the disposal exists for; a transcript nothing renders clears entirely.
+    if (_keepsTranscript)
+    {
+      Transcript.ReleaseEntries();
+    }
+    else
+    {
+      Transcript.DisposeEntries();
+    }
+
     await _lifecycle.CompleteAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
   }
+
+  /// <summary>Whether this view-model's transcript outlives its session (issue #329): true for a
+  ///     session whose cell stays in the grid as a finished card after the session is retired.</summary>
+  private readonly bool _keepsTranscript;
 
   /// <summary>Reports one root-turn fact to the session's supervisor (issue #301 D5).
   ///     <para>Best effort by contract: the supervisor is a supervision surface, and a
@@ -918,9 +941,16 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <param name="sink">Receives this session's own turn facts.</param>
   public void AttachRootActivity(Action<RootTurnActivity> sink) => _attachedRootActivity = sink;
 
+  /// <summary>The sink this session's turn facts are reported to, or null when none is attached.
+  ///     <see cref="BeatRootActivity"/> reports through exactly this value, so a caller can tell
+  ///     which view-model a supervision clock is bound to rather than inferring it.
+  ///     <para>READ-ONLY BY DESIGN: attaching is the only mutation, and it names the sink once.
+  ///     </para></summary>
+  internal Action<RootTurnActivity>? RootActivityObserver => _attachedRootActivity ?? _rootActivity;
+
   private void BeatRootActivity(RootTurnPhase phase, string label)
   {
-    if ((_attachedRootActivity ?? _rootActivity) is not { } sink)
+    if (RootActivityObserver is not { } sink)
     {
       return;
     }

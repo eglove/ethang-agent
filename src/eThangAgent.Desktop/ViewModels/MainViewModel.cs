@@ -1386,7 +1386,10 @@ internal sealed partial class MainViewModel : ObservableObject
           "that tab is no longer open; no session was started."));
     }
 
-    if (tab.ViewModel.IsBusy)
+    // THE BUSY SESSION IS THE ONE BEING RETIRED (issue #329), not the tab's primary: a chain
+    // step occupies its own cell, so the cell that must be idle is the predecessor's. Checking
+    // the primary there would test an agent the launch does not touch.
+    if (RetiredViewModel(tab, predecessorId).IsBusy)
     {
       return Result.Failure<ReplacedSession>(new DomainError("TurnBusy",
           "a turn is running in that tab; stop it before starting a new session."));
@@ -1449,6 +1452,18 @@ internal sealed partial class MainViewModel : ObservableObject
         tab, created.Value, index, prompt, role, placement, predecessorId));
   }
 
+  /// <summary>The view-model a launch retires (issue #329): the cell of the session named by
+  ///     <paramref name="retiredId"/>, or the tab's primary when the launch names none.
+  ///     <para>WHY IT MATTERS: a chain step is its own agent with its own cell, so 'is the tab
+  ///     busy' and 'wait for the turn' both have to address the session whose container the
+  ///     launch is about to dispose. Reading the primary there would find an idle agent that
+  ///     nothing is going to touch - the #322 wait would return at once and the teardown would
+  ///     dispose a container with a turn still running through it.</para></summary>
+  /// <param name="tab">The tab the launch lands in.</param>
+  /// <param name="retiredId">The session the launch retires, or null for the primary.</param>
+  private static AgentSessionViewModel RetiredViewModel(AgentTabViewModel tab, AgentId? retiredId)
+    => (retiredId is { } id ? tab.FindCell(id)?.ViewModel : null) ?? tab.ViewModel;
+
   /// <summary>What one start produced (issue #329): the tab it landed in, and the id of the
   ///     session it started.
   ///     <para>THE ID IS NOT THE TAB'S PRIMARY ANY MORE. A chain step appends its own cell, so
@@ -1502,7 +1517,11 @@ internal sealed partial class MainViewModel : ObservableObject
         () => freshVmRef ??
             throw new InvalidOperationException("session view-model not initialized"),
         id => freshVmRef!.Status.ModelId = id,
-        () => tab);
+        () => tab,
+        // A CHAIN STEP'S CARD OUTLIVES ITS SESSION (issue #329): the cell stays in the grid as a
+        // finished card, so its transcript must survive the retire teardown that would otherwise
+        // clear it.
+        keepsTranscript: chainStep is not null);
     freshVmRef = freshVm;
     session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
         () => freshVmRef?.AddSystemNotice(message));
@@ -1532,7 +1551,7 @@ internal sealed partial class MainViewModel : ObservableObject
       tab.ReplacePrimaryCell(session, freshVm);
     }
 
-    AttachTabWiring(session, tab);
+    AttachTabWiring(session, tab, freshVm);
     if (chainStep is not null)
     {
       // The predecessor is DONE and stays as a finished card (D7): the chain moved on, and the
@@ -1574,13 +1593,17 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     completed its step is running in that workspace's tab.</para>
   ///     <para>THE LAUNCH HAPPENS MID-TURN, SO IT WAITS (issue #322). The completion fact is
   ///     published by the <c>plan.update-step ... status=Done</c> write, which happens INSIDE
-  ///     the step's own exec call - so the tab is busy running the very turn that reported the
-  ///     completion. <see cref="StartNewSessionAsync(AgentTabViewModel, string, IReadOnlyList{Message}, ChainContract, ChainStepRole)"/> refuses a busy tab with
-  ///     <c>TurnBusy</c>, and the creation path (<see cref="WaitForIdleAndReplaceAsync"/>) already
-  ///     solves exactly this by answering first and waiting. The advance had no such wait, so
-  ///     every advance was refused and nothing retried: the chain sat Running with the next step
-  ///     Pending and no session, forever. Waiting costs nothing here because the claim is
-  ///     already held - the step is owned for the whole window.</para>
+  ///     the step's own exec call - so the session that reported the completion is busy running
+  ///     the very turn that reported it. <see cref="StartSessionAsync"/> refuses a busy retired
+  ///     session with <c>TurnBusy</c>, and the creation path
+  ///     (<see cref="WaitForIdleAndReplaceAsync"/>) already solves exactly this by answering
+  ///     first and waiting. The advance had no such wait, so every advance was refused and
+  ///     nothing retried: the chain sat Running with the next step Pending and no session,
+  ///     forever. Waiting costs nothing here because the claim is already held - the step is
+  ///     owned for the whole window.</para>
+  ///     <para>THE WAIT AND THE RETIREMENT ADDRESS THE SAME SESSION: the predecessor named by
+  ///     <paramref name="predecessorSessionId"/>, whose container this launch disposes. Neither
+  ///     is the tab's primary once a chain step occupies its own cell (issue #329).</para>
   ///     <para>Returns the new session's id, or a typed failure. The caller (the advance) has
   ///     already claimed the step, so a failure here releases it rather than leaking it.</para></summary>
   /// <param name="assignment">The chain step the new session is started for.</param>
@@ -1618,14 +1641,19 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     // THE COMPLETING TURN MUST FINISH FIRST (issue #322), for the reason in the summary above:
-    // the fact that requested this advance was published from inside that turn, so the tab is
-    // busy by construction and StartNewSessionAsync would refuse it with TurnBusy. This is the
+    // the fact that requested this advance was published from inside that turn, so the session it
+    // came from is busy by construction and the launch would refuse it with TurnBusy. This is the
     // same wait the creation path performs, in the place the advance needs it. A faulted turn is
     // already surfaced in the transcript and must not strand the chain.
+    // THE WAIT ADDRESSES THE PREDECESSOR'S OWN CELL (issue #329): a chain step is its own agent,
+    // so the session that must go idle is the one named by predecessorSessionId - never the tab's
+    // primary, which is the agent that started the chain and is idle throughout.
+    AgentSessionViewModel predecessorVm = RetiredViewModel(tab,
+        Guid.TryParse(predecessorSessionId, out Guid waiting) ? new AgentId(waiting) : null);
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      await tab.ViewModel.WaitForTurnAsync().ConfigureAwait(true);
+      await predecessorVm.WaitForTurnAsync().ConfigureAwait(true);
     }
     catch (Exception)
     {
@@ -1831,7 +1859,7 @@ internal sealed partial class MainViewModel : ObservableObject
     cellVm.Transcript.Restore(session.Conversation.Messages);
 
     AgentCellViewModel cell = tab.AddCell(session, cellVm);
-    AttachTabWiring(session, tab);
+    AttachTabWiring(session, tab, cellVm);
 
     if (!string.IsNullOrWhiteSpace(prompt))
     {
@@ -2043,9 +2071,13 @@ internal sealed partial class MainViewModel : ObservableObject
   private async Task WaitForIdleAndReplaceAsync(AgentTabViewModel tab, AgentSession session,
       SessionRequestPayload request, AgentId? requestingSessionId)
   {
+    // THE REQUESTING SESSION'S OWN CELL (issue #329): the turn that emitted the request is the
+    // one that must finish, and it is not the tab's primary once a chain step has its own cell.
+    // A handoff names no requesting session, and the primary is then the right answer.
+    AgentSessionViewModel requestingVm = RetiredViewModel(tab, requestingSessionId);
     try
     {
-      await tab.ViewModel.WaitForTurnAsync().ConfigureAwait(true);
+      await requestingVm.WaitForTurnAsync().ConfigureAwait(true);
     }
     // Named decision (CA1031): a faulted turn is already surfaced in the transcript; the
     // replacement it requested must still land, or the session the host was told to
@@ -2201,7 +2233,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // Publish the tab to the view-model's new-session seams (issue #234): both resolve it
     // lazily because the tab is constructed FROM this view-model.
     attachedTab = tab;
-    AttachTabWiring(session, tab);
+    AttachTabWiring(session, tab, sessionVm);
     Tabs.Insert(Math.Clamp(index, 0, Tabs.Count), tab);
     _sessionOpened?.Invoke(session);
     SelectedTab = tab;
@@ -2302,10 +2334,14 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     so the instance is captured after construction.
   ///     <para>The new-session seams (issue #234) are bound to the TAB the view-model ends
   ///     up in, and the tab does not exist yet — so both resolve it lazily through the same
-  ///     accessor pattern, and both are no-ops until the tab is attached.</para></summary>
+  ///     accessor pattern, and both are no-ops until the tab is attached.</para>
+  ///     <para><paramref name="keepsTranscript"/> says whether the session's cell survives its
+  ///     own retirement (issue #329): a chain step's does, and the card must still render.</para>
+  ///     </summary>
   private AgentSessionViewModel BuildSessionViewModel(AgentSession session,
       WorkbenchViewModel workbench, Func<AgentSessionViewModel> currentViewModel,
-      Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab)
+      Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab,
+      bool keepsTranscript = false)
   {
     return new AgentSessionViewModel(
         // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
@@ -2378,6 +2414,9 @@ internal sealed partial class MainViewModel : ObservableObject
               : Task.CompletedTask,
           // Issue #307 D6: the tab's own rail, shared by every cell in it.
           Workbench = workbench,
+          // Issue #329: a session whose cell stays as a finished card keeps its transcript when
+          // it is retired.
+          KeepsTranscript = keepsTranscript,
         });
   }
 
@@ -2475,15 +2514,24 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     deliver raises, drain/settle clear; a subscription, never a poll) and the
   ///     statusline's git branch watcher (issue 1 — event-driven on .git changes; a
   ///     session without the git seam, none in production, skips it).</summary>
-  private void AttachTabWiring(AgentSession session, AgentTabViewModel tab)
+  private void AttachTabWiring(AgentSession session, AgentTabViewModel tab,
+      AgentSessionViewModel sessionVm)
   {
+    ArgumentNullException.ThrowIfNull(sessionVm);
     tab.AttachBadge(session.Services.GetService<IAgentEvents>());
     AttachAgentCells(session, tab);
     tab.AttachBranchWatcher(session.Services.GetService<IGitQueryAccess>());
     // Issue #312 D6: a parked chain badges the tab header, because the rail may be closed and a
     // chain waiting for a human is the one thing here that needs attention.
     tab.AttachParkedChains(tab.Workbench.Chains);
-    AttachChainAdvance(session, tab);
+    // ROOT SUPERVISION IS THE SESSION'S OWN (issue #329): its clock is the turn facts of the
+    // view-model passed here, which is the cell THIS session occupies - never the tab's primary.
+    if (AttachRootSupervision(session, sessionVm) is { } rootWatchdog)
+    {
+      _rootWatchdogs[session.RootId] = rootWatchdog;
+    }
+
+    AttachChainAdvance(session, tab, sessionVm);
   }
 
   /// <summary>Subscribes one session's stream to the AGENT-CELL feed (issue #329): a started
@@ -2631,9 +2679,13 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     that is not a chain step, gets no watchdog and the shell behaves exactly as it did before
   ///     this wiring existed.</para></summary>
   /// <param name="session">The session whose turn facts to supervise.</param>
-  /// <param name="tab">The tab the session lives in.</param>
-  private RootSessionWatchdog? AttachRootSupervision(AgentSession session, AgentTabViewModel tab)
+  /// <param name="sessionVm">That session's own view-model, which is where its turn facts are
+  ///     produced - the cell it occupies, which is not the tab's primary once a chain step has
+  ///     its own cell.</param>
+  private RootSessionWatchdog? AttachRootSupervision(AgentSession session,
+      AgentSessionViewModel sessionVm)
   {
+    ArgumentNullException.ThrowIfNull(sessionVm);
     if (_watchdogLoop is null || _watchdogPolicy is null)
     {
       return null; // no loop to attach to (tests, headless hosts)
@@ -2655,15 +2707,20 @@ internal sealed partial class MainViewModel : ObservableObject
         new ChainStepAssignment(contract.ChainId, contract.PlanId, contract.Position, null),
         new RootSessionHost(() => this), _watchdogPolicy, events, TimeProvider.System);
 
-    // THE FACTS FLOW FROM THE VIEW-MODEL, which is the only thing that knows when this session's
-    // turns actually start and settle; the loop only asks whether it has gone quiet.
-    tab.ViewModel.AttachRootActivity(supervisor.OnActivity);
+    // THE FACTS FLOW FROM THIS SESSION'S OWN VIEW-MODEL, which is the only thing that knows when
+    // its turns actually start and settle; the loop only asks whether it has gone quiet. The tab's
+    // primary view-model is NOT this session's whenever a chain step occupies its own cell, and
+    // each view-model's sink is a single slot, so binding through the tab would both watch the
+    // wrong session and clobber a previous step's clock.
+    sessionVm.AttachRootActivity(supervisor.OnActivity);
     _watchdogLoop.Attach(session.RootId, watchdog);
     return watchdog;
   }
 
-  private void AttachChainAdvance(AgentSession session, AgentTabViewModel tab)
+  private void AttachChainAdvance(AgentSession session, AgentTabViewModel tab,
+      AgentSessionViewModel sessionVm)
   {
+    ArgumentNullException.ThrowIfNull(sessionVm);
     if (_chainAdvance is not { } resolve
         || resolve(session) is not { } advance
         || session.Services.GetService<IAgentEvents>() is not { } events)
@@ -2671,32 +2728,23 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-
-    // ROOT SUPERVISION (issue #301 D5, wired by #323): a chain step's session that goes idle
-    // without completing is nudged once, then its chain parks. The watchdog ticks from the shell's
-    // own loop (the one that already ticks every session's child watchdog), and its clock is the
-    // session view-model's OWN turn facts - never a wall clock, and never ChildProgressEvent,
-    // which describes a child run and was retired by #305/#316.
-    if (AttachRootSupervision(session, tab) is { } rootWatchdog)
-    {
-      _rootWatchdogs[session.RootId] = rootWatchdog;
-    }
-
     // THE FAILED PATH (issue #303, wired by #323). Same stream, same session, one more fact:
     // a step whose session settles TERMINALLY has failed, and the lifecycle decides retry
     // versus park. It lives beside the advance because both are reactions to the same session's
     // stream, and #323 measured what happens when a chain reaction is written and never attached.
+    // THE NOTICE LANDS IN THIS SESSION'S CELL (issue #329), not the tab's primary: a chain step
+    // occupies its own cell, so a report about it belongs where that step is shown.
     if (ChainAdvanceFactory.LifecycleFor(session, () => this) is { } lifecycle)
     {
       ChainFailureSubscriber failures = new(lifecycle,
-          message => Avalonia.Threading.Dispatcher.UIThread.Post(() => tab.ViewModel.AddSystemNotice(message)));
+          message => Avalonia.Threading.Dispatcher.UIThread.Post(() => sessionVm.AddSystemNotice(message)));
       tab.AttachChainAdvance(session.RootId,
           events.Subscribe(new ChainFailureEventSink(failures, session.RootId)));
     }
 
     ChainAdvanceSubscriber subscriber = new(
         _ => advance,
-        message => Avalonia.Threading.Dispatcher.UIThread.Post(() => tab.ViewModel.AddSystemNotice(message)));
+        message => Avalonia.Threading.Dispatcher.UIThread.Post(() => sessionVm.AddSystemNotice(message)));
     tab.AttachChainAdvance(session.RootId,
         events.Subscribe(new ChainAdvanceEventSink(subscriber, session.WorkspaceRoot)));
   }
@@ -3231,7 +3279,11 @@ internal sealed partial class MainViewModel : ObservableObject
       return; // already gone: the advance has nothing left to retire
     }
 
-    if (tab.Container.RootId == rootId)
+    // THE TAB'S IDENTITY IS ITS PRIMARY CELL, not its earliest live container (issue #329): once
+    // a chain step's predecessor has retired, the first live container is a LATER cell, and
+    // comparing against it closed the whole workspace tab when a chain completed - destroying
+    // every card in the grid, including the ones D7 keeps so the work can be read.
+    if (tab.Cells.Count > 0 && tab.Cells[0].RootId == rootId)
     {
       // The primary cell is the tab's identity; there is no tab without it.
       await CloseTabAsync(tab).ConfigureAwait(true);

@@ -215,10 +215,33 @@ public class ChainExecutionE2ETests
 
       // AND NO ADVANCE WAS REFUSED along the way - the #322 symptom, asserted as an absence
       // because a refusal is what a stalled chain leaves behind.
-      string notices = string.Join(" / ", shell.Tabs.SelectMany(t => t.ViewModel.Transcript.Entries)
+      string notices = string.Join(" / ", shell.Tabs.SelectMany(t => t.Cells)
+          .SelectMany(c => c.ViewModel.Transcript.Entries)
           .OfType<NoticeEntry>()
           .Select(n => n.Text));
       Assert.DoesNotContain("[chain] advance refused", notices, StringComparison.Ordinal);
+
+      // AND THE ADVANCE ACTUALLY WAITED FOR THE SESSION IT RETIRED (issue #329). An absence of
+      // refusals is not that proof: with the tab's primary idle a wait on the PRIMARY returns at
+      // once and nothing is refused - the predecessor's container is simply disposed mid-turn,
+      // which is the failure #322 exists to prevent and which no notice announces. What a correct
+      // wait leaves behind is the PREDECESSOR'S finished card, holding its own transcript and its
+      // own host's last turn: both are read here, on the step that was retired by step 2.
+      // THE TAB SURVIVES THE CHAIN (issue #329): completing the last step retires ONE session,
+      // and the tab that holds the grid - with every card the chain produced - must still be
+      // there. Closing it would take the record of what ran with it.
+      AgentTabViewModel tab = Assert.Single(shell.Tabs);
+      AgentCellViewModel retiredStep = tab.FindCell(step1Id)
+          ?? throw new InvalidOperationException("step 1's finished card is gone from the grid.");
+      Assert.True(retiredStep.IsFinished);
+      Assert.NotEmpty(retiredStep.ViewModel.Transcript.Entries);
+      Assert.Contains(retiredStep.ViewModel.Transcript.Entries.OfType<SystemMessageEntry>(),
+          entry => entry.Text.StartsWith(ChainBriefRenderer.Prefix, StringComparison.Ordinal));
+      // THE CREATOR KEEPS ITS CELL THROUGHOUT, and step 2's card is there too: five steps would
+      // be five cells, each stating its own step.
+      Assert.NotNull(tab.FindCell(creatorId));
+      Assert.NotNull(tab.FindCell(step2Id));
+      Assert.Equal("step 2 of 2 \u00b7 Chain E2E", tab.FindCell(step2Id)!.PlacementLine);
     }
     finally
     {

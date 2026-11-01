@@ -160,6 +160,23 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
 
   /// <summary>M17: disposes the decoded bitmaps of all tool-result entries when the
   ///     transcript is reset (session close/resume), keeping GPU/memory pressure bounded.</summary>
+  /// <summary>Releases the decoded bitmaps of every tool-result entry while KEEPING the
+  ///     entries themselves (issue #329). A transcript that stays on screen as a finished card
+  ///     must render what ran, and the image payloads are the only thing that must go.</summary>
+  public void ReleaseEntries()
+  {
+    foreach (TranscriptEntry entry in Entries)
+    {
+      if (entry is ToolResultEntry { Images: { } images })
+      {
+        foreach (TranscriptImage image in images)
+        {
+          image.Dispose();
+        }
+      }
+    }
+  }
+
   public void DisposeEntries()
   {
     foreach (TranscriptEntry entry in Entries)
