@@ -166,7 +166,7 @@ public class NativeInteropGateTests
   }
 
   // THE PIN. Populating this set is a product decision that must update this test and
-  // the AGENTS.md Exec ACL row in the same change — never a quiet widening.
+  // the NativeInteropPolicy contract in the same change — never a quiet widening.
   [Fact]
   public void Allowlist_IsEmpty() => Assert.Empty(NativeInteropPolicy.AllowedEntryPoints);
 

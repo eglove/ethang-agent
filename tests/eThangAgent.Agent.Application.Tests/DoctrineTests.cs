@@ -104,8 +104,8 @@ public sealed partial class DoctrineTests
 
   /// <summary>R5.3: audit is not state. Decision makers never read the audit trail to
   ///     decide — the one designed exception is attempt derivation (counting
-  ///     RetrySpawned/RetryDeferred rows the watchdog itself wrote; the AGENTS.md
-  ///     documents attempts as DERIVED from audit rows). The runtime, spawner,
+  ///     RetrySpawned/RetryDeferred rows the watchdog itself wrote, because attempts are
+  ///     DERIVED from audit rows rather than stored). The runtime, spawner,
   ///     orphan repair, and grant enforcement never touch watchdog_events at all:
   ///     enforcement is never informed by audit.</summary>
   [Fact]

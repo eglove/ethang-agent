@@ -43,7 +43,7 @@ dotnet_diagnostic.S138.severity = error
 
 # Namespaces & usings
 csharp_style_namespace_declarations = file_scoped
-# Domain namespaces deliberately omit the dot (AGENTS.md), so folder-path
+# Domain namespaces deliberately omit the dot, so folder-path
 # matching can never hold; every other namespace rule stays enforced.
 dotnet_style_namespace_match_folder = false
 csharp_using_directive_placement = outside_namespace

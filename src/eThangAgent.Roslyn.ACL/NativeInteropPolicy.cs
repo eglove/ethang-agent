@@ -51,8 +51,8 @@ public static class NativeInteropPolicy
 
   /// <summary>The entry points this gate permits. Intentionally EMPTY — see the type's
   ///     named decision. Exposed rather than inlined so a test can pin the emptiness: adding
-  ///     an entry point is a product decision that must update the test and the AGENTS.md
-  ///     Exec ACL row in the same change, never a quiet widening.</summary>
+  ///     an entry point is a product decision that must update this test in the same
+  ///     change, never a quiet widening.</summary>
   public static IReadOnlyCollection<string> AllowedEntryPoints => [];
 
   /// <summary>The attribute names that declare a native call. Matched on the RIGHTMOST
