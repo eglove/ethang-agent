@@ -20,7 +20,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     reaches the LIVE turn's channel through the production path.
 ///     <para>Every request runs INSIDE a real turn (the provider parks between deltas),
 ///     because the channel is connected only while a turn runs — the same shape the
-///     production new_session tool sees.</para></summary>
+///     production handoff sees.</para></summary>
 public class ChildHostSessionResponseTests
 {
   private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
@@ -32,7 +32,7 @@ public class ChildHostSessionResponseTests
     // emitted on that channel is answered by the app's session-response envelope through
     // the production dispatch path.
     ServiceCollection services = new();
-    _ = services.AddSingleton<NewSessionRequestChannel>();
+    _ = services.AddSingleton<SessionRequestChannel>();
     Conversation conversation = new();
     _ = services.AddSingleton(conversation);
     TaskCompletionSource parked = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -52,7 +52,7 @@ public class ChildHostSessionResponseTests
     // resolves it; the rig's own runner (no channel) is replaced.
     RootRunHost runner = new(provider, AgentId.NewId(), conversation);
     host.Server.AttachRootRun(runner);
-    NewSessionRequestChannel channel = provider.GetRequiredService<NewSessionRequestChannel>();
+    SessionRequestChannel channel = provider.GetRequiredService<SessionRequestChannel>();
     try
     {
 #pragma warning disable CA2007 // Named decision: 'await using' cannot carry ConfigureAwait.
@@ -96,7 +96,7 @@ public class ChildHostSessionResponseTests
   public async Task SessionResponse_WithTheAppsRefusal_FailsThePendingRequest()
   {
     ServiceCollection services = new();
-    _ = services.AddSingleton<NewSessionRequestChannel>();
+    _ = services.AddSingleton<SessionRequestChannel>();
     Conversation conversation = new();
     _ = services.AddSingleton(conversation);
     TaskCompletionSource parked = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -114,7 +114,7 @@ public class ChildHostSessionResponseTests
     ServiceProvider provider = services.BuildServiceProvider();
     RootRunHost runner = new(provider, AgentId.NewId(), conversation);
     host.Server.AttachRootRun(runner);
-    NewSessionRequestChannel channel = provider.GetRequiredService<NewSessionRequestChannel>();
+    SessionRequestChannel channel = provider.GetRequiredService<SessionRequestChannel>();
     try
     {
 #pragma warning disable CA2007 // Named decision: 'await using' cannot carry ConfigureAwait.

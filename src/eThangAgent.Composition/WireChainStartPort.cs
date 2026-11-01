@@ -7,7 +7,7 @@ namespace eThangAgent.Composition;
 /// <summary>The composition adapter for <c>IChainStartPort</c> (issue #313): emits a
 ///     session-request carrying a chain step assignment through the live turn's channel and
 ///     awaits the app's answer.
-///     <para>WHY THE SAME CHANNEL AS <c>new_session</c>: the act is identical — start a
+///     <para>WHY THE SAME CHANNEL AS THE COMPACTION HANDOFF: the act is identical — start a
 ///     session in this workspace and answer with its id — and the app is the only place a
 ///     session can be started, because a session is a tab cell, a container, and a host
 ///     process. A second envelope kind would be a second codec and a second handler for one
@@ -18,9 +18,9 @@ namespace eThangAgent.Composition;
 ///     <para>A REFUSAL IS THE APP'S, VERBATIM. This port translates nothing: the app's typed
 ///     code (TabClosed, SessionLaunchFailed, BriefUnsupported, ...) reaches the caller
 ///     unchanged, so the model reads the real cause.</para></summary>
-public sealed class WireChainStartPort(NewSessionRequestChannel channel) : IChainStartPort
+public sealed class WireChainStartPort(SessionRequestChannel channel) : IChainStartPort
 {
-  private readonly NewSessionRequestChannel _channel = channel ?? throw new ArgumentNullException(nameof(channel));
+  private readonly SessionRequestChannel _channel = channel ?? throw new ArgumentNullException(nameof(channel));
 
   /// <inheritdoc />
   public async Task<Result<string>> StartFirstStepAsync(ChainStepAssignment assignment,

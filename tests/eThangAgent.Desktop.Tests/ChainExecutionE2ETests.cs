@@ -22,14 +22,14 @@ namespace eThangAgent.Desktop.Tests;
 ///     over the production wire envelope. The reason is structural rather than a taste for
 ///     fidelity: option (a) CANNOT RUN THIS CHAIN AT ALL. An in-process container
 ///     (<c>AddInProcessAgentRuntime</c>) deliberately REMOVES <c>IRootTurnChannel</c> and no
-///     <c>RootRunHost</c> exists, so <c>NewSessionRequestChannel.Connect</c> is never called and
+///     <c>RootRunHost</c> exists, so <c>SessionRequestChannel.Connect</c> is never called and
 ///     <c>WireChainStartPort</c> fails every launch immediately with
 ///     <c>SessionRequestUnreachable</c>. An in-process chain test would therefore have to FAKE
 ///     <c>IChainStartPort</c> - the one port that IS the chain's launch mechanism - which is
 ///     exactly the green-test-over-a-broken-real-path failure this codebase keeps recording.
 ///     So the whole path runs for real: model-authored exec -> <c>Tools.Invoke("chain.start")</c>
 ///     -> <c>ChainCapabilityProvider</c> -> <c>WireChainStartPort</c> ->
-///     <c>NewSessionRequestChannel</c> -> <c>session-request</c> envelope ->
+///     <c>SessionRequestChannel</c> -> <c>session-request</c> envelope ->
 ///     <c>RemoteAgentRuntime</c> pump -> <c>AgentSessionViewModel</c> ->
 ///     <c>MainViewModel.HandleSessionRequestAsync</c> -> a brief-seeded session built by the
 ///     factory -> the answer returns as <c>session-response</c> -> the chain reassigns the claim.

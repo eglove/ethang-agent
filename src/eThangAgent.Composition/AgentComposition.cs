@@ -264,9 +264,6 @@ public static class AgentComposition
       new AgentToolBinding(
           sp.GetRequiredService<SkillInvokeTool>(),
           "Invoke a named catalog skill on the user's behalf (including manual skills)."),
-      new AgentToolBinding(
-          sp.GetRequiredService<NewSessionTool>(),
-          "Start a NEW session in this workspace with a given prompt; the current conversation completes gracefully and stays resumable."),
   ];
 
   /// <summary>Context and git tool bindings: the experiment ledger, context edit and trim,
@@ -595,13 +592,13 @@ public static class AgentComposition
         .AddSingleton<ChainReviewerGate>()
         // The plan-to-execution transition (issue #313): the plan port the creation action
         // validates against, and the session-start port it launches step 1 through. The start
-        // port rides the SAME session-request channel new_session uses - the act is identical,
-        // and a second envelope kind would be a second codec for one behaviour.
+        // port rides the SAME session-request channel the compaction handoff uses - the act is
+        // identical, and a second envelope kind would be a second codec for one behaviour.
         .AddSingleton<IChainPlanSource>(sp => new CompositionChainPlanSource(
             sp.GetRequiredService<PlanService>(),
             sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<IChainStartPort>(sp => new WireChainStartPort(
-            sp.GetRequiredService<NewSessionRequestChannel>()))
+            sp.GetRequiredService<SessionRequestChannel>()))
         .AddSingleton(sp => new ChainCapabilityProvider(
             sp.GetRequiredService<ChainService>(),
             sp.GetRequiredService<IChainPlanSource>(),
@@ -807,16 +804,11 @@ public static class AgentComposition
             sp.GetRequiredService<ISkillInvocationPort>(),
             sp.GetRequiredService<IConversationSink>(),
             notice => sp.GetRequiredService<SessionNoticeSink>().Post(notice)))
-        .AddSingleton(sp => new NewSessionTool(sp.GetRequiredService<INewSessionPort>()))
-        // New-session channel (issue #234): the per-container carrier of the LIVE root
-        // turn's session-request emitter plus the port adapter that serves the Tool
-        // Domain's INewSessionPort over it. Registered after the skill-invocation block
-        // (registration order mirrors the single chain); the tool binding itself belongs
-        // to the tool-binding task, which also decides the child-surface exclusion —
-        // AgentToolBindings is deliberately untouched here.
-        .AddSingleton<NewSessionRequestChannel>()
-        .AddSingleton<INewSessionPort>(sp => new WireNewSessionPort(
-            sp.GetRequiredService<NewSessionRequestChannel>()))
+        // The session-request channel (issue #234): the per-container carrier of the LIVE
+        // root turn's session-request emitter. Two callers ride it - the compaction handoff
+        // (RootRunHost) and the chain start port - because the act is identical: start a
+        // session in this workspace and answer with its id.
+        .AddSingleton<SessionRequestChannel>()
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow);
   }
@@ -1611,8 +1603,8 @@ public static class AgentComposition
   ///     Built lazily: the surface reaches IExecEngine through the capability closure,
   ///     so eager construction re-enters the container (see the registry-factory
   ///     registration comment).</summary>
-  /// <summary>Internal for tests only: Composition.Tests pins the new_session exclusion
-  ///     (issue #234) against the surface the spawn path actually grants from.</summary>
+  /// <summary>Internal for tests only: Composition.Tests pins the surface the spawn path
+  ///     actually grants from.</summary>
   internal static HashSet<string> ChildToolSurface(IServiceProvider sp)
   {
     // Deliberately resolves NO capability provider here: the SpawnOptions factory runs
@@ -1626,11 +1618,6 @@ public static class AgentComposition
         .Concat(sp.GetRequiredService<PlanCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<ChainCapabilityProvider>().Actions.Select(a => a.Name));
-    // GRANT DECISION (issue #234): a spawned child may NOT start sessions — a child has
-    // no workspace identity of its own and a session launch is a shell-level act. The
-    // tool stays root-only; a child's dispatch fails GrantViolation via the filtered
-    // registry.
-    names = names.Where(n => !string.Equals(n, "new_session", StringComparison.Ordinal));
     // THE DOOR (issue #288): exec is the only top-level tool, so it rides the surface the
     // spawn path grants from. Without it a narrowed child would hold a grant set it cannot
     // reach - every capability lives behind a door the filter had closed.

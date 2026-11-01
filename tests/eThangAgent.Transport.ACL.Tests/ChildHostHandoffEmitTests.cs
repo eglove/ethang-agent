@@ -13,7 +13,7 @@ using Ag = eThangAgent.AgentDomain.Agent;
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The compaction handoff emit (issue #234 task 5): a turn whose agent ends with
-///     HandoffPending emits a session-request through the SAME channel the new_session
+///     HandoffPending emits a session-request through the SAME channel a chain launch
 ///     tool uses — BEFORE the settle, so the app holds the new session's id before the
 ///     tab replacement — with an EMPTY prompt (seed-only launch: no auto first turn) and
 ///     the handoff summary as the seed. The pending flag is cleared after acting.
@@ -300,7 +300,7 @@ public class ChildHostHandoffEmitTests
     Ag faultAgent = faultHolder.Build(null, Config);
     faultAgent.SetHandoffForTests(pending: true, summary: "the handoff summary");
     ServiceProvider services = new ServiceCollection()
-        .AddSingleton<NewSessionRequestChannel>()
+        .AddSingleton<SessionRequestChannel>()
         .AddSingleton(conversation)
         .AddSingleton(faultHolder)
         .AddSingleton(sp => new SendMessageCommandHandler(
@@ -351,7 +351,7 @@ public class ChildHostHandoffEmitTests
     RootAgentHolder holder = new(provider, conversation, new EmptyToolRegistry(), dependencies: dependencies);
     Ag agent = holder.Build(null, Config); // the way the first turn builds the root
     ServiceProvider services = new ServiceCollection()
-        .AddSingleton<NewSessionRequestChannel>()
+        .AddSingleton<SessionRequestChannel>()
         .AddSingleton(conversation)
         .AddSingleton(holder)
         .AddSingleton(sp => new SendMessageCommandHandler(
@@ -375,7 +375,7 @@ public class ChildHostHandoffEmitTests
     Ag agent = holder.Build(null, Config);
     agent.SetHandoffForTests(pending, summary);
     ServiceProvider services = new ServiceCollection()
-        .AddSingleton<NewSessionRequestChannel>()
+        .AddSingleton<SessionRequestChannel>()
         .AddSingleton(conversation)
         .AddSingleton(holder)
         .AddSingleton(sp => new SendMessageCommandHandler(

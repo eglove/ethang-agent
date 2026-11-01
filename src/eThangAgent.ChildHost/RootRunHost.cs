@@ -255,7 +255,7 @@ public sealed class RootRunHost : IDisposable
     // The new-session channel (issue #234) rides the LIVE turn: connected here, before
     // the handler runs, and disconnected in RunTurnAsync's finally. A container without
     // the channel (a test rig) skips silently — the port is an optional capability.
-    if (Services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    if (Services.GetService(typeof(SessionRequestChannel)) is SessionRequestChannel channel)
     {
       channel.Connect(payload => emitter.Emit("session-request", payload));
     }
@@ -335,7 +335,7 @@ public sealed class RootRunHost : IDisposable
 
   /// <summary>The compaction handoff's emit (issue #234): when the resolved root agent
   ///     reports <c>HandoffPending</c>, emit a session-request through the
-  ///     SAME channel the new_session tool uses — an EMPTY prompt means seed-only launch
+  ///     SAME channel a chain launch uses — an EMPTY prompt means seed-only launch
   ///     (no auto first turn) — and await the app's answer BEFORE the settle, so the app
   ///     holds the new session's id before the tab replacement. A failure is swallowed
   ///     (the turn's own outcome is unaffected; the app surfaces launch failures itself).
@@ -407,7 +407,7 @@ public sealed class RootRunHost : IDisposable
         return;
       }
 
-      if (Services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+      if (Services.GetService(typeof(SessionRequestChannel)) is SessionRequestChannel channel)
       {
         // Awaited (bounded by the turn's own token) BEFORE the settle: the app has the
         // id before the tab replacement. A failure is swallowed — the turn's own
@@ -695,7 +695,7 @@ public sealed class RootRunHost : IDisposable
   ///     them to the app is gone.</summary>
   private void DisconnectSessionChannel()
   {
-    if (Services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    if (Services.GetService(typeof(SessionRequestChannel)) is SessionRequestChannel channel)
     {
       channel.Disconnect();
     }
@@ -706,7 +706,7 @@ public sealed class RootRunHost : IDisposable
   ///     runner. Unknown requestIds are ignored by the channel.</summary>
   public void CompleteSessionRequest(string requestId, Result<string> outcome)
   {
-    if (Services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    if (Services.GetService(typeof(SessionRequestChannel)) is SessionRequestChannel channel)
     {
       channel.Complete(requestId, outcome);
     }

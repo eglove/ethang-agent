@@ -19,7 +19,7 @@ public sealed class ChainReviewerModelWireTests
   /// <summary>Connects a real channel, captures the emitted payload, and answers it.</summary>
   private static async Task<SessionRequestChainStep?> EmittedStepAsync(ChainStepRole role)
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     SessionRequestPayload? captured = null;
     channel.Connect(json =>
     {

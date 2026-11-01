@@ -10,14 +10,14 @@ namespace eThangAgent.Composition.Tests;
 ///     the serialized payload verbatim, the app's answer completing the pending task,
 ///     the app's typed failure propagating, disconnect failing pending requests, an
 ///     unknown response id ignored, and a pre-cancelled request a typed failure.</summary>
-public class NewSessionRequestChannelTests
+public class SessionRequestChannelTests
 {
   private static readonly DomainError AppRefusal = new("SessionLaunchFailed", "the app refused the session launch.");
 
   [Fact]
   public async Task RequestAsync_WithNoConnectedTurn_FailsImmediately()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
 
     Result<string> answered = await channel.RequestAsync("req-1", "hello", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
@@ -28,7 +28,7 @@ public class NewSessionRequestChannelTests
   [Fact]
   public async Task RequestAsync_EmitsTheSerializedPayload_AndCompletesWithTheSessionId()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     List<string> emitted = [];
     channel.Connect(emitted.Add);
 
@@ -51,7 +51,7 @@ public class NewSessionRequestChannelTests
   [Fact]
   public async Task RequestAsync_WithNullHandoff_SerializesNullHandoffSummary()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     List<string> emitted = [];
     channel.Connect(emitted.Add);
 
@@ -70,7 +70,7 @@ public class NewSessionRequestChannelTests
   [Fact]
   public async Task Complete_WithTheAppsFailure_FailsThePendingRequestWithThatCode()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     channel.Connect(_ => { });
 
     Task<Result<string>> pending = channel.RequestAsync("req-3", "hello", null, TestContext.Current.CancellationToken);
@@ -85,7 +85,7 @@ public class NewSessionRequestChannelTests
   [Fact]
   public async Task Disconnect_WithAPendingRequest_FailsItTurnEnded()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     channel.Connect(_ => { });
     Task<Result<string>> pending = channel.RequestAsync("req-4", "hello", null, TestContext.Current.CancellationToken);
 
@@ -99,7 +99,7 @@ public class NewSessionRequestChannelTests
   [Fact]
   public async Task Complete_ForAnUnknownRequestId_IsIgnored()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     channel.Connect(_ => { });
 
     channel.Complete("no-such-request", Result.Success("sess-x"));
@@ -114,7 +114,7 @@ public class NewSessionRequestChannelTests
   [Fact]
   public async Task RequestAsync_WithAPreCancelledToken_FailsTyped()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     channel.Connect(_ => { });
     using CancellationTokenSource cancelled = new();
     await cancelled.CancelAsync().ConfigureAwait(true);
@@ -128,7 +128,7 @@ public class NewSessionRequestChannelTests
   [Fact]
   public async Task RequestAsync_CanBeCancelledWhilePending()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     channel.Connect(_ => { });
     using CancellationTokenSource source = new();
 
@@ -143,7 +143,7 @@ public class NewSessionRequestChannelTests
   [Fact]
   public void IsConnected_TracksTheLiveTurn()
   {
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     Assert.False(channel.IsConnected);
 
     channel.Connect(_ => { });
@@ -159,7 +159,7 @@ public class NewSessionRequestChannelTests
     // Turns are serialized by the turn gate, so a second Connect is the NEXT turn:
     // a pending request from the OLD turn is failed by Disconnect before the new one
     // connects, and the new turn's requests ride the new emitter.
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     List<string> firstTurn = [];
     List<string> secondTurn = [];
     channel.Connect(firstTurn.Add);
@@ -179,7 +179,7 @@ public class NewSessionRequestChannelTests
   public async Task Disconnect_ThenComplete_IsIgnored()
   {
     // The turn is gone; a late response must not resurrect a completed failure.
-    NewSessionRequestChannel channel = new();
+    SessionRequestChannel channel = new();
     channel.Connect(_ => { });
     Task<Result<string>> pending = channel.RequestAsync("req-8", "hello", null, TestContext.Current.CancellationToken);
     channel.Disconnect();

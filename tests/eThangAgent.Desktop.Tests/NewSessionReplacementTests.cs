@@ -14,7 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     gracefully so the Sessions dialog can still resume it.
 /// <para>Two entry points share one core: the user's /new command
 ///     (<see cref="MainViewModel.StartNewSessionAsync(AgentTabViewModel, string, string)"/>) and the host's session-request
-///     (the new_session tool or a compaction handoff,
+///     (a compaction handoff or a chain launch,
 ///     <see cref="MainViewModel.HandleSessionRequestAsync"/>). The host BLOCKS on the answer,
 ///     so every request must be answered exactly once — with the new session's id, or with a
 ///     typed refusal.</para>

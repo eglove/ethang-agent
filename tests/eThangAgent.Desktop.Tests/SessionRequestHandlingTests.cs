@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>The shell's session-request handling (issue #234 task 7): the host's
-///     new_session tool and the compaction handoff both emit a <c>session-request</c> and
+///     chain launch and the compaction handoff both emit a <c>session-request</c> and
 ///     then BLOCK awaiting the app's answer, so the shell must answer exactly once — the new
 ///     session's id on success, a typed refusal on every failure — and swap the tab only
 ///     once the requesting turn has gone idle.

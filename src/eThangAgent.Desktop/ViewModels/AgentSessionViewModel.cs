@@ -60,8 +60,8 @@ internal sealed record AgentSessionViewModelOptions
   ///     offered (headless stubs, or a host without the shell seam).</summary>
   public Func<string, Task>? NewSessionCommand { get; init; }
 
-  /// <summary>Handles a session-request event from the host (issue #234): the new_session
-  ///     tool or a compaction handoff asked the app to start a session in this tab's
+  /// <summary>Handles a session-request event from the host (issue #234): a compaction
+  ///     handoff or a chain launch asked the app to start a session in this tab's
   ///     workspace. The shell implements it; the view-model only forwards. The request id
   ///     travels WITH the request because the host is BLOCKED awaiting the answer, and the
   ///     answer goes back through <see cref="IRootTurnChannel.SendSessionResponse"/> — a
@@ -1281,8 +1281,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     bridge.OnToolCall(tool.Name, tool.Arguments);
   }
 
-  /// <summary>Handles one host session-request event (issue #234): the new_session
-  ///     tool or a compaction handoff asked the app to start a NEW session in this
+  /// <summary>Handles one host session-request event (issue #234): a compaction
+  ///     handoff or a chain launch asked the app to start a NEW session in this
   ///     tab's workspace. The event arrives on the wire pump thread, so the PARSE
   ///     happens here (pure) and everything that touches the transcript or the
   ///     handler marshals onto the UI thread through <see cref="AgentSessionViewModelOptions.UiMarshal"/>.
@@ -1320,7 +1320,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   /// <summary>Awaits the session-request handler and surfaces its fault as a typed
   ///     notice. Fire-and-forget by design (CA1031 named decision): the request is
-  ///     one-way over the wire — the host's new_session tool already returned — and
+  ///     one-way over the wire — the host's request already returned — and
   ///     a handler fault must be visible, never an unobserved task exception.</summary>
   private async Task FireSessionRequestAsync(Func<SessionRequestPayload, Task> handler, SessionRequestPayload request)
   {

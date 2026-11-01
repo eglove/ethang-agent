@@ -7,20 +7,20 @@ namespace eThangAgent.Composition;
 /// <summary>Per-container carrier for the LIVE root turn's session-request emitter
 ///     (issue #234): the host's turn runner fills it at turn start and
 ///     clears it in the turn's finally, exactly like the conversation-wide per-turn state
-///     it rides. The <see cref="WireNewSessionPort"/> emits through it; the
+///     it rides. A chain launch emits through it; the
 ///     ChildHostServer completes pending requests when the app's <c>session-response</c>
 ///     envelope arrives. A request emitted with no live turn (or a disconnected channel)
 ///     fails immediately — never a hang.
-///     <para>ERROR CODES (the channel's own contract, named here because the tool's
-///     description enumerates them): <c>SessionRequestUnreachable</c> when no turn is
+///     <para>ERROR CODES (the channel's own contract, surfaced verbatim to whichever
+///     caller emitted the request): <c>SessionRequestUnreachable</c> when no turn is
 ///     connected or the turn ends while a request is pending — the request cannot be
 ///     carried to the app; <c>SessionRequestCancelled</c> when the caller's token
 ///     cancels a pending request. The app's own typed error (e.g.
 ///     <c>SessionLaunchFailed</c>) is propagated verbatim on a refused launch.</para>
 ///     <para>Thread-safe: the emitter is set and cleared from the turn's thread while
-///     requests arrive from the tool's execution context; the pending map is guarded by
+///     requests arrive from a caller's execution context; the pending map is guarded by
 ///     one lock. No DI container references.</para></summary>
-public sealed class NewSessionRequestChannel
+public sealed class SessionRequestChannel
 {
   // Set by the host's turn code per turn; null between turns. A volatile read is enough:
   // the emitter is replaced whole (never mutated in place), and the pending map carries

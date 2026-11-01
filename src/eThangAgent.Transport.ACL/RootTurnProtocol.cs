@@ -16,8 +16,8 @@ public sealed record RootTurnImage(string MediaType, string Base64Data);
 public sealed record RootTurnPreTurnMessage(string Role, string Text);
 
 /// <summary>One host→app request to start a NEW session in the workspace (issue #234).
-///     Emitted as a <c>session-request</c> root-turn event while the new_session tool runs
-///     host-side; the app creates the session, opens it in the requesting tab, and answers
+///     Emitted as a <c>session-request</c> root-turn event by the host's compaction handoff
+///     (or a chain launch); the app creates the session, opens it in the requesting tab, and answers
 ///     over the <c>session-response</c> envelope kind. HandoffSummary is the compaction
 ///     handoff's summary text — null for a plain launch.
 ///     <para><see cref="ChainStep"/> carries a CHAIN STEP ASSIGNMENT (issue #313): the
@@ -154,7 +154,7 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
 ///     (2026-10-22): the host emits it when a turn has been quiet, so the app can tell
 ///     "the host is busy" from "the host stopped answering" instead of failing a healthy
 ///     long turn; `session-request` is the host's app-ward request to start a NEW session
-///     in the workspace (issue #234), emitted while the new_session tool runs host-side;
+///     in the workspace (issue #234), emitted by a compaction handoff or a chain launch;
 ///     `context` carries the session's context accounting (issue #255) as a
 ///     <see cref="RootTurnContextPayload"/> JSON object, so the status bar's CTX line
 ///     advances for a host-run turn exactly as it did in-process; `usage` carries one

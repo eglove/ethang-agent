@@ -46,8 +46,8 @@ public interface IRootTurnChannel
   void SteerRootTurn(string turnId, string text, Guid messageId);
 
   /// <summary>Answers one <c>session-request</c> (issue #234): the new session's id, or the
-  ///     typed failure the app refused with. The host's <c>new_session</c> tool (or a
-  ///     compaction handoff) is BLOCKED awaiting this answer, so every request must be
+  ///     typed failure the app refused with. The host's compaction handoff (or a chain
+  ///     launch) is BLOCKED awaiting this answer, so every request must be
   ///     answered exactly once — a silent drop leaves the tool waiting out its own budget.
   ///     Fire-and-forget by contract: a lost answer surfaces on the host as the request's
   ///     own timeout, never here. A channel with no live connection drops it, which is

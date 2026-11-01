@@ -1393,7 +1393,7 @@ internal sealed partial class MainViewModel : ObservableObject
       created = await scheduled;
     }
     // Named decision (CA1031): a failed launch is INFORMATION, not a crash — this path is
-    // reached from the UI dispatcher and from the model's new_session tool, where an
+    // reached from the UI dispatcher and from the host's session-request path, where an
     // escaping exception has no handler at all.
 #pragma warning disable CA1031, S2486 // Do not catch general exception types
     catch (Exception ex)
@@ -1754,8 +1754,8 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
-  /// <summary>Handles one host session-request (issue #234) for a tab: the new_session tool
-  ///     or a compaction handoff asked for a session in this tab's workspace. The HOST IS
+  /// <summary>Handles one host session-request (issue #234) for a tab: a compaction handoff
+  ///     or a chain launch asked for a session in this tab's workspace. The HOST IS
   ///     BLOCKED awaiting the answer, so the request is answered with the new session's id
   ///     as soon as the container exists — BEFORE the tab swap, which waits for the current
   ///     turn to go idle (the host cannot swap its own tab mid-turn).

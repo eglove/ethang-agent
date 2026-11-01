@@ -29,7 +29,6 @@ Discover the surface instead of guessing: `Tools.List()` lists every action, and
 | Inspect the agent's own database (sessions, transcripts, state, skills, preferences) | `db_schema` / `db_query` (read-only SQL; run `db_schema` first) |
 | Inspect any workspace SQLite file | `sqlite_query` (read-only SELECT/WITH, workspace-confined) |
 | Commit work | `git_commit` (never raw shell commits); the style is the user's host setting — follow the commit-style guidance in this bootstrap, not a parameter |
-| Start a fresh session in this workspace | `new_session` (returns the new session's id; the tab is replaced in place) |
 | Fetch a web page | `web_fetch` |
 | Read a document | `docx` / `pdf` (read, render, create, edit) |
 | Read an image | `read_image` (PNG/JPEG, attached to the result as an image part) |

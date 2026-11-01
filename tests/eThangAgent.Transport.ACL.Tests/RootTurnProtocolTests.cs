@@ -223,7 +223,7 @@ public class RootTurnProtocolTests
   public void ParseEvent_TheSessionRequest_IsAKnownKind()
   {
     // The session request (issue #234) is a WIRE kind, not a forward-compatible unknown:
-    // a host that emits one mid-turn (the new_session tool firing) must reach an app that
+    // a host that emits one mid-turn (a chain launch firing) must reach an app that
     // recognizes it - a peer that refused it would fault the connection, not the turn.
     const string json = /*lang=json,strict*/ "{\"TurnId\":\"t\",\"Kind\":\"session-request\",\"Payload\":\"request\"}";
 
