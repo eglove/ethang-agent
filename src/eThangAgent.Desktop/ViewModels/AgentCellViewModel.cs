@@ -145,8 +145,20 @@ internal sealed partial class AgentCellViewModel : ObservableObject
 
   /// <summary>Releases this cell's claim on its session container (issue #329): the shell has
   ///     torn the session down, so the cell must stop naming it. The card stays - the cell keeps
-  ///     its position and its finished outline, and only the disposed provider goes.</summary>
-  public void RetireContainer() => Container = null;
+  ///     its position and its finished outline, and only the disposed provider goes.
+  ///     <para>THE CHAT INPUT GOES WITH IT (issue #330): there is no session behind a retired
+  ///     container to serve a turn, so the card must not offer an input that would do nothing.
+  ///     A HOST cell keeps its input - its agent lives in another process and can still be
+  ///     steered or resumed - which is why this is told to the view-model rather than inferred
+  ///     from <see cref="Container"/> being null.</para></summary>
+  public void RetireContainer()
+  {
+    Container = null;
+    if (!RunsInOwnHost)
+    {
+      ViewModel.MarkRetired();
+    }
+  }
 
   /// <summary>Marks the cell finished. The session is already gone (or going); nothing here
   ///     disposes it, because the shell owns that teardown and must run it exactly once.
@@ -168,6 +180,9 @@ internal sealed partial class AgentCellViewModel : ObservableObject
       _ = FinishFollowingAsync();
     }
 
+    // The view-model is what the submit path asks (issue #330): a settled agent is RESUMED, a
+    // live one is STEERED, and only the cell knows which it is.
+    ViewModel.MarkSettled(true);
     RaiseStateChanged();
   }
 
@@ -200,6 +215,15 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     if (!RunsInOwnHost || _following)
     {
       return;
+    }
+
+    // A cell that is following again is by definition not finished (issue #330): the only way
+    // back here after a settle is a RESUME, and a resumed agent is running.
+    if (IsFinished)
+    {
+      IsFinished = false;
+      ViewModel.MarkSettled(false);
+      RaiseStateChanged();
     }
 
     _following = true;
@@ -322,6 +346,20 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     if (e.PropertyName == nameof(AgentSessionViewModel.IsBusy))
     {
       RaiseStateChanged();
+      return;
+    }
+
+    // A RESUME UN-FINISHES THE CARD (issue #330): the submit that resumed the agent marked it
+    // running again, so the card must stop being a finished record and follow the new run. The
+    // view-model reports the agent's run state; the card renders it.
+    if (e.PropertyName == nameof(AgentSessionViewModel.IsSettled) && !ViewModel.IsSettled)
+    {
+      IsFinished = false;
+      RaiseStateChanged();
+      if (RunsInOwnHost)
+      {
+        StartFollowing();
+      }
     }
   }
 }

@@ -150,11 +150,20 @@ internal sealed record AgentSessionViewModelOptions
 
   /// <summary>True when this view-model renders an agent the app does NOT own (issue #329):
   ///     an agent running in its own host process. Its transcript arrives from the shared
-  ///     store, and the app cannot submit a turn for it, so the chat input is not rendered at
-  ///     all - an input that silently does nothing is worse than none.
-  ///     <para>Steering such an agent is #330's surface; this flag is what keeps #329 from
-  ///     claiming an affordance it does not wire.</para></summary>
+  ///     store, and every turn it runs belongs to that host.
+  ///     <para>WHAT THE INPUT DOES WITH IT (issue #330): a host agent's submit does not run a
+  ///     turn here - it steers the live run in the agent's own host, or resumes the agent when
+  ///     the run has settled. That work travels through <see cref="Steering"/>; this flag is what
+  ///     routes the submit there instead of to the local turn runner.</para></summary>
   public bool RunsInOwnHost { get; init; }
+
+  /// <summary>How this cell's chat input reaches its agent (issue #330). Set only for a cell
+  ///     that renders an agent in its own host: steering that agent and resuming it are the
+  ///     host's business, and the app owns no turn loop for it.
+  ///     <para>Null means the local turn runner serves the submit, which is every container cell
+  ///     and the headless/test shape. A host cell with a null seam refuses the submit with a
+  ///     typed notice rather than accepting input that would go nowhere.</para></summary>
+  public IAgentSteering? Steering { get; init; }
 
   /// <summary>Whether this session's transcript outlives the session (issue #329): a session
   ///     whose cell stays in the grid as a finished card keeps its rendered entries, so the card
@@ -328,14 +337,45 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     layout is stable; the user's collapse is what hides it.</summary>
   public WorkbenchViewModel Workbench { get; }
 
-  /// <summary>Whether the chat input renders. False for an agent running in its own host
-  ///     (issue #329): the app owns no turn loop for it, so there is nothing to type into
-  ///     until #330 wires steering.</summary>
-  public bool ShowsChatInput => !RunsInOwnHost;
+  /// <summary>Whether the chat input renders. It renders for EVERY cell that can still be
+  ///     addressed (issue #330): a container cell's input runs turns, and a host agent's steers
+  ///     the run or resumes the agent. The one cell that cannot is a card whose container the
+  ///     shell has already retired - there is no session behind it to serve a turn, and an
+  ///     input there would silently do nothing.</summary>
+  public bool ShowsChatInput => !IsRetired;
+
+  /// <summary>True once this cell's session container has been retired (issue #330): the shell
+  ///     disposed it, so the card stays as a finished record and nothing here can run a turn.
+  ///     Written by the cell that owns the container, which is the object the shell tears down.
+  ///     </summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ShowsChatInput))]
+  public partial bool IsRetired { get; private set; }
+
+  /// <summary>Marks this cell's container retired, so the chat input stops rendering (issue
+  ///     #330): the card keeps its transcript, and nothing claims an affordance the disposed
+  ///     session could not honor. Idempotent.</summary>
+  internal void MarkRetired() => IsRetired = true;
+
+  /// <summary>True once this cell's agent has settled (issue #330). The CELL owns the finished
+  ///     state - it is the object that follows the agent - so it writes this, and the submit
+  ///     path reads it to decide between steering a live run and resuming a settled agent.
+  ///     </summary>
+  [ObservableProperty]
+  public partial bool IsSettled { get; private set; }
+
+  /// <summary>Records that this cell's agent started or stopped running (issue #330). A resumed
+  ///     agent is running again, so this moves in both directions.</summary>
+  /// <param name="settled">True when the agent has settled, false when a run is live.</param>
+  internal void MarkSettled(bool settled) => IsSettled = settled;
 
   /// <summary>Whether this session view-model renders an agent the app does not own (issue
   ///     #329), from the construction option of the same name.</summary>
   public bool RunsInOwnHost { get; }
+
+  /// <summary>How this cell's chat input reaches its agent (issue #330), from the construction
+  ///     option of the same name. Null means the local turn runner serves the submit.</summary>
+  public IAgentSteering? Steering { get; }
 
   /// <summary>The rail the workspace tab handed this session (issue #307 D6), or null when
   ///     this view-model built its own. Null is what makes the rail this view-model's to
@@ -439,6 +479,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
     RunsInOwnHost = options.RunsInOwnHost;
+    Steering = options.Steering;
     _rootActivity = options.RootActivitySink;
     _keepsTranscript = options.KeepsTranscript;
     RootTurnChannel = options.RootTurnChannel;
@@ -569,8 +610,111 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 #pragma warning restore CA1031
   }
-  /// <summary>
-  /// Processes one submission. Blank input is ignored. While a turn runs, input
+  /// <summary>Submits to an agent that runs in its OWN host (issue #330): a LIVE run is steered,
+  ///     a SETTLED agent is resumed. Both are the same human gesture, which is why they share
+  ///     this one entry point.
+  ///     <para>STEER: the text goes to the agent's mailbox in its own host, addressed by agent
+  ///     id. The echo is appended ON ACCEPTANCE, carrying the identity the app minted, so the
+  ///     agent loop's drain fact releases exactly this echo - the #92 handshake, unchanged.
+  ///     A refusal is a typed notice naming the host's reason and renders no echo at all: the
+  ///     message was not queued, and claiming otherwise is the silent swallow this path exists
+  ///     to remove.</para>
+  ///     <para>RESUME: the settled agent's host is gone, so there is nothing to steer. The
+  ///     submit relaunches a host for the record and starts a turn with this text as the
+  ///     continuation prompt - the act <c>agent.resume</c> performs. The cell leaves its
+  ///     finished state so the poller follows the new run, and the text is rendered as the
+  ///     user's message at once: it IS the prompt the resumed run works from, so waiting for
+  ///     the store to echo it back would leave the input looking ignored.</para>
+  ///     <para>NO DOUBLE ECHO: the store read that fills this cell counts the messages it has
+  ///     rendered, so a locally appended entry would be rendered a second time when the
+  ///     persisted copy arrives. BOTH halves therefore register their echo through
+  ///     <see cref="NoteLocalEcho"/>, and the store read releases that echo instead of
+  ///     appending the copy.</para></summary>
+  /// <param name="input">The submitted text, already trimmed and non-empty.</param>
+  private async Task SubmitToHostAgentAsync(string input)
+  {
+    if (Steering is not { } steering)
+    {
+      Transcript.AddNotice("Error [NoSteering]: this cell has no way to reach its agent; the message was not sent.");
+      return;
+    }
+
+    if (!IsSettled)
+    {
+      await SteerHostAgentAsync(steering, input).ConfigureAwait(true);
+      return;
+    }
+
+    await ResumeHostAgentAsync(steering, input).ConfigureAwait(true);
+  }
+
+  /// <summary>The steer half: one message into the live run's own mailbox, echoed only when the
+  ///     host confirmed the deliver.</summary>
+  private async Task SteerHostAgentAsync(IAgentSteering steering, string input)
+  {
+    Guid pendingId = Guid.NewGuid();
+    Result<bool> accepted;
+    try
+    {
+      accepted = await steering.SteerAsync(_rootId, input, pendingId).ConfigureAwait(true);
+    }
+    // Named decision (CA1031): a steering fault is the host's absence, not a crash on the UI
+    // thread - it becomes the same typed notice a refused deliver produces.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      accepted = Result.Failure<bool>(new DomainError("SteerFailed", ex.Message));
+    }
+
+    if (!accepted.IsSuccess)
+    {
+      // The message was NOT queued, so nothing is rendered for it: an echo would claim a
+      // delivery that did not happen.
+      Transcript.AddNotice($"Error [{accepted.Error.Code}]: your message was not delivered - {accepted.Error.Message}");
+      return;
+    }
+
+    // A drained steer IS persisted by the agent loop, so its store copy is the same message this
+    // echo shows. Registered as awaiting that copy for the same reason the resume path is.
+    NoteLocalEcho(input);
+    MessageCount++;
+    Transcript.AddPendingUser(input, pendingId);
+  }
+
+  /// <summary>The resume half: relaunch a host for the settled record and start a turn.</summary>
+  private async Task ResumeHostAgentAsync(IAgentSteering steering, string input)
+  {
+    Result<AgentId> resumed;
+    try
+    {
+      resumed = await steering.ResumeAsync(_rootId, input).ConfigureAwait(true);
+    }
+#pragma warning disable CA1031 // Named decision: same rule as the steer half above.
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      resumed = Result.Failure<AgentId>(new DomainError("ResumeFailed", ex.Message));
+    }
+
+    if (!resumed.IsSuccess)
+    {
+      Transcript.AddNotice($"Error [{resumed.Error.Code}]: the agent could not be resumed - {resumed.Error.Message}");
+      return;
+    }
+
+    // The resumed run persists this text as the prompt it works from, so the persisted copy is
+    // the same message this echo shows: the echo is registered as awaiting its store copy, and
+    // the poll's reconciliation renders exactly one of the two (see AppendPersistedMessagesAsync).
+    // Nothing names a message id on a resume, so the store's copy is what releases the pin.
+    NoteLocalEcho(input);
+    MessageCount++;
+    Transcript.AddPendingUser(input, Guid.NewGuid());
+    // The agent is running again, so the cell leaves its finished state and follows it.
+    IsSettled = false;
+  }
+
+  /// <summary>Processes one submission. Blank input is ignored. While a turn runs, input
   /// steers it. For normal turns, sets the in-flight task and returns that same
   /// task so callers can await it directly. A RAW leading '/' (no trim — the
   /// spec's slash-detection amendment) resolves as a skill invocation BEFORE
@@ -583,6 +727,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     string input = rawInput?.Trim() ?? "";
     if (string.IsNullOrWhiteSpace(input))
     {
+      return;
+    }
+
+    // A HOST AGENT'S INPUT IS NOT A LOCAL TURN (issue #330): the app runs no turn for it, so
+    // the submit steers the live run in the agent's own host or resumes the settled agent.
+    // The slash and ! surfaces stay with the container cell, which owns this process's
+    // commands: a `!` typed into a host agent's cell would run HERE while the agent it was
+    // addressed to runs elsewhere.
+    if (RunsInOwnHost)
+    {
+      await SubmitToHostAgentAsync(input).ConfigureAwait(true);
       return;
     }
 
@@ -1600,7 +1755,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     at.</para>
   ///     <para>THE TASK COMPLETES WHEN THE ENTRIES ARE IN THE TRANSCRIPT, not when the post is
   ///     made: the caller advances its read cursor on this, and a cursor that ran ahead of the
-  ///     append would drop the messages it had already counted.</para></summary>
+  ///     append would drop the messages it had already counted.</para>
+  ///     <para>A STEERED MESSAGE ARRIVES TWICE AND MUST RENDER ONCE (issue #330): the submit
+  ///     echoes it locally the moment the host confirmed the deliver, and the agent loop
+  ///     persists the same message when it drains it. The local echo is registered in
+  ///     <c>_awaitingStoreCopy</c>; a persisted user message matching one of those entries
+  ///     RELEASES it instead of appending a second copy. Matching is on text plus that the
+  ///     entry is still pending, and it consumes the registration, so two identical messages
+  ///     typed twice still render twice.</para></summary>
   /// <param name="messages">The messages to render, in store order.</param>
   public Task AppendPersistedMessagesAsync(IReadOnlyList<Message> messages)
   {
@@ -1613,11 +1775,54 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     TaskCompletionSource applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
     _uiMarshal(() =>
     {
-      Transcript.AppendPersisted(messages);
+      foreach (Message message in messages)
+      {
+        if (message.Role is Role.User && ReleaseLocalEcho(message.Content))
+        {
+          continue; // this message is already on screen as the steer's own echo
+        }
+
+        Transcript.AppendPersisted([message]);
+      }
+
       _ = applied.TrySetResult();
     });
     return applied.Task;
   }
+
+  /// <summary>Registers a locally rendered message whose store copy is still to arrive (issue
+  ///     #330): the resumed run persists this text as its prompt, and a drained steer is
+  ///     persisted by the agent loop, so both land in the store as a user message the poll will
+  ///     read back.</summary>
+  /// <param name="text">The text the local echo shows.</param>
+  private void NoteLocalEcho(string text)
+  {
+    ArgumentNullException.ThrowIfNull(text);
+    _awaitingStoreCopy.Enqueue(text);
+  }
+
+  /// <summary>Releases the local echo whose store copy just arrived (issue #330), so the
+  ///     message renders once. Consumes one registration: an entry whose text does not match
+  ///     is left alone, and the queue is drained in order so two identical messages release
+  ///     one apiece.</summary>
+  /// <param name="text">The persisted user message's text.</param>
+  /// <returns>True when a local echo was released and the caller must not append.</returns>
+  private bool ReleaseLocalEcho(string text)
+  {
+    ArgumentNullException.ThrowIfNull(text);
+    if (_awaitingStoreCopy.Count == 0 || !string.Equals(_awaitingStoreCopy.Peek(), text, StringComparison.Ordinal))
+    {
+      return false;
+    }
+
+    _ = _awaitingStoreCopy.Dequeue();
+    Transcript.ReleasePendingEcho(text);
+    return true;
+  }
+
+  /// <summary>Texts this cell rendered locally whose store copy has not been read back yet
+  ///     (issue #330), in submission order.</summary>
+  private readonly Queue<string> _awaitingStoreCopy = new();
 
   private void ReportPersistenceError(string message) => Transcript.AddNotice(message);
 

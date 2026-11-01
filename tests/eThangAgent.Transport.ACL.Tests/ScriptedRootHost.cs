@@ -86,6 +86,11 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     delivery registries and drive other envelope kinds while a turn is in flight.</summary>
   public ChildHostServer Server { get; }
 
+  /// <summary>The rig's container, so a test can attach the seams the host resolves from it
+  ///     (issue #330: the agent-steer path's acceptance fact rides this container's stream).
+  ///     </summary>
+  public IServiceProvider Services => _services;
+
   /// <summary>How many events the host has forwarded toward the app. A rig has no app
   ///     attached, so every wire write is dropped by contract - the COUNT is what proves
   ///     the ROOT container's forwarder is subscribed at all.</summary>

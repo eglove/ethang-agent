@@ -1,3 +1,4 @@
+using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Transport.ACL;
 
@@ -45,6 +46,23 @@ public interface IRootTurnChannel
   ///     as the model simply not seeing it, never as a fault on the UI thread.</para></summary>
   void SteerRootTurn(string turnId, string text, Guid messageId);
 
+  /// <summary>Delivers one steering message to an AGENT running in its own host (issue #330).
+  ///     <para>WHY ON THIS PORT: the cell that shows such an agent has no container of its own,
+  ///     and this channel is the container-side seam that already speaks to the host where the
+  ///     agent runs. Steering an agent and answering a session-request are the same question -
+  ///     'say something to the process that owns the work' - so they ride one port rather than
+  ///     a second channel that could disagree about which connection it is on.</para>
+  ///     <para>ADDRESSED BY AGENT ID: a launched host serves exactly one agent, so the id is the
+  ///     whole address and no turn identity crosses the wire.</para>
+  ///     <para>THE RESULT IS THE HOST'S ANSWER, awaited: the human typed the message, so a
+  ///     refusal (no live run, a full or closed mailbox, a host that never answers) comes back
+  ///     as a typed failure the cell renders. A fire-and-forget steer would be
+  ///     indistinguishable from a slow agent.</para></summary>
+  /// <param name="agentId">The agent whose mailbox the message belongs in.</param>
+  /// <param name="text">The message text.</param>
+  /// <param name="messageId">The identity the app pinned its echo under.</param>
+  Task<Result<bool>> SteerAgentAsync(AgentId agentId, string text, Guid messageId);
+
   /// <summary>Answers one <c>session-request</c> (issue #234): the new session's id, or the
   ///     typed failure the app refused with. The host's compaction handoff (or a chain
   ///     launch) is BLOCKED awaiting this answer, so every request must be
@@ -73,6 +91,10 @@ public sealed class RemoteRootTurnChannel(RemoteAgentRuntime runtime) : IRootTur
   /// <inheritdoc />
   public void SteerRootTurn(string turnId, string text, Guid messageId)
       => _runtime.SteerRootTurn(turnId, text, messageId);
+
+  /// <inheritdoc />
+  public Task<Result<bool>> SteerAgentAsync(AgentId agentId, string text, Guid messageId)
+      => _runtime.SteerAgentAsync(agentId, text, messageId);
 
   /// <inheritdoc />
   public void SendSessionResponse(string requestId, string? sessionId, string? errorCode, string? errorMessage)

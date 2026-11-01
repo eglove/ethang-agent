@@ -2587,9 +2587,16 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Builds the view-model a host agent's cell renders (issue #329).
   ///     <para>IT IS AN AgentSessionViewModel OVER THE AGENT'S OWN ID, because that type owns
   ///     everything the cell shows - the transcript collection, the scroll controller, and the
-  ///     UI marshal the append runs through. Nothing else about it is live: no turn runner is
-  ///     wired (the app runs no turn for an agent in another process), no inbox, no container,
-  ///     and no status model updater.
+  ///     UI marshal the append runs through. The turn runner still refuses every call, and that
+  ///     is now accurate rather than a gap: a host agent's submit never reaches it, because
+  ///     <see cref="AgentSessionViewModel.RunsInOwnHost"/> routes the input to
+  ///     <see cref="AgentSessionViewModelOptions.Steering"/> first (issue #330).
+  ///     </para>
+  ///     <para>THE STEERING IS BUILT FROM THE TAB'S OWN CONTAINER: that container holds the wire
+  ///     channel to the host where such an agent runs, and the runtime that relaunches a host
+  ///     for a settled record. A container that wired neither (a headless fixture) yields null,
+  ///     and the cell then reports that it cannot reach its agent instead of accepting input
+  ///     that would go nowhere.
   ///     </para>
   ///     <para>THE SHELL'S OWN MARSHAL, not a fresh dispatcher post: a headless test injects a
   ///     synchronous executor through <see cref="MainViewModelOptions.UiMarshal"/>, and a
@@ -2605,7 +2612,8 @@ internal sealed partial class MainViewModel : ObservableObject
     _ = placement;
     return new AgentSessionViewModel(
         // A host agent's turns belong to its own host: this runner refuses every call rather
-        // than pretending to serve one, and the cell hides its input (#330 wires steering).
+        // than pretending to serve one. The cell's submit never arrives here - it steers the
+        // live run or resumes the settled agent through the steering seam below (issue #330).
         static (_, _, _, _) => Task.FromResult(Result.Failure<string>(new DomainError(
             "RunsInOwnHost", "this agent's turns run in its own host process."))),
         new RootSessionLifecycle(store),
@@ -2616,15 +2624,29 @@ internal sealed partial class MainViewModel : ObservableObject
         new AgentSessionViewModelOptions
         {
           WorkspaceRoot = tab.Container.WorkspaceRoot,
-          // The app owns no turn for this agent, so the cell renders no chat input (#330
-          // wires steering); an input that silently did nothing would be worse than none.
+          // The app owns no turn for this agent, so the submit routes to the steering seam
+          // instead of the local runner (issue #330).
           RunsInOwnHost = true,
+          Steering = BuildSteering(tab),
           // The transcript's entries are bound by the view, so the cell's appends are
           // marshalled onto the UI thread through the shell's own seam.
           UiMarshal = _uiMarshal,
           Workbench = tab.Workbench,
         });
   }
+
+  /// <summary>The steering seam for one tab's host agents (issue #330), or null when the tab's
+  ///     container wired neither half.
+  ///     <para>BOTH HALVES MUST BE PRESENT: a steer with no runtime could reach a live agent but
+  ///     never resume a settled one, and a resume with no channel could relaunch a host but never
+  ///     say anything to the run that is already there. One seam with both, or none - the cell
+  ///     renders one input, so it must not promise half an act.</para></summary>
+  /// <param name="tab">The tab whose container owns the host channel and the runtime.</param>
+  private static HostAgentSteering? BuildSteering(AgentTabViewModel tab)
+    => tab.Container.Services.GetService<IRootTurnChannel>() is { } channel
+        && tab.Container.Services.GetService<IAgentRuntime>() is { } runtime
+      ? new HostAgentSteering(channel, runtime)
+      : null;
 
   /// <summary>Subscribes the tab's session stream to the mechanical advance (issue #301 D1).
   ///     <para>EVERY CELL IS SUBSCRIBED, not just the primary: a chain step's session may be

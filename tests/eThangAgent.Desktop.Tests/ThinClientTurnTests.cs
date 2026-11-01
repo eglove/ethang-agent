@@ -462,6 +462,23 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
   public void SteerRootTurn(string turnId, string text, Guid messageId)
       => SteeredTurns.Add((turnId, text, messageId));
 
+  /// <summary>Steers the app sent to an AGENT in its own host (issue #330). The answer is the
+  ///     host's: accepted by default, or the scripted refusal - which is what the cell's notice
+  ///     test turns on.</summary>
+  public List<(AgentId AgentId, string Text, Guid MessageId)> SteeredAgents { get; } = [];
+
+  /// <summary>The answer every agent steer receives. Null = the host accepted it.</summary>
+  public DomainError? SteerRefusal { get; set; }
+
+  public Task<Result<bool>> SteerAgentAsync(AgentId agentId, string text, Guid messageId)
+  {
+    SteeredAgents.Add((agentId, text, messageId));
+    return Task.FromResult(SteerRefusal is { } refusal
+        ? Result.Failure<bool>(refusal)
+        : Result.Success(true));
+  }
+
+
   /// <summary>Answers the app sent for session-requests (issue #234): the request id with
   ///     either the new session's id or the refusal's typed code. The host side of the wire
   ///     is covered in Transport.ACL tests; here it is the app's OUTBOUND answer that

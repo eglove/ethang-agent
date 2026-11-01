@@ -93,6 +93,25 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     }
   }
 
+  /// <summary>Releases the pinned echo whose message has landed in the store (issue #330): the
+  ///     copy the store holds is now the record, so the local entry stops being pending and
+  ///     stops claiming the model has not seen it. Idempotent; a text no pending entry carries
+  ///     is ignored.</summary>
+  /// <param name="text">The message text the store persisted.</param>
+  public void ReleasePendingEcho(string text)
+  {
+    ArgumentNullException.ThrowIfNull(text);
+    for (int i = 0; i < Entries.Count; i++)
+    {
+      if (Entries[i] is UserMessageEntry { Pending: true } entry
+          && string.Equals(entry.Text, text, StringComparison.Ordinal))
+      {
+        Entries[i] = entry with { Pending = false };
+        return;
+      }
+    }
+  }
+
   public void AddToolCall(string name, string arguments)
   {
     CloseOpen();

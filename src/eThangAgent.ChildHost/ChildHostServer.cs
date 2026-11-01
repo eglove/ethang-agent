@@ -74,6 +74,16 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   private string? _rootHostFailure;
   private long _sequence;
 
+  /// <summary>Per-agent mailbox resolvers (issue #330): the leaf executor of the container that
+  ///     started each run, asked for that agent's own box. Keyed by record id and removed with
+  ///     the run, so a steer to a settled agent resolves nothing and is answered NotRunning.
+  ///     </summary>
+  private readonly ConcurrentDictionary<Guid, Func<AgentId, IAgentInbox?>> _leafInboxes = [];
+
+  /// <summary>The container that owns each running agent, so the steer acceptance fact is
+  ///     published on the stream the app already subscribes (issue #330).</summary>
+  private readonly ConcurrentDictionary<Guid, IServiceProvider> _leafServices = [];
+
   /// <summary>The ids the host currently runs — the exact live set the app's orphan
   ///     repair consumes (FR-L8). Sent on every (re)connect and after each mutation.</summary>
   public IReadOnlyCollection<Guid> LiveIds() => [.. _active.Keys];
@@ -149,6 +159,13 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         // root turn's own loop at its next safe point.
         HandleRootSteer(envelope);
         break;
+      case "agent-steer":
+        // Awaiting is the point (issue #330): the handler delivers into the agent's mailbox
+        // and ANSWERS with the outcome, and the answer is what the app renders when the
+        // steer could not land. It does no model work - only a mailbox enqueue and two
+        // wire writes - so it stays on the serve loop rather than racing a second thread.
+        await HandleAgentSteerAsync(envelope).ConfigureAwait(false);
+        break;
       case "interrupt":
         HandleInterrupt(envelope);
         break;
@@ -222,6 +239,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // token — scoped interrupts must enact through it, not through the bookkeeping
       // CTS (whose cancellation only ends the settle WAIT, never the run).
       _runtimes[command.RecordId] = host.LocalRunner;
+      // Steering (issue #330): the run's own container is where its mailbox and its event
+      // stream live, so the steer path resolves them from here. Registered BEFORE the run
+      // is dispatched, for the same reason the event forwarder is.
+      AttachAgentContainer(command.RecordId, host);
 
       // Child-event forwarding (issue #245): the app's subagent panel subscribes the
       // APP container's event stream, and this child publishes into ITS OWN container's
@@ -279,6 +300,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       _ = _active.TryRemove(command.RecordId, out _);
       _ = _parents.TryRemove(command.RecordId, out _);
       _ = _runtimes.TryRemove(command.RecordId, out _);
+      // The run is over, so its box is closed: a steer that raced this must resolve nothing
+      // and be answered NotRunning rather than delivering into a mailbox nothing drains.
+      _ = _leafInboxes.TryRemove(command.RecordId, out _);
+      _ = _leafServices.TryRemove(command.RecordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
     }
   }
@@ -777,6 +802,112 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     return resolved;
   }
 
+  /// <summary>Delivers one steering message to an AGENT running in this host (issue #330).
+  ///     <para>THE AGENT ID IS THE ADDRESS. A launched host serves exactly ONE agent, so the id
+  ///     is already the whole of the address - which is why this path needs no turn identity,
+  ///     unlike <see cref="DeliverToRootTurn"/>. A chain step runs as a child run and never
+  ///     populates the root-turn registry, so a steer addressed at its turn id found no live
+  ///     turn and was dropped; there was no turn id to find in the first place.</para>
+  ///     <para>DELIVERY GOES THROUGH THE AGENT'S OWN MAILBOX, the same
+  ///     <see cref="IAgentMailbox.Deliver"/> the root case uses, resolved from the leaf
+  ///     executor that started the run - the box its loop actually drains at its next safe
+  ///     point.</para>
+  ///     <para>EVERY STEER IS ANSWERED, and the answer is the point of the path: the human typed
+  ///     the message, so a mailbox that refuses (full, or the run already settled) must say so
+  ///     in a typed code the app renders. A silent drop is indistinguishable from a slow agent.
+  ///     The acceptance fact is published on the same condition - on acceptance, never on
+  ///     send - so the tab's unread badge counts exactly what the agent has not read yet.
+  ///     </para></summary>
+  private async Task HandleAgentSteerAsync(TransportEnvelope envelope)
+  {
+    AgentSteerCommand? command;
+    try
+    {
+      command = JsonSerializer.Deserialize<AgentSteerCommand>(envelope.Json);
+    }
+#pragma warning disable CA1031 // Named decision: a malformed payload is a PEER fault, never a host crash.
+    catch (Exception)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return; // unaddressable: a request carrying no agent id cannot be answered
+    }
+
+    if (command is null || command.AgentId == Guid.Empty)
+    {
+      return; // unaddressable, the same contract the root steer honors
+    }
+
+    AgentId agentId = new(command.AgentId);
+    // The box comes from the CHILD CONTAINER's leaf executor, which is the one that started
+    // the run and therefore owns the mailbox the run's loop drains. A null box means this host
+    // is not running that agent (never started here, or it already settled and unregistered).
+    IAgentInbox? inbox = _leafInboxes.TryGetValue(command.AgentId, out Func<AgentId, IAgentInbox?>? resolve)
+        ? resolve(agentId)
+        : null;
+    if (inbox is not IAgentMailbox mailbox)
+    {
+      await SendAsync("agent-steer-ack", JsonSerializer.Serialize(new AgentSteerAck(command.AgentId,
+          MailboxErrors.NotRunning,
+          "the agent has no live run in its host, so there is no mailbox to steer.")))
+          .ConfigureAwait(false);
+      return;
+    }
+
+    Guid id = command.MessageId == Guid.Empty ? Guid.NewGuid() : command.MessageId;
+    Result<bool> accepted = mailbox.Deliver(new PendingMessage(command.Text, DateTimeOffset.UtcNow,
+        command.Sender, id));
+    PublishAgentSteerDelivered(command.AgentId, accepted, id);
+    await SendAsync("agent-steer-ack", JsonSerializer.Serialize(accepted.IsSuccess
+        ? new AgentSteerAck(command.AgentId)
+        : new AgentSteerAck(command.AgentId, accepted.Error.Code, accepted.Error.Message)))
+        .ConfigureAwait(false);
+  }
+
+  /// <summary>Publishes the AGENT STEER ACCEPTANCE fact (issue #330) on the container that owns
+  ///     the agent, which the forwarder already carries to the app.
+  ///     <para>THE SAME RULE AS THE ROOT PATH: published on ACCEPTANCE, never on send, so a
+  ///     refused post increments nothing. The owner id is the AGENT's own id, because that is
+  ///     what a cell's badge subscribes with - publishing under the root session's id would
+  ///     raise a count on the tab while the message belongs to one cell in it.</para>
+  ///     <para>THE DRAIN FACT NAMES THE SAME ID, which is what clears the count and releases
+  ///     the app's pinned echo: the agent loop publishes <see cref="MailboxDrainedEvent"/> at
+  ///     its own safe points, already forwarded on this stream.</para></summary>
+  private void PublishAgentSteerDelivered(Guid agentId, Result<bool> accepted, Guid messageId)
+  {
+    if (!accepted.IsSuccess
+        || !_leafServices.TryGetValue(agentId, out IServiceProvider? services)
+        || services.GetService(typeof(IAgentEvents)) is not IAgentEvents events)
+    {
+      return; // refused posts raise nothing; no stream means nothing to publish on
+    }
+
+    events.Publish(new MessageDeliveredEvent(new AgentId(agentId), DateTimeOffset.UtcNow,
+        "agent-steer", System.Text.Encoding.UTF8.GetByteCount("steer"), messageId));
+  }
+
+  /// <summary>Records the container that owns one agent run, so the steer path can resolve that
+  ///     agent's own mailbox and event stream. Registered when the run starts and removed with
+  ///     the run, so a steer to a settled agent finds nothing and answers
+  ///     <c>AgentNotRunning</c> instead of delivering into a closed box.</summary>
+  private void AttachAgentContainer(Guid recordId, SessionHost host)
+      => AttachAgentSteering(recordId, host.LocalRunner.InboxFor, host.Services);
+
+  /// <summary>Registers a live agent run's mailbox resolver and container the way
+  ///     <see cref="RunChildAsync"/> does, so the wire tests can drive the production steer
+  ///     delivery path without a full provider stack — the same seam shape
+  ///     <see cref="AttachActiveChild"/> and <see cref="AttachRootRun"/> provide for their own
+  ///     paths.</summary>
+  /// <param name="recordId">The agent's id, which is the steer address.</param>
+  /// <param name="inboxFor">Resolves that agent's own mailbox.</param>
+  /// <param name="services">The container whose event stream carries the acceptance fact.</param>
+  public void AttachAgentSteering(Guid recordId, Func<AgentId, IAgentInbox?> inboxFor, IServiceProvider services)
+  {
+    ArgumentNullException.ThrowIfNull(inboxFor);
+    ArgumentNullException.ThrowIfNull(services);
+    _leafInboxes[recordId] = inboxFor;
+    _leafServices[recordId] = services;
+  }
+
   /// <summary>Registers a live child run the way RunChildAsync does (a cancellable CTS
   ///     in the active set) together with the record's parent link and the CHILD
   ///     CONTAINER's runtime — the runtime whose internal CTS is the run's ACTUAL
@@ -927,6 +1058,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 
       _parents[recordId] = loaded.Value.ParentId?.Value;
       _runtimes[recordId] = host.LocalRunner;
+      AttachAgentContainer(recordId, host);
 
       Result<AgentId> resumed = await host.LocalRunner.Resume(new AgentId(recordId), command.Message, CancellationToken.None).ConfigureAwait(false);
       if (!resumed.IsSuccess)
@@ -967,6 +1099,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       _ = _active.TryRemove(recordId, out _);
       _ = _parents.TryRemove(recordId, out _);
       _ = _runtimes.TryRemove(recordId, out _);
+      _ = _leafInboxes.TryRemove(recordId, out _);
+      _ = _leafServices.TryRemove(recordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
     }
   }

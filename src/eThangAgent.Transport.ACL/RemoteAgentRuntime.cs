@@ -58,6 +58,11 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   // cancellation complete every pending waiter so no caller can ever hang.
   private readonly ConcurrentDictionary<string, RootTurnWaiter> _rootTurns = new(StringComparer.Ordinal);
 
+  // Agent steers awaiting their answer (issue #330), keyed by the AGENT id: a launched host
+  // serves exactly one agent, so the id is the address and two steers to the same agent are
+  // sequential by construction.
+  private readonly ConcurrentDictionary<Guid, TaskCompletionSource<Result<bool>>> _agentSteers = [];
+
   /// <summary>Set once the connection is known gone: a turn sent afterwards refuses
   ///     immediately with the declared failure instead of waiting for a host that will
   ///     never answer.</summary>
@@ -222,6 +227,110 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         JsonSerializer.Serialize(new RootSteerCommand(turnId, text,
             "human", messageId)),
         new AgentId(Guid.NewGuid()), CancellationToken.None);
+  }
+
+  /// <summary>Delivers one steering message to an agent running in its OWN host (issue #330).
+  ///     <para>ADDRESSED BY AGENT ID, NOT TURN ID: a launched host serves exactly one agent, so
+  ///     the id is already the address and no turn identity has to cross the wire. A root turn
+  ///     is addressed by turn id because one host serves many turns; an agent run is not.</para>
+  ///     <para>THE ANSWER IS AWAITED, unlike <see cref="SteerRootTurn"/>: the whole point of
+  ///     this path is that a human typed the message, so a steer that cannot be delivered must
+  ///     come back as a typed failure the cell renders rather than vanishing into a
+  ///     fire-and-forget send. The host answers every steer it receives with an
+  ///     <c>agent-steer-ack</c> envelope carrying either the acceptance or the reason.</para>
+  ///     <para>An unanswered ack fails <c>SteerUnanswered</c> on the same budget the root path
+  ///     uses for one frame: the host enacts the delivery inside the envelope handler, so an
+  ///     answer that has not arrived when a frame would have is a host that is not answering.
+  ///     A host that dies mid-steer is that case, and it is reported rather than hung on.</para></summary>
+  /// <param name="agentId">The agent whose mailbox the message belongs in.</param>
+  /// <param name="text">The message text, which must not be blank.</param>
+  /// <param name="messageId">The identity the app pinned its echo under; the agent loop's drain
+  ///     fact names it back, which is what releases the echo.</param>
+  public async Task<Result<bool>> SteerAgentAsync(AgentId agentId, string text, Guid messageId)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(text);
+    NamedPipeChildTransport? transport = _transport;
+    if (transport is null || _hostLost)
+    {
+      return Result.Failure<bool>(new DomainError("HostUnavailable",
+          "the agent's host is not connected."));
+    }
+
+    TaskCompletionSource<Result<bool>> settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    if (!_agentSteers.TryAdd(agentId.Value, settled))
+    {
+      return Result.Failure<bool>(new DomainError("SteerInFlight",
+          "a steering message to agent '" + agentId + "' is already awaiting its answer."));
+    }
+
+    try
+    {
+      using CancellationTokenSource sendTick = new();
+      sendTick.CancelAfter(TurnBudget.Send);
+      try
+      {
+        await transport.SendAsync(new TransportEnvelope("agent-steer",
+            JsonSerializer.Serialize(new AgentSteerCommand(agentId.Value, text, "human", messageId)),
+            Interlocked.Increment(ref _sequence)), sendTick.Token).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        return Result.Failure<bool>(new DomainError("HostUnavailable",
+            "the steering message could not be put on the wire within " + TurnBudget.Send + "."));
+      }
+
+      using CancellationTokenSource answerTick = new();
+      answerTick.CancelAfter(TurnBudget.Send);
+      try
+      {
+        return await settled.Task.WaitAsync(answerTick.Token).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        return Result.Failure<bool>(new DomainError("SteerUnanswered",
+            "the agent's host received the steering message but did not answer within "
+            + TurnBudget.Send + "; the message was not confirmed delivered."));
+      }
+    }
+#pragma warning disable CA1031 // Named decision: the send path is the transport's fault boundary.
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return Result.Failure<bool>(new DomainError("HostUnavailable",
+          "the steering message could not be put on the wire: " + ex.Message));
+    }
+    finally
+    {
+      _ = _agentSteers.TryRemove(agentId.Value, out _);
+    }
+  }
+
+  /// <summary>Completes one pending agent steer with the host's answer (issue #330). An ack for
+  ///     an id nothing is waiting on is dropped: it is a late or duplicate answer, and the
+  ///     sender has already been told its outcome.</summary>
+  private void HandleAgentSteerAck(string json)
+  {
+    AgentSteerAck? ack;
+    try
+    {
+      ack = JsonSerializer.Deserialize<AgentSteerAck>(json);
+    }
+#pragma warning disable CA1031 // Named decision: an undecodable ack is a peer fault, not a pump crash.
+    catch (JsonException)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return;
+    }
+
+    if (ack is null || !_agentSteers.TryRemove(ack.AgentId, out TaskCompletionSource<Result<bool>>? waiter))
+    {
+      return;
+    }
+
+    _ = ack.ErrorCode is { Length: > 0 } code
+        ? waiter.TrySetResult(Result.Failure<bool>(new DomainError(code,
+            ack.ErrorMessage ?? "the agent's host refused the steering message.")))
+        : waiter.TrySetResult(Result.Success(true));
   }
 
   /// <summary>Answers one session-request (issue #234): the app-side session the request
@@ -589,6 +698,9 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       case "child-event":
         HandleChildEvent(envelope.Json);
         break;
+      case "agent-steer-ack":
+        HandleAgentSteerAck(envelope.Json);
+        break;
       default:
         break;
     }
@@ -874,3 +986,16 @@ public sealed record HostError(Guid RecordId, string Code, string Message);
 /// <summary>The app's answer to one session-request (issue #234): the new session id,
 ///     or the typed failure (ErrorCode/ErrorMessage) when the launch was refused.</summary>
 public sealed record SessionResponseCommand(string RequestId, string? SessionId, string? ErrorCode, string? ErrorMessage);
+/// <summary>One steering delivery addressed to an AGENT in its own host (issue #330). The agent
+///     id is the whole address: a launched host serves exactly one agent, so no turn identity
+///     crosses the wire. <paramref name="MessageId"/> is the sender's identity for the #92
+///     handshake - the agent loop's drain fact names it back, which releases the app's pinned
+///     echo.</summary>
+public sealed record AgentSteerCommand(Guid AgentId, string Text, string Sender, Guid MessageId = default);
+
+/// <summary>The host's answer to one <see cref="AgentSteerCommand"/> (issue #330). A deliver
+///     that succeeded carries no code; a refused one carries the mailbox's own typed code
+///     (MailboxFull / NotRunning) or the host's <c>AgentNotRunning</c> when the agent has no
+///     live run there. The answer is what makes an undeliverable steer VISIBLE to the human
+///     who typed it, which is the whole point of the path.</summary>
+public sealed record AgentSteerAck(Guid AgentId, string? ErrorCode = null, string? ErrorMessage = null);
