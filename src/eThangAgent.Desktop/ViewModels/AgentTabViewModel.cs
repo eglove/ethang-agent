@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
+using eThangAgent.StateDomain;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -16,7 +17,11 @@ namespace eThangAgent.Desktop.ViewModels;
 ///     (plans, git, PRs, database), so they do not belong to any one agent.</para>
 ///     <para><see cref="ViewModel"/> and <see cref="Container"/> name the PRIMARY cell - the
 ///     one the tab was opened for. They are the pre-#307 surface, kept because a great deal of
-///     the shell addresses 'the tab's session' and, with one cell, that is exactly right.</para></summary>
+///     the shell addresses 'the tab's session' and, with one cell, that is exactly right.</para>
+///     <para>EVERY CELL KEEPS ITS OWN SUBSCRIPTIONS (issue #329). A tab can hold several
+///     sessions, each with its own event stream, so the agent-cell feed and the chain advance
+///     are held PER SESSION and accumulated rather than replaced: a tab that gained a second
+///     cell must still hear the first session's facts.</para></summary>
 internal sealed partial class AgentTabViewModel : ObservableObject
 {
   public AgentTabViewModel(AgentSession session, AgentSessionViewModel sessionVm)
@@ -33,6 +38,9 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     ArgumentNullException.ThrowIfNull(session);
     ArgumentNullException.ThrowIfNull(sessionVm);
     Workbench = workbench ?? sessionVm.Workbench;
+    WorkspaceId = session.Services.GetService(typeof(IWorkspaceContext)) is IWorkspaceContext context
+        ? context.WorkspaceId
+        : null;
     AgentCellViewModel primary = new(session, sessionVm);
     primary.PropertyChanged += OnCellPropertyChanged;
     Cells = [primary];
@@ -41,18 +49,30 @@ internal sealed partial class AgentTabViewModel : ObservableObject
         session.WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
   }
 
-  /// <summary>The tab's primary session container. With one cell this is the tab's session;
-  ///     with several it is the one the workspace was opened for.
-  ///     <para>DELEGATED, not stored: a sequential chain advance REPLACES the primary cell in
-  ///     place (D2), so a stored copy would name a session the tab no longer shows.</para>
-  ///     <para>THE PRIMARY CELL IS ALWAYS A SESSION (D13): spawned agents append after it and
-  ///     the primary is never replaced by one, so this never returns null for a tab that was
-  ///     opened for a workspace.</para></summary>
-  public AgentSession Container => Cells[0].Container
-      ?? throw new InvalidOperationException("the primary cell must be a session cell.");
+  /// <summary>The tab's primary session container: the LIVE session the tab is anchored on.
+  ///     With one cell this is the tab's session; with several it is the earliest cell whose
+  ///     session still exists.
+  ///     <para>DELEGATED, not stored: a sequential replacement swaps the primary cell in place
+  ///     (D2), and a retired chain step keeps its finished card, so a stored copy would name a
+  ///     session the tab no longer holds.</para>
+  ///     <para>WHY THE FIRST LIVE CELL AND NOT SIMPLY CELL ZERO (issue #329): a chain step's
+  ///     predecessor becomes a finished card, and its container is disposed. The card stays - D7
+  ///     keeps the position - but the tab must not resolve 'its session' to a disposed provider.
+  ///     </para>
+  ///     <para>THE FIRST CELL IS ALWAYS A CONTAINER CELL (D13): agents running in their own hosts
+  ///     append after it and the first cell is never replaced by one.</para></summary>
+  public AgentSession Container => Cells.Select(cell => cell.Container).FirstOrDefault(s => s is not null)
+      ?? throw new InvalidOperationException("the tab must hold at least one live container cell.");
 
-  /// <summary>The primary cell's view-model (see <see cref="Container"/>).</summary>
+  /// <summary>The primary cell's view-model (see <see cref="Container"/>): the cell whose
+  ///     session the tab is anchored on, so the pre-#307 surface keeps addressing a LIVE
+  ///     conversation even after a chain step's predecessor became a finished card.</summary>
   public AgentSessionViewModel ViewModel => Cells[0].ViewModel;
+
+  /// <summary>The workspace this tab shows, as the stable identity its durable rows key on.
+  ///     Null when the tab was built over a session whose container carries no workspace
+  ///     context (a headless stub).</summary>
+  public string? WorkspaceId { get; }
 
   /// <summary>The workspace tab's agent cells, in the order they were started (D7: position
   ///     carries meaning, so a finished cell keeps its place rather than reflowing).</summary>
@@ -65,6 +85,18 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   public string Title { get; }
 
   public string Subtitle => ViewModel.WorkspaceRoot;
+
+  /// <summary>Whether this tab shows the workspace identified by <paramref name="workspaceId"/>.
+  ///     The identity is compared when the tab carries one, and the directory path when it does
+  ///     not, so a tab is still resolvable in a host that wired no workspace context.</summary>
+  /// <param name="workspaceId">The workspace an agent's own record names.</param>
+  public bool OwnsWorkspace(string workspaceId)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+    return WorkspaceId is { } id
+        ? string.Equals(id, workspaceId, StringComparison.Ordinal)
+        : WorkspaceIdentity.PathsEqual(Container.WorkspaceRoot, workspaceId);
+  }
 
   /// <summary>Whether this tab is the shell's selected one. Drives the keep-alive
   ///     content panel's visibility: every open tab's view stays built; only the
@@ -92,26 +124,56 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   /// <summary>Whether the parked badge shows at all.</summary>
   public bool HasParkedChains => ParkedChains > 0;
 
-  /// <summary>Adds a cell for a NEW agent in this workspace (a parallel dispatch, D2).
-  ///     The cell is appended, so the grid's existing cells keep their positions.
-  ///     <para>A sequential chain advance does NOT come through here: it reuses the primary
-  ///     cell (see MainViewModel.StartNewSessionAsync), because a chain is a sequence of
-  ///     agents rather than several at once.</para></summary>
-  public AgentCellViewModel AddCell(AgentSession session, AgentSessionViewModel sessionVm)
+  /// <summary>Adds a cell for a session this app OWNS (issue #307 D2). The cell is appended,
+  ///     so the grid's existing cells keep their positions.
+  ///     <para>A PARALLEL dispatch and a chain step both come through here (issue #329): a
+  ///     chain step is its own agent with its own cell, so it appends beside the agent that
+  ///     started it rather than taking that agent's place.</para></summary>
+  public AgentCellViewModel AddCell(AgentSession session, AgentSessionViewModel sessionVm,
+      ChainPlacement? placement = null)
   {
-    AgentCellViewModel cell = new(session, sessionVm);
+    AgentCellViewModel cell = new(session, sessionVm, placement);
     cell.PropertyChanged += OnCellPropertyChanged;
     Cells.Add(cell);
     return cell;
   }
 
+  /// <summary>Adds a cell for an agent running in its OWN host process (issue #329): nothing
+  ///     here owns its container, so the cell carries none - it follows the agent through the
+  ///     shared store and the event stream.
+  ///     <para>APPENDED, in start order, and NOT SELECTED (D2/D13): a new cell never steals the
+  ///     view. Nothing here focuses, scrolls, or changes <see cref="IsSelected"/>; the user
+  ///     clicks a cell to work in it.</para>
+  ///     <para>ONE CELL PER AGENT: a repeated started fact for an agent this tab already shows
+  ///     is a restart, not a second agent, so the existing cell is returned rather than a
+  ///     duplicate appended.</para></summary>
+  /// <param name="agentId">The agent's id.</param>
+  /// <param name="label">The label its record carries, or empty.</param>
+  /// <param name="placement">The chain step it executes, or null when started by hand.</param>
+  /// <param name="store">The shared store its transcript lands in.</param>
+  /// <param name="sessionVm">The view-model rendering it.</param>
+  public AgentCellViewModel AddAgentCell(AgentId agentId, string label, ChainPlacement? placement,
+      IAgentStore? store, AgentSessionViewModel sessionVm)
+  {
+    if (FindCell(agentId) is { } existing)
+    {
+      return existing;
+    }
+
+    AgentCellViewModel cell = new(agentId, label, store, sessionVm, placement);
+    cell.PropertyChanged += OnCellPropertyChanged;
+    Cells.Add(cell);
+    cell.StartFollowing();
+    return cell;
+  }
+
   /// <summary>Replaces the PRIMARY cell's session IN PLACE (issue #234 + #307 D2): a
-  ///     sequential advance (a chain step, `/new`, a compaction handoff) continues in the same
-  ///     cell rather than adding one, because a chain is a SEQUENCE of agents and the grid's
-  ///     positions carry meaning (D7).
-  ///     <para>The tab itself survives, so its workbench rail and any sibling cells are
+  ///     compaction handoff or `/new` continues in the same cell rather than adding one.
+  ///     <para>THE TAB ITSELF SURVIVES, so its workbench rail and any sibling cells are
   ///     untouched - replacing the whole tab would rebuild a pane the user is reading and
   ///     discard agents that have nothing to do with the advance.</para>
+  ///     <para>A CHAIN STEP DOES NOT COME THROUGH HERE (issue #329): a chain's steps are
+  ///     separate agents, so each gets its own cell.</para>
   ///     <para>The caller owns the retired session's teardown; this only swaps the reference,
   ///     so a teardown fault can never leave the tab without a cell.</para></summary>
   public void ReplacePrimaryCell(AgentSession session, AgentSessionViewModel sessionVm)
@@ -127,34 +189,6 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     OnPropertyChanged(nameof(Container));
     OnPropertyChanged(nameof(ViewModel));
     OnPropertyChanged(nameof(Subtitle));
-  }
-
-  /// <summary>Adds a cell for a SPAWNED agent in this workspace (issue #329): the agent was
-  ///     started by <c>agent.spawn</c> and runs in its own host process, so the cell carries no
-  ///     container - it follows the agent through the shared store and the event stream.
-  ///     <para>APPENDED, in spawn order, and NOT SELECTED (D2/D13): a new cell never steals the
-  ///     view. Nothing here focuses, scrolls, or changes <see cref="IsSelected"/>; the user
-  ///     clicks a cell to work in it.</para>
-  ///     <para>ONE CELL PER AGENT: a repeated started event for an agent this tab already shows
-  ///     is a restart, not a second agent, so the existing cell is returned rather than a
-  ///     duplicate appended.</para></summary>
-  /// <param name="childId">The spawned agent's id.</param>
-  /// <param name="label">The label its spawn named, or empty.</param>
-  /// <param name="store">The shared store its transcript lands in.</param>
-  /// <param name="sessionVm">The view-model rendering it.</param>
-  public AgentCellViewModel AddSpawnedCell(AgentId childId, string label, IAgentStore? store,
-      AgentSessionViewModel sessionVm)
-  {
-    if (FindCell(childId) is { } existing)
-    {
-      return existing;
-    }
-
-    AgentCellViewModel cell = new(childId, label, store, sessionVm);
-    cell.PropertyChanged += OnCellPropertyChanged;
-    Cells.Add(cell);
-    cell.StartFollowing();
-    return cell;
   }
 
   /// <summary>Finds the cell showing <paramref name="agentId"/>, or null when this tab shows
@@ -208,8 +242,8 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   private void OnCellsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     => OnPropertyChanged(nameof(IsFullyFinished));
 
-  /// <summary>Subscribes the badge to this session's child-event stream. Called once
-  ///     by the shell after the tab is created; calling again detaches the prior badge.
+  /// <summary>Subscribes the badge to this session's event stream. Called once by the shell
+  ///     after the tab is created; calling again detaches the prior badge.
   ///     The render callback posts through the UI Dispatcher - events arrive on stream
   ///     threads, transcript/badge mutation is UI-thread-only.</summary>
   public void AttachBadge(IAgentEvents? events)
@@ -224,47 +258,68 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     Null when the shell wired none (headless/test hosts construct nothing).</summary>
   private GitBranchWatcher? _branchWatcher;
 
-  /// <summary>The tab's subscription to the mechanical chain advance (issue #301 D1).
-  ///     Disposed with the tab: a closed tab must not keep advancing a chain.</summary>
-  private IDisposable? _chainAdvanceLease;
+  /// <summary>Per-session leases for the agent-cell feed and the chain advance (issue #329).
+  ///     KEYED BY SESSION, not held as one slot: a tab holds several sessions, each with its
+  ///     own stream, and replacing the slot would silently stop the first session's facts.
+  ///     </summary>
+  private readonly Dictionary<AgentId, IDisposable> _agentCellLeases = [];
 
-  /// <summary>The tab's subscription to the SPAWNED-CELL feed (issue #329). One per tab, not
-  ///     one per session: every session in the tab can spawn, and a cell belongs to the TAB
-  ///     (D10), so the tab owns the subscription and disposes it.</summary>
-  private IDisposable? _spawnedCellsLease;
+  private readonly Dictionary<AgentId, IDisposable> _chainAdvanceLeases = [];
 
-  /// <summary>Attaches the spawned-cell feed. Calling again disposes the prior lease first, so
-  ///     a re-attach cannot leave two subscribers appending a cell for one spawn.</summary>
-  public void AttachSpawnedCells(IDisposable lease)
+  /// <summary>Attaches the agent-cell feed for ONE session of this tab. Calling again for the
+  ///     same session disposes that session's prior lease, so a re-attach cannot leave two
+  ///     subscribers appending a cell for one agent - and a DIFFERENT session's lease is left
+  ///     alone, which is what keeps a multi-agent tab hearing every one of its streams.</summary>
+  /// <param name="sessionId">The session whose stream the lease covers.</param>
+  /// <param name="lease">The subscription.</param>
+  public void AttachAgentCells(AgentId sessionId, IDisposable lease)
   {
     ArgumentNullException.ThrowIfNull(lease);
-    _spawnedCellsLease?.Dispose();
-    _spawnedCellsLease = lease;
+    if (_agentCellLeases.Remove(sessionId, out IDisposable? prior))
+    {
+      prior.Dispose();
+    }
+
+    _agentCellLeases[sessionId] = lease;
   }
 
-  /// <summary>Disposes the spawned-cell feed (tab close). Safe when none was attached.</summary>
-  public void DetachSpawnedCells()
+  /// <summary>Disposes every agent-cell feed (tab close). Safe when none was attached.</summary>
+  public void DetachAgentCells()
   {
-    _spawnedCellsLease?.Dispose();
-    _spawnedCellsLease = null;
+    foreach (IDisposable lease in _agentCellLeases.Values)
+    {
+      lease.Dispose();
+    }
+
+    _agentCellLeases.Clear();
   }
 
-  /// <summary>Attaches the chain-advance subscription for this tab's session stream.
-  ///     Calling again disposes the prior lease first, so a cell swap cannot leave two
-  ///     subscribers advancing the same chain.</summary>
-  public void AttachChainAdvance(IDisposable lease)
+  /// <summary>Attaches the chain-advance subscription for one session's stream. Calling again
+  ///     for the same session disposes that session's prior lease first, so a cell swap cannot
+  ///     leave two subscribers advancing the same chain.</summary>
+  /// <param name="sessionId">The session whose stream the lease covers.</param>
+  /// <param name="lease">The subscription.</param>
+  public void AttachChainAdvance(AgentId sessionId, IDisposable lease)
   {
     ArgumentNullException.ThrowIfNull(lease);
-    _chainAdvanceLease?.Dispose();
-    _chainAdvanceLease = lease;
+    if (_chainAdvanceLeases.Remove(sessionId, out IDisposable? prior))
+    {
+      prior.Dispose();
+    }
+
+    _chainAdvanceLeases[sessionId] = lease;
   }
 
-  /// <summary>Disposes the chain-advance subscription (tab close). Safe when none was
+  /// <summary>Disposes every chain-advance subscription (tab close). Safe when none was
   ///     attached.</summary>
   public void DetachChainAdvance()
   {
-    _chainAdvanceLease?.Dispose();
-    _chainAdvanceLease = null;
+    foreach (IDisposable lease in _chainAdvanceLeases.Values)
+    {
+      lease.Dispose();
+    }
+
+    _chainAdvanceLeases.Clear();
   }
 
   /// <summary>Mirrors the rail's parked-chain count into <see cref="ParkedChains"/> (issue

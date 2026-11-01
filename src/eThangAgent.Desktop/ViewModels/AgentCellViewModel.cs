@@ -6,81 +6,96 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.ViewModels;
 
-/// <summary>One agent cell inside a workspace tab (issue #307 D1): a session and its chat
-///     surface, laid out beside its siblings.
+/// <summary>One agent cell inside a workspace tab (issue #307 D1): an agent and its chat
+///     surface, laid out beside the others.
 ///     <para>There is no orchestrator agent and therefore no privileged cell (D4/D9): every
 ///     cell owns its own chat input, so the user can steer any running agent or answer a
-///     question from any waiting one. The cell carries no behaviour beyond that - the session
-///     view-model owns the transcript, the turn loop, and the status bar.</para>
-///     <para>A cell whose session closes PERSISTS as a finished card until the user dismisses
-///     it (D7). It never reflows: in a grid the position carries meaning, and cell 3 was the
-///     third thing you started.</para>
-///     <para>TWO KINDS OF AGENT OCCUPY A CELL (issue #329). A SESSION cell is a root
-///     conversation this app owns: it holds the AgentSession container and the app drives its
-///     turns. A SPAWNED cell is an agent started by agent.spawn, which runs in its OWN host
-///     process and is owned by nothing here: the cell learns it exists from
-///     ChildStartedEvent and follows it by reading the shared store, so Container is null for
-///     exactly that kind. Both occupy a grid position and render through the same template,
-///     which is why they are one type.</para></summary>
+///     question from any waiting one.</para>
+///     <para>TWO KINDS OF AGENT OCCUPY A CELL (issue #329), and the distinction is WHO OWNS
+///     THE SESSION'S CONTAINER. A CONTAINER cell is a session this app holds: it owns the
+///     <see cref="AgentSession"/>, the app drives its turns, and the cell's transcript is
+///     filled by that session's own stream. A HOST cell is an agent running in its own host
+///     process: nothing here owns it, so <see cref="Container"/> is null and the cell follows
+///     it through the shared store and the event stream. Both occupy a grid position and
+///     render through the same template, which is why they are one type.</para>
+///     <para>A cell whose agent is done PERSISTS as a finished card until the user dismisses
+///     it (D7). It never reflows: in a grid the position carries meaning.</para></summary>
 internal sealed partial class AgentCellViewModel : ObservableObject
 {
-  /// <summary>How often a running spawned agent's transcript is re-read from the shared
-  ///     store (parent #325 D4). The child runs in another process and persists at its own
-  ///     safe points, so the store is the only seam that sees its messages.</summary>
-  internal static readonly TimeSpan SpawnedTranscriptInterval = TimeSpan.FromMilliseconds(500);
+  /// <summary>How often a running host agent's transcript is re-read from the shared store
+  ///     (parent #325 D4). The agent runs in another process and persists at its own safe
+  ///     points, so the store is the only seam that sees its messages.</summary>
+  internal static readonly TimeSpan TranscriptPollInterval = TimeSpan.FromMilliseconds(500);
 
-  public AgentCellViewModel(AgentSession session, AgentSessionViewModel sessionVm)
+  public AgentCellViewModel(AgentSession session, AgentSessionViewModel sessionVm,
+      ChainPlacement? placement = null)
   {
     Container = session ?? throw new ArgumentNullException(nameof(session));
     ViewModel = sessionVm ?? throw new ArgumentNullException(nameof(sessionVm));
     RootId = session.RootId;
+    Placement = placement;
     // The outline follows the turn (D5): a stalled or waiting agent must be visible without
     // reading its transcript, so the cell watches the session's busy flag.
     ViewModel.PropertyChanged += OnSessionPropertyChanged;
   }
 
-  /// <summary>Builds a cell over a SPAWNED agent this app does not own (issue #329): the
-  ///     child runs in its own host process, so there is no container here to hold - the cell
-  ///     follows the agent through the shared store and the event stream instead.
+  /// <summary>Builds a cell over an agent this app does NOT own (issue #329): the agent runs
+  ///     in its own host process, so there is no container here to hold - the cell follows it
+  ///     through the shared store and the event stream instead.
   ///     <para>Nothing polls until <see cref="StartFollowing"/> is called, so a cell built
   ///     for a settled agent, or by a test, performs no reads at all.</para></summary>
-  /// <param name="childId">The spawned agent's id, as the started event named it.</param>
-  /// <param name="label">The spawn label the child's record carries (D9: the UI shows a
-  ///     label, the database keeps the id).</param>
-  /// <param name="store">The shared agent store, which is where the child's transcript
-  ///     lands.</param>
-  /// <param name="sessionVm">The view-model rendering the child's transcript.</param>
-  public AgentCellViewModel(AgentId childId, string label, IAgentStore? store,
-      AgentSessionViewModel sessionVm)
+  /// <param name="agentId">The agent's id, as the started fact named it.</param>
+  /// <param name="label">The label the agent's record carries (D9: the UI shows a label,
+  ///     the database keeps the id).</param>
+  /// <param name="store">The shared agent store, which is where the agent's transcript lands.</param>
+  /// <param name="sessionVm">The view-model rendering the agent's transcript.</param>
+  /// <param name="placement">The chain step this agent executes, or null when it was started
+  ///     by hand (issue #329).</param>
+  public AgentCellViewModel(AgentId agentId, string label, IAgentStore? store,
+      AgentSessionViewModel sessionVm, ChainPlacement? placement = null)
   {
     ArgumentNullException.ThrowIfNull(sessionVm);
-    RootId = childId;
+    RootId = agentId;
     Label = label;
     ViewModel = sessionVm;
     _store = store;
-    IsSpawned = true;
+    Placement = placement;
+    RunsInOwnHost = true;
     ViewModel.PropertyChanged += OnSessionPropertyChanged;
   }
 
-  /// <summary>The session container this cell owns, or null for a spawned agent (issue
-  ///     #329): the app holds no container for an agent running in its own host process.
+  /// <summary>The session container this cell owns, or null when it owns none: an agent running
+  ///     in its own host process (issue #329), or a session cell whose session has been retired.
   ///     <para>Every path that disposes a container or completes a session must check
-  ///     <see cref="IsSpawned"/> first - completing a spawned child's row here would tell
-  ///     the store that a live run had finished.</para></summary>
-  public AgentSession? Container { get; }
+  ///     <see cref="RunsInOwnHost"/> first - completing such an agent's row here would tell
+  ///     the store that a live run had finished.</para>
+  ///     <para>NULLED BY <see cref="RetireContainer"/>, never left naming a disposed provider: the
+  ///     tab's own <c>Container</c> resolves through the cells, and a disposed service provider
+  ///     answering that lookup is how a finished card would break the tab around it.</para></summary>
+  public AgentSession? Container { get; private set; }
 
-  /// <summary>The agent this cell shows, whether it is a session or a spawned child.
-  ///     <para>THIS IS THE CELL'S IDENTITY: the grid never keys a cell by position (D7 - the
-  ///     position is the spawn order), so every lookup goes through this id.</para></summary>
+  /// <summary>The agent this cell shows. THIS IS THE CELL'S IDENTITY: the grid never keys a
+  ///     cell by position (D7 - the position is the order agents started), so every lookup
+  ///     goes through this id.</summary>
   public AgentId RootId { get; }
 
-  /// <summary>The spawn label the child's record carries. Null for a session cell, whose
-  ///     caption is its workspace directory name.</summary>
+  /// <summary>The label the agent's record carries. Null for a container cell, whose caption
+  ///     is its workspace directory name.</summary>
   public string? Label { get; }
 
-  /// <summary>True when this cell follows an agent agent.spawn started rather than a session
-  ///     the tab was opened for (issue #329).</summary>
-  public bool IsSpawned { get; }
+  /// <summary>True when this cell shows an agent running in its OWN host process rather than a
+  ///     session this app owns (issue #329). It is the one kind distinction that remains: the
+  ///     app owns no container, no turn loop, and no inbox for that agent.</summary>
+  public bool RunsInOwnHost { get; }
+
+  /// <summary>The chain step this agent executes, or null when the user started it by hand
+  ///     (issue #329). Read from the chain record's own <c>session_id</c> link, once, at
+  ///     creation.</summary>
+  public ChainPlacement? Placement { get; }
+
+  /// <summary>The chain placement line the header renders, or null when this agent is not part
+  ///     of any chain - the 'nothing extra' half of the acceptance criteria.</summary>
+  public string? PlacementLine => Placement?.Line;
 
   public AgentSessionViewModel ViewModel { get; }
 
@@ -90,33 +105,33 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   [ObservableProperty]
   public partial bool IsFinished { get; private set; }
 
-  /// <summary>Whether this cell is the one the user is working in. Set by the tab, never by
-  ///     the cell: focus is a property of the grid, not of the agent.</summary>
-  [ObservableProperty]
-  public partial bool IsFocused { get; internal set; }
-
   /// <summary>Whether this cell's agent is currently streaming a turn. Every cell renders
   ///     LIVE (D3), so this drives the outline rather than whether the cell renders at all
   ///     (D5).
-  ///     <para>A spawned agent is streaming while it has not settled: this app never sees its
-  ///     turn boundaries, only that it started and that it finished.</para></summary>
-  public bool IsStreaming => IsSpawned ? !IsFinished : ViewModel.IsBusy;
+  ///     <para>An agent in its own host is streaming while it has not settled: this app never
+  ///     sees its turn boundaries, only that it started and that it finished.</para></summary>
+  public bool IsStreaming => RunsInOwnHost ? !IsFinished : ViewModel.IsBusy;
 
   /// <summary>Whether the cell renders the distinct idle outline (D5). A finished card is
   ///     idle by definition, and a busy agent never is.</summary>
   public bool IsIdle => !IsFinished && !IsStreaming;
 
-  /// <summary>The cell's caption. A spawned agent shows the label its spawn named (D9: the
-  ///     id is the database's, the label is the user's), falling back to the short id for a
-  ///     spawn that named none.
-  ///     <para>A session cell shows its workspace's directory name, which is what a user
-  ///     recognises, falling back to the session id when the root has no file name (a drive
-  ///     root such as C:\).</para></summary>
+  /// <summary>The cell's caption. A chain step shows its chain's title, because the chain is
+  ///     the piece of work and the position line beneath it says which step this is
+  ///     (issue #329).
+  ///     <para>Any other agent shows its label - the label the spawn named, or the workspace
+  ///     directory name a container cell has - falling back to the short id when there is no
+  ///     name at all (a drive root such as C:\, or an agent that named no label).</para></summary>
   public string Title
   {
     get
     {
-      if (IsSpawned)
+      if (Placement is { } placement && !string.IsNullOrWhiteSpace(placement.ChainTitle))
+      {
+        return placement.ChainTitle;
+      }
+
+      if (RunsInOwnHost)
       {
         return string.IsNullOrWhiteSpace(Label) ? RootId.ToString()[..8] : Label;
       }
@@ -128,11 +143,16 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     }
   }
 
+  /// <summary>Releases this cell's claim on its session container (issue #329): the shell has
+  ///     torn the session down, so the cell must stop naming it. The card stays - the cell keeps
+  ///     its position and its finished outline, and only the disposed provider goes.</summary>
+  public void RetireContainer() => Container = null;
+
   /// <summary>Marks the cell finished. The session is already gone (or going); nothing here
   ///     disposes it, because the shell owns that teardown and must run it exactly once.
   ///     Calling again is a no-op, so a close path and a shutdown path cannot disagree.
-  ///     <para>A spawned cell stops following its agent here: the one final read (D4) has
-  ///     already landed, and a settled agent's store rows do not change again.</para></summary>
+  ///     <para>A host cell stops following its agent here: the one final read (D4) has
+  ///     already been started, and a settled agent's store rows do not change again.</para></summary>
   public void MarkFinished()
   {
     if (IsFinished)
@@ -141,17 +161,17 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     }
 
     IsFinished = true;
-    if (IsSpawned)
+    if (RunsInOwnHost)
     {
       // The terminal row and the report land AFTER the settled event, so the final read is
       // what puts them in the card.
-      _ = FinishSpawnedAsync();
+      _ = FinishFollowingAsync();
     }
 
     RaiseStateChanged();
   }
 
-  /// <summary>Detaches the session subscription and stops the spawned-agent poller. Called
+  /// <summary>Detaches the session subscription and stops the host agent's poller. Called
   ///     when the tab drops the cell, so a dismissed card cannot keep raising property
   ///     changes for a cell nothing renders.</summary>
   public void Detach()
@@ -160,7 +180,7 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     StopFollowing();
   }
 
-  /// <summary>Stops the spawned agent's poller. Called from <see cref="Detach"/> and from the
+  /// <summary>Stops the host agent's poller. Called from <see cref="Detach"/> and from the
   ///     tab's teardown, so a dismissed card cannot keep reading the store.
   ///     <para>A FLAG, NOT A CANCELLATION SOURCE: the loop holds no unmanaged state and its
   ///     next tick is at most one interval away, so a token would buy a latency the cell does
@@ -168,16 +188,16 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   ///     caller to own its lifetime. The loop re-reads the flag on every pass.</para></summary>
   public void StopFollowing() => _following = false;
 
-  /// <summary>Starts following a spawned agent (issue #329): reads its transcript now, then
-  ///     every <see cref="SpawnedTranscriptInterval"/> until the cell is finished (parent
-  ///     #325 D4).
-  ///     <para>IDEMPOTENT: a second started event for the same agent (a watchdog retry) must
+  /// <summary>Starts following an agent running in its own host (issue #329): reads its
+  ///     transcript now, then every <see cref="TranscriptPollInterval"/> until the cell is
+  ///     finished (parent #325 D4).
+  ///     <para>IDEMPOTENT: a second started fact for the same agent (a watchdog retry) must
   ///     not start a second poller appending the same messages twice.</para>
-  ///     <para>Only a spawned cell follows anything; a session cell's transcript is filled by
+  ///     <para>Only a host cell follows anything; a container cell's transcript is filled by
   ///     its own turn stream.</para></summary>
   public void StartFollowing()
   {
-    if (!IsSpawned || _following)
+    if (!RunsInOwnHost || _following)
     {
       return;
     }
@@ -186,15 +206,15 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     _ = FollowAsync();
   }
 
-  /// <summary>The spawned agent's poll loop: one read per interval while it runs. A store
-  ///     miss is not fatal - the next pass retries - because a child that has not persisted
-  ///     its first message yet is the ordinary state one tick after it starts.</summary>
+  /// <summary>The host agent's poll loop: one read per interval while it runs. A store miss is
+  ///     not fatal - the next pass retries - because an agent that has not persisted its first
+  ///     message yet is the ordinary state one tick after it starts.</summary>
   private async Task FollowAsync()
   {
-    // The first read is immediate: the cell appears with whatever the child has already
+    // The first read is immediate: the cell appears with whatever the agent has already
     // persisted, rather than as an empty card for one interval.
-    await ReadTranscriptAsync(CancellationToken.None).ConfigureAwait(false);
-    using PeriodicTimer timer = new(SpawnedTranscriptInterval);
+    await ReadTranscriptAsync().ConfigureAwait(false);
+    using PeriodicTimer timer = new(TranscriptPollInterval);
     while (await timer.WaitForNextTickAsync(CancellationToken.None).ConfigureAwait(false))
     {
       if (!_following || IsFinished)
@@ -202,33 +222,57 @@ internal sealed partial class AgentCellViewModel : ObservableObject
         return;
       }
 
-      await ReadTranscriptAsync(CancellationToken.None).ConfigureAwait(false);
+      await ReadTranscriptAsync().ConfigureAwait(false);
     }
   }
 
-  /// <summary>The one final read after settle (D4): the child persists its last messages
-  ///     and its report as it finishes, so the card's last content arrives AFTER the settled
-  ///     event. Best effort - a store miss leaves the transcript as it stands.
-  ///     <para>The poller is stopped through <see cref="Detach"/>, not here: the settled event
-  ///     can arrive while a read is in flight, and a cancel from this path would race it. The
-  ///     loop already exits on <see cref="IsFinished"/> at its next tick.</para></summary>
-  private Task FinishSpawnedAsync() => ReadTranscriptAsync(CancellationToken.None);
+  /// <summary>The one final read after settle (D4): the agent persists its last messages and
+  ///     its report as it finishes, so the card's last content arrives AFTER the settled event.
+  ///     Best effort - a store miss leaves the transcript as it stands.
+  ///     <para>SERIALIZED WITH THE POLLER, not cancelled against it: a final read that raced an
+  ///     in-flight poll read would observe the same message count twice and append the same
+  ///     messages twice, because the cursor only advances once per read. <see cref="ReadOnceAsync"/>
+  ///     is the one door.</para></summary>
+  private Task FinishFollowingAsync() => ReadOnceAsync();
+
+  /// <summary>Runs one read, chained behind any read already in flight, so no two reads overlap.
+  ///     <para>THE CHAIN IS THE SYNCHRONIZATION: the cursor and the append are both advanced
+  ///     inside the read, so two concurrent reads are the only way to render one message twice,
+  ///     and the chain makes that impossible without a lock, a flag, or a cancellation token
+  ///     that the final read would have to win a race for.</para></summary>
+  private Task ReadOnceAsync()
+  {
+    lock (_readGate)
+    {
+      _pendingRead = _pendingRead.ContinueWith(
+          _ => ReadTranscriptAsync(),
+          CancellationToken.None,
+          TaskContinuationOptions.None,
+          TaskScheduler.Default).Unwrap();
+      return _pendingRead;
+    }
+  }
 
   /// <summary>Appends the messages the store holds that this cell has not rendered yet.
-  ///     <para>INCREMENTAL BY INDEX: a running agent's transcript grows at its safe points,
-  ///     so re-rendering the whole list every interval would rebuild every card and lose the
+  ///     <para>INCREMENTAL BY INDEX: a running agent's transcript grows at its safe points, so
+  ///     re-rendering the whole list every interval would rebuild every card and lose the
   ///     reader's place. The store's message list is append-only within a run, which is what
   ///     makes a count a sound cursor.</para>
+  ///     <para>THE CURSOR ADVANCES WITH THE APPEND, never before it: the append is marshalled
+  ///     onto the UI thread and awaited, so a message counted here has been handed to the
+  ///     transcript before the next read can skip it. Advancing first would silently DROP
+  ///     messages if the marshalled append never ran.</para>
   ///     <para>UI-THREAD CONTRACT: the append runs through the view-model's own UI marshal,
   ///     because entries are bound by the view.</para></summary>
-  private async Task ReadTranscriptAsync(CancellationToken ct)
+  private async Task ReadTranscriptAsync()
   {
     if (_store is null)
     {
       return;
     }
 
-    Result<IReadOnlyList<Message>> persisted = await _store.GetTranscriptAsync(RootId, ct).ConfigureAwait(false);
+    Result<IReadOnlyList<Message>> persisted = await _store.GetTranscriptAsync(RootId, CancellationToken.None)
+        .ConfigureAwait(false);
     if (!persisted.IsSuccess)
     {
       return;
@@ -241,22 +285,30 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     }
 
     List<Message> fresh = [.. messages.Skip(_renderedCount)];
+    await ViewModel.AppendPersistedMessagesAsync(fresh).ConfigureAwait(false);
     _renderedCount = messages.Count;
-    ViewModel.AppendSpawnedMessages(fresh);
   }
 
-  /// <summary>The store the spawned agent's transcript lands in. Null for a session cell,
-  ///     and for a headless fixture that wired no store - such a cell renders nothing rather
-  ///     than failing.</summary>
+  /// <summary>The store the host agent's transcript lands in. Null for a container cell, and
+  ///     for a headless fixture that wired no store - such a cell renders nothing rather than
+  ///     failing.</summary>
   private readonly IAgentStore? _store;
 
-  /// <summary>How many of the spawned agent's persisted messages this cell has rendered -
-  ///     the cursor <see cref="ReadTranscriptAsync"/> resumes from.</summary>
+  /// <summary>How many of the agent's persisted messages this cell has rendered - the cursor
+  ///     <see cref="ReadTranscriptAsync"/> resumes from.</summary>
   private int _renderedCount;
 
-  /// <summary>Whether the spawned agent's poll loop should keep reading. Cleared by
+  /// <summary>Whether the host agent's poll loop should keep reading. Cleared by
   ///     <see cref="StopFollowing"/>; the loop observes it on every tick.</summary>
-  private bool _following;
+  private volatile bool _following;
+
+  /// <summary>Serializes the tail of the read chain. Held only for the assignment, so no read
+  ///     ever runs under it.</summary>
+  private readonly Lock _readGate = new();
+
+  /// <summary>The tail of the read chain: the last read started, whether or not it finished.
+  ///     A new read is chained behind it, so two reads never overlap.</summary>
+  private Task _pendingRead = Task.CompletedTask;
 
   /// <summary>Re-raises the derived state the cell's outline binds to.</summary>
   internal void RaiseStateChanged()

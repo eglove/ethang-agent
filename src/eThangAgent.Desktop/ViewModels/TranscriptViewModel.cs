@@ -174,6 +174,11 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     }
 
     Entries.Clear();
+    // THE OPEN-BLOCK BOOKKEEPING GOES WITH THE ENTRIES. A stale index here would make the next
+    // CloseOpen read past the end of a cleared collection, which throws on a UI post.
+    _openIndex = -1;
+    _openReasoning = null;
+    _runningTool = null;
   }
 
   /// <summary>
@@ -193,7 +198,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   }
 
   /// <summary>Appends persisted messages to a transcript that is already rendering (issue
-  ///     #329): a spawned agent's messages land in the shared store at its own safe points,
+  ///     #329): a running agent's messages land in the shared store at its own safe points,
   ///     so its card is filled by repeated appends rather than one replay.
   ///     <para>THE CALL-NAME MAP PERSISTS ACROSS CALLS. A tool result can arrive in a later
   ///     append than the call it answers, and a per-call map would render that result as
@@ -379,6 +384,15 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
 
   private void CloseOpen()
   {
+    if (_openIndex >= Entries.Count)
+    {
+      // The collection was cleared out from under the index (a shutdown disposing entries);
+      // there is no open block left to close.
+      _openIndex = -1;
+      _openReasoning = null;
+      return;
+    }
+
     if (_openIndex >= 0 && Entries[_openIndex] is AssistantTextEntry open)
     {
       Entries[_openIndex] = open with { IsOpen = false }; // markdown rendering begins

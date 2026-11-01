@@ -99,7 +99,7 @@ internal sealed record MainViewModelOptions
 
   /// <summary>Marshals a cell mutation onto the UI thread (test seam). Null = the Avalonia
   ///     UI-thread dispatcher (production). A headless test injects a synchronous executor so
-  ///     the spawned-cell feed is drivable without a window, the same seam
+  ///     the agent-cell feed is drivable without a window, the same seam
   ///     <see cref="AgentSessionViewModelOptions.UiMarshal"/> provides per session.</summary>
   public Action<Action>? UiMarshal { get; init; }
 
@@ -184,7 +184,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     When null, production self-marshaling applies per session view-model.</summary>
   private readonly Func<UiStreamEvent, Task>? _streamSink;
 
-  /// <summary>Marshals a spawned-cell mutation onto the UI thread. Production posts through
+  /// <summary>Marshals an agent-cell mutation onto the UI thread. Production posts through
   ///     the Avalonia dispatcher; a headless test injects a synchronous executor, because a
   ///     posted action would never run without a dispatcher loop.</summary>
   private readonly Action<Action> _uiMarshal;
@@ -1356,16 +1356,39 @@ internal sealed partial class MainViewModel : ObservableObject
       string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract = null,
       ChainStepRole? role = null)
   {
+    Result<ReplacedSession> started =
+        await StartSessionAsync(tab, prompt, seed, chainContract, role, placement: null)
+            .ConfigureAwait(true);
+    return started.IsSuccess
+        ? Result.Success(started.Value.Tab)
+        : Result.Failure<AgentTabViewModel>(started.Error);
+  }
+
+  /// <summary>The same start, also told which chain step the new session executes (issue #329),
+  ///     so the cell it lands in can state its position.</summary>
+  /// <param name="tab">The tab whose session is started.</param>
+  /// <param name="prompt">The first turn's text; EMPTY means seed-only.</param>
+  /// <param name="seed">The seeded prefix, or null for a plain launch.</param>
+  /// <param name="chainContract">The chain step this session executes, or null.</param>
+  /// <param name="role">The chain step's assigned role, or null.</param>
+  /// <param name="placement">Where the new session sits in its chain, or null when it is not a
+  ///     chain step.</param>
+  /// <param name="predecessorId">The session this launch retires - the one that completed the
+  ///     previous chain step - or null when the launch replaces the primary cell.</param>
+  private async Task<Result<ReplacedSession>> StartSessionAsync(AgentTabViewModel tab,
+      string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract,
+      ChainStepRole? role, ChainPlacement? placement, AgentId? predecessorId = null)
+  {
     ArgumentNullException.ThrowIfNull(tab);
     if (!Tabs.Contains(tab))
     {
-      return Result.Failure<AgentTabViewModel>(new DomainError("TabClosed",
+      return Result.Failure<ReplacedSession>(new DomainError("TabClosed",
           "that tab is no longer open; no session was started."));
     }
 
     if (tab.ViewModel.IsBusy)
     {
-      return Result.Failure<AgentTabViewModel>(new DomainError("TurnBusy",
+      return Result.Failure<ReplacedSession>(new DomainError("TurnBusy",
           "a turn is running in that tab; stop it before starting a new session."));
     }
 
@@ -1381,7 +1404,7 @@ internal sealed partial class MainViewModel : ObservableObject
     bool seeded = seed is not null || chainContract is not null;
     if (seeded && creator is null)
     {
-      return Result.Failure<AgentTabViewModel>(new DomainError("SeedUnsupported",
+      return Result.Failure<ReplacedSession>(new DomainError("SeedUnsupported",
           "this host cannot seed a new session's conversation; the handoff summary would be lost."));
     }
 
@@ -1411,7 +1434,7 @@ internal sealed partial class MainViewModel : ObservableObject
     catch (Exception ex)
 #pragma warning restore CA1031, S2486
     {
-      return Result.Failure<AgentTabViewModel>(new DomainError("SessionLaunchFailed",
+      return Result.Failure<ReplacedSession>(new DomainError("SessionLaunchFailed",
           "the new session could not be started: " + ex.Message));
     }
 
@@ -1419,11 +1442,22 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       // The factory's own typed code travels through verbatim (SessionLaunchFailed only
       // wraps a thrown fault, never a refused Result).
-      return Result.Failure<AgentTabViewModel>(created.Error);
+      return Result.Failure<ReplacedSession>(created.Error);
     }
 
-    return Result.Success(await ReplaceSessionAsync(tab, created.Value, index, prompt, role));
+    return Result.Success(await ReplaceSessionAsync(
+        tab, created.Value, index, prompt, role, placement, predecessorId));
   }
+
+  /// <summary>What one start produced (issue #329): the tab it landed in, and the id of the
+  ///     session it started.
+  ///     <para>THE ID IS NOT THE TAB'S PRIMARY ANY MORE. A chain step appends its own cell, so
+  ///     the successor is a NEW cell while the tab's primary cell stays the agent that started
+  ///     the chain - and every caller that answers with 'the session I just started' needs the
+  ///     new one, not the tab's first.</para></summary>
+  /// <param name="Tab">The tab the session landed in.</param>
+  /// <param name="RootId">The session that was started.</param>
+  private sealed record ReplacedSession(AgentTabViewModel Tab, AgentId RootId);
 
   /// <summary>Replaces the PRIMARY CELL of <paramref name="tab"/> with a cell over
   ///     <paramref name="session"/> (issue #234 + #307 D2): the old session completes
@@ -1439,18 +1473,27 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     session's own host start must not be racing that teardown inside the same cell; more
   ///     importantly a teardown fault must never leave the tab with no cell at all.</para>
   ///     <para>Must run on the UI thread.</para></summary>
-  private async Task<AgentTabViewModel> ReplaceSessionAsync(AgentTabViewModel tab,
-      AgentSession session, int index, string? prompt, ChainStepRole? role = null)
+  private async Task<ReplacedSession> ReplaceSessionAsync(AgentTabViewModel tab,
+      AgentSession session, int index, string? prompt, ChainStepRole? role = null,
+      ChainPlacement? chainStep = null, AgentId? predecessorId = null)
   {
     // A tab that vanished while the container was building is not resurrected: the new
     // session is attached as its own tab so the work is not lost.
     if (!Tabs.Contains(tab))
     {
-      return await AttachSessionAsync(session, Math.Clamp(index, 0, Tabs.Count));
+      AgentTabViewModel attached = await AttachSessionAsync(session, Math.Clamp(index, 0, Tabs.Count));
+      return new ReplacedSession(attached, session.RootId);
     }
 
-    AgentSessionViewModel retiredVm = tab.ViewModel;
-    AgentSession retiredSession = tab.Container;
+    // WHICH SESSION IS RETIRED DEPENDS ON THE ROUTE (issue #329). A handoff or `/new` continues
+    // in the primary cell, so the primary's session is the one it replaces. A CHAIN STEP
+    // replaces the session that ran the PREVIOUS step - named by the caller - because the
+    // primary is the agent that started the chain and it keeps its cell and its transcript.
+    AgentCellViewModel retiredCell = (predecessorId is { } previous
+        ? tab.FindCell(previous)
+        : null) ?? tab.Cells[0];
+    AgentSessionViewModel retiredVm = retiredCell.ViewModel;
+    AgentSession? retiredSession = retiredCell.Container;
     WorkbenchViewModel workbench = tab.Workbench;
     // Self-referencing sink hook, the same pattern as the attach path: the view-model is
     // captured after construction so its own sink marshals its events onto the UI thread.
@@ -1474,9 +1517,37 @@ internal sealed partial class MainViewModel : ObservableObject
     await freshVm.SeedUsageAsync().ConfigureAwait(true);
     freshVm.Transcript.Restore(session.Conversation.Messages);
 
-    tab.ReplacePrimaryCell(session, freshVm);
+    if (chainStep is { } placement)
+    {
+      // A CHAIN STEP IS ITS OWN AGENT, SO IT GETS ITS OWN CELL (issue #329). The session that
+      // started the chain - or ran the previous step - keeps its cell and its transcript; the
+      // successor is appended beside it. Replacing the primary here would overwrite one agent's
+      // conversation with another's, which is how a five-step chain came to look like one cell.
+      _ = tab.AddCell(session, freshVm, placement);
+    }
+    else
+    {
+      // A HANDOFF OR `/new` CONTINUES IN THE SAME CELL (issue #234 + #307 D2): the same
+      // conversation restarted, not a second agent.
+      tab.ReplacePrimaryCell(session, freshVm);
+    }
+
     AttachTabWiring(session, tab);
-    await CloseReplacedSessionAsync(retiredVm, retiredSession);
+    if (chainStep is not null)
+    {
+      // The predecessor is DONE and stays as a finished card (D7): the chain moved on, and the
+      // record of what ran keeps its grid position.
+      _ = tab.MarkSessionFinished(retiredCell.RootId);
+    }
+
+    if (retiredSession is { } closing)
+    {
+      // THE CARD STOPS NAMING THE CONTAINER IT JUST LOST (issue #329): the tab resolves its own
+      // session through the cells, so a finished card left holding a disposed provider would
+      // answer every later lookup with a dead session.
+      retiredCell.RetireContainer();
+      await CloseReplacedSessionAsync(retiredVm, closing);
+    }
 
     if (!string.IsNullOrWhiteSpace(prompt))
     {
@@ -1486,7 +1557,7 @@ internal sealed partial class MainViewModel : ObservableObject
       _ = freshVm.SubmitAsync(prompt);
     }
 
-    return tab;
+    return new ReplacedSession(tab, session.RootId);
   }
 
   /// <summary>Starts the session for a chain step (issue #301 D2, seeded by #302): a
@@ -1573,14 +1644,50 @@ internal sealed partial class MainViewModel : ObservableObject
     // THE KICKOFF LINE IS THE FIRST TURN (issue #323): a chain step is launched FOR work, so
     // it begins on its own. The brief stays the seeded prefix and the contract stays in the
     // system prompt - this line adds no instruction, it only says 'begin'.
-    Result<AgentTabViewModel> started = await StartNewSessionAsync(tab, prompt: ChainKickoff.Line,
+    // THE STEP'S PLACEMENT IS READ HERE (issue #329): the advance knows which chain and which
+    // position it is starting, and the cell states it. It is passed in rather than re-read from
+    // the record, because the claim that just happened is the authority on who owns the step.
+    ChainPlacement placement = await ReadPlacementAsync(tab, assignment).ConfigureAwait(true);
+    // THE PREDECESSOR IS THE SESSION THAT COMPLETED THE PREVIOUS STEP (issue #329): it is the one
+    // this launch retires, and the agent that started the chain keeps its own cell.
+    AgentId? previousStep = Guid.TryParse(predecessorSessionId, out Guid previousId)
+        ? new AgentId(previousId)
+        : null;
+    Result<ReplacedSession> started = await StartSessionAsync(tab, prompt: ChainKickoff.Line,
         seed: launch.Value.Seed, chainContract: launch.Value.Contract,
-        role: assignment.Role).ConfigureAwait(true);
+        role: assignment.Role, placement: placement, predecessorId: previousStep)
+        .ConfigureAwait(true);
     return started.IsSuccess
-        ? Result.Success(started.Value.Container.RootId.ToString())
+        ? Result.Success(started.Value.RootId.ToString())
         : Result.Failure<string>(started.Error);
   }
 
+
+  /// <summary>The placement a chain step's cell states (issue #329): the chain's title, the
+  ///     step's 1-based position, and how many steps the chain has.
+  ///     <para>READ FROM THE CHAIN RECORD, not from the assignment: the advance knows the chain
+  ///     and the position, but only the record knows how many steps there are - and 'step 2 of'
+  ///     with no total is the caption this exists to avoid. A record that cannot be read yields
+  ///     the assignment's own facts, so the cell still states its position.</para></summary>
+  /// <param name="tab">The tab whose workspace scopes the chain records.</param>
+  /// <param name="assignment">The chain step being started.</param>
+  private static async Task<ChainPlacement> ReadPlacementAsync(AgentTabViewModel tab,
+      ChainStepAssignment assignment)
+  {
+    ArgumentNullException.ThrowIfNull(tab);
+    ArgumentNullException.ThrowIfNull(assignment);
+    if (ChainStoreFor(tab) is { } chains)
+    {
+      Result<Chain> chain = await chains.GetAsync(assignment.ChainId).ConfigureAwait(false);
+      if (chain.IsSuccess)
+      {
+        return new ChainPlacement(chain.Value.Id, chain.Value.Title, assignment.Position,
+            chain.Value.Steps.Count);
+      }
+    }
+
+    return new ChainPlacement(assignment.ChainId, string.Empty, assignment.Position, null);
+  }
 
   /// <summary>Applies a chain step's reviewer model to a launching session (issue #218).
   ///     <para>ONLY A REVIEW STEP CARRIES ONE, and only when the record named it: an implementer
@@ -1784,7 +1891,14 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     (SessionRequestPending) — two launches racing for one tab slot would leave one
   ///     session orphaned in no tab at all, alive and unreachable.</para>
   ///     <para>Must run on the UI thread (the view-model marshals it there).</para></summary>
-  public async Task HandleSessionRequestAsync(AgentTabViewModel tab, SessionRequestPayload request)
+  /// <param name="tab">The tab the request was raised from.</param>
+  /// <param name="request">The request as the host sent it.</param>
+  /// <param name="requestingSessionId">The session whose turn raised the request, or null when
+  ///     the caller cannot name it. A CHAIN LAUNCH USES IT TO RETIRE THE RIGHT CELL (issue #329):
+  ///     the step that just completed is the requesting session, and the agent that started the
+  ///     chain keeps its own cell.</param>
+  public async Task HandleSessionRequestAsync(AgentTabViewModel tab, SessionRequestPayload request,
+      AgentId? requestingSessionId = null)
   {
     ArgumentNullException.ThrowIfNull(tab);
     ArgumentNullException.ThrowIfNull(request);
@@ -1842,7 +1956,8 @@ internal sealed partial class MainViewModel : ObservableObject
     // The swap waits for the CURRENT turn to go idle. A handoff request is emitted BEFORE
     // the host settles its turn, so swapping now would dispose the container the running
     // turn is still writing through.
-    await WaitForIdleAndReplaceAsync(tab, created.Value, request).ConfigureAwait(true);
+    await WaitForIdleAndReplaceAsync(tab, created.Value, request, requestingSessionId)
+        .ConfigureAwait(true);
   }
 
   /// <summary>The tab's session-request creation: seeded when the request carries a
@@ -1926,7 +2041,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     wait — it may have been closed, and a pending replacement for a gone tab must not
   ///     resurrect it.</summary>
   private async Task WaitForIdleAndReplaceAsync(AgentTabViewModel tab, AgentSession session,
-      SessionRequestPayload request)
+      SessionRequestPayload request, AgentId? requestingSessionId)
   {
     try
     {
@@ -1952,9 +2067,19 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
+    // A CHAIN LAUNCH APPENDS ITS OWN CELL (issue #329), and the cell states the step it runs.
+    // A compaction handoff continues in the requesting cell: same conversation, new session.
+    ChainPlacement? placement = request.ChainStep is { } step
+        ? await ReadPlacementAsync(tab,
+            new ChainStepAssignment(step.ChainId, step.PlanId, step.Position, null))
+            .ConfigureAwait(true)
+        : null;
     try
     {
-      _ = await ReplaceSessionAsync(tab, session, index, request.Prompt, RoleOf(request)).ConfigureAwait(true);
+      // A chain launch through the request path retires the session that asked for it - that is
+      // the agent whose step just completed. A handoff replaces the requesting cell itself.
+      _ = await ReplaceSessionAsync(tab, session, index, request.Prompt, RoleOf(request), placement,
+          predecessorId: placement is null ? null : requestingSessionId).ConfigureAwait(true);
     }
     // Named decision (CA1031): a failed replacement surfaces as a notice — the turn is
     // already over and there is no tool left to report to.
@@ -2212,8 +2337,11 @@ internal sealed partial class MainViewModel : ObservableObject
           NewSessionCommand = prompt => currentTab() is { } newSessionTab
               ? StartNewSessionAsync(newSessionTab, prompt)
               : Task.CompletedTask,
+          // THE REQUESTING SESSION TRAVELS WITH THE REQUEST (issue #329): a chain launch retires
+          // the cell of the step that just completed, which is this session - not the tab's
+          // primary, which is the agent that started the chain and keeps its own cell.
           SessionRequestHandler = request => currentTab() is { } requestTab
-              ? HandleSessionRequestAsync(requestTab, request)
+              ? HandleSessionRequestAsync(requestTab, request, session.RootId)
               : Task.CompletedTask,
           ChildEvents = session.Services.GetService<IAgentEvents>(),
           // Spec D6: the app runs NO agent work. A container built with the wire runtime
@@ -2350,7 +2478,7 @@ internal sealed partial class MainViewModel : ObservableObject
   private void AttachTabWiring(AgentSession session, AgentTabViewModel tab)
   {
     tab.AttachBadge(session.Services.GetService<IAgentEvents>());
-    AttachSpawnedCells(session, tab);
+    AttachAgentCells(session, tab);
     tab.AttachBranchWatcher(session.Services.GetService<IGitQueryAccess>());
     // Issue #312 D6: a parked chain badges the tab header, because the rail may be closed and a
     // chain waiting for a human is the one thing here that needs attention.
@@ -2358,20 +2486,21 @@ internal sealed partial class MainViewModel : ObservableObject
     AttachChainAdvance(session, tab);
   }
 
-  /// <summary>Subscribes the tab's agent stream to the SPAWNED-CELL feed (issue #329): a
-  ///     started fact appends a cell, a settled fact finishes it.
-  ///     <para>WHY THE SESSION'S OWN STREAM: since #326 a launched host's forwarded child events
-  ///     republish onto the container that launched it, so a spawned agent's lifecycle arrives
+  /// <summary>Subscribes one session's stream to the AGENT-CELL feed (issue #329): a started
+  ///     fact appends a cell, a settled fact finishes it.
+  ///     <para>WHY THE SESSION'S OWN STREAM: since #326 a launched host's forwarded events
+  ///     republish onto the container that launched it, so a started agent's lifecycle arrives
   ///     here and nowhere else. Reading the store instead would be the polling this design
-  ///     replaces - a scan cannot distinguish 'just spawned' from 'was already there'.
+  ///     replaces - a scan cannot distinguish 'just started' from 'was already there'.
   ///     </para>
-  ///     <para>ONE SUBSCRIPTION PER SESSION, NOT PER CELL: every session in a tab gets this
-  ///     wiring, because any of them can be the one that calls agent.spawn. A session whose
-  ///     stream is null (a headless host) subscribes nothing.
+  ///     <para>ONE SUBSCRIPTION PER SESSION, ACCUMULATED: every session in a tab gets this
+  ///     wiring, because any of them can be the one that starts an agent, and a tab that gains
+  ///     a second cell must still hear the first session's facts. A session whose stream is
+  ///     null (a headless host) subscribes nothing.
   ///     </para>
-  ///     <para>The lease is the tab's and is replaced per attach, so a cell swap cannot leave
-  ///     two subscribers appending duplicate cells for one spawn.</para></summary>
-  private void AttachSpawnedCells(AgentSession session, AgentTabViewModel tab)
+  ///     <para>The lease is held per session, so a re-attach of one session cannot stop
+  ///     another's feed.</para></summary>
+  private void AttachAgentCells(AgentSession session, AgentTabViewModel tab)
   {
     if (session.Services.GetService<IAgentEvents>() is not { } events)
     {
@@ -2379,46 +2508,60 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     IAgentStore? store = session.Services.GetService<IAgentStore>();
-    SpawnedCellSubscriber subscriber = new(
-        // The spawning agent's own session is what locates its tab: D10 makes a tab the
-        // workspace, and the parent of a spawned agent is a session in exactly one of them.
-        TabForSession,
+    AgentCellSubscriber subscriber = new(
+        // THE AGENT'S OWN WORKSPACE LOCATES ITS TAB: D10 makes a tab the workspace, and an
+        // agent's record carries the workspace it belongs to. No parent is consulted, because
+        // an agent has none (issue #299 D1).
+        TabForWorkspace,
         () => Tabs,
-        _ => store,
-        BuildSpawnedCellViewModel,
+        () => store,
+        ChainStoreFor,
+        BuildAgentCellViewModel,
         _uiMarshal);
-    tab.AttachSpawnedCells(events.Subscribe(subscriber));
+    tab.AttachAgentCells(session.RootId, events.Subscribe(subscriber));
   }
 
-  /// <summary>The tab showing <paramref name="rootId"/>'s session, or null when no tab does.
-  ///     A spawn from a session that is not open in this shell has no cell to land in.</summary>
-  private AgentTabViewModel? TabForSession(AgentId rootId)
-    => Tabs.FirstOrDefault(t => t.FindCell(rootId) is not null);
+  /// <summary>The open tab showing <paramref name="workspaceId"/>, or null when none does. A
+  ///     mechanical lookup with no ancestry walk: the agent's own workspace is the whole of the
+  ///     answer, and an agent whose workspace is not open gets no cell.</summary>
+  /// <param name="workspaceId">The workspace id the agent's record names.</param>
+  private AgentTabViewModel? TabForWorkspace(string workspaceId)
+    => string.IsNullOrWhiteSpace(workspaceId)
+        ? null
+        : Tabs.FirstOrDefault(tab => tab.OwnsWorkspace(workspaceId));
 
-  /// <summary>Builds the view-model a SPAWNED agent's cell renders (issue #329).
-  ///     <para>IT IS AN AgentSessionViewModel OVER THE CHILD'S OWN ID, because that type owns
+  /// <summary>The chain store of the workspace a tab shows, which is where an agent's chain step
+  ///     is recorded. Null when that container wired no chain machinery.</summary>
+  /// <param name="tab">The tab whose workspace scopes the chain records.</param>
+  private static IChainStore? ChainStoreFor(AgentTabViewModel tab)
+    => tab.Container.Services.GetService<IChainStore>();
+
+  /// <summary>Builds the view-model a host agent's cell renders (issue #329).
+  ///     <para>IT IS AN AgentSessionViewModel OVER THE AGENT'S OWN ID, because that type owns
   ///     everything the cell shows - the transcript collection, the scroll controller, and the
   ///     UI marshal the append runs through. Nothing else about it is live: no turn runner is
-  ///     wired (the app runs no turn for a child in another process), no inbox, no container,
+  ///     wired (the app runs no turn for an agent in another process), no inbox, no container,
   ///     and no status model updater.
   ///     </para>
-  ///     <para>The bootstrap line names the model the started fact carried, so the cell states
-  ///     what is serving the agent before its first message lands.
+  ///     <para>THE SHELL'S OWN MARSHAL, not a fresh dispatcher post: a headless test injects a
+  ///     synchronous executor through <see cref="MainViewModelOptions.UiMarshal"/>, and a
+  ///     hardcoded dispatcher here would govern the cell append while leaving the transcript
+  ///     append unrunnable without a UI loop.
   ///     </para></summary>
-  private static AgentSessionViewModel BuildSpawnedCellViewModel(AgentTabViewModel tab,
-      AgentId childId, string label, IAgentStore? store)
+  private AgentSessionViewModel BuildAgentCellViewModel(AgentTabViewModel tab,
+      AgentId agentId, string label, ChainPlacement? placement, IAgentStore? store)
   {
     ArgumentNullException.ThrowIfNull(tab);
     ArgumentNullException.ThrowIfNull(store);
     _ = label;
+    _ = placement;
     return new AgentSessionViewModel(
-        // A spawned agent's turns belong to its own host: this runner refuses every call
-        // rather than pretending to serve one, and the cell hides its input (#330 wires
-        // steering).
+        // A host agent's turns belong to its own host: this runner refuses every call rather
+        // than pretending to serve one, and the cell hides its input (#330 wires steering).
         static (_, _, _, _) => Task.FromResult(Result.Failure<string>(new DomainError(
-            "SpawnedAgent", "a spawned agent's turns run in its own host process."))),
+            "RunsInOwnHost", "this agent's turns run in its own host process."))),
         new RootSessionLifecycle(store),
-        childId,
+        agentId,
         new Conversation(),
         provider: tab.Container.ProviderName,
         modelId: string.Empty,
@@ -2427,10 +2570,10 @@ internal sealed partial class MainViewModel : ObservableObject
           WorkspaceRoot = tab.Container.WorkspaceRoot,
           // The app owns no turn for this agent, so the cell renders no chat input (#330
           // wires steering); an input that silently did nothing would be worse than none.
-          IsSpawnedAgent = true,
-          // The transcript's entries are bound by the view, so the spawned cell's appends
-          // are marshalled onto the UI thread - the same contract every other append follows.
-          UiMarshal = action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+          RunsInOwnHost = true,
+          // The transcript's entries are bound by the view, so the cell's appends are
+          // marshalled onto the UI thread through the shell's own seam.
+          UiMarshal = _uiMarshal,
           Workbench = tab.Workbench,
         });
   }
@@ -2547,13 +2690,15 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       ChainFailureSubscriber failures = new(lifecycle,
           message => Avalonia.Threading.Dispatcher.UIThread.Post(() => tab.ViewModel.AddSystemNotice(message)));
-      tab.AttachChainAdvance(events.Subscribe(new ChainFailureEventSink(failures, session.RootId)));
+      tab.AttachChainAdvance(session.RootId,
+          events.Subscribe(new ChainFailureEventSink(failures, session.RootId)));
     }
 
     ChainAdvanceSubscriber subscriber = new(
         _ => advance,
         message => Avalonia.Threading.Dispatcher.UIThread.Post(() => tab.ViewModel.AddSystemNotice(message)));
-    tab.AttachChainAdvance(events.Subscribe(new ChainAdvanceEventSink(subscriber, session.WorkspaceRoot)));
+    tab.AttachChainAdvance(session.RootId,
+        events.Subscribe(new ChainAdvanceEventSink(subscriber, session.WorkspaceRoot)));
   }
 
   /// <summary>Adapts the session's event stream to the advance subscriber: the stream is
@@ -3012,10 +3157,9 @@ internal sealed partial class MainViewModel : ObservableObject
     List<AgentCellViewModel> cells = [.. tab.Cells];
     foreach (AgentCellViewModel cell in cells)
     {
-      // A SPAWNED cell owns nothing here (issue #329): its agent runs in its own host, so
-      // there is no session to complete and no container to dispose. Only the poller is
-      // ours to stop.
-      if (cell.IsSpawned)
+      // An agent running in its own host owns nothing here (issue #329): there is no session
+      // to complete and no container to dispose. Only the poller is ours to stop.
+      if (cell.RunsInOwnHost)
       {
         cell.StopFollowing();
         continue;
@@ -3039,7 +3183,7 @@ internal sealed partial class MainViewModel : ObservableObject
     tab.Badge?.Dispose();
     tab.DetachBranchWatcher();
     tab.DetachChainAdvance();
-    tab.DetachSpawnedCells();
+    tab.DetachAgentCells();
     // Issue #307 D6: the rail belongs to the tab, so the tab's close is what stops its
     // pollers. A cell's shutdown deliberately leaves a SHARED rail running.
     tab.Workbench.Dispose();
@@ -3050,6 +3194,7 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       if (cell.Container is { } container)
       {
+        cell.RetireContainer();
         await container.Services.DisposeAsync();
       }
     }
@@ -3099,9 +3244,9 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    // A spawned cell has no session to complete (issue #329): its run belongs to its own
-    // host, which retires it. The card stays as a record of what ran.
-    if (cell.IsSpawned)
+    // An agent running in its own host has no session here to complete (issue #329): its run
+    // belongs to that host, which retires it. The card stays as a record of what ran.
+    if (cell.RunsInOwnHost)
     {
       cell.MarkFinished();
       return;
@@ -3121,10 +3266,13 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
 
     // The card stays in the grid (D7: position carries meaning) and its container is disposed
-    // so the host process dies with it.
+    // so the host process dies with it. THE CELL STOPS NAMING IT FIRST (issue #329): the tab's
+    // own Container resolves through the cells, so a card left holding a disposed provider would
+    // hand every later caller a dead session.
     _ = tab.MarkSessionFinished(rootId);
     if (cell.Container is { } container)
     {
+      cell.RetireContainer();
       await container.Services.DisposeAsync().ConfigureAwait(true);
     }
   }

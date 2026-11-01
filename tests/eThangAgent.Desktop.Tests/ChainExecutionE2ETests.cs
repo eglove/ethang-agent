@@ -104,9 +104,13 @@ public class ChainExecutionE2ETests
       Assert.Contains("[plan] created #1", startResult, StringComparison.Ordinal);
       Assert.Contains("[chain] created #1 from plan #1", startResult, StringComparison.Ordinal);
 
-      // ---- BOUNDARY 2: step 1's session replaced the creator's cell, brief-seeded ----
-      AgentId step1Id = await WaitForCellSwapAsync(shell, creatorId, SwapLimit).ConfigureAwait(true);
+      // ---- BOUNDARY 2: step 1's session gets its OWN cell, brief-seeded (issue #329) ----
+      AgentId step1Id = await WaitForNewCellAsync(shell, [creatorId], SwapLimit).ConfigureAwait(true);
       Assert.NotEqual(creatorId, step1Id);
+      // THE CREATOR KEEPS ITS CELL: a chain step is a separate agent, so it appends beside the
+      // agent that started the chain rather than taking its place.
+      Assert.NotNull(shell.Tabs[0].FindCell(creatorId));
+      Assert.Equal(creatorId, shell.Tabs[0].Cells[0].RootId);
       // THE RECORD NAMES THE REAL SESSION, not the placeholder the claim was taken under:
       // creation claims step 1 as 'pending-<guid>' and REASSIGNS it after the launch answers, so
       // a single read here would race a documented two-step and assert a provisional id.
@@ -117,9 +121,13 @@ public class ChainExecutionE2ETests
       Assert.Equal(ChainStepStatus.Running, chain.StepAt(1)!.Status);
       Assert.Equal(ChainStepStatus.Pending, chain.StepAt(2)!.Status);
       Assert.Null(chain.StepAt(2)!.SessionId);
-      // The brief reached the session the model will read: it is the seeded first message.
-      Assert.Contains(shell.Tabs[0].ViewModel.Transcript.Entries.OfType<SystemMessageEntry>(),
+      // The brief reached the session the model will read: it is the seeded first message of
+      // the STEP's own cell, not the creator's.
+      Assert.Contains(shell.Tabs[0].FindCell(step1Id)!.ViewModel.Transcript.Entries
+          .OfType<SystemMessageEntry>(),
           entry => entry.Text.StartsWith(ChainBriefRenderer.Prefix, StringComparison.Ordinal));
+      // AND THE CELL STATES WHICH STEP IT IS (issue #329): the chain's title and 'step 1 of 2'.
+      Assert.Equal("step 1 of 2 \u00b7 Chain E2E", shell.Tabs[0].FindCell(step1Id)!.PlacementLine);
     }
     finally
     {
@@ -182,14 +190,19 @@ public class ChainExecutionE2ETests
       // ---- BOUNDARY 3: chain.start launches step 1, and NOTHING ELSE IS TYPED ----
       await RunTurnAsync(shell.Tabs[0].ViewModel, "plan the work and start executing it", StepLimit)
           .ConfigureAwait(true);
-      AgentId step1Id = await WaitForCellSwapAsync(shell, creatorId, SwapLimit).ConfigureAwait(true);
+      AgentId step1Id = await WaitForNewCellAsync(shell, [creatorId], SwapLimit).ConfigureAwait(true);
       Assert.NotEqual(creatorId, step1Id);
 
-      // ---- BOUNDARY 4: step 1 completes, the advance WAITS, and step 2 takes its own cell ----
+      // ---- BOUNDARY 4: step 1 completes, the advance WAITS, and step 2 gets its own cell ----
       // No SubmitAsync here: the kickoff line is the step's first turn, so the chain advances
-      // itself. Waiting on the CELL SWAP is what proves the advance landed rather than stalled.
-      AgentId step2Id = await WaitForCellSwapAsync(shell, step1Id, StepLimit).ConfigureAwait(true);
+      // itself. Waiting on a NEW CELL is what proves the advance landed rather than stalled.
+      AgentId step2Id = await WaitForNewCellAsync(shell, [creatorId, step1Id], StepLimit)
+          .ConfigureAwait(true);
       Assert.NotEqual(step1Id, step2Id);
+      // FIVE AGENTS WOULD BE FIVE CELLS: each step's agent keeps its own, and the one that
+      // finished stays as a card (D7).
+      Assert.Equal(3, shell.Tabs[0].Cells.Count);
+      Assert.True(shell.Tabs[0].FindCell(step1Id)!.IsFinished);
 
       // ---- BOUNDARY 5: step 2 completes and the chain is Completed, not merely Running ----
       Chain finished = await WaitForRecordAsync(host.DatabasePath, workspaceId,
@@ -275,18 +288,29 @@ public class ChainExecutionE2ETests
     await cell.WaitForTurnAsync().WaitAsync(limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
   }
 
-  /// <summary>Waits for the tab's primary cell to be REPLACED by a different session - the
-  ///     in-place swap a chain launch performs. Bounded, and it pumps the dispatcher because the
-  ///     session-request handler is posted onto the UI thread by the session view-model.</summary>
-  private static async Task<AgentId> WaitForCellSwapAsync(MainViewModel shell, AgentId previous, TimeSpan limit)
+  /// <summary>Waits for the tab to gain a cell for a session that is not one of
+  ///     <paramref name="known"/> - the append a chain launch performs (issue #329). Bounded, and
+  ///     it pumps the dispatcher because the session-request handler is posted onto the UI
+  ///     thread by the session view-model.
+  ///     <para>WHY NOT 'THE PRIMARY CHANGED': a chain step is its own agent, so it appends and the
+  ///     primary stays the agent that started the chain. A test waiting on a primary swap would
+  ///     now time out - which is the behaviour change this issue makes.</para></summary>
+  private static async Task<AgentId> WaitForNewCellAsync(MainViewModel shell,
+      IReadOnlyList<AgentId> known, TimeSpan limit)
   {
     DateTimeOffset deadline = DateTimeOffset.UtcNow + limit;
     while (DateTimeOffset.UtcNow < deadline)
     {
       Dispatcher.UIThread.RunJobs();
-      if (shell.Tabs.Count == 1 && shell.Tabs[0].Container.RootId != previous)
+      if (shell.Tabs.Count == 1)
       {
-        return shell.Tabs[0].Container.RootId;
+        AgentCellViewModel? added = shell.Tabs[0].Cells
+            .Skip(1)
+            .FirstOrDefault(cell => !known.Contains(cell.RootId));
+        if (added is not null)
+        {
+          return added.RootId;
+        }
       }
 
       await Task.Delay(50, TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -294,12 +318,13 @@ public class ChainExecutionE2ETests
 
     // A timeout must say what the APP said, not just that time ran out: a refused launch is the
     // interesting failure here, and its reason lands in the transcript as a notice.
-    string said = string.Join(" / ", shell.Tabs.SelectMany(t => t.ViewModel.Transcript.Entries)
+    string said = string.Join(" / ", shell.Tabs.SelectMany(t => t.Cells)
+        .SelectMany(c => c.ViewModel.Transcript.Entries)
         .OfType<NoticeEntry>()
         .Select(n => n.Text));
     throw new TimeoutException(
-        $"the tab's cell never advanced past session {previous} within {limit}. "
-        + $"The transcript said: {said}");
+        $"the tab never gained a cell for a session outside {known.Count} known one(s) "
+        + $"within {limit}. The transcript said: {said}");
   }
 
   /// <summary>The chain record as the SAME workspace store holds it, read over the harness's

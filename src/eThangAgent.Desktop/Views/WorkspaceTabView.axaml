@@ -87,8 +87,14 @@
                 <DockPanel>
                   <Border DockPanel.Dock="Top" Background="#15000000" Padding="8,3">
                     <DockPanel LastChildFill="False">
-                      <TextBlock Text="{Binding Title}" FontSize="11" FontWeight="SemiBold"
-                                 VerticalAlignment="Center"/>
+                      <!-- The agent's name, and beneath it the chain step it executes when it
+                           has one (issue #329). A hand-started agent states nothing extra: the
+                           second line is absent, not blank. -->
+                      <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding PlacementLine}" FontSize="10" Opacity="0.7"
+                                   IsVisible="{Binding PlacementLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                      </StackPanel>
                       <TextBlock DockPanel.Dock="Right" Text="finished" FontSize="10"
                                  Opacity="0.6" VerticalAlignment="Center" Margin="6,0,0,0"
                                  IsVisible="{Binding IsFinished}"/>

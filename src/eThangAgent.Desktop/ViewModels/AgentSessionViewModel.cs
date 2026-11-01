@@ -149,12 +149,12 @@ internal sealed record AgentSessionViewModelOptions
   public WorkbenchViewModel? Workbench { get; init; }
 
   /// <summary>True when this view-model renders an agent the app does NOT own (issue #329):
-  ///     a spawned agent running in its own host process. Its transcript arrives from the
-  ///     shared store, and the app cannot submit a turn for it, so the chat input is not
-  ///     rendered at all - an input that silently does nothing is worse than none.
-  ///     <para>Steering a spawned agent is #330's surface; this flag is what keeps #329 from
+  ///     an agent running in its own host process. Its transcript arrives from the shared
+  ///     store, and the app cannot submit a turn for it, so the chat input is not rendered at
+  ///     all - an input that silently does nothing is worse than none.
+  ///     <para>Steering such an agent is #330's surface; this flag is what keeps #329 from
   ///     claiming an affordance it does not wire.</para></summary>
-  public bool IsSpawnedAgent { get; init; }
+  public bool RunsInOwnHost { get; init; }
 
   /// <summary>Receives this session's own ROOT TURN facts (issue #301 D5): a turn started,
   ///     a tool dispatch, a streamed fragment, a turn settled.
@@ -322,14 +322,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     layout is stable; the user's collapse is what hides it.</summary>
   public WorkbenchViewModel Workbench { get; }
 
-  /// <summary>Whether the chat input renders. False for a spawned agent (issue #329): the app
-  ///     owns no turn loop for it, so there is nothing to type into until #330 wires
-  ///     steering.</summary>
-  public bool ShowsChatInput => !IsSpawnedAgent;
+  /// <summary>Whether the chat input renders. False for an agent running in its own host
+  ///     (issue #329): the app owns no turn loop for it, so there is nothing to type into
+  ///     until #330 wires steering.</summary>
+  public bool ShowsChatInput => !RunsInOwnHost;
 
   /// <summary>Whether this session view-model renders an agent the app does not own (issue
   ///     #329), from the construction option of the same name.</summary>
-  public bool IsSpawnedAgent { get; }
+  public bool RunsInOwnHost { get; }
 
   /// <summary>The rail the workspace tab handed this session (issue #307 D6), or null when
   ///     this view-model built its own. Null is what makes the rail this view-model's to
@@ -432,7 +432,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
-    IsSpawnedAgent = options.IsSpawnedAgent;
+    RunsInOwnHost = options.RunsInOwnHost;
     _rootActivity = options.RootActivitySink;
     RootTurnChannel = options.RootTurnChannel;
     AttachDrainLease(options.ChildEvents, rootId);
@@ -1562,22 +1562,31 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   public Task ApplyUiStreamEventOnUIThreadAsync(UiStreamEvent evt) =>
       Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ApplyStreamEvent(evt)).GetTask();
 
-  /// <summary>Appends a spawned agent's newly persisted messages to this cell's transcript
-  ///     (issue #329), marshalled onto the UI thread: the poll that produces them runs on a
-  ///     pool thread, and transcript entries are bound by the view.
+  /// <summary>Appends an agent's newly persisted messages to this cell's transcript (issue
+  ///     #329), marshalled onto the UI thread: the poll that produces them runs on a pool
+  ///     thread, and transcript entries are bound by the view.
   ///     <para>The append is INCREMENTAL - the caller passes only what has landed since its
-  ///     last read - so a growing child transcript never re-renders what the reader is
-  ///     looking at.</para></summary>
+  ///     last read - so a growing transcript never re-renders what the reader is looking
+  ///     at.</para>
+  ///     <para>THE TASK COMPLETES WHEN THE ENTRIES ARE IN THE TRANSCRIPT, not when the post is
+  ///     made: the caller advances its read cursor on this, and a cursor that ran ahead of the
+  ///     append would drop the messages it had already counted.</para></summary>
   /// <param name="messages">The messages to render, in store order.</param>
-  public void AppendSpawnedMessages(IReadOnlyList<Message> messages)
+  public Task AppendPersistedMessagesAsync(IReadOnlyList<Message> messages)
   {
     ArgumentNullException.ThrowIfNull(messages);
     if (messages.Count == 0)
     {
-      return;
+      return Task.CompletedTask;
     }
 
-    _uiMarshal(() => Transcript.AppendPersisted(messages));
+    TaskCompletionSource applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    _uiMarshal(() =>
+    {
+      Transcript.AppendPersisted(messages);
+      _ = applied.TrySetResult();
+    });
+    return applied.Task;
   }
 
   private void ReportPersistenceError(string message) => Transcript.AddNotice(message);
