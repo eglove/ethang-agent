@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using eThangAgent.Desktop.Markdown;
@@ -84,6 +86,41 @@ public class CodeBlockScrollBarTests
   {
     (ScrollViewer _, ScrollBar bar, Border _) = Frame(Show("```csharp\nvar x = 1;\n```"));
     Assert.Equal(0, bar.Maximum, 1.0);
+  }
+
+  [AvaloniaFact]
+  public void Dragging_The_Scrollbar_Thumb_With_The_Mouse_Scrolls_Across_The_Block()
+  {
+    Window window = Show("```csharp\n" + LongLine + "\n```");
+    (ScrollViewer scroller, ScrollBar bar, Border _) = Frame(window);
+    Thumb thumb = bar.GetVisualDescendants().OfType<Thumb>().First();
+
+    Point thumbTopLeft = thumb.TranslatePoint(new Point(0, 0), window)!.Value;
+    Point thumbBottomRight = thumb.TranslatePoint(new Point(thumb.Bounds.Width, thumb.Bounds.Height), window)!.Value;
+    Point start = new((thumbTopLeft.X + thumbBottomRight.X) / 2, (thumbTopLeft.Y + thumbBottomRight.Y) / 2);
+
+    Assert.False(bar.AllowAutoHide);
+    Assert.Equal(scroller.Viewport.Width, bar.LargeChange, 1.0);
+    Assert.Equal(scroller.SmallChange.Width, bar.SmallChange, 1.0);
+
+    List<string> trace = [];
+    window.MouseDown(start, MouseButton.Left);
+    Dispatcher.UIThread.RunJobs();
+
+    int[] steps = [1, 2, 3, 4, 10, 50, 100];
+    foreach (int dx in steps)
+    {
+      window.MouseMove(new Point(start.X + dx, start.Y), RawInputModifiers.LeftMouseButton);
+      Dispatcher.UIThread.RunJobs();
+      trace.Add($"dx={dx}:offset={scroller.Offset.X:F1}");
+    }
+
+    window.MouseUp(new Point(start.X + 100, start.Y), MouseButton.Left);
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.True(scroller.Offset.X > 200,
+        $"dragging the thumb 100 px must scroll across the block, but offset stopped at {scroller.Offset.X:F1} ({string.Join(", ", trace)})");
+    window.Close();
   }
 
   private static Window Show(string markdown)

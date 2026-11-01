@@ -1,7 +1,11 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
+using Avalonia.VisualTree;
 
 namespace eThangAgent.Desktop.Markdown;
 
@@ -62,7 +66,9 @@ internal static class CodeBlockScroller
   /// <param name="offsets">Offsets captured from the previous render, or empty on the first.</param>
   public static void Wrap(Control root, IReadOnlyList<double> offsets)
   {
+    ArgumentNullException.ThrowIfNull(root);
     ArgumentNullException.ThrowIfNull(offsets);
+    ShieldViewerSelectionTunnel(root);
     int index = 0;
     foreach (Border block in Descendants(root).OfType<Border>().ToList())
     {
@@ -102,7 +108,9 @@ internal static class CodeBlockScroller
     {
       Orientation = Orientation.Horizontal,
       Height = ScrollBarHeight,
+      AllowAutoHide = false,
     };
+    UnshieldAtScrollBar(bar);
 
     // The bar drives the scroller and the scroller drives the bar; the guard stops the echo.
     bool syncing = false;
@@ -137,6 +145,8 @@ internal static class CodeBlockScroller
         bar.Minimum = 0;
         bar.Maximum = Math.Max(0, scroller.Extent.Width - scroller.Viewport.Width);
         bar.ViewportSize = scroller.Viewport.Width;
+        bar.SmallChange = scroller.SmallChange.Width;
+        bar.LargeChange = scroller.Viewport.Width;
         bar.Value = scroller.Offset.X;
       }
       finally
@@ -185,6 +195,54 @@ internal static class CodeBlockScroller
 
     return scroller.Offset.X;
   }
+
+  /// <summary>Stops <c>MarkView.Avalonia.MarkdownViewer</c>'s root <see cref="Grid"/> from
+  ///     stealing pointer capture away from a code block's scrollbar.
+  ///     <para><c>MarkdownViewer.RenderMarkdown</c> wraps its block panel and
+  ///     <c>DocumentSelectionLayer</c> in a <see cref="Grid"/> (<c>viewer.Content</c>) and
+  ///     attaches <see cref="RoutingStrategies.Tunnel"/> handlers (<c>handledEventsToo: false</c>)
+  ///     for <see cref="InputElement.PointerPressedEvent"/>, <see cref="InputElement.PointerMovedEvent"/>,
+  ///     and <see cref="InputElement.PointerReleasedEvent"/>. Because the code block's
+  ///     <see cref="ScrollBar"/> lives inside that <see cref="Grid"/>, pressing the scrollbar
+  ///     thumb armed <c>MarkdownViewer._dragStart</c> in Tunnel; dragging worked for at most
+  ///     3.0 px (<c>Math.Sqrt(dx*dx + dy*dy) &lt;= 3.0</c>, moving the code ~11.7 px), and on the
+  ///     first move past 3.0 px <c>OnContentPointerMoved</c> ran in Tunnel before the thumb,
+  ///     called <c>e.Pointer.Capture(grid)</c> (firing <c>Thumb.OnPointerCaptureLost</c> and
+  ///     killing the thumb drag), and set <c>e.Handled = true</c>.</para>
+  ///     <para><paramref name="root"/> is the parent of <c>viewer.Content</c>, so its Tunnel
+  ///     handler runs BEFORE the <see cref="Grid"/>'s Tunnel handler: marking a scrollbar-targeted
+  ///     event <c>Handled = true</c> here makes the <see cref="Grid"/> skip its selection handler
+  ///     (<c>handledEventsToo: false</c>), and <see cref="UnshieldAtScrollBar"/> restores
+  ///     <c>Handled = false</c> once the tunnel reaches the <see cref="ScrollBar"/> itself.</para></summary>
+  private static void ShieldViewerSelectionTunnel(Control root)
+  {
+    root.RemoveHandler(InputElement.PointerPressedEvent, OnRootPointerTunnel);
+    root.RemoveHandler(InputElement.PointerMovedEvent, OnRootPointerTunnel);
+    root.RemoveHandler(InputElement.PointerReleasedEvent, OnRootPointerTunnel);
+    root.AddHandler(InputElement.PointerPressedEvent, OnRootPointerTunnel, RoutingStrategies.Tunnel);
+    root.AddHandler(InputElement.PointerMovedEvent, OnRootPointerTunnel, RoutingStrategies.Tunnel);
+    root.AddHandler(InputElement.PointerReleasedEvent, OnRootPointerTunnel, RoutingStrategies.Tunnel);
+  }
+
+  private static void UnshieldAtScrollBar(ScrollBar bar)
+  {
+    bar.AddHandler(InputElement.PointerPressedEvent, OnScrollBarPointerTunnel, RoutingStrategies.Tunnel, handledEventsToo: true);
+    bar.AddHandler(InputElement.PointerMovedEvent, OnScrollBarPointerTunnel, RoutingStrategies.Tunnel, handledEventsToo: true);
+    bar.AddHandler(InputElement.PointerReleasedEvent, OnScrollBarPointerTunnel, RoutingStrategies.Tunnel, handledEventsToo: true);
+  }
+
+  private static void OnRootPointerTunnel(object? sender, PointerEventArgs e)
+  {
+    if (IsInsideScrollBar(e.Source))
+    {
+      e.Handled = true;
+    }
+  }
+
+  private static void OnScrollBarPointerTunnel(object? sender, PointerEventArgs e) => e.Handled = false;
+
+  private static bool IsInsideScrollBar(object? source) =>
+      source is Visual visual && visual.GetSelfAndVisualAncestors().OfType<ScrollBar>().Any();
 
   /// <summary>Room the horizontal scrollbar takes.</summary>
   private const double ScrollBarHeight = 16;
