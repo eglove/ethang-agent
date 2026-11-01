@@ -7,19 +7,15 @@ namespace eThangAgent.Composition;
 
 /// <summary>Injects the workspace root and the verbatim contents of the user's
 ///     CONFIGURED session files (global list, then workspace list; enabled entries
-///     only) into the system prompt. This replaces the hardcoded AGENTS.md read: the
-///     user decides what loads, per scope, through app preferences. An unreadable or
-///     missing configured file is dropped with a visible annotation - never a silent
-///     skip, never a session failure. Files above the size cap render truncated with
-///     a marker. Nothing configured renders nothing (truly empty by default).
-///     <para>PURITY (issue #267): every store read AND every file read happens in the
-///     CONSTRUCTOR; <see cref="Build"/> is a pure render over the snapshot taken there.
-///     This provider used to re-read each configured file on every Build call while its
-///     doc claimed purity - and Build runs at least three times per iteration, so an
-///     edit to a session file mid-turn rewrote the first bytes of the request and
-///     silently invalidated the entire prompt cache. The snapshot is the fix: a session
-///     file's content is fixed for the life of the session, exactly like the workspace
-///     root it is rendered beside.</para></summary>
+///     only) into the system prompt. Each file renders as its own section naming its
+///     scope and its path, so the harness text above it and every other file are told
+///     apart by label. An unreadable or missing configured file is dropped with a
+///     visible annotation - never a silent skip, never a session failure. Files above
+///     the size cap render truncated with a marker. Nothing configured renders nothing
+///     (truly empty by default).
+///     <para>Every file read happens in the CONSTRUCTOR and <see cref="Build"/> renders
+///     the snapshot taken there, so a session file's content is fixed for the life of
+///     the session - exactly like the workspace root it is rendered beside.</para></summary>
 public sealed class SessionFilesPromptProvider : ISystemPromptProvider
 {
   /// <summary>Per-file render cap: files above this render truncated with a marker.
@@ -54,7 +50,10 @@ public sealed class SessionFilesPromptProvider : ISystemPromptProvider
     _ = prompt.AppendLine(string.Create(InvariantCulture, $"Working directory: {_root}"));
     if (_blocks.Count > 0)
     {
-      _ = prompt.AppendLine("Its configured session files have been read; verbatim contents follow.");
+      // The lead-in names both scopes; each block's tag carries its own scope and path.
+      _ = prompt.AppendLine(
+          "Configured session files are quoted below, each in its own section: a global file " +
+          "applies to every workspace, a workspace file only to this one.");
     }
 
     foreach (string annotation in _annotations)
@@ -114,7 +113,8 @@ public sealed class SessionFilesPromptProvider : ISystemPromptProvider
         contents = string.Create(InvariantCulture, $"{contents[..MaxFileChars]}{Environment.NewLine}[session-files] truncated at {MaxFileChars / 1024} KB");
       }
 
-      blocks.Add(string.Create(InvariantCulture, $"<session-file source=\"{entry.Path}\">{contents.TrimEnd()}{Environment.NewLine}</session-file>"));
+      blocks.Add(SystemPromptSections.Render(SystemPromptSections.SessionFile,
+          string.Create(InvariantCulture, $"scope=\"{scopeName}\" path=\"{entry.Path}\""), contents));
     }
   }
 

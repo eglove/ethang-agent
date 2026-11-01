@@ -13,7 +13,9 @@ namespace eThangAgent.Composition;
 /// already-active notice. No emphasis wrapper: the contract speaks for itself.
 /// The always-on skill listing is a separate provider
 /// (SkillsListingPromptProvider); this one injects the contract skill, tools
-/// mapping, and commit style. Built once per session; no caching
+/// mapping, and commit style. The whole render is one
+/// <see cref="SystemPromptSections.HarnessBootstrap"/> section labelled as built in,
+/// never a file of the workspace. Built once per session; no caching
 /// needed.</summary>
 public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog,
     ICommitStyleProvider? styleProvider = null) : ISkillCatalogDependentSystemPromptProvider
@@ -33,6 +35,11 @@ public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog,
       "The using-skills skill is ALREADY ACTIVE — do not load it again. Load other " +
       "skills with skill_view when they apply. This bootstrap is injected once per session.";
 
+  /// <summary>The bootstrap section's source attributes: built into the harness, and
+  ///     explicitly NOT one of the workspace's files.</summary>
+  private const string HarnessBootstrapAttributes =
+      "source=\"built in — not a file in this workspace\"";
+
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
 
   /// <summary>The style provider is optional: hosts without a preference store (tests,
@@ -50,8 +57,12 @@ public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog,
 
     string skillsMarkdown =
         $"---\nname: {skills.Name}\ndescription: {skills.Description}\n---\n\n{skills.Body}";
-    return $"{skillsMarkdown}\n\n{mapping.Body}\n\nActive commit style guidance (the user's host setting; the git_commit tool " +
+    string body = $"{skillsMarkdown}\n\n{mapping.Body}\n\nActive commit style guidance (the user's host setting; the git_commit tool " +
         $"enforces it):\n\n{commitStyle.Body}\n\n{AlreadyActiveNotice}";
+
+    // Delimited and labelled as the harness's own text, so it cannot be read as a
+    // workspace file.
+    return SystemPromptSections.Render(SystemPromptSections.HarnessBootstrap, HarnessBootstrapAttributes, body);
   }
 
   /// <summary>Resolves which commit-style guidance skill to inject: the wired

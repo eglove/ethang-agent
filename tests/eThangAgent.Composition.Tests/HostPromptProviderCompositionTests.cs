@@ -50,6 +50,48 @@ public class HostPromptProviderCompositionTests
         $"core={core} tail={tail}: frontend provider must come after the core identity prompt");
   }
 
+  // The prompt a user actually receives is THREE sections from two sources: the
+  // harness's built-in bootstrap, then the global session file, then the workspace
+  // session file. Each must be delimited and name its own source, in that order, or a
+  // file's own H1 reads as the title of the section above it.
+  [Fact]
+  public void Composite_Renders_Three_Delimited_Sections_In_Source_Order()
+  {
+    string dir = Directory.CreateTempSubdirectory("ethang-sections").FullName;
+    try
+    {
+      string globalPath = Path.Combine(dir, "global.md");
+      string workspacePath = Path.Combine(dir, "workspace.md");
+      File.WriteAllText(globalPath, "GLOBAL-SECTION-BODY");
+      File.WriteAllText(workspacePath, "WORKSPACE-SECTION-BODY");
+
+      using ServiceProvider services = BuildCore(new AgentHostOptions(
+          FixedWorkspaceContext.ForPath(dir),
+          new UnrootedPathResolver(),
+          [new SessionFilesPromptProvider(dir,
+              SessionFilePreferences.Serialize([new SessionFileEntry(globalPath, true)]),
+              SessionFilePreferences.Serialize([new SessionFileEntry(workspacePath, true)]))]));
+
+      string prompt = services.GetRequiredService<ISystemPromptProvider>().Build();
+
+      int bootstrap = prompt.IndexOf("<harness-bootstrap", StringComparison.Ordinal);
+      int global = prompt.IndexOf(
+          "<session-file scope=\"global\" path=\"" + Path.GetFullPath(globalPath) + "\">",
+          StringComparison.Ordinal);
+      int workspace = prompt.IndexOf(
+          "<session-file scope=\"workspace\" path=\"" + Path.GetFullPath(workspacePath) + "\">",
+          StringComparison.Ordinal);
+
+      Assert.True(bootstrap >= 0, "the harness bootstrap section must be delimited");
+      Assert.True(global > bootstrap, $"global file ({global}) must follow the bootstrap ({bootstrap})");
+      Assert.True(workspace > global, $"workspace file ({workspace}) must follow the global file ({global})");
+    }
+    finally
+    {
+      Directory.Delete(dir, recursive: true);
+    }
+  }
+
   [Fact]
   public void Default_Options_Carry_No_Extra_Providers()
   {

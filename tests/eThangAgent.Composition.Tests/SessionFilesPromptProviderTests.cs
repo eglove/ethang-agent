@@ -58,14 +58,67 @@ public sealed class SessionFilesPromptProviderTests : IDisposable
   [Fact]
   public void Each_File_Renders_In_A_Session_File_Block()
   {
+    string path = Path.Combine(_dir, "a.md");
+    File.WriteAllText(path, "AAA");
+    SessionFilesPromptProvider provider = new(_dir,
+        List(new SessionFileEntry(path, true)), null);
+    string text = provider.Build();
+    Assert.Contains("Working directory: " + Path.GetFullPath(_dir), text, StringComparison.Ordinal);
+    Assert.Contains(
+        "<session-file scope=\"global\" path=\"" + Path.GetFullPath(path) + "\">",
+        text, StringComparison.Ordinal);
+    Assert.Contains("AAA", text, StringComparison.Ordinal);
+    Assert.EndsWith("</session-file>", text.TrimEnd(), StringComparison.Ordinal);
+  }
+
+  // The user's three-section reading problem: the global file and the workspace file
+  // used to render as one undifferentiated run of text behind a single lead-in
+  // sentence, so a file's own H1 ("# AGENTS.md") read as the title of everything.
+  // Every block now names its own scope and its own path.
+  [Fact]
+  public void Each_Block_Names_Its_Own_Scope_And_Path()
+  {
+    string globalPath = Path.Combine(_dir, "g.md");
+    string workspacePath = Path.Combine(_dir, "w.md");
+    File.WriteAllText(globalPath, "GLOBAL-CONTENT");
+    File.WriteAllText(workspacePath, "WORKSPACE-CONTENT");
+    SessionFilesPromptProvider provider = new(_dir,
+        List(new SessionFileEntry(globalPath, true)),
+        List(new SessionFileEntry(workspacePath, true)));
+    string text = provider.Build();
+
+    Assert.Contains(
+        "<session-file scope=\"global\" path=\"" + Path.GetFullPath(globalPath) + "\">",
+        text, StringComparison.Ordinal);
+    Assert.Contains(
+        "<session-file scope=\"workspace\" path=\"" + Path.GetFullPath(workspacePath) + "\">",
+        text, StringComparison.Ordinal);
+    Assert.Equal(2, Occurrences(text, "</session-file>"));
+  }
+
+  [Fact]
+  public void Preamble_Names_The_Scopes_Instead_Of_One_Undifferentiated_Body()
+  {
     File.WriteAllText(Path.Combine(_dir, "a.md"), "AAA");
     SessionFilesPromptProvider provider = new(_dir,
         List(new SessionFileEntry(Path.Combine(_dir, "a.md"), true)), null);
     string text = provider.Build();
-    Assert.Contains("Working directory: " + Path.GetFullPath(_dir), text, StringComparison.Ordinal);
-    Assert.Contains("<session-file source=", text, StringComparison.Ordinal);
-    Assert.Contains("AAA", text, StringComparison.Ordinal);
-    Assert.EndsWith("</session-file>", text.TrimEnd(), StringComparison.Ordinal);
+
+    Assert.Contains("global file applies to every workspace", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("verbatim contents follow", text, StringComparison.Ordinal);
+  }
+
+  private static int Occurrences(string text, string needle)
+  {
+    int count = 0;
+    int at = text.IndexOf(needle, StringComparison.Ordinal);
+    while (at >= 0)
+    {
+      count++;
+      at = text.IndexOf(needle, at + needle.Length, StringComparison.Ordinal);
+    }
+
+    return count;
   }
 
   [Fact]

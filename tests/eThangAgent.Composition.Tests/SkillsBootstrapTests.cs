@@ -65,8 +65,31 @@ public class SkillsBootstrapTests
   {
     string output = Build();
 
-    Assert.StartsWith("---\nname: using-skills", output, StringComparison.Ordinal);
-    Assert.EndsWith("This bootstrap is injected once per session.", output, StringComparison.Ordinal);
+    Assert.StartsWith("---\nname: using-skills", Body(output), StringComparison.Ordinal);
+    Assert.EndsWith("This bootstrap is injected once per session.", Body(output), StringComparison.Ordinal);
+  }
+
+  // The bootstrap is the harness's OWN text, and it used to arrive as an untitled run of
+  // markdown directly above the user's session files - so a file's own H1 read as the
+  // title of the harness text that preceded it. It now states what it is and where it
+  // came from.
+  [Fact]
+  public void Build_IsDelimitedAsTheHarnessBootstrap()
+  {
+    string output = Build();
+
+    Assert.StartsWith("<harness-bootstrap source=\"built in", output, StringComparison.Ordinal);
+    Assert.EndsWith("</harness-bootstrap>", output.TrimEnd(), StringComparison.Ordinal);
+    Assert.Contains("not a file in this workspace", output, StringComparison.Ordinal);
+  }
+
+  /// <summary>The section body: the text between the opening tag's line and the closing
+  ///     tag, which is what the once-only structural assertions are about.</summary>
+  private static string Body(string output)
+  {
+    int start = output.IndexOf('\n', StringComparison.Ordinal);
+    int end = output.LastIndexOf("</harness-bootstrap>", StringComparison.Ordinal);
+    return start < 0 || end <= start ? output : output[(start + 1)..end].TrimEnd();
   }
 
   [Fact]
