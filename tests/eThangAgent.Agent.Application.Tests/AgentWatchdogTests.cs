@@ -283,25 +283,47 @@ public class AgentWatchdogTests
     Assert.DoesNotContain(events.Appended, e => e.AgentId == child.Id);
   }
 
+  /// <summary>Issue #334: the parent link is gone, so what makes a run THIS container's to sweep
+  ///     is its own heartbeat entry - the heartbeat is a per-container singleton, and only the
+  ///     container actually running an agent stamps it. Another session's agent carries no beat
+  ///     here, so this watchdog never touches it.</summary>
   [Fact]
-  public async Task Tick_ChildOfAnotherRoot_Ignored()
+  public async Task Tick_AgentRunningInAnotherContainer_Ignored()
+  {
+    AgentRecord root = Root();
+    StubClock clock = new(T0);
+    (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, FakeHeartbeat _, _, _) =
+        Harness(clock);
+    AgentRecord otherAgent = Child(T0 - TimeSpan.FromMinutes(30));
+    store.Records[root.Id.Value] = root;
+    store.Records[otherAgent.Id.Value] = otherAgent;
+    // NO beat entry: that agent is running in another container, which owns its own heartbeat.
+    runtime.OnInterrupt = id => store.Records[id] = store.Records[id] with { Status = AgentStatus.Failed, FailureReason = AgentFailureReason.Interrupted };
+
+    await watchdog.TickAsync();
+
+    Assert.DoesNotContain(otherAgent.Id.Value, runtime.Interrupted);
+    Assert.DoesNotContain(otherAgent.Id.Value, runtime.Started);
+  }
+
+  /// <summary>The other half of the same rule, stated so a revert cannot pass: a run THIS
+  ///     container stamps IS swept, so the absence above is ownership and not a dead sweep.</summary>
+  [Fact]
+  public async Task Tick_AgentStampedByThisContainer_IsSwept()
   {
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, FakeHeartbeat heartbeat, _, _) =
         Harness(clock);
-    AgentRecord otherRoot = Root();
-    AgentRecord otherChild = Child(T0 - TimeSpan.FromMinutes(30));
+    AgentRecord ownAgent = Child(T0 - TimeSpan.FromMinutes(30));
     store.Records[root.Id.Value] = root;
-    store.Records[otherRoot.Id.Value] = otherRoot;
-    store.Records[otherChild.Id.Value] = otherChild;
-    heartbeat.Beats[otherChild.Id.Value] = T0 - TimeSpan.FromMinutes(20);
+    store.Records[ownAgent.Id.Value] = ownAgent;
+    heartbeat.Beats[ownAgent.Id.Value] = T0 - TimeSpan.FromMinutes(20);
     runtime.OnInterrupt = id => store.Records[id] = store.Records[id] with { Status = AgentStatus.Failed, FailureReason = AgentFailureReason.Interrupted };
 
     await watchdog.TickAsync();
 
-    Assert.DoesNotContain(otherChild.Id.Value, runtime.Interrupted);
-    Assert.DoesNotContain(otherChild.Id.Value, runtime.Started);
+    Assert.Contains(ownAgent.Id.Value, runtime.Interrupted);
   }
 
   [Fact]
