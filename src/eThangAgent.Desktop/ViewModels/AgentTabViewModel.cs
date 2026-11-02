@@ -142,10 +142,16 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     <para>NOTHING HERE SELECTS OR SCROLLS (D2): the cell arrives at the end of the row and
   ///     the user clicks into it. A handoff that arrived mid-task is exactly the case where
   ///     stealing the view would be worst.</para></summary>
+  /// <param name="session">The session this app owns and just started.</param>
+  /// <param name="sessionVm">The view-model rendering that session.</param>
+  /// <param name="placement">The chain step it executes, or null when it is not a chain step.</param>
+  /// <param name="label">The caption the cell shows (issue #338), or null for the workspace
+  ///     directory name a container cell otherwise takes. A model's launch states one because a
+  ///     caller that started several agents must be able to say which one it meant.</param>
   public AgentCellViewModel AddCell(AgentSession session, AgentSessionViewModel sessionVm,
-      ChainPlacement? placement = null)
+      ChainPlacement? placement = null, string? label = null)
   {
-    AgentCellViewModel cell = new(session, sessionVm, placement);
+    AgentCellViewModel cell = new(session, sessionVm, placement, label);
     cell.PropertyChanged += OnCellPropertyChanged;
     Cells.Add(cell);
     return cell;

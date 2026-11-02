@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.24";
+  public const string Version = "2.25";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -179,14 +179,29 @@ public static class ExecGuide
 
     ### How an agent comes into existence
 
-    An agent IS a session. Exactly two things start one, and neither is a tool you can call:
+    An agent IS a session. Three things start one, and one of them IS a tool you can call:
 
         a CHAIN STEP      the harness starts the session for the next step of a chain
         the user's "+"    a person adds a cell by hand
+        agent.launch      you start a SIBLING agent in your own workspace
 
-    There is no spawn tool and no fan-out, and nothing caps an agent by nesting. NOTHING YOU DO
-    CREATES AN AGENT, so nothing you do needs a report handed back to you: if you want work done,
-    do it, or record it as a plan step for a chain to execute.
+        Tools.Invoke("agent.launch", new { timeoutSeconds = 30, prompt = "audit the retry path" })
+        → id=<guid> status=running
+
+    A SIBLING, NOT A SUBORDINATE. The agent that call starts is a peer, recorded as nobody's:
+    it carries no owner and no nesting fact, it runs in YOUR workspace and appears as a cell beside yours. It is indistinguishable from a cell the user opened by hand
+    apart from its creation time, its label, and its prompt.
+    Nothing it produces is reported back to you, and you supervise neither its work nor its turn.
+
+    agent.launch RETURNS the new agent's id and returns. Reading what it produced is your OWN
+    later act - agent.result for its report, agent.wait to await its outcome, agent.status for a
+    projection - and those are acts you choose to take, not a join the launch performs. You are
+    never made a supervisor by having started something.
+
+    Optional 'label' names the cell it gets, which is how a caller that starts several agents
+    keeps them apart; optional 'model' serves that agent, and omitting it inherits this
+    workspace's choice. There is no spawn tool and no fan-out, nothing caps an agent by nesting,
+    and no launch turns one agent into many: starting one CREATES AN AGENT, which is all it is.
 
     Concurrency is bounded by HOST CAPACITY, which is a measurement of this machine, not a
     setting and not a rule you apply. A start past the cap parks and runs on its own when a slot

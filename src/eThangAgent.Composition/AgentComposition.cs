@@ -919,12 +919,21 @@ public static class AgentComposition
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
+         // THE LAUNCH PORT (issue #338): the third caller of the session-request channel, wired
+         // beside the agent provider that asks through it. A container with no live turn still
+         // resolves the port - the channel itself refuses an unreachable request with its own
+         // typed code, which is the failure the caller must read rather than a registration-time
+         // absence it cannot.
+         .AddSingleton<IAgentLaunchCommand>(sp => new WireAgentLaunchPort(
+             sp.GetRequiredService<SessionRequestChannel>(),
+             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
          .AddSingleton(sp => new AgentCapabilityProvider(new AgentProviderServices(
                  sp.GetRequiredService<IAgentQueries>(),
                  sp.GetRequiredService<IAgentRuntime>(),
                  WakeSource: sp.GetRequiredService<WaitWakeHub>(),
                  Clock: TimeProvider.System,
-                 Progress: sp.GetRequiredService<AgentProgressLedger>())))
+                 Progress: sp.GetRequiredService<AgentProgressLedger>(),
+                 Launcher: sp.GetRequiredService<IAgentLaunchCommand>())))
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
         // StateService's goal runner and snapshot seam are what make checkgoal run the

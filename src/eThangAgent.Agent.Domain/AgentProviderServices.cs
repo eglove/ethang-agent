@@ -15,9 +15,13 @@ namespace eThangAgent.AgentDomain;
 /// <param name="Progress">Optional session progress ledger (issue #93): the read
 ///     surface agent.status uses to report a RUNNING child's latest mid-run activity.
 ///     Null (legacy wiring, tests) keeps the status line byte-identical.</param>
+/// <param name="Launcher">Optional port that starts an agent (issue #338). Null leaves
+///     agent.launch unavailable rather than appearing to start something: a host that
+///     cannot create a session must say so, not report a launch that never happened.</param>
 public sealed record AgentProviderServices(
     IAgentQueries Queries,
     IAgentRuntime? Runtime = null,
     IWaitWakeSource? WakeSource = null,
     TimeProvider? Clock = null,
-    AgentProgressLedger? Progress = null);
+    AgentProgressLedger? Progress = null,
+    IAgentLaunchCommand? Launcher = null);

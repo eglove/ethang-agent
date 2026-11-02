@@ -51,6 +51,18 @@ public class AgentCapabilityProviderSurfaceTests
     Assert.Equal(2, drained.Count);
   }
 
+  /// <summary>Issue #338: the model's own way to start an agent is ON the surface, under a
+  ///     name that collides with nothing - 'start' belongs to the chain provider, and capability
+  ///     action names are one flat table.</summary>
+  [Fact]
+  public void ActionNames_ExposeLaunch_UnderANameTheChainProviderDoesNotOwn()
+  {
+    AgentCapabilityProvider provider = MakeBare();
+    Assert.Contains("launch", provider.Actions.Select(a => a.Name));
+    Assert.Contains("launch", AgentCapabilityProvider.ActionNames);
+    Assert.DoesNotContain("start", AgentCapabilityProvider.ActionNames);
+  }
+
   [Fact]
   public void ActionNames_ExposeResume()
   {
@@ -59,8 +71,10 @@ public class AgentCapabilityProviderSurfaceTests
     Assert.Contains("resume", AgentCapabilityProvider.ActionNames);
   }
 
-  /// <summary>Issue #334: nothing on this surface starts an agent. The spawn and fanout
-  ///     actions are gone, and putting either back fails here.</summary>
+  /// <summary>Issue #334: the spawn and fanout actions are gone, and putting either back fails
+  ///     here. <para>ISSUE #338 ADDS agent.launch, AND THIS TEST STILL HOLDS: what #334 retired
+  ///     was the LINK, not the ability to start an agent. launch records no parent and no depth,
+  ///     so neither retired verb returns - only the act does, under its own name.</para></summary>
   [Fact]
   public void ActionNames_ExposeNoSpawnAndNoFanout()
   {

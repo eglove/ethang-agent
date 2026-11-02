@@ -7,9 +7,14 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.AgentDomain;
 
 /// <summary>The agent capability surface: status and result retrieve an agent's state and
-///     report, resume continues a settled one, and cancel stops a running one. Nothing here
-///     starts an agent — a chain step and the user's "+" are the only ways one comes into
-///     existence (issue #334).</summary>
+///     report, resume continues a settled one, cancel stops a running one, and launch starts
+///     a SIBLING one (issue #338).
+///     <para>LAUNCH IS NOT DELEGATION. The agent it starts is recorded as nobody's: the row is
+///     a session's row and nothing more, so there is no owner field, no ancestor reference, and
+///     no nesting fact to read back as a hierarchy. It is placed by its own workspace rather
+///     than the caller's, and read afterwards with agent.result or agent.wait - the caller's own
+///     later acts. That is what makes this the act #334 retired agent.spawn for, rather than that
+///     act restored.</para></summary>
 public sealed class AgentCapabilityProvider : ICapabilityProvider
 {
   public const string ProviderId = "agent";
@@ -18,7 +23,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   ///     grant-surface computation needs the names at composition time, where
   ///     resolving the provider itself would re-enter its singleton (R1).</summary>
   public static readonly string[] ActionNames =
-      ["status", "result", "wait", "resume", "cancel"];
+      ["status", "result", "wait", "resume", "cancel", "launch"];
 
   /// <summary>Builds the dispatch map eagerly: every handler closes over this
   ///     provider's collaborators, so the map is per provider (one per session).</summary>
@@ -30,6 +35,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     _wakeSource = services.WakeSource;
     _clock = services.Clock;
     _progress = services.Progress;
+    _launcher = services.Launcher;
     _handlers = BuildHandlers();
   }
 
@@ -38,6 +44,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   private readonly IWaitWakeSource? _wakeSource;
   private readonly TimeProvider? _clock;
   private readonly AgentProgressLedger? _progress;
+  private readonly IAgentLaunchCommand? _launcher;
   private readonly FrozenDictionary<string, ActionHandler> _handlers;
 
   public string Id => ProviderId;
@@ -102,6 +109,22 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the agent."),
             ]),
+       new("launch", "Start a new agent in your own workspace, as a sibling of you.",
+             """
+             Starts one agent: a session of its own, in YOUR workspace, seeded with 'prompt' as its first turn, and shown as a cell beside yours. Returns its id at once and returns - this is not a delegation and not a join.
+             The agent it starts is a SIBLING, not a subordinate. Nothing records it as yours: it carries no owner, no ancestor reference, and no nesting fact of any kind, and it is indistinguishable from an agent the user opened by hand apart from its creation time, its label, and its prompt. There is no fan-out, and nothing caps an agent by nesting.
+             Optional 'label' is the caption its cell shows (default: the workspace name). Optional 'model' serves that agent; omit it to inherit this workspace's own choice.
+             Reading what it produced is your OWN later act: agent.result for the report, agent.wait to await the outcome, agent.status for a projection. A launch that waited would be supervision, which is what a sibling is not.
+             Output contract:
+             id=<id> status=<running|queued>   (queued when the start parks at HOST CAPACITY; it runs on its own when a slot frees)
+             Fails: InvalidActionInput (empty 'prompt'), LaunchUnavailable (this host wired no session-start seam), and the app's own typed refusal verbatim (SessionRequestUnreachable when no live turn can carry the request - never a hang).
+             """,
+             [
+                 new ActionParameter("prompt", ActionParameterTypes.StringType, "Required. The new agent's first turn. Non-empty."),
+                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional. The caption its cell shows. Defaults to the workspace name."),
+                 new ActionParameter("model", ActionParameterTypes.StringType, "Optional. The model to serve the new agent; omit to inherit this workspace's choice."),
+             ],
+             ["prompt"]),
   ];
 
   private delegate Task<CapabilityInvocationResult> ActionHandler(string json, CancellationToken ct);
@@ -115,6 +138,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
       ["wait"] = Wait,
       ["resume"] = (json, _) => Resume(json),
       ["cancel"] = Cancel,
+      ["launch"] = Launch,
     }.ToFrozenDictionary();
   }
 
@@ -504,6 +528,99 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     text = textElement.GetString();
     return null;
   }
+
+  /// <summary>agent.launch (issue #338): start a SIBLING agent and return its id.
+  ///     <para>IT RETURNS AND STOPS THERE. Nothing here awaits the new agent, holds a
+  ///     reference to its outcome, or records who asked: the caller reads the outcome with
+  ///     agent.result or agent.wait, which are its own later acts. A launch that joined
+  ///     would be supervision by another name.</para>
+  ///     <para>EVERY FAILURE HAS A RECIPIENT: InvalidActionInput for an argument the caller
+  ///     can correct, LaunchUnavailable when this host wired no launch seam (a test rig, a
+  ///     headless container), and the port's own typed code verbatim - including
+  ///     SessionRequestUnreachable when no live turn can carry the request, which fails
+  ///     immediately rather than hanging.</para></summary>
+  private async Task<CapabilityInvocationResult> Launch(string json, CancellationToken ct)
+  {
+    if (_launcher is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [LaunchUnavailable]: agent.launch needs a session-start seam wired into this session's capability provider.");
+    }
+
+    string? parseError = LaunchArgs(json, out AgentLaunchRequest? request);
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    Result<AgentId> launched = await _launcher.StartAsync(request!, ct).ConfigureAwait(false);
+    return launched.IsSuccess
+        ? CapabilityInvocationResult.Ok($"id={launched.Value} status=running")
+        : CapabilityInvocationResult.Fail($"Error [{launched.Error.Code}]: {launched.Error.Message}");
+  }
+
+  /// <summary>Strict launch-argument parsing: a non-empty 'prompt' plus optional 'label'
+  ///     and 'model', with no other members accepted. Every member is read before any of
+  ///     them is acted on, so a refusal means nothing was started.</summary>
+  private static string? LaunchArgs(string json, out AgentLaunchRequest? request)
+  {
+    request = null;
+    return RequireObject(json, out JsonElement root) is { } objectError
+        ? objectError
+        : LaunchObjectArgs(root, out request);
+  }
+
+  /// <summary>The object-shape gates of a launch: no unknown members, then the request
+  ///     itself. Both halves stay expression-shaped so the whole parse is one decision path.
+  ///     </summary>
+  private static string? LaunchObjectArgs(JsonElement root, out AgentLaunchRequest? request)
+  {
+    request = null;
+    return RejectUnknown(root, "prompt", "label", "model") is { } unknownError
+        ? unknownError
+        : LaunchRequestOf(root, out request);
+  }
+
+  /// <summary>Reads the launch request's members: 'prompt' is required and non-empty,
+  ///     'label' and 'model' are optional strings. Split from the object gate above so each
+  ///     half stays a short sequence of checks rather than one branch chain (S1541).</summary>
+  private static string? LaunchRequestOf(JsonElement root, out AgentLaunchRequest? request)
+  {
+    request = null;
+    if (!root.TryGetProperty("prompt", out JsonElement promptElement)
+        || promptElement.ValueKind is not JsonValueKind.String
+        || promptElement.GetString() is not { } prompt
+        || string.IsNullOrWhiteSpace(prompt))
+    {
+      return "'prompt' must be a non-empty string.";
+    }
+
+    if (OptionalString(root, "label") is { } labelError)
+    {
+      return labelError;
+    }
+
+    if (OptionalString(root, "model") is { } modelError)
+    {
+      return modelError;
+    }
+
+    request = new AgentLaunchRequest(prompt,
+        OptionalValue(root, "label"), OptionalValue(root, "model"));
+    return null;
+  }
+
+  /// <summary>An optional string member: absent is fine, present-but-not-a-string is not.
+  ///     A present-but-empty value is accepted as 'the caller stated nothing', which is the
+  ///     same thing absence means for these two - neither is load-bearing.</summary>
+  private static string? OptionalString(JsonElement root, string member)
+    => root.TryGetProperty(member, out JsonElement value) && value.ValueKind is not JsonValueKind.String
+        ? $"'{member}' must be a string."
+        : null;
+
+  /// <summary>An optional string member's value, or null when it was absent.</summary>
+  private static string? OptionalValue(JsonElement root, string member)
+    => root.TryGetProperty(member, out JsonElement value) ? value.GetString() : null;
 
   /// <summary>Ids cross into the domain strictly: a JSON object carrying exactly one "id"
   ///     member whose value is a Guid in "D" format. Anything else is a typed argument

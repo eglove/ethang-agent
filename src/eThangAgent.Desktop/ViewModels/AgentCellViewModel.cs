@@ -27,13 +27,20 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   ///     points, so the store is the only seam that sees its messages.</summary>
   internal static readonly TimeSpan TranscriptPollInterval = TimeSpan.FromMilliseconds(500);
 
+  /// <param name="session">The session this cell owns.</param>
+  /// <param name="sessionVm">The view-model rendering that session's transcript.</param>
+  /// <param name="placement">The chain step this agent executes, or null when it is not one.</param>
+  /// <param name="label">The caption this cell shows (issue #338), or null for the workspace
+  ///     directory name a container cell otherwise takes. Only a model's launch names one: a
+  ///     caller that started several agents must be able to say which one it meant.</param>
   public AgentCellViewModel(AgentSession session, AgentSessionViewModel sessionVm,
-      ChainPlacement? placement = null)
+      ChainPlacement? placement = null, string? label = null)
   {
     Container = session ?? throw new ArgumentNullException(nameof(session));
     ViewModel = sessionVm ?? throw new ArgumentNullException(nameof(sessionVm));
     RootId = session.RootId;
     Placement = placement;
+    Label = label;
     // The outline follows the turn (D5): a stalled or waiting agent must be visible without
     // reading its transcript, so the cell watches the session's busy flag.
     ViewModel.PropertyChanged += OnSessionPropertyChanged;
@@ -79,8 +86,9 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   ///     goes through this id.</summary>
   public AgentId RootId { get; }
 
-  /// <summary>The label the agent's record carries. Null for a container cell, whose caption
-  ///     is its workspace directory name.</summary>
+  /// <summary>The label the agent's record carries, or the caption a launch named (issue
+  ///     #338). Null for a cell that named none, whose caption is then its workspace directory
+  ///     name.</summary>
   public string? Label { get; }
 
   /// <summary>True when this cell shows an agent running in its OWN host process rather than a
@@ -172,6 +180,14 @@ internal sealed partial class AgentCellViewModel : ObservableObject
       if (RunsInOwnHost)
       {
         return string.IsNullOrWhiteSpace(Label) ? RootId.ToString()[..8] : Label;
+      }
+
+      // A LAUNCHED CELL SHOWS THE NAME IT WAS GIVEN (issue #338). Several agents in one
+      // workspace would otherwise all be captioned with that workspace's directory name, which
+      // makes the grid unable to say which agent is which.
+      if (!string.IsNullOrWhiteSpace(Label))
+      {
+        return Label;
       }
 
       string root = Container?.WorkspaceRoot ?? ViewModel.WorkspaceRoot;

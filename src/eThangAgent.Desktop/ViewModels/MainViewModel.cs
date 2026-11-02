@@ -1448,8 +1448,8 @@ internal sealed partial class MainViewModel : ObservableObject
       return Result.Failure<StartedSession>(created.Error);
     }
 
-    return Result.Success(await AppendSessionAsync(
-        tab, created.Value, index, prompt, role, placement, predecessorId));
+    return Result.Success(await AppendSessionAsync(tab, created.Value, index, prompt,
+        new AppendOptions(Role: role, ChainStep: placement, PredecessorId: predecessorId)));
   }
 
   /// <summary>The view-model a launch retires (issue #329): the cell of the session named by
@@ -1474,6 +1474,75 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="RootId">The session that was started.</param>
   private sealed record StartedSession(AgentTabViewModel Tab, AgentId RootId);
 
+  /// <summary>What a model's own launch tells the app about the cell it produces (issue
+  ///     #338): the caption the caller named, and the model it asked to serve that agent.
+  ///     <para>ITS PRESENCE IS THE SIBLING FLAG. A launch carries this and therefore supersedes
+  ///     no cell; a chain advance, a handoff, and `/new` pass null and keep retiring the agent
+  ///     they continue. One nullable value, so the two routes cannot disagree about which one
+  ///     they are.</para></summary>
+  /// <param name="Label">The caption the new cell shows, or null for the workspace name.</param>
+  /// <param name="Model">The model to serve the new agent, or null to inherit the workspace's
+  ///     choice.</param>
+  private sealed record AgentLaunchPresentation(string? Label, string? Model);
+
+  /// <summary>Applies the model a launch named to the session it started (issue #338). A
+  ///     launch that named none keeps the workspace's choice, which is the ordinary
+  ///     inheritance; one that named a model the session cannot apply (no preference carrier)
+  ///     says so in its own transcript rather than reporting a model it never set.</summary>
+  /// <param name="session">The session just started.</param>
+  /// <param name="sessionVm">Its view-model, whose live preferences carry the choice.</param>
+  /// <param name="launch">The launch, or null when this was not one.</param>
+  private static void ApplyLaunchModel(AgentSession session, AgentSessionViewModel sessionVm,
+      AgentLaunchPresentation? launch)
+  {
+    if (launch?.Model is not { Length: > 0 } model || session.Preferences is null)
+    {
+      return;
+    }
+
+    sessionVm.ApplyModelChoice(model, variant: null);
+  }
+
+  /// <summary>Everything one append needs beyond the session (issue #338): the role and chain
+  ///     placement a chain step states, the session this launch SUPERSEDES, and the
+  ///     presentation a model's own launch names.
+  ///     <para>ONE VALUE RATHER THAN FOUR OPTIONAL PARAMETERS. The routes differ in which of
+  ///     these they set, and a sibling sets the opposite of every other route on the
+  ///     supersede question - which is a fact about the ROUTE, not four independent switches a
+  ///     caller could combine into a shape no route means.</para></summary>
+  /// <param name="Role">The chain step's assigned role, or null when not a chain step.</param>
+  /// <param name="ChainStep">Where the new session sits in its chain, or null.</param>
+  /// <param name="PredecessorId">The session this launch supersedes, or null when the caller
+  ///     names none and the tab's first live cell is the one replaced.</param>
+  /// <param name="Launch">The presentation a model's own launch names (issue #338). PRESENT
+  ///     MEANS SIBLING: that launch supersedes nothing and retires no cell.</param>
+  private sealed record AppendOptions(ChainStepRole? Role = null, ChainPlacement? ChainStep = null,
+      AgentId? PredecessorId = null, AgentLaunchPresentation? Launch = null);
+
+  /// <summary>The cell this launch supersedes, or null when it supersedes nothing (issue
+  ///     #338). A sibling retires no cell: it continues no session, so the caller keeps its
+  ///     own card and transcript.
+  ///     <para>EVERY OTHER ROUTE SUPERSEDES ONE: a chain advance names the step that just
+  ///     completed, and a handoff or `/new` names the session that asked. A caller that names
+  ///     none falls back to the tab's first LIVE cell, skipping an already-retired card - its
+  ///     container is gone, and retiring it again would report the wrong cell as the one this
+  ///     launch replaced.</para></summary>
+  /// <param name="tab">The tab the launch lands in.</param>
+  /// <param name="options">The launch's own facts.</param>
+  private static AgentCellViewModel? SupersededCell(AgentTabViewModel tab, AppendOptions options)
+    => options.Launch is not null
+        ? null
+        : NamedOrFirstLive(tab, options.PredecessorId);
+
+  /// <summary>The cell named by <paramref name="predecessorId"/>, or the tab's first LIVE cell
+  ///     when none is named. Extracted so the routing decision above reads as one question.
+  ///     </summary>
+  /// <param name="tab">The tab the launch lands in.</param>
+  /// <param name="predecessorId">The session the launch supersedes, or null.</param>
+  private static AgentCellViewModel NamedOrFirstLive(AgentTabViewModel tab, AgentId? predecessorId)
+    => (predecessorId is { } previous ? tab.FindCell(previous) : null)
+        ?? tab.Cells.FirstOrDefault(c => c.Container is not null)
+        ?? tab.Cells[0];
   /// <summary>Starts a new session in <paramref name="tab"/> as a NEW CELL (issue #332): the
   ///     successor is appended beside the agent it supersedes, that agent's card stays where it
   ///     is as a finished record, and — when <paramref name="prompt"/> is non-empty — the new
@@ -1495,13 +1564,11 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="session">The session that was just created.</param>
   /// <param name="index">Where the tab sits in the strip, used only when the tab has vanished.</param>
   /// <param name="prompt">The new session's first turn; EMPTY means seed-only.</param>
-  /// <param name="role">The chain step's assigned role, or null when this launch is not one.</param>
-  /// <param name="chainStep">Where the new session sits in its chain, or null when it is not one.</param>
-  /// <param name="predecessorId">The session this launch supersedes - whose card becomes a
-  ///     finished record - or null when the caller names none.</param>
+  /// <param name="options">The launch's own facts: the role and chain placement a chain step
+  ///     states, the session this launch supersedes, and the presentation a model's own launch
+  ///     names. Null is an ordinary superseding launch with nothing named.</param>
   private async Task<StartedSession> AppendSessionAsync(AgentTabViewModel tab,
-      AgentSession session, int index, string? prompt, ChainStepRole? role = null,
-      ChainPlacement? chainStep = null, AgentId? predecessorId = null)
+      AgentSession session, int index, string? prompt, AppendOptions? options = null)
   {
     // A tab that vanished while the container was building is not resurrected: the new
     // session is attached as its own tab so the work is not lost.
@@ -1511,16 +1578,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return new StartedSession(attached, session.RootId);
     }
 
-    // THE SUPERSEDED CELL IS THE ONE THE CALLER NAMES, falling back to the tab's first LIVE
-    // cell (issue #332). A chain advance names the step that just completed; a handoff and
-    // `/new` name the session that asked. The fallback skips an already-retired card, because
-    // its container is gone and retiring it again would report the wrong cell as the one this
-    // launch replaced.
-    AgentCellViewModel retiredCell = (predecessorId is { } previous
-        ? tab.FindCell(previous)
-        : null) ?? tab.Cells.FirstOrDefault(c => c.Container is not null) ?? tab.Cells[0];
-    AgentSessionViewModel retiredVm = retiredCell.ViewModel;
-    AgentSession? retiredSession = retiredCell.Container;
+    AgentCellViewModel? retiredCell = SupersededCell(tab, options ??= new AppendOptions());
     WorkbenchViewModel workbench = tab.Workbench;
     // Self-referencing sink hook, the same pattern as the attach path: the view-model is
     // captured after construction so its own sink marshals its events onto the UI thread.
@@ -1540,7 +1598,11 @@ internal sealed partial class MainViewModel : ObservableObject
     // RestoreSessionPreferencesAsync overwrites the live preference with this workspace's saved
     // choice, so applying it earlier would leave the reviewer serving on the implementer's model
     // while the record claimed separation.
-    ApplyChainStepModel(session, freshVm, role);
+    ApplyChainStepModel(session, freshVm, options.Role);
+    // THE LAUNCH'S OWN MODEL IS APPLIED LAST (issue #338), for the reason the reviewer's is:
+    // the workspace restore above overwrites the live preference, so a model named by the
+    // caller would be lost if it were applied before it.
+    ApplyLaunchModel(session, freshVm, options.Launch);
     await freshVm.SeedUsageAsync().ConfigureAwait(true);
     freshVm.Transcript.Restore(session.Conversation.Messages);
 
@@ -1548,18 +1610,10 @@ internal sealed partial class MainViewModel : ObservableObject
     // a compaction handoff, and `/new` all append. The session that was there keeps its cell and
     // its transcript, so the grid accumulates the record of what ran instead of morphing one
     // cell through every agent the workspace has ever had.
-    _ = tab.AddCell(session, freshVm, chainStep);
+    _ = tab.AddCell(session, freshVm, options.ChainStep, options.Launch?.Label);
     AttachTabWiring(session, tab, freshVm);
 
-    if (retiredSession is { } closing)
-    {
-      // THE SUPERSEDED CARD IS FINISHED AND STOPS NAMING ITS CONTAINER (D7, issue #332): it
-      // stays in the grid as the record of what ran, and the tab resolves its own session
-      // through the cells, so a card left holding a disposed provider would answer every later
-      // lookup with a dead session.
-      tab.RetireCell(retiredCell);
-      await CloseSupersededSessionAsync(retiredVm, closing);
-    }
+    await RetireSupersededAsync(tab, retiredCell);
 
     if (!string.IsNullOrWhiteSpace(prompt))
     {
@@ -1572,6 +1626,24 @@ internal sealed partial class MainViewModel : ObservableObject
     return new StartedSession(tab, session.RootId);
   }
 
+  /// <summary>Finishes the card of the session this launch supersedes (issue #332), or does
+  ///     nothing when it supersedes none - a model's own sibling launch (issue #338).
+  ///     <para>THE CARD IS FINISHED AND STOPS NAMING ITS CONTAINER (D7): it stays in the grid
+  ///     as the record of what ran, and the tab resolves its own session through the cells, so
+  ///     a card left holding a disposed provider would answer every later lookup with a dead
+  ///     session.</para></summary>
+  /// <param name="tab">The tab the launch landed in.</param>
+  /// <param name="retiredCell">The cell being superseded, or null when nothing is.</param>
+  private async Task RetireSupersededAsync(AgentTabViewModel tab, AgentCellViewModel? retiredCell)
+  {
+    if (retiredCell is not { Container: { } closing } cell)
+    {
+      return;
+    }
+
+    tab.RetireCell(cell);
+    await CloseSupersededSessionAsync(cell.ViewModel, closing);
+  }
   /// <summary>Starts the session for a chain step (issue #301 D2, seeded by #302): a SEED-ONLY
   ///     advance that APPENDS a cell in the tab whose session completed the previous step, so
   ///     every step keeps its own card in step order (issue #332).
@@ -1959,6 +2031,17 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
+    // A MODEL'S OWN LAUNCH IS A SIBLING AND TAKES NO TAB SLOT (issue #338): it continues no
+    // session, so it neither waits for this tab's turn nor retires a cell, and the pending-
+    // replacement gate below - which exists to stop two REPLACEMENTS racing for one tab slot -
+    // does not apply to it. Answering it here keeps a launch independent of whatever else this
+    // tab happens to be doing.
+    if (request.SiblingOfWorkspaceId is { Length: > 0 })
+    {
+      await AnswerSiblingLaunchAsync(tab, request).ConfigureAwait(true);
+      return;
+    }
+
     if (_pendingReplacements.ContainsKey(tab))
     {
       Answer(channel, request, failure: new DomainError("SessionRequestPending",
@@ -1999,6 +2082,115 @@ internal sealed partial class MainViewModel : ObservableObject
         .ConfigureAwait(true);
   }
 
+  /// <summary>Answers a model's own launch (issue #338): starts a SIBLING agent and appends
+  ///     its cell, retiring nothing.
+  ///     <para>IT WAITS FOR NOTHING. A launch is emitted from INSIDE the caller's turn - the
+  ///     model called agent.launch from an exec script - so waiting for that turn to go idle
+  ///     would deadlock the request it is answering: the turn cannot finish until the launch
+  ///     returns, and the launch would not return until the turn finished. This is why a
+  ///     sibling is a different path from a replacement, which legitimately waits because it
+  ///     is about to dispose the container the turn is writing through. A sibling disposes
+  ///     nothing, so there is nothing to wait for.</para>
+  ///     <para>IT RETIRES NOTHING AND NAMES NO PREDECESSOR. The caller keeps its cell, its
+  ///     transcript, and its provider; the new session arrives beside it. Nothing in this path
+  ///     records a relationship at all, which is what makes the row it creates indistinguishable
+  ///     from one the user opened by hand.</para>
+  ///     <para>THE NEW SESSION LANDS IN THE CALLER'S WORKSPACE, taken from the request: the
+  ///     tab answers requests for ITS workspace, and a launch that named another one is
+  ///     refused rather than placed by guessing.</para>
+  ///     <para>Must run on the UI thread.</para></summary>
+  /// <param name="tab">The tab the request was raised from.</param>
+  /// <param name="request">The launch, as the host sent it.</param>
+  private async Task AnswerSiblingLaunchAsync(AgentTabViewModel tab, SessionRequestPayload request)
+  {
+    ArgumentNullException.ThrowIfNull(tab);
+    ArgumentNullException.ThrowIfNull(request);
+    IRootTurnChannel? channel = tab.ViewModel.RootTurnChannel;
+    if (channel is null)
+    {
+      tab.ViewModel.AddSystemNotice("Error [SessionRequestUnroutable]: this session has no host channel; no agent was started.");
+      return;
+    }
+
+    // THE WORKSPACE IS CHECKED BEFORE ANYTHING IS CREATED. A request naming a workspace this
+    // tab does not own cannot be placed here without guessing, and a guessed placement is a
+    // cell in the wrong workspace - which reads as a launch that went somewhere else.
+    if (!tab.OwnsWorkspace(request.SiblingOfWorkspaceId!))
+    {
+      Answer(channel, request, failure: new DomainError("SessionRequestWrongWorkspace",
+          "this launch named workspace '" + request.SiblingOfWorkspaceId
+          + "', which the tab that received it does not own; no agent was started."));
+      return;
+    }
+
+    Result<AgentSession> created;
+    try
+    {
+      created = await CreateSiblingAsync(tab, request).ConfigureAwait(true);
+    }
+    // Named decision (CA1031): the caller is a tool with a budget, not a stack - a launch
+    // fault must be ANSWERED, never thrown into the event pump.
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031, S2486
+    {
+      created = Result.Failure<AgentSession>(new DomainError("SessionLaunchFailed",
+          "the new agent could not be started: " + ex.Message));
+    }
+
+    if (!created.IsSuccess)
+    {
+      Answer(channel, request, failure: created.Error);
+      return;
+    }
+
+    // ANSWER BEFORE APPENDING: the id is what the blocked tool is waiting for, and the cell
+    // must not delay it. The answer is already correct - the container exists and its root row
+    // is persisted - so a later append fault cannot invalidate it.
+    Answer(channel, request, sessionId: created.Value.RootId.ToString());
+
+    try
+    {
+      _ = await AppendSessionAsync(tab, created.Value, Tabs.IndexOf(tab), request.Prompt,
+          new AppendOptions(Launch: new AgentLaunchPresentation(request.Label, request.Model)))
+          .ConfigureAwait(true);
+    }
+    // Named decision (CA1031): the launch is already answered, so a presentation fault must
+    // surface as a notice - there is no tool left to report to.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031
+    {
+      tab.ViewModel.AddSystemNotice(
+          "Error [SessionStartFailed]: the launched agent could not be opened in this tab: " + ex.Message);
+      await DisposeOrphanedSessionAsync(created.Value).ConfigureAwait(true);
+    }
+  }
+
+  /// <summary>Creates the session a model's launch asked for (issue #338): plain, in this
+  ///     tab's workspace and provider.
+  ///     <para>NO SEED AND NO CONTRACT. A sibling continues no conversation and executes no
+  ///     chain step, so the prompt IS its whole instruction - which is what makes it an agent
+  ///     the model started rather than one it handed work to.</para>
+  ///     <para>Runs off the UI thread through the same suppressed-context schedule every other
+  ///     container build uses.</para></summary>
+  /// <param name="tab">The tab whose workspace and provider the new session joins.</param>
+  /// <param name="request">The launch, whose prompt becomes the new agent's first turn.</param>
+  private async Task<Result<AgentSession>> CreateSiblingAsync(AgentTabViewModel tab,
+      SessionRequestPayload request)
+  {
+    ArgumentNullException.ThrowIfNull(tab);
+    ArgumentNullException.ThrowIfNull(request);
+    string workspaceRoot = tab.Container.WorkspaceRoot;
+    string providerName = tab.Container.ProviderName;
+    Task<Result<AgentSession>> scheduled;
+    using (ExecutionContext.SuppressFlow())
+    {
+      scheduled = Task.Run(() => _createSession(workspaceRoot, providerName));
+    }
+
+    return await scheduled.ConfigureAwait(true);
+  }
   /// <summary>The tab's session-request creation: seeded when the request carries a
   ///     handoff summary OR a chain step assignment, plain otherwise. Runs off the UI thread
   ///     through the same suppressed-context schedule every other container build uses.
@@ -2122,8 +2314,8 @@ internal sealed partial class MainViewModel : ObservableObject
       // the agent whose turn emitted the request, so it is the agent whose card becomes the
       // finished record this launch continues from. A caller that cannot name it falls back to
       // the tab's first live cell inside the append.
-      _ = await AppendSessionAsync(tab, session, index, request.Prompt, RoleOf(request), placement,
-          predecessorId: requestingSessionId).ConfigureAwait(true);
+      _ = await AppendSessionAsync(tab, session, index, request.Prompt,
+          new AppendOptions(RoleOf(request), placement, requestingSessionId)).ConfigureAwait(true);
     }
     // Named decision (CA1031): a failed replacement surfaces as a notice — the turn is
     // already over and there is no tool left to report to.

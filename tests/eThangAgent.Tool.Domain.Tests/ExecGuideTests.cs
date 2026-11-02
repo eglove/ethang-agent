@@ -9,7 +9,7 @@ public partial class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.24", ExecGuide.Version);
+    Assert.Equal("2.25", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -88,7 +88,7 @@ public partial class ExecGuideTests
   ///     that nothing a model does creates one. If a spawn tool, a fan-out, or a depth limit
   ///     is put back, this test fails.</summary>
   [Fact]
-  public void Guide_StatesTheTwoWaysAnAgentExists_AndTeachesNoSpawnTool()
+  public void Guide_StatesTheWaysAnAgentExists_AndTeachesNoSpawnTool()
   {
     string section = ExistenceSection();
 
@@ -97,6 +97,7 @@ public partial class ExecGuideTests
     Assert.Contains("no spawn tool and no fan-out", section, StringComparison.Ordinal);
     Assert.Contains("nothing caps an agent by nesting", section, StringComparison.Ordinal);
     Assert.Contains("CREATES AN AGENT", section, StringComparison.Ordinal);
+    // Issue #338: the third way is the model's OWN path, and it starts a sibling.
     // Concurrency is host capacity — a measurement, not a rule the model applies.
     Assert.Contains("HOST CAPACITY", section, StringComparison.Ordinal);
 
@@ -111,6 +112,33 @@ public partial class ExecGuideTests
     Assert.Equal(markers.OrderBy(m => m), markers);
   }
 
+  /// <summary>Issue #338: the guide teaches agent.launch as starting a SIBLING, and teaches
+  ///     no nesting, no depth limit, and no fan-out beside it. A guide that read as delegation
+  ///     would be the exact revert this issue exists to prevent, so the words that would carry
+  ///     that reading are pinned out of the section that introduces the action.</summary>
+  [Fact]
+  public void Guide_TeachesAgentLaunchAsASibling_WithNoNesting()
+  {
+    string section = ExistenceSection();
+
+    Assert.Contains("agent.launch", section, StringComparison.Ordinal);
+    Assert.Contains("SIBLING, NOT A SUBORDINATE", section, StringComparison.Ordinal);
+    Assert.Contains("carries no owner and no nesting fact", section, StringComparison.Ordinal);
+    Assert.Contains("indistinguishable from a cell the user opened by hand", section, StringComparison.Ordinal);
+    // It returns an id and returns: reading the outcome is the caller's own later act.
+    Assert.Contains("RETURNS the new agent's id and returns", section, StringComparison.Ordinal);
+    Assert.Contains("not a join the launch performs", section, StringComparison.Ordinal);
+    // The sibling language, not the retired delegation language.
+    foreach (string retired in new[]
+    {
+      "spawn a child", "subagent", "grandchild", "depth limit", "nesting limit",
+      "children may spawn", "delegate the work to",
+    })
+    {
+      Assert.True(section.IndexOf(retired, StringComparison.OrdinalIgnoreCase) < 0,
+          "the existence section still reads as delegation: '" + retired + "'");
+    }
+  }
   /// <summary>THE GUIDE MAY NAME NO agent ACTION THAT DOES NOT EXIST. A blocklist of retired
   ///     words is unfalsifiable - a revert that teaches delegation as "a background worker you
   ///     start with agent.start" slips past any list of spellings. This asserts the invariant
@@ -119,9 +147,11 @@ public partial class ExecGuideTests
   [Fact]
   public void Guide_NamesOnlyAgentActionsThatExist()
   {
-    // The five actions the agent provider exposes. Pinned here because the Tool Domain may not
+    // The actions the agent provider exposes. Pinned here because the Tool Domain may not
     // reference the Agent Domain; ActionNames_ExposeNoSpawnAndNoFanout pins the other side.
-    string[] exposed = ["agent.status", "agent.result", "agent.wait", "agent.resume", "agent.cancel"];
+    // agent.launch joined them in issue #338 - starting a SIBLING, which records no parent.
+    string[] exposed =
+        ["agent.status", "agent.result", "agent.wait", "agent.resume", "agent.cancel", "agent.launch"];
 
     string[] named =
     [

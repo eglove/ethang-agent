@@ -35,6 +35,35 @@ public sealed record SessionRequestPayload(string RequestId, string Prompt, stri
   ///     launch. Present means: seed the new session with the rendered brief for this
   ///     assignment and start it with no prompt.</summary>
   public SessionRequestChainStep? ChainStep { get; init; }
+
+  /// <summary>Set when a MODEL asked for this session as a SIBLING of its own (issue #338):
+  ///     the caller's workspace id, so the new session lands beside the caller rather than
+  ///     continuing anything.
+  ///     <para>IT IS A PLACEMENT FACT, NOT AN OWNERSHIP ONE. It says WHERE the session goes and
+  ///     nothing about who it belongs to: there is no ancestor reference, no nesting fact, and no
+  ///     relationship of any kind, because the row this produces must be indistinguishable from a
+  ///     session the user opened by hand. The requester is recorded so a notice can reach the
+  ///     agent that asked - never so a later read can walk upward.</para>
+  ///     <para>WHY IT TRAVELS AT ALL: the app answers requests per TAB, and a model's own
+  ///     workspace is what scopes the launch. A payload naming no workspace would leave the
+  ///     app to guess which tab, and guessing is how a sibling lands in a workspace the
+  ///     caller is not working in.</para>
+  ///     <para>NULL FOR A CHAIN LAUNCH AND A HANDOFF, both of which answer in the requesting
+  ///     tab and continue the session that asked - the shapes that predate this member, and
+  ///     the reason it is additive: their wire form is byte-identical to before.</para>
+  ///     </summary>
+  public string? SiblingOfWorkspaceId { get; init; }
+
+  /// <summary>The caption the new session's cell shows, or null for the workspace name the
+  ///     cell falls back to (issue #338). A launch states a label because a model that started
+  ///     several agents must be able to say which one it meant; a chain launch's cell states
+  ///     its step instead, and a handoff's states nothing.</summary>
+  public string? Label { get; init; }
+
+  /// <summary>The model to serve the new session, or null to inherit the workspace's own
+  ///     choice (issue #338). It rides beside the label for the same reason: the app is where
+  ///     a session's model is set, and an omitted one is the ordinary inheritance.</summary>
+  public string? Model { get; init; }
 }
 
 /// <summary>The chain step a session-request is launching (issue #313): the three facts the
