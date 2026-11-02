@@ -174,13 +174,16 @@ internal sealed class AgentCellSubscriber(
     });
   }
 
-  /// <summary>Opens the hold for an agent whose cell is about to be created.</summary>
+  /// <summary>Opens the hold for an agent whose cell is about to be created.
+  ///     <para>AN EXISTING HOLD IS KEPT, not replaced: a second started fact for the same agent
+  ///     is a watchdog retry of the SAME agent, and the facts already held for it are still the
+  ///     facts its cell must see.</para></summary>
   /// <param name="agentId">The agent the started fact names.</param>
   private void Hold(AgentId agentId)
   {
     lock (_heldGate)
     {
-      _held[agentId] = [];
+      _ = _held.TryAdd(agentId, []);
     }
   }
 
