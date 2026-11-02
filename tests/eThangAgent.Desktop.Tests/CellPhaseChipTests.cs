@@ -118,6 +118,59 @@ public class CellPhaseChipTests
     Assert.Equal(CellPhaseChip.Starting, cell.PhaseChip);
   }
 
+  /// <summary>A beat that arrives BEFORE its agent's cell exists is held and applied when the
+  ///     cell lands, in order (issue #331 review F2).
+  ///     <para>THE STORE ANSWERS SLOWLY ON PURPOSE. Cell creation awaits a record read and a
+  ///     chain read; a beat costs one marshal. The spawner publishes the started fact and the
+  ///     loop's first beats back to back, so with a synchronous store the cell always exists
+  ///     first and the race this test exists for never happens - which is why the earlier
+  ///     ordering test could not catch the drop.</para>
+  ///     <para>THE FINAL CHIP IS THE ASSERTION, and it names the LAST beat: a subscriber that
+  ///     dropped the beats leaves <c>Starting</c>, and one that applied only the first leaves
+  ///     <c>Thinking</c>.</para></summary>
+  [Fact]
+  public async Task ABeatBeforeItsCellExists_IsHeldAndAppliedWhenTheCellLands()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
+    AgentId agent = shell.RegisterAgent(tab, "reviewer");
+    shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
+
+    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
+        "test/model", 1));
+    shell.Progress(agent, "turn-start");
+    shell.Progress(agent, "tool:exec");
+
+    AgentCellViewModel cell = await Shell.WaitForCellAsync(tab, agent);
+
+    Assert.Equal(CellPhaseChip.Running("exec"), cell.PhaseChip);
+  }
+
+  /// <summary>A SETTLE that arrives before its cell exists is held the same way, so a short-lived
+  ///     agent does not leave a card that runs forever (issue #331 review F2).
+  ///     <para>This is the same gap seen from the other end: the settle is a fact like any other,
+  ///     and it arrives while the cell is still being created whenever the agent finishes faster
+  ///     than a store read.</para></summary>
+  [Fact]
+  public async Task ASettleBeforeItsCellExists_IsHeldAndFinishesTheCard()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
+    AgentId agent = shell.RegisterAgent(tab, "reviewer");
+    shell.Store.SetReport(agent, "too short a run to see.");
+    shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
+
+    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
+        "test/model", 1));
+    shell.Settle(agent);
+
+    AgentCellViewModel cell = await Shell.WaitForCellAsync(tab, agent);
+
+    Assert.True(cell.IsFinished, "a settle that preceded the cell must still finish it");
+    await WaitUntilAsync(() => cell.PhaseChip == CellPhaseChip.Finished);
+    Assert.Equal("too short a run to see.", cell.Report);
+  }
+
   /// <summary>A settled cell reads <c>Finished</c> and renders the agent's report, which is
   ///     read from the shared store (parent D5).</summary>
   [Fact]
@@ -281,12 +334,35 @@ public class CellPhaseChipTests
     /// <param name="label">The label its record carries.</param>
     public async Task<AgentCellViewModel> StartAgentAsync(AgentTabViewModel tab, string label)
     {
+      AgentId agent = RegisterAgent(tab, label);
+      Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
+          "test/model", 1));
+      return await WaitForCellAsync(tab, agent).ConfigureAwait(true);
+    }
+
+    /// <summary>Writes an agent's record into the store and returns its id, WITHOUT publishing
+    ///     the started fact: a test that needs the record to exist before the fact is what
+    ///     creates the gap between 'the agent started' and 'its cell exists'.
+    ///     <para>The record carries the tab's own workspace, which is what resolves the tab the
+    ///     cell belongs to (D10) - the same path production takes.</para></summary>
+    /// <param name="tab">The tab whose workspace the agent belongs to.</param>
+    /// <param name="label">The label its record carries.</param>
+    public AgentId RegisterAgent(AgentTabViewModel tab, string label)
+    {
+      ArgumentNullException.ThrowIfNull(tab);
       AgentId agent = AgentId.NewId();
       Store.Records[agent.Value] = AgentRecord.Spawned(agent, parentId: null, depth: 1,
           "test/model", label, "p", DateTimeOffset.UtcNow,
           workspaceId: WorkspaceId(tab.Container.WorkspaceRoot));
-      Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
-          "test/model", 1));
+      return agent;
+    }
+
+    /// <summary>Waits for the started fact's cell to appear, so a test that published facts
+    ///     before it existed can still read the result.</summary>
+    /// <param name="tab">The tab the cell belongs to.</param>
+    /// <param name="agent">The agent whose cell to wait for.</param>
+    public static async Task<AgentCellViewModel> WaitForCellAsync(AgentTabViewModel tab, AgentId agent)
+    {
       DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
       while (tab.FindCell(agent) is null && DateTimeOffset.UtcNow < deadline)
       {
@@ -359,8 +435,21 @@ public class CellPhaseChipTests
     public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
         => Task.FromResult(Result.Success("updated"));
 
-    public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
-        => Task.FromResult(FailRecordReads ? Unreadable() : Find(id));
+    /// <summary>How long a record read takes, so a test can make cell creation genuinely
+    ///     asynchronous. Zero is the ordinary instant answer.
+    ///     <para>A DELAY, NOT A GATE: the started fact's read must still complete on its own, or
+    ///     the cell would never appear and the test would be asserting a deadlock.</para></summary>
+    public TimeSpan RecordReadDelay { get; set; }
+
+    public async Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
+    {
+      if (RecordReadDelay > TimeSpan.Zero)
+      {
+        await Task.Delay(RecordReadDelay, ct).ConfigureAwait(false);
+      }
+
+      return FailRecordReads ? Unreadable() : Find(id);
+    }
 
     private static Result<AgentRecord> Unreadable()
         => Result.Failure<AgentRecord>(new DomainError("StoreFault", "unreadable"));

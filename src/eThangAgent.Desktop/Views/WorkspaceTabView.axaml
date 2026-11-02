@@ -12,12 +12,19 @@
          and the outline tells the user which one to look at.
          <para>A finished card (D7) is dimmed further and keeps its position - it is a record
          of what ran, not a slot to be reused.</para> -->
+    <!-- The BASELINE frame. It is a style, not a local value on the element: a local value
+         outranks a style setter, so a brush or thickness set inline would suppress every
+         class below - the alert outline would land on the Classes collection and change
+         nothing on screen. -->
+    <Style Selector="Border#CellFrame">
+      <Setter Property="BorderBrush" Value="#33888888"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
     <Style Selector="Border#CellFrame.idle">
       <Setter Property="BorderBrush" Value="#66FFB454"/>
       <Setter Property="BorderThickness" Value="1"/>
     </Style>
     <Style Selector="Border#CellFrame.finished">
-      <Setter Property="BorderBrush" Value="#33888888"/>
       <Setter Property="Opacity" Value="0.72"/>
     </Style>
     <!-- Issue #331 (parent D12): an ALERTING cell says so in its frame. There is no parent
@@ -89,7 +96,6 @@
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:AgentCellViewModel">
               <Border x:Name="CellFrame" Margin="2" Background="#0A000000"
-                      BorderThickness="1" BorderBrush="#33888888"
                       Classes.idle="{Binding IsIdle}"
                       Classes.finished="{Binding IsFinished}"
                       Classes.alerting="{Binding IsAlerting}">

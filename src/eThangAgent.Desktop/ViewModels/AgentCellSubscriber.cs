@@ -23,7 +23,12 @@ namespace eThangAgent.Desktop.ViewModels;
 ///     <para>THREADING: events arrive on stream threads; every cell mutation runs through the
 ///     caller's marshal, which the shell binds to the UI dispatcher. The store read and the
 ///     view-model build are async, so the cell is appended once they complete - still without
-///     blocking the stream.</para></summary>
+///     blocking the stream.</para>
+///     <para>A FACT THAT ARRIVES WHILE ITS CELL IS STILL BEING CREATED IS HELD, NOT DROPPED.
+///     Cell creation costs a store read and a chain read; a beat costs one marshal. The spawner
+///     publishes the started fact and the agent loop's first beats back to back, so a beat
+///     arriving before its cell exists is the ordinary path, and a subscriber that looked the
+///     cell up and found nothing would silently lose the agent's whole first phase.</para></summary>
 /// <param name="tabForWorkspace">Resolves the tab for a WORKSPACE ID. An agent carries its own
 ///     workspace and has no parent, so this is the whole of 'where does its cell belong'</param>
 /// <param name="openTabs">Every open tab, so a settled agent is found wherever it is shown: a
@@ -55,6 +60,15 @@ internal sealed class AgentCellSubscriber(
       cellViewModelFor ?? throw new ArgumentNullException(nameof(cellViewModelFor));
   private readonly Action<Action> _marshal = marshal ?? throw new ArgumentNullException(nameof(marshal));
 
+  /// <summary>Guards <see cref="_held"/>: a fact is held on the stream thread and released on
+  ///     the UI thread, so the handoff needs one.</summary>
+  private readonly Lock _heldGate = new();
+
+  /// <summary>The facts that arrived for an agent whose cell is still being created, keyed by
+  ///     agent and kept in arrival order. An entry exists from the started fact until its cell
+  ///     lands, and every fact for that agent joins the list instead of being routed.</summary>
+  private readonly Dictionary<AgentId, List<ChildEvent>> _held = [];
+
   /// <summary>Routes one agent fact to its cell: started appends it, settled finishes it,
   ///     a progress beat moves its phase chip (#331), and an idle or budget alert sets its
   ///     outline and states why in its own transcript. Every other kind is ignored - the
@@ -76,19 +90,22 @@ internal sealed class AgentCellSubscriber(
       switch (evt)
       {
         case ChildStartedEvent started:
+          // HELD BEFORE THE FIRST AWAIT: from here until the cell lands, every fact for this
+          // agent is kept rather than looked up, which is the whole of what closes the gap.
+          Hold(started.ChildId);
           _ = StartAsync(started);
           break;
         case ChildSettledEvent settled:
-          _marshal(() => Settle(settled));
+          Route(settled.ChildId, settled);
           break;
         case ChildProgressEvent progress:
-          _marshal(() => FindCell(progress.ChildId)?.ApplyPhaseBeat(progress.Label));
+          Route(progress.ChildId, progress);
           break;
         case ChildIdleAlertEvent idle:
-          _marshal(() => Alert(idle.ChildId, IdleNotice(idle)));
+          Route(idle.ChildId, idle);
           break;
         case ChildBudgetAlertEvent budget:
-          _marshal(() => Alert(budget.ChildId, BudgetNotice(budget)));
+          Route(budget.ChildId, budget);
           break;
         default:
           break;
@@ -119,13 +136,20 @@ internal sealed class AgentCellSubscriber(
     AgentRecord? record = await ReadRecordAsync(store, agentId).ConfigureAwait(false);
     if (record?.WorkspaceId is not { } workspaceId || _tabForWorkspace(workspaceId) is not { } tab)
     {
+      // No record or no open tab means no cell will ever exist for this agent, so the hold
+      // opened by the started fact is closed here rather than left to grow.
+      Forget(agentId);
       return;
     }
 
     if (tab.FindCell(agentId) is { } existing)
     {
       // A retried run of an agent this tab already shows: the cell is the same cell.
-      _marshal(existing.StartFollowing);
+      _marshal(() =>
+      {
+        existing.StartFollowing();
+        Release(agentId, existing);
+      });
       return;
     }
 
@@ -138,26 +162,117 @@ internal sealed class AgentCellSubscriber(
       // and appending to a tab the shell no longer holds would leak a cell nobody renders.
       if (_tabForWorkspace(workspaceId) is not { } live)
       {
+        // No cell is coming, so the held facts have nowhere to land: dropping the hold keeps
+        // them from accumulating for an agent nothing renders.
+        Forget(agentId);
         return;
       }
 
-      _ = live.AddAgentCell(agentId, label, placement, store,
+      AgentCellViewModel cell = live.AddAgentCell(agentId, label, placement, store,
           _cellViewModelFor(live, agentId, label, placement, store));
+      Release(agentId, cell);
     });
   }
 
-  /// <summary>Marks the settled agent's cell finished, so the card dims and its cross appears
-  ///     (D6) - the agent is done and its report is what remains.
-  ///     <para>A settled agent with no cell is ordinary, not a fault: it can settle before the
-  ///     record read that creates its cell completes, or after its tab was closed.</para></summary>
-  private void Settle(ChildSettledEvent settled) => FindCell(settled.ChildId)?.MarkFinished();
+  /// <summary>Opens the hold for an agent whose cell is about to be created.</summary>
+  /// <param name="agentId">The agent the started fact names.</param>
+  private void Hold(AgentId agentId)
+  {
+    lock (_heldGate)
+    {
+      _held[agentId] = [];
+    }
+  }
 
-  /// <summary>Sets the agent's cell alerting and appends its one-line notice (parent #325 D12).
-  ///     <para>A fact for an agent no tab shows is dropped, exactly as a settle is: a cell can
-  ///     only exist inside an open tab.</para></summary>
-  /// <param name="agentId">The agent the alert names.</param>
-  /// <param name="notice">The one line its transcript states.</param>
-  private void Alert(AgentId agentId, string notice) => FindCell(agentId)?.ApplyAlert(notice);
+  /// <summary>Drops an agent's hold and everything in it: no cell is coming, so there is
+  ///     nothing to apply them to.</summary>
+  /// <param name="agentId">The agent whose hold to drop.</param>
+  private void Forget(AgentId agentId)
+  {
+    lock (_heldGate)
+    {
+      _ = _held.Remove(agentId);
+    }
+  }
+
+  /// <summary>Applies every fact held for an agent to its cell, IN ARRIVAL ORDER, then closes
+  ///     the hold so later facts route directly.
+  ///     <para>RUNS INSIDE THE MARSHAL, so a held fact and a fact that arrives afterwards are
+  ///     applied on one queue: the release cannot interleave with a beat that is already
+  ///     posted, which is what makes the order a fact rather than a hope.</para></summary>
+  /// <param name="agentId">The agent whose cell just landed.</param>
+  /// <param name="cell">The cell to apply the held facts to.</param>
+  private void Release(AgentId agentId, AgentCellViewModel cell)
+  {
+    List<ChildEvent>? held;
+    lock (_heldGate)
+    {
+      if (!_held.TryGetValue(agentId, out held))
+      {
+        return;
+      }
+
+      _ = _held.Remove(agentId);
+    }
+
+    foreach (ChildEvent fact in held)
+    {
+      Apply(fact, cell);
+    }
+  }
+
+  /// <summary>Routes a fact to its agent's cell, or holds it while that agent's cell is still
+  ///     being created.
+  ///     <para>THE LOOKUP RUNS INSIDE THE MARSHAL, as it always has: a fact naming an agent no
+  ///     tab shows is dropped, and a beat must not be applied off the UI thread. A beat that
+  ///     arrives while the cell is being created is HELD instead, because that is the ordinary
+  ///     path - the spawner publishes the started fact and the loop's first beats back to back.
+  ///     </para></summary>
+  /// <param name="agentId">The agent the fact names.</param>
+  /// <param name="fact">The fact to apply.</param>
+  private void Route(AgentId agentId, ChildEvent fact)
+  {
+    _marshal(() =>
+    {
+      if (FindCell(agentId) is { } cell)
+      {
+        Apply(fact, cell);
+        return;
+      }
+
+      lock (_heldGate)
+      {
+        if (_held.TryGetValue(agentId, out List<ChildEvent>? held))
+        {
+          held.Add(fact);
+        }
+      }
+    });
+  }
+
+  /// <summary>Applies one fact to one cell.</summary>
+  /// <param name="fact">The fact to apply.</param>
+  /// <param name="cell">The cell it belongs to.</param>
+  private static void Apply(ChildEvent fact, AgentCellViewModel cell)
+  {
+    switch (fact)
+    {
+      case ChildSettledEvent:
+        cell.MarkFinished();
+        break;
+      case ChildProgressEvent progress:
+        cell.ApplyPhaseBeat(progress.Label);
+        break;
+      case ChildIdleAlertEvent idle:
+        cell.ApplyAlert(IdleNotice(idle));
+        break;
+      case ChildBudgetAlertEvent budget:
+        cell.ApplyAlert(BudgetNotice(budget));
+        break;
+      default:
+        break;
+    }
+  }
 
   /// <summary>The cell showing <paramref name="agentId" /> in ANY open tab, or null when no tab
   ///     shows it.

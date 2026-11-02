@@ -1,5 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using eThangAgent.AgentDomain;
@@ -102,22 +104,71 @@ public class CellHeaderRenderingTests
     window.Close();
   }
 
-  /// <summary>An alerting cell's frame carries the alerting class (parent D12): the outline is
-  ///     the whole of the at-a-glance half of an alert in a parentless model.</summary>
+  /// <summary>An alerting cell's frame RENDERS the alert outline (parent D12): the outline is
+  ///     the whole of the at-a-glance half of an alert in a parentless model.
+  ///     <para>THE RENDERED BRUSH AND THICKNESS ARE THE ASSERTION, never the class list. A
+  ///     style class lands on the element whether or not any style setter wins, so asserting
+  ///     <c>Classes</c> would pass on a card whose frame is byte-identical to a non-alerting
+  ///     one - which is exactly what a local value on the element used to cause.</para></summary>
   [AvaloniaFact]
-  public void AnAlertingCard_CarriesTheAlertOutline()
+  public void AnAlertingCard_RendersTheAlertOutline()
   {
     AgentTabViewModel tab = TestFixtures.CreateTab();
     AgentCellViewModel cell = tab.Cells[0];
     Window window = Show(tab);
-    Assert.DoesNotContain("alerting", Frame(window, cell).Classes);
+    Border frame = Frame(window, cell);
+    Assert.DoesNotContain("alerting", frame.Classes);
+    Assert.NotEqual(Color.Parse(AlertBrush), BrushColor(frame));
 
     cell.ApplyAlert("this agent has been idle for 12m.");
     Dispatcher.UIThread.RunJobs();
 
-    Assert.Contains("alerting", Frame(window, cell).Classes);
+    Assert.Contains("alerting", frame.Classes);
+    Assert.Equal(Color.Parse(AlertBrush), BrushColor(frame));
+    Assert.Equal(new Thickness(AlertThickness), frame.BorderThickness);
     window.Close();
   }
+
+  /// <summary>A cell that is not streaming RENDERS the idle outline (issue #307 D5): a stalled or
+  ///     waiting agent is visible without reading its transcript.
+  ///     <para>THE IDLE STYLE HAS THE SAME SHAPE AS THE ALERT ONE, so it needs the same kind of
+  ///     assertion: a baseline brush set on the element rather than in a style would suppress
+  ///     this outline too, and the class would still be there to fool a weaker test.</para></summary>
+  [AvaloniaFact]
+  public void AnIdleCard_RendersTheIdleOutline()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTab();
+    AgentCellViewModel cell = tab.Cells[0];
+    Window window = Show(tab);
+    Border frame = Frame(window, cell);
+
+    Assert.Contains("idle", frame.Classes);
+    Assert.Equal(Color.Parse(IdleBrush), BrushColor(frame));
+    Assert.Equal(new Thickness(IdleThickness), frame.BorderThickness);
+    window.Close();
+  }
+
+  /// <summary>The rendered brush of a cell's frame, as a colour: the frame's own brush is what a
+  ///     reader sees, so it is what a style-class assertion has to read.</summary>
+  /// <param name="frame">The cell's frame.</param>
+  private static Color BrushColor(Border frame)
+  {
+    IBrush? brush = frame.BorderBrush;
+    Assert.NotNull(brush);
+    return ((ISolidColorBrush)brush).Color;
+  }
+
+  /// <summary>The alert outline's brush, matching the <c>.alerting</c> style setter.</summary>
+  private const string AlertBrush = "#CCFF6B6B";
+
+  /// <summary>The alert outline's thickness, matching the <c>.alerting</c> style setter.</summary>
+  private const double AlertThickness = 2;
+
+  /// <summary>The idle outline's brush, matching the <c>.idle</c> style setter.</summary>
+  private const string IdleBrush = "#66FFB454";
+
+  /// <summary>The idle outline's thickness, matching the <c>.idle</c> style setter.</summary>
+  private const double IdleThickness = 1;
 
   /// <summary>Appends a host cell whose agent runs in its own host, so the settle path really
   ///     reads the report from a store rather than from a container this app owns.</summary>
