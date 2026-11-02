@@ -2011,4 +2011,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     session container. Caller must be on the UI thread — the shell marshals before
   ///     invoking — because transcript mutation is UI-thread-only.</summary>
   public void AddSystemNotice(string message) => Transcript.AddNotice(message);
+
+  /// <summary>Runs <paramref name="action"/> on the UI thread through this view-model's own
+  ///     marshal (issue #331): a card that read the store off-thread mutates its bound state
+  ///     through here, so the surface uses the same seam the shell and every append already do
+  ///     rather than a second, separately-configured dispatcher post.
+  ///     <para>The transcript is UI-thread-only, so a cell that wants to append a notice from a
+  ///     stream thread has no other door.</para></summary>
+  /// <param name="action">The mutation to run on the UI thread.</param>
+  public void MarshalToUi(Action action)
+  {
+    ArgumentNullException.ThrowIfNull(action);
+    _uiMarshal(action);
+  }
 }

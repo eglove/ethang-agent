@@ -1,3 +1,4 @@
+using System.Globalization;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
@@ -54,9 +55,16 @@ internal sealed class AgentCellSubscriber(
       cellViewModelFor ?? throw new ArgumentNullException(nameof(cellViewModelFor));
   private readonly Action<Action> _marshal = marshal ?? throw new ArgumentNullException(nameof(marshal));
 
-  /// <summary>Routes one agent fact to its cell. Every other kind is ignored: progress beats
-  ///     drive a live phase chip (#331), which is a later issue's surface, and the
+  /// <summary>Routes one agent fact to its cell: started appends it, settled finishes it,
+  ///     a progress beat moves its phase chip (#331), and an idle or budget alert sets its
+  ///     outline and states why in its own transcript. Every other kind is ignored - the
   ///     durable-record facts belong to the rail.
+  ///     <para>EVERY CELL MUTATION RUNS THROUGH THE SAME MARSHAL, including the beats: they
+  ///     arrive on stream threads and the chip is bound by the view, so a beat applied inline
+  ///     would be a cross-thread property change. Routing them through the marshal is also what
+  ///     keeps them IN ORDER relative to a settle that follows, because a single marshal queue
+  ///     is FIFO.
+  ///     </para>
   ///     <para>Contained: a presentation fault must never reach the agent loop, the same rule
   ///     every stream subscriber follows.</para></summary>
   public void OnEvent(ChildEvent evt)
@@ -72,6 +80,15 @@ internal sealed class AgentCellSubscriber(
           break;
         case ChildSettledEvent settled:
           _marshal(() => Settle(settled));
+          break;
+        case ChildProgressEvent progress:
+          _marshal(() => FindCell(progress.ChildId)?.ApplyPhaseBeat(progress.Label));
+          break;
+        case ChildIdleAlertEvent idle:
+          _marshal(() => Alert(idle.ChildId, IdleNotice(idle)));
+          break;
+        case ChildBudgetAlertEvent budget:
+          _marshal(() => Alert(budget.ChildId, BudgetNotice(budget)));
           break;
         default:
           break;
@@ -133,18 +150,46 @@ internal sealed class AgentCellSubscriber(
   ///     (D6) - the agent is done and its report is what remains.
   ///     <para>A settled agent with no cell is ordinary, not a fault: it can settle before the
   ///     record read that creates its cell completes, or after its tab was closed.</para></summary>
-  private void Settle(ChildSettledEvent settled)
+  private void Settle(ChildSettledEvent settled) => FindCell(settled.ChildId)?.MarkFinished();
+
+  /// <summary>Sets the agent's cell alerting and appends its one-line notice (parent #325 D12).
+  ///     <para>A fact for an agent no tab shows is dropped, exactly as a settle is: a cell can
+  ///     only exist inside an open tab.</para></summary>
+  /// <param name="agentId">The agent the alert names.</param>
+  /// <param name="notice">The one line its transcript states.</param>
+  private void Alert(AgentId agentId, string notice) => FindCell(agentId)?.ApplyAlert(notice);
+
+  /// <summary>The cell showing <paramref name="agentId" /> in ANY open tab, or null when no tab
+  ///     shows it.
+  ///     <para>EVERY TAB IS SEARCHED because a beat or an alert names only an agent: unlike a
+  ///     started fact, whose record carries the workspace, there is nothing here to resolve the
+  ///     tab from. A cell's identity is its agent, so the search is a lookup rather than a
+  ///     guess.</para></summary>
+  /// <param name="agentId">The agent whose cell to find.</param>
+  private AgentCellViewModel? FindCell(AgentId agentId)
   {
-    AgentId agentId = settled.ChildId;
     foreach (AgentTabViewModel tab in _openTabs())
     {
       if (tab.FindCell(agentId) is { } cell)
       {
-        cell.MarkFinished();
-        return;
+        return cell;
       }
     }
+
+    return null;
   }
+
+  /// <summary>The one line an idle alert states in its cell's transcript.</summary>
+  /// <param name="idle">The alert, whose idle age is the fact worth reading.</param>
+  private static string IdleNotice(ChildIdleAlertEvent idle)
+    => string.Create(CultureInfo.InvariantCulture,
+        $"this agent has been idle for {(int)idle.IdleAge.TotalMinutes}m (last phase {idle.LastPhase}); the harness will nudge it.");
+
+  /// <summary>The one line a budget alert states in its cell's transcript.</summary>
+  /// <param name="budget">The alert, whose kind and consumption are the facts worth reading.</param>
+  private static string BudgetNotice(ChildBudgetAlertEvent budget)
+    => string.Create(CultureInfo.InvariantCulture,
+        $"this agent has consumed {budget.Consumed:0.#} {budget.BudgetKind} (ceiling {(budget.Ceiling is { } ceiling ? ceiling.ToString("0.#", CultureInfo.InvariantCulture) : "none")}, burn {budget.BurnRatePerMinute:0.#}/min).");
 
   /// <summary>Reads the agent's own record. A miss yields null, which drops the cell: without
   ///     a workspace there is nowhere to put it, and without a record there is no label either.

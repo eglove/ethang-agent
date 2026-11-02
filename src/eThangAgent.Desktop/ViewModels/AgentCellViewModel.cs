@@ -105,6 +105,44 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   [ObservableProperty]
   public partial bool IsFinished { get; private set; }
 
+  /// <summary>The live phase chip beside the label (issue #331), from the closed vocabulary in
+  ///     <see cref="CellPhaseChip"/>. A cell that exists and has heard no beat yet reads
+  ///     <c>Starting</c>.
+  ///     <para>RE-RAISED ON EVERY BEAT: a progress fact that lands on a cell already reading
+  ///     <c>Thinking</c> must still notify, because a binding that only woke on a CHANGE would
+  ///     leave the chip looking stuck for the whole of a long tool run.</para></summary>
+  [ObservableProperty]
+  public partial string PhaseChip { get; private set; } = CellPhaseChip.Starting;
+
+  /// <summary>The agent's final report (parent #325 D5), read from the shared store once it
+  ///     settles. Null while the agent runs, and null when the record carries no report.
+  ///     <para>READ FROM THE STORE, NEVER FROM THE FACT: <see cref="ChildSettledEvent"/> carries
+  ///     a byte count as a size hint, so the report has no other source.</para></summary>
+  [ObservableProperty]
+  public partial string? Report { get; private set; }
+
+  /// <summary>Whether the card renders a report panel at all.</summary>
+  public bool HasReport => !string.IsNullOrWhiteSpace(Report);
+
+  /// <summary>Re-raises <see cref="HasReport" /> when the report lands: it is a computed
+  ///     property, so the generated setter's own notification says nothing about it and the
+  ///     panel would stay hidden on a card that has a report.</summary>
+  /// <param name="value">The report just assigned.</param>
+  partial void OnReportChanged(string? value) => OnPropertyChanged(nameof(HasReport));
+
+  /// <summary>Why the card shows no report, when the read that should have produced one
+  ///     failed (issue #331). Null when the read succeeded or has not run.
+  ///     <para>A FAILED READ IS STATED, NOT LEFT BLANK: a finished card with an empty panel
+  ///     reads as 'this agent concluded nothing', which is a different fact from 'the report
+  ///     could not be read'.</para></summary>
+  [ObservableProperty]
+  public partial string? ReportNotice { get; private set; }
+
+  /// <summary>Whether the card carries the alert outline (parent #325 D12): an idle or budget
+  ///     alert raised for this agent's run.</summary>
+  [ObservableProperty]
+  public partial bool IsAlerting { get; private set; }
+
   /// <summary>Whether this cell's agent is currently streaming a turn. Every cell renders
   ///     LIVE (D3), so this drives the outline rather than whether the cell renders at all
   ///     (D5).
@@ -184,8 +222,15 @@ internal sealed partial class AgentCellViewModel : ObservableObject
       // card's last content lands even though the loop is done.
       // The terminal row and the report land AFTER the settled event, so the final read is
       // what puts them in the card.
+      PhaseChip = CellPhaseChip.Settling;
       StopFollowing();
       _ = FinishFollowingAsync();
+    }
+    else
+    {
+      // A container cell's report belongs to the session that owns it, not to the shared store,
+      // so there is nothing to read: the run is over the moment the session closes.
+      PhaseChip = CellPhaseChip.Finished;
     }
 
     // The view-model is what the submit path asks (issue #330): a settled agent is RESUMED, a
@@ -259,9 +304,15 @@ internal sealed partial class AgentCellViewModel : ObservableObject
 
     // A cell that is following again is by definition not finished (issue #330): the only way
     // back here after a settle is a RESUME, and a resumed agent is running.
+    // THE CHIP AND THE REPORT RESET WITH IT (issue #331): a resumed agent has no phase beat and
+    // no report yet, so leaving the previous run's chip and conclusion on the card would
+    // describe a run that is over.
     if (IsFinished)
     {
       IsFinished = false;
+      PhaseChip = CellPhaseChip.Starting;
+      Report = null;
+      ReportNotice = null;
       ViewModel.MarkSettled(false);
       RaiseStateChanged();
     }
@@ -326,7 +377,55 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   ///     in-flight poll read would observe the same message count twice and append the same
   ///     messages twice, because the cursor only advances once per read. <see cref="ReadOnceAsync"/>
   ///     is the one door.</para></summary>
-  private Task FinishFollowingAsync() => ReadOnceAsync();
+  /// <summary>The one final read after settle (D4), then the agent's report (issue #331): the
+  ///     report is read from the same store the transcript came from, so it needs no second
+  ///     seam.
+  ///     <para>THE CHIP REACHES <see cref="CellPhaseChip.Finished"/> ON BOTH OUTCOMES. A report
+  ///     that could not be read is a fact the card states; it is never a reason to leave the
+  ///     chip claiming the cell is still settling.</para></summary>
+  private async Task FinishFollowingAsync()
+  {
+    await ReadOnceAsync().ConfigureAwait(false);
+    await ReadReportAsync().ConfigureAwait(false);
+  }
+
+  /// <summary>Reads the agent's final report from the shared store (parent #325 D5), or records
+  ///     why it could not be read.
+  ///     <para>BEST EFFORT, STATED: a store miss or a failed read leaves
+  ///     <see cref="ReportNotice"/> naming it, so the card never renders an empty panel that
+  ///     would read as 'this agent concluded nothing'.</para></summary>
+  private async Task ReadReportAsync()
+  {
+    (string? report, string? notice) = await LoadReportAsync().ConfigureAwait(false);
+
+    // THE MUTATION IS MARSHALLED because the read ran off the UI thread and these are bound by
+    // the view. The chip reaches Finished in the SAME marshal as the report, so a card can never
+    // render 'Finished' beside a report panel that has not been filled yet.
+    ViewModel.MarshalToUi(() =>
+    {
+      Report = report;
+      ReportNotice = notice;
+      PhaseChip = CellPhaseChip.Finished;
+    });
+  }
+
+  /// <summary>Reads the report off the UI thread and reports what it found: the report and no
+  ///     notice, or no report and the notice that says why.</summary>
+  private async Task<(string? Report, string? Notice)> LoadReportAsync()
+  {
+    if (_store is null)
+    {
+      return (null, ReportUnavailableNotice);
+    }
+
+    Result<AgentRecord> record = await _store.GetAsync(RootId, CancellationToken.None)
+        .ConfigureAwait(false);
+    return record.IsSuccess ? (record.Value.FinalReport, null) : (null, ReportUnavailableNotice);
+  }
+
+  /// <summary>The line a card shows when its agent's report could not be read.</summary>
+  internal const string ReportUnavailableNotice =
+      "the final report could not be read from the store.";
 
   /// <summary>Runs one read, chained behind any read already in flight, so no two reads overlap.
   ///     <para>THE CHAIN IS THE SYNCHRONIZATION: the cursor and the append are both advanced
@@ -414,6 +513,57 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   /// <summary>The tail of the read chain: the last read started, whether or not it finished.
   ///     A new read is chained behind it, so two reads never overlap.</summary>
   private Task _pendingRead = Task.CompletedTask;
+
+  /// <summary>Applies one progress beat to the chip (issue #331). The chip is re-raised on
+  ///     EVERY beat, including one that renders the same text, so a binding never looks stuck
+  ///     for the whole of a long tool run.
+  ///     <para>THE VOCABULARY IS CLOSED: the beat's wire label is translated by
+  ///     <see cref="CellPhaseChip.FromLabel"/> and never echoed, so an unrecognised phase reads
+  ///     <c>Thinking</c> rather than leaking wire text into the header.</para>
+  ///     <para>A BEAT ON A SETTLED CARD IS IGNORED. Beats arrive on stream threads and a settle
+  ///     can overtake a beat already in flight; honouring it would drag a finished card back to
+  ///     a running phase.</para></summary>
+  /// <param name="label">The beat's short phase label.</param>
+  public void ApplyPhaseBeat(string? label)
+  {
+    if (IsFinished)
+    {
+      return;
+    }
+
+    string chip = CellPhaseChip.FromLabel(label);
+    bool changed = !string.Equals(PhaseChip, chip, StringComparison.Ordinal);
+    PhaseChip = chip;
+
+    // AN UNCHANGED CHIP IS RE-RAISED HERE, because the generated setter suppresses an unchanged
+    // value. The vocabulary is closed, so consecutive beats routinely render the same text - and
+    // a header that stopped notifying through a long tool run would look frozen while the agent
+    // is busy. Exactly one notification per beat either way.
+    if (!changed)
+    {
+      OnPropertyChanged(nameof(PhaseChip));
+    }
+  }
+
+  /// <summary>Marks this cell alerting and states why in its own transcript (parent #325 D12):
+  ///     the outline is the at-a-glance half and the transcript line is the readable half.
+  ///     <para>THE LINE GOES TO THIS CELL'S TRANSCRIPT because there is no parent (#299 D1) and
+  ///     therefore no parent's transcript to write into; this is the only transcript the agent's
+  ///     reader is looking at.</para>
+  ///     <para>EXACTLY ONE LINE per alert, and an alert repeats while a run stays idle, so the
+  ///     outline is set unconditionally while the line is written only when the alert is new.
+  ///     </para></summary>
+  /// <param name="notice">The one-line notice to append.</param>
+  public void ApplyAlert(string notice)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(notice);
+    bool wasAlerting = IsAlerting;
+    IsAlerting = true;
+    if (!wasAlerting)
+    {
+      ViewModel.MarshalToUi(() => ViewModel.AddSystemNotice(notice));
+    }
+  }
 
   /// <summary>Re-raises the derived state the cell's outline binds to.</summary>
   internal void RaiseStateChanged()

@@ -20,6 +20,14 @@
       <Setter Property="BorderBrush" Value="#33888888"/>
       <Setter Property="Opacity" Value="0.72"/>
     </Style>
+    <!-- Issue #331 (parent D12): an ALERTING cell says so in its frame. There is no parent
+         (#299 D1), so the outline is the whole of the at-a-glance half of an alert - a human
+         watching five cells finds the one that needs them here. Declared after the finished
+         rule so a card that alerted before it settled keeps the alert visible. -->
+    <Style Selector="Border#CellFrame.alerting">
+      <Setter Property="BorderBrush" Value="#CCFF6B6B"/>
+      <Setter Property="BorderThickness" Value="2"/>
+    </Style>
     <!-- Issue #312 D2: a PARKED chain is visually distinct from a running one. This is the
          whole reason the record has a Parked status - 'waiting for you' and 'working' must not
          look alike - so the card frame, not only the status word, carries the difference. -->
@@ -83,7 +91,8 @@
               <Border x:Name="CellFrame" Margin="2" Background="#0A000000"
                       BorderThickness="1" BorderBrush="#33888888"
                       Classes.idle="{Binding IsIdle}"
-                      Classes.finished="{Binding IsFinished}">
+                      Classes.finished="{Binding IsFinished}"
+                      Classes.alerting="{Binding IsAlerting}">
                 <DockPanel>
                   <Border DockPanel.Dock="Top" Background="#15000000" Padding="8,3">
                     <DockPanel LastChildFill="False">
@@ -95,9 +104,15 @@
                         <TextBlock Text="{Binding PlacementLine}" FontSize="10" Opacity="0.7"
                                    IsVisible="{Binding PlacementLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                       </StackPanel>
-                      <TextBlock DockPanel.Dock="Right" Text="finished" FontSize="10"
-                                 Opacity="0.6" VerticalAlignment="Center" Margin="6,0,0,0"
-                                 IsVisible="{Binding IsFinished}"/>
+                      <!-- The live phase chip (issue #331): a CLOSED five-value vocabulary, so
+                           the same agent state always reads the same way. It renders on every
+                           cell - a settled one reads Finished - because 'no chip' and 'not
+                           running' must not look alike. -->
+                      <Border DockPanel.Dock="Right" Background="#22FFFFFF" CornerRadius="3"
+                              Padding="5,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="PhaseChipText" Text="{Binding PhaseChip}" FontSize="10"
+                                   Opacity="0.85"/>
+                      </Border>
                       <Button DockPanel.Dock="Right" Content="✕" Padding="4,0" FontSize="10"
                               Background="Transparent" BorderThickness="0" Margin="6,0,0,0"
                               IsVisible="{Binding IsFinished}"
@@ -105,6 +120,24 @@
                               ToolTip.Tip="Dismiss this finished agent"/>
                     </DockPanel>
                   </Border>
+                  <!-- The agent's final report (parent D5, issue #331): what it concluded,
+                       not only that it ended. Read from the shared store after settle, because
+                       the settled fact carries a byte count and never the report. -->
+                  <Border DockPanel.Dock="Top" Margin="8,4,8,0" Padding="6,4"
+                          Background="#14FFFFFF" CornerRadius="4"
+                          IsVisible="{Binding HasReport}">
+                    <StackPanel>
+                      <TextBlock Text="REPORT" FontSize="9" FontWeight="SemiBold" Opacity="0.6"/>
+                      <SelectableTextBlock x:Name="ReportText" Text="{Binding Report}" FontSize="11"
+                                           TextWrapping="Wrap"/>
+                    </StackPanel>
+                  </Border>
+                  <!-- A failed read is STATED: an empty report panel would read as 'this agent
+                       concluded nothing', which is a different fact. -->
+                  <SelectableTextBlock DockPanel.Dock="Top" Margin="8,4,8,0" FontSize="11"
+                                       Foreground="#FF8A80" TextWrapping="Wrap"
+                                       Text="{Binding ReportNotice}"
+                                       IsVisible="{Binding ReportNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                   <!-- The cell's chat surface is the unchanged AgentView: every cell renders
                        live (D3), which the per-session stream sink already provides - the
                        deltas and reasoning of each agent reach its own cell as they arrive. -->
