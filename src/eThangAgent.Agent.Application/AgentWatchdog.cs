@@ -43,16 +43,17 @@ public sealed class AgentWatchdog(WatchdogServices services) : IWatchdogTicker, 
         return;
       }
 
-      // ONE AGENT, ONE RUN (issue #334): the descendant walk is gone with the parent link. Two
-      // signals replace it and each answers a different question. The HEARTBEAT entry says this
-      // container is stamping the run, so another container's agent is never swept. The SUPERVISOR
-      // REGISTRY says the event-policy path above already owns the run, so sweeping it here too
-      // would act on one breach twice in a single tick.
+      // ONE AGENT, ONE RUN (issue #334): the descendant walk is gone with the parent link, so the
+      // sweep covers every store row. WHICH rows this container may act on is decided in
+      // SweepOneAsync, by its heartbeat gate: a row with no beat here belongs to another container,
+      // or has not beaten yet, and is never touched. A run the supervisor registry already owns is
+      // skipped below, because the event-policy path above is its owner and sweeping it too would
+      // act on one breach twice in a single tick.
       HashSet<Guid> registered = services.Supervisors is null
           ? []
           : [.. services.Supervisors.All.Select(supervisor => supervisor.Id.Value)];
       List<Guid> supervised = [.. listed.Value
-          .Where(r => !registered.Contains(r.Id.Value) && services.Heartbeat.TryGetLastBeat(r.Id, out _))
+          .Where(r => !registered.Contains(r.Id.Value))
           .Select(r => r.Id.Value)];
       Dictionary<Guid, AgentRecord> byId = listed.Value.ToDictionary(r => r.Id.Value);
       foreach (Guid id in supervised)

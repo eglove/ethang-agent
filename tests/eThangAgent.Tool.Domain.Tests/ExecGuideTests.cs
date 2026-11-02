@@ -4,7 +4,7 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Tool.Domain.Tests;
 
-public class ExecGuideTests
+public partial class ExecGuideTests
 {
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
@@ -111,15 +111,43 @@ public class ExecGuideTests
     Assert.Equal(markers.OrderBy(m => m), markers);
   }
 
-  /// <summary>The retired vocabulary appears NOWHERE in the guide. This is the acceptance
-  ///     criterion the issue states, and it is what a revert breaks.</summary>
+  /// <summary>THE GUIDE MAY NAME NO agent ACTION THAT DOES NOT EXIST. A blocklist of retired
+  ///     words is unfalsifiable - a revert that teaches delegation as "a background worker you
+  ///     start with agent.start" slips past any list of spellings. This asserts the invariant
+  ///     instead: every agent.* action the guide names must be one the provider actually exposes,
+  ///     so teaching a start verb fails no matter what it is called.</summary>
+  [Fact]
+  public void Guide_NamesOnlyAgentActionsThatExist()
+  {
+    // The five actions the agent provider exposes. Pinned here because the Tool Domain may not
+    // reference the Agent Domain; ActionNames_ExposeNoSpawnAndNoFanout pins the other side.
+    string[] exposed = ["agent.status", "agent.result", "agent.wait", "agent.resume", "agent.cancel"];
+
+    string[] named =
+    [
+      .. AgentActionPattern().Matches(ExecGuide.Text)
+          .Select(match => match.Value)
+          .Distinct(StringComparer.Ordinal),
+    ];
+
+    Assert.NotEmpty(named);
+    foreach (string action in named)
+    {
+      Assert.True(exposed.Contains(action),
+          "the guide teaches '" + action + "', which is not an action the agent provider exposes. "
+          + "Exposed: " + string.Join(", ", exposed) + ".");
+    }
+  }
+
+  /// <summary>The retired vocabulary appears NOWHERE in the guide, for the reader who meets it
+  ///     in prose rather than in an action name.</summary>
   [Fact]
   public void Guide_TeachesNoRetiredSpawnVocabulary_Anywhere()
   {
     foreach (string retired in new[]
     {
       "agent.spawn", "agent.fanout", "depth limit", "spawn a child", "subagent",
-      "children may spawn", "grandchild", "child agent",
+      "children may spawn", "grandchild", "child agent", "spawns",
     })
     {
       Assert.True(ExecGuide.Text.IndexOf(retired, StringComparison.OrdinalIgnoreCase) < 0,
@@ -383,6 +411,10 @@ public class ExecGuideTests
 
   // The guide/tool-description agreement test only reads Definition, so the seam
   // behind it is inert.
+  /// <summary>Every `agent.*` action name the guide mentions.</summary>
+  [GeneratedRegex(@"agent\.[a-z_]+")]
+  private static partial Regex AgentActionPattern();
+
   private sealed class NoopFileWriteAccess : IFileWriteAccess
   {
     public Task<Result<FileWriteOutcome>> WriteFileAsync(string path, string content, bool overwrite, CancellationToken ct = default) =>
@@ -391,5 +423,6 @@ public class ExecGuideTests
         throw new NotSupportedException();
     public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(string path, byte[] bytes, bool overwrite, CancellationToken ct = default) =>
         throw new NotSupportedException();
+
   }
 }

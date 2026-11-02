@@ -308,22 +308,30 @@ public class AgentWatchdogTests
 
   /// <summary>The other half of the same rule, stated so a revert cannot pass: a run THIS
   ///     container stamps IS swept, so the absence above is ownership and not a dead sweep.</summary>
+  /// <summary>The other half of the same rule, stated so a revert cannot pass: in ONE tick, a
+  ///     run this container stamped IS swept and one it did not is NOT. Seeding both together is
+  ///     what makes the heartbeat gate load-bearing - with only a stamped agent present, dropping
+  ///     the gate changes nothing and the test would still pass.</summary>
   [Fact]
-  public async Task Tick_AgentStampedByThisContainer_IsSwept()
+  public async Task Tick_SweepsOnlyTheRunsThisContainerStamped()
   {
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, FakeHeartbeat heartbeat, _, _) =
         Harness(clock);
-    AgentRecord ownAgent = Child(T0 - TimeSpan.FromMinutes(30));
+    AgentRecord stamped = Child(T0 - TimeSpan.FromMinutes(30));
+    AgentRecord unstamped = Child(T0 - TimeSpan.FromMinutes(30));
     store.Records[root.Id.Value] = root;
-    store.Records[ownAgent.Id.Value] = ownAgent;
-    heartbeat.Beats[ownAgent.Id.Value] = T0 - TimeSpan.FromMinutes(20);
+    store.Records[stamped.Id.Value] = stamped;
+    store.Records[unstamped.Id.Value] = unstamped;
+    heartbeat.Beats[stamped.Id.Value] = T0 - TimeSpan.FromMinutes(20);
     runtime.OnInterrupt = id => store.Records[id] = store.Records[id] with { Status = AgentStatus.Failed, FailureReason = AgentFailureReason.Interrupted };
 
     await watchdog.TickAsync();
 
-    Assert.Contains(ownAgent.Id.Value, runtime.Interrupted);
+    Assert.Contains(stamped.Id.Value, runtime.Interrupted);
+    Assert.DoesNotContain(unstamped.Id.Value, runtime.Interrupted);
+    Assert.DoesNotContain(unstamped.Id.Value, runtime.Started);
   }
 
   [Fact]
