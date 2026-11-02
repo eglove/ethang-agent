@@ -8,10 +8,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>The shell's in-place session replacement (issue #234 task 7): starting a new
-///     session in a tab REPLACES that tab's session rather than opening a second tab — the
-///     transcript clears, the status bar names a new session id, and the old session closes
-///     gracefully so the Sessions dialog can still resume it.
+/// <summary>Starting a new session in a tab APPENDS a cell (issue #332): the new agent gets its
+///     own card, the agent it supersedes keeps its card and its transcript, and the old session
+///     closes gracefully so the Sessions dialog can still resume it.
 /// <para>Two entry points share one core: the user's /new command
 ///     (<see cref="MainViewModel.StartNewSessionAsync(AgentTabViewModel, string, string)"/>) and the host's session-request
 ///     (a compaction handoff or a chain launch,
@@ -91,20 +90,20 @@ public class NewSessionReplacementTests
       => (await ViewModel.OpenAgentAsync(root, provider).ConfigureAwait(true)).Value!;
   }
 
-  /// <summary>Issue #307 D2 CHANGED THIS CONTRACT. Before the grid, replacing the tab was
-  ///     the only way to restart a conversation, so `/new` removed the tab and attached a new
-  ///     one at the same index. Now the tab is the WORKSPACE and holds a grid of cells: a
-  ///     sequential advance continues in its own CELL, and the tab - its rail, its sibling
-  ///     agents - survives untouched.
-  ///     <para>What must still hold is the user-visible promise #234 made: ONE thing is
-  ///     replaced, not a third added, and the selection does not move.</para></summary>
+  /// <summary>ISSUE #332 CHANGED THIS CONTRACT. #307's grid appended a cell for a chain step
+  ///     but still SWAPPED the primary cell for a handoff and for `/new`, so a tab that
+  ///     restarted its conversation lost the one it had. Every route appends now: the old
+  ///     agent keeps its card as a finished record, and the new one arrives beside it.
+  ///     <para>WHAT DOES NOT CHANGE: the STRIP. Two tabs stay two tabs, in order, and the
+  ///     selection does not move - a new cell never steals the view (D2).</para></summary>
   [Fact]
-  public async Task StartNewSession_ReplacesTheCellInPlace_AndTheTabSurvives()
+  public async Task StartNewSession_AppendsACell_AndTheTabSurvives()
   {
     Shell shell = new();
     AgentTabViewModel alpha = await shell.OpenAsync(@"C:\work\alpha");
     AgentTabViewModel beta = await shell.OpenAsync(@"C:\work\beta");
     AgentId retired = beta.Container.RootId;
+    AgentCellViewModel original = Assert.Single(beta.Cells);
 
     Result<AgentTabViewModel> started = await shell.ViewModel.StartNewSessionAsync(beta, "keep going");
 
@@ -115,10 +114,15 @@ public class NewSessionReplacementTests
     Assert.Same(beta, shell.ViewModel.Tabs[1]);
     Assert.Same(beta, started.Value);
     Assert.Same(beta, shell.ViewModel.SelectedTab);
-    // The tab still holds exactly one cell, and that cell is a NEW session.
-    AgentCellViewModel cell = Assert.Single(beta.Cells);
-    Assert.NotEqual(retired, cell.RootId);
-    Assert.Same(cell.ViewModel, beta.ViewModel);
+    // THE CARD THE USER WAS READING IS STILL THERE, in cell zero, as a finished record.
+    Assert.Equal(2, beta.Cells.Count);
+    Assert.Same(original, beta.Cells[0]);
+    Assert.Equal(retired, original.RootId);
+    Assert.True(original.IsFinished);
+    Assert.Null(original.Container);
+    // The new agent is the tab's live session, and it is the LAST cell.
+    Assert.NotEqual(retired, beta.Cells[1].RootId);
+    Assert.Same(beta.Cells[1].ViewModel, beta.ViewModel);
   }
 
   [Fact]
@@ -135,6 +139,29 @@ public class NewSessionReplacementTests
     Assert.Equal(@"C:\work\alpha", started.Value.Container.WorkspaceRoot, StringComparer.OrdinalIgnoreCase);
     // The status bar names the NEW session — the surface's proof the conversation restarted.
     Assert.Equal(started.Value.Container.RootId.ToString()[..8], started.Value.ViewModel.SessionIdShort);
+  }
+
+  /// <summary>A SUPERSEDED card keeps what it ran (issue #332): its transcript survives the
+  ///     retire teardown, so the record of the conversation the user was reading is still there.
+  ///     <para>THE ENTRIES ARE THE ASSERTION, not a flag: a card that keeps its finished outline
+  ///     while rendering an empty transcript is exactly the 'work is unreachable' failure this
+  ///     issue exists for, and a flag would have been green through it.</para></summary>
+  [Fact]
+  public async Task StartNewSession_KeepsTheSupersededCardsTranscript()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
+    AgentCellViewModel original = Assert.Single(tab.Cells);
+    original.ViewModel.Transcript.AddUser("the question I asked the first agent");
+    original.ViewModel.Transcript.AppendAssistantDelta("and the answer it gave");
+
+    Result<AgentTabViewModel> started = await shell.ViewModel.StartNewSessionAsync(tab, "go");
+
+    Assert.True(started.IsSuccess, started.Error?.Message);
+    Assert.Equal("the question I asked the first agent",
+        Assert.Single(original.ViewModel.Transcript.Entries.OfType<UserMessageEntry>()).Text);
+    Assert.Contains("and the answer it gave", original.ViewModel.Transcript.AssistantText,
+        StringComparison.Ordinal);
   }
 
   [Fact]
@@ -217,21 +244,25 @@ public class NewSessionReplacementTests
   }
 
   [Fact]
-  public async Task SlashNewCommand_ReachesTheShell_AndReplacesTheCell()
+  public async Task SlashNewCommand_ReachesTheShell_AndAppendsACell()
   {
     // The user-facing path end to end: /new <prompt> resolves BEFORE the skill lookup
-    // (issue #234) and reaches the shell's replacement, which fires the prompt as the new
+    // (issue #234) and reaches the shell's start, which fires the prompt as the new
     // session's first turn.
-    // Issue #307 D2: the CELL is replaced and the TAB survives, so the tab object is the
-    // same one and only its session changed.
+    // Issue #332: the CELL is APPENDED and the TAB survives, so the tab object is the same
+    // one, the cell the user was in is still there, and a new one arrived beside it.
     Shell shell = new();
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
     AgentId retired = tab.Container.RootId;
+    AgentCellViewModel original = Assert.Single(tab.Cells);
 
     await tab.ViewModel.SubmitAsync("/new explore the auth module").ConfigureAwait(true);
 
     Assert.Equal(2, shell.Created.Count);
     Assert.Same(tab, Assert.Single(shell.ViewModel.Tabs));
+    Assert.Equal(2, tab.Cells.Count);
+    Assert.Same(original, tab.Cells[0]);
+    Assert.Equal(retired, tab.Cells[0].RootId);
     Assert.NotEqual(retired, tab.Container.RootId);
     // The prompt became the new session's FIRST TURN — the host received it, not the
     // in-process runner.

@@ -49,25 +49,34 @@ internal sealed partial class AgentTabViewModel : ObservableObject
         session.WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
   }
 
-  /// <summary>The tab's primary session container: the LIVE session the tab is anchored on.
-  ///     With one cell this is the tab's session; with several it is the earliest cell whose
-  ///     session still exists.
-  ///     <para>DELEGATED, not stored: a sequential replacement swaps the primary cell in place
-  ///     (D2), and a retired chain step keeps its finished card, so a stored copy would name a
-  ///     session the tab no longer holds.</para>
-  ///     <para>WHY THE FIRST LIVE CELL AND NOT SIMPLY CELL ZERO (issue #329): a chain step's
-  ///     predecessor becomes a finished card, and its container is disposed. The card stays - D7
-  ///     keeps the position - but the tab must not resolve 'its session' to a disposed provider.
-  ///     </para>
+  /// <summary>The tab's live session container: the earliest cell whose session this app still
+  ///     holds. With one cell this is the tab's session; with several it is the first one that
+  ///     has not been retired.
+  ///     <para>DELEGATED, not stored: every route that starts a session appends a cell and
+  ///     retires the one it supersedes (issue #332), so a stored copy would name a session the
+  ///     tab no longer holds.</para>
+  ///     <para>WHY THE FIRST LIVE CELL AND NOT SIMPLY CELL ZERO: a superseded agent becomes a
+  ///     finished card and its container is disposed. The card stays - D7 keeps the position -
+  ///     but the tab must not resolve 'its session' to a disposed provider.</para>
   ///     <para>THE FIRST CELL IS ALWAYS A CONTAINER CELL (D13): agents running in their own hosts
-  ///     append after it and the first cell is never replaced by one.</para></summary>
+  ///     append after it, and a host cell never becomes the tab's own session.</para></summary>
   public AgentSession Container => Cells.Select(cell => cell.Container).FirstOrDefault(s => s is not null)
       ?? throw new InvalidOperationException("the tab must hold at least one live container cell.");
 
-  /// <summary>The primary cell's view-model (see <see cref="Container"/>): the cell whose
-  ///     session the tab is anchored on, so the pre-#307 surface keeps addressing a LIVE
-  ///     conversation even after a chain step's predecessor became a finished card.</summary>
-  public AgentSessionViewModel ViewModel => Cells[0].ViewModel;
+  /// <summary>The live cell's view-model (see <see cref="Container"/>): the cell whose session
+  ///     the tab is anchored on, so the pre-#307 surface keeps addressing a LIVE conversation
+  ///     even after an earlier cell became a finished card.
+  ///     <para>NOT SIMPLY CELL ZERO (issue #332). Every route that starts a session appends a
+  ///     cell - a chain advance, a compaction handoff, and `/new` alike - so the first cell is
+  ///     the tab's first agent and nothing more, and it becomes a finished card the moment a
+  ///     later agent supersedes it. Resolving 'the tab's session' to it would point the
+  ///     statusline, the model controls, and the rail at a session whose container is gone.
+  ///     </para>
+  ///     <para>A RETIRED CELL IS THE MARKER FOR THAT: it has no container left to address, so
+  ///     the first cell that still has one is the one the tab is about. Cell zero is the
+  ///     fallback only when every cell is retired, which is a tab nothing can be done in.</para></summary>
+  public AgentSessionViewModel ViewModel => Cells.Select(cell => cell.ViewModel)
+      .FirstOrDefault(vm => !vm.IsRetired) ?? Cells[0].ViewModel;
 
   /// <summary>The workspace this tab shows, as the stable identity its durable rows key on.
   ///     Null when the tab was built over a session whose container carries no workspace
@@ -126,9 +135,12 @@ internal sealed partial class AgentTabViewModel : ObservableObject
 
   /// <summary>Adds a cell for a session this app OWNS (issue #307 D2). The cell is appended,
   ///     so the grid's existing cells keep their positions.
-  ///     <para>A PARALLEL dispatch and a chain step both come through here (issue #329): a
-  ///     chain step is its own agent with its own cell, so it appends beside the agent that
-  ///     started it rather than taking that agent's place.</para></summary>
+  ///     <para>EVERY SESSION THIS APP STARTS IN A TAB COMES THROUGH HERE (issue #332): a chain
+  ///     step, a compaction handoff, and `/new` all append, because all three start an agent
+  ///     beside the one that was there rather than restarting that one in place.</para>
+  ///     <para>NOTHING HERE SELECTS OR SCROLLS (D2): the cell arrives at the end of the row and
+  ///     the user clicks into it. A handoff that arrived mid-task is exactly the case where
+  ///     stealing the view would be worst.</para></summary>
   public AgentCellViewModel AddCell(AgentSession session, AgentSessionViewModel sessionVm,
       ChainPlacement? placement = null)
   {
@@ -167,25 +179,22 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     return cell;
   }
 
-  /// <summary>Replaces the PRIMARY cell's session IN PLACE (issue #234 + #307 D2): a
-  ///     compaction handoff or `/new` continues in the same cell rather than adding one.
-  ///     <para>THE TAB ITSELF SURVIVES, so its workbench rail and any sibling cells are
-  ///     untouched - replacing the whole tab would rebuild a pane the user is reading and
-  ///     discard agents that have nothing to do with the advance.</para>
-  ///     <para>A CHAIN STEP DOES NOT COME THROUGH HERE (issue #329): a chain's steps are
-  ///     separate agents, so each gets its own cell.</para>
-  ///     <para>The caller owns the retired session's teardown; this only swaps the reference,
-  ///     so a teardown fault can never leave the tab without a cell.</para></summary>
-  public void ReplacePrimaryCell(AgentSession session, AgentSessionViewModel sessionVm)
+  /// <summary>Retires one cell's session (issue #332): the card stops naming the container the
+  ///     shell is about to dispose, stays where it is as a finished record, and the tab
+  ///     re-raises the surfaces that resolve THROUGH the cells.
+  ///     <para>ONE CALL BECAUSE THE TWO HALVES MUST NOT DRIFT: a card marked finished while
+  ///     still holding a disposed provider answers every later lookup with a dead session, and
+  ///     a container released without the card being marked finished leaves a live-looking
+  ///     card over nothing.</para>
+  ///     <para>THE RE-RAISED PROPERTIES ARE THE TAB'S OWN: <see cref="Container"/> and
+  ///     <see cref="ViewModel"/> are computed over the cells, so retiring the cell they named
+  ///     moves them and every binding on them has to hear it.</para></summary>
+  /// <param name="cell">The cell whose session is being retired.</param>
+  public void RetireCell(AgentCellViewModel cell)
   {
-    ArgumentNullException.ThrowIfNull(session);
-    ArgumentNullException.ThrowIfNull(sessionVm);
-    AgentCellViewModel retired = Cells[0];
-    retired.PropertyChanged -= OnCellPropertyChanged;
-    retired.Detach();
-    AgentCellViewModel replacement = new(session, sessionVm);
-    replacement.PropertyChanged += OnCellPropertyChanged;
-    Cells[0] = replacement;
+    ArgumentNullException.ThrowIfNull(cell);
+    cell.MarkFinished();
+    cell.RetireContainer();
     OnPropertyChanged(nameof(Container));
     OnPropertyChanged(nameof(ViewModel));
     OnPropertyChanged(nameof(Subtitle));
@@ -198,14 +207,17 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     => Cells.FirstOrDefault(c => c.RootId == agentId);
 
   /// <summary>Removes a FINISHED cell the user dismissed (D7). A running cell is refused:
-  ///     dismissing it would orphan a live session with no surface. The primary cell is
-  ///     refused too - the tab's own identity is that session, and removing it would leave
-  ///     a tab whose <see cref="Container"/> names nothing.
+  ///     dismissing it would orphan a live session with no surface.
+  ///     <para>THE LAST CELL IS REFUSED TOO (issue #332): the tab resolves its own session
+  ///     through the cells, so removing the only cell would leave a tab whose
+  ///     <see cref="Container"/> names nothing. CELL ZERO IS NOT PROTECTED - every route that
+  ///     starts a session appends, so the first cell is an ordinary agent's card and the user
+  ///     closes it like any other.</para>
   ///     <para>Returns false when the cell was not dismissed, so the caller can say why.</para></summary>
   public bool DismissCell(AgentCellViewModel cell)
   {
     ArgumentNullException.ThrowIfNull(cell);
-    if ((Cells.Count > 0 && ReferenceEquals(cell, Cells[0])) || !cell.IsFinished)
+    if (!cell.IsFinished || Cells.Count <= 1)
     {
       return false;
     }

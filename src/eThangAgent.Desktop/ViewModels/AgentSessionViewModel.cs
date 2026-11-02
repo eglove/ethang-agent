@@ -167,8 +167,12 @@ internal sealed record AgentSessionViewModelOptions
 
   /// <summary>Whether this session's transcript outlives the session (issue #329): a session
   ///     whose cell stays in the grid as a finished card keeps its rendered entries, so the card
-  ///     shows what ran. False for a session whose cell is swapped away, which has nothing left to
-  ///     render.</summary>
+  ///     shows what ran. False for a session whose cell is swapped away, which has nothing left
+  ///     to render.
+  ///     <para>THE CELL CAN OVERRIDE IT (issue #332): whether a card outlives its session is a
+  ///     fact about the GRID, and a launch cannot know it - every launch appends, and whether
+  ///     the card it lands on is later superseded is decided long after the session was built.
+  ///     </para></summary>
   public bool KeepsTranscript { get; init; }
 
   /// <summary>Receives this session's own ROOT TURN facts (issue #301 D5): a turn started,
@@ -354,8 +358,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   /// <summary>Marks this cell's container retired, so the chat input stops rendering (issue
   ///     #330): the card keeps its transcript, and nothing claims an affordance the disposed
-  ///     session could not honor. Idempotent.</summary>
-  internal void MarkRetired() => IsRetired = true;
+  ///     session could not honor. Idempotent.
+  ///     <para>THE TRANSCRIPT IS KEPT FROM HERE ON (issue #332): a retired container always
+  ///     leaves a card behind, so the teardown that follows must not clear the entries the card
+  ///     is still rendering.</para></summary>
+  internal void MarkRetired()
+  {
+    IsRetired = true;
+    _keepsTranscript = true;
+  }
 
   /// <summary>True once this cell's agent has settled (issue #330). The CELL owns the finished
   ///     state - it is the object that follows the agent - so it writes this, and the submit
@@ -1092,9 +1103,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     await _lifecycle.CompleteAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
   }
 
+
   /// <summary>Whether this view-model's transcript outlives its session (issue #329): true for a
-  ///     session whose cell stays in the grid as a finished card after the session is retired.</summary>
-  private readonly bool _keepsTranscript;
+  ///     session whose cell stays in the grid as a finished card after the session is retired.
+  ///     <para>WRITTEN BY <see cref="MarkRetired"/> AS WELL AS AT CONSTRUCTION (issue #332): a
+  ///     card that is retired becomes a finished record by definition, so its teardown keeps the
+  ///     entries it is still rendering.</para></summary>
+  private bool _keepsTranscript;
 
   /// <summary>Reports one root-turn fact to the session's supervisor (issue #301 D5).
   ///     <para>Best effort by contract: the supervisor is a supervision surface, and a

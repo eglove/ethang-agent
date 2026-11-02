@@ -8,9 +8,9 @@ namespace eThangAgent.Desktop;
 ///     session that completed its step and starts the next one, in the workspace the chain
 ///     belongs to.
 ///     <para>WHY THE SHELL AND NOT THE HOST: a chain step's session is a TAB CELL. Closing it
-///     and starting its successor is a tab operation - the same in-place replacement `/new`
-///     performs - and the app is the only place a tab exists. The host runs the turn; the app
-///     owns the surface the turn appears in.</para>
+///     and starting its successor is a tab operation - the same append `/new` performs - and
+///     the app is the only place a tab exists. The host runs the turn; the app owns the
+///     surface the turn appears in.</para>
 ///     <para>THE START IS SEED-ONLY (no prompt): the brief is #302's, and firing a turn with
 ///     text this issue invents would be a handoff written by a model, which D5 forbids.</para>
 ///     <para>EVERY ACT IS BEST EFFORT AND REPORTED, never thrown: the completion fact arrives

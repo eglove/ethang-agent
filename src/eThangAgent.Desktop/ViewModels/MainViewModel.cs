@@ -228,11 +228,11 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     has no shared store — the dialog then reports the catalog unavailable).</summary>
   private readonly SessionCatalogQueryHandler? _sessionCatalog;
 
-  /// <summary>In-flight in-place replacements (issue #234), keyed by the tab they will
-  ///     replace. A session-request launch is answered IMMEDIATELY but swapped only when the
-  ///     requesting turn goes idle, so the pending session needs a home in between; the map
-  ///     is also the one-replacement-per-tab guard (two launches racing for one slot would
-  ///     orphan one session in no tab at all).</summary>
+  /// <summary>In-flight session starts (issue #234), keyed by the tab they land in. A
+  ///     session-request launch is answered IMMEDIATELY but appended as a cell only when the
+  ///     requesting turn goes idle, so the pending session needs a home in between; the map is
+  ///     also the one-launch-per-tab guard (two launches racing for one tab would leave one
+  ///     session orphaned in no tab at all).</summary>
   private readonly Dictionary<AgentTabViewModel, AgentSession> _pendingReplacements = [];
 
   /// <summary>Resume hook mirroring the creation delegate: derived from the factory so
@@ -1335,13 +1335,13 @@ internal sealed partial class MainViewModel : ObservableObject
       string? prompt, string? handoffSummary = null)
     => StartNewSessionAsync(tab, prompt, SessionHandoffSeed.Build(handoffSummary));
 
-  /// <summary>The same in-place start, seeded with an ALREADY-BUILT message list (issue
+  /// <summary>The same start, seeded with an ALREADY-BUILT message list (issue
   ///     #302). A chain brief is rendered from the records, so it arrives as messages rather
   ///     than as a summary string — flattening it back to text and re-wrapping it would lose
   ///     the shape the renderer chose and give the caller a second way to state the seed.
   ///     <para>An EMPTY or null seed is a plain launch: no seed message, no turn.</para>
   ///     <para>Must run on the UI thread: it mutates <see cref="Tabs"/>.</para></summary>
-  /// <param name="tab">The tab whose session is replaced.</param>
+  /// <param name="tab">The tab the new session lands in.</param>
   /// <param name="prompt">The first turn's text; EMPTY means seed-only.</param>
   /// <param name="seed">The seeded prefix, or null for a plain launch.</param>
   /// <param name="chainContract">The chain step this session executes, or null when it is not
@@ -1356,7 +1356,7 @@ internal sealed partial class MainViewModel : ObservableObject
       string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract = null,
       ChainStepRole? role = null)
   {
-    Result<ReplacedSession> started =
+    Result<StartedSession> started =
         await StartSessionAsync(tab, prompt, seed, chainContract, role, placement: null)
             .ConfigureAwait(true);
     return started.IsSuccess
@@ -1375,14 +1375,14 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     chain step.</param>
   /// <param name="predecessorId">The session this launch retires - the one that completed the
   ///     previous chain step - or null when the launch replaces the primary cell.</param>
-  private async Task<Result<ReplacedSession>> StartSessionAsync(AgentTabViewModel tab,
+  private async Task<Result<StartedSession>> StartSessionAsync(AgentTabViewModel tab,
       string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract,
       ChainStepRole? role, ChainPlacement? placement, AgentId? predecessorId = null)
   {
     ArgumentNullException.ThrowIfNull(tab);
     if (!Tabs.Contains(tab))
     {
-      return Result.Failure<ReplacedSession>(new DomainError("TabClosed",
+      return Result.Failure<StartedSession>(new DomainError("TabClosed",
           "that tab is no longer open; no session was started."));
     }
 
@@ -1391,7 +1391,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // the primary there would test an agent the launch does not touch.
     if (RetiredViewModel(tab, predecessorId).IsBusy)
     {
-      return Result.Failure<ReplacedSession>(new DomainError("TurnBusy",
+      return Result.Failure<StartedSession>(new DomainError("TurnBusy",
           "a turn is running in that tab; stop it before starting a new session."));
     }
 
@@ -1407,7 +1407,7 @@ internal sealed partial class MainViewModel : ObservableObject
     bool seeded = seed is not null || chainContract is not null;
     if (seeded && creator is null)
     {
-      return Result.Failure<ReplacedSession>(new DomainError("SeedUnsupported",
+      return Result.Failure<StartedSession>(new DomainError("SeedUnsupported",
           "this host cannot seed a new session's conversation; the handoff summary would be lost."));
     }
 
@@ -1437,7 +1437,7 @@ internal sealed partial class MainViewModel : ObservableObject
     catch (Exception ex)
 #pragma warning restore CA1031, S2486
     {
-      return Result.Failure<ReplacedSession>(new DomainError("SessionLaunchFailed",
+      return Result.Failure<StartedSession>(new DomainError("SessionLaunchFailed",
           "the new session could not be started: " + ex.Message));
     }
 
@@ -1445,10 +1445,10 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       // The factory's own typed code travels through verbatim (SessionLaunchFailed only
       // wraps a thrown fault, never a refused Result).
-      return Result.Failure<ReplacedSession>(created.Error);
+      return Result.Failure<StartedSession>(created.Error);
     }
 
-    return Result.Success(await ReplaceSessionAsync(
+    return Result.Success(await AppendSessionAsync(
         tab, created.Value, index, prompt, role, placement, predecessorId));
   }
 
@@ -1464,31 +1464,42 @@ internal sealed partial class MainViewModel : ObservableObject
   private static AgentSessionViewModel RetiredViewModel(AgentTabViewModel tab, AgentId? retiredId)
     => (retiredId is { } id ? tab.FindCell(id)?.ViewModel : null) ?? tab.ViewModel;
 
-  /// <summary>What one start produced (issue #329): the tab it landed in, and the id of the
-  ///     session it started.
-  ///     <para>THE ID IS NOT THE TAB'S PRIMARY ANY MORE. A chain step appends its own cell, so
-  ///     the successor is a NEW cell while the tab's primary cell stays the agent that started
-  ///     the chain - and every caller that answers with 'the session I just started' needs the
-  ///     new one, not the tab's first.</para></summary>
+  /// <summary>What one start produced: the tab it landed in, and the id of the session it
+  ///     started.
+  ///     <para>THE ID IS THE NEW CELL'S, NEVER THE TAB'S FIRST. Every start appends (issue
+  ///     #332), so the session just started is a cell of its own while the agent it superseded
+  ///     keeps the one it had - and every caller that answers with 'the session I just started'
+  ///     needs the new one.</para></summary>
   /// <param name="Tab">The tab the session landed in.</param>
   /// <param name="RootId">The session that was started.</param>
-  private sealed record ReplacedSession(AgentTabViewModel Tab, AgentId RootId);
+  private sealed record StartedSession(AgentTabViewModel Tab, AgentId RootId);
 
-  /// <summary>Replaces the PRIMARY CELL of <paramref name="tab"/> with a cell over
-  ///     <paramref name="session"/> (issue #234 + #307 D2): the old session completes
-  ///     gracefully and its container is disposed, the new session takes the SAME cell, and —
-  ///     when <paramref name="prompt"/> is non-empty — its first turn fires.
-  ///     <para>#307 changed what 'in place' means. Before the grid, replacing the tab was the
-  ///     only way to restart a conversation, so `/new` removed the tab and attached a new one
-  ///     at the same index. Now the tab is the WORKSPACE and holds a grid: a sequential
-  ///     advance continues in its own cell, leaving the rail and any sibling agents alone.
-  ///     A PARALLEL dispatch is the case that adds a cell, and that is <see cref="AddCellAsync"/>.</para>
-  ///     <para>ORDER MATTERS: the replacement is attached and wired BEFORE the old session is
-  ///     torn down. Teardown disposes a container and kills its host process, and the new
-  ///     session's own host start must not be racing that teardown inside the same cell; more
-  ///     importantly a teardown fault must never leave the tab with no cell at all.</para>
+  /// <summary>Starts a new session in <paramref name="tab"/> as a NEW CELL (issue #332): the
+  ///     successor is appended beside the agent it supersedes, that agent's card stays where it
+  ///     is as a finished record, and — when <paramref name="prompt"/> is non-empty — the new
+  ///     session's first turn fires.
+  ///     <para>WHY APPEND AND NOT REPLACE, for EVERY route. A chain advance, a compaction
+  ///     handoff, and `/new` all start a SECOND agent in a workspace that already had one.
+  ///     Replacing the cell overwrote the earlier agent's conversation with the new one's, so a
+  ///     five-step chain rendered as one cell that morphed five times and four steps' work was
+  ///     unreachable without the Sessions dialog. Appending keeps the record: a chain with N
+  ///     steps leaves N cards in step order, each holding its own agent and transcript.</para>
+  ///     <para>NOTHING HERE SELECTS OR SCROLLS (D2): a cell arrives at the end of the row. A
+  ///     handoff that arrives mid-task is exactly the case where stealing the view would be
+  ///     worst.</para>
+  ///     <para>ORDER MATTERS: the new cell is attached and wired BEFORE the superseded session
+  ///     is torn down. Teardown disposes a container and kills its host process, and a teardown
+  ///     fault must never leave the tab with no live cell at all.</para>
   ///     <para>Must run on the UI thread.</para></summary>
-  private async Task<ReplacedSession> ReplaceSessionAsync(AgentTabViewModel tab,
+  /// <param name="tab">The tab the new session lands in.</param>
+  /// <param name="session">The session that was just created.</param>
+  /// <param name="index">Where the tab sits in the strip, used only when the tab has vanished.</param>
+  /// <param name="prompt">The new session's first turn; EMPTY means seed-only.</param>
+  /// <param name="role">The chain step's assigned role, or null when this launch is not one.</param>
+  /// <param name="chainStep">Where the new session sits in its chain, or null when it is not one.</param>
+  /// <param name="predecessorId">The session this launch supersedes - whose card becomes a
+  ///     finished record - or null when the caller names none.</param>
+  private async Task<StartedSession> AppendSessionAsync(AgentTabViewModel tab,
       AgentSession session, int index, string? prompt, ChainStepRole? role = null,
       ChainPlacement? chainStep = null, AgentId? predecessorId = null)
   {
@@ -1497,16 +1508,17 @@ internal sealed partial class MainViewModel : ObservableObject
     if (!Tabs.Contains(tab))
     {
       AgentTabViewModel attached = await AttachSessionAsync(session, Math.Clamp(index, 0, Tabs.Count));
-      return new ReplacedSession(attached, session.RootId);
+      return new StartedSession(attached, session.RootId);
     }
 
-    // WHICH SESSION IS RETIRED DEPENDS ON THE ROUTE (issue #329). A handoff or `/new` continues
-    // in the primary cell, so the primary's session is the one it replaces. A CHAIN STEP
-    // replaces the session that ran the PREVIOUS step - named by the caller - because the
-    // primary is the agent that started the chain and it keeps its cell and its transcript.
+    // THE SUPERSEDED CELL IS THE ONE THE CALLER NAMES, falling back to the tab's first LIVE
+    // cell (issue #332). A chain advance names the step that just completed; a handoff and
+    // `/new` name the session that asked. The fallback skips an already-retired card, because
+    // its container is gone and retiring it again would report the wrong cell as the one this
+    // launch replaced.
     AgentCellViewModel retiredCell = (predecessorId is { } previous
         ? tab.FindCell(previous)
-        : null) ?? tab.Cells[0];
+        : null) ?? tab.Cells.FirstOrDefault(c => c.Container is not null) ?? tab.Cells[0];
     AgentSessionViewModel retiredVm = retiredCell.ViewModel;
     AgentSession? retiredSession = retiredCell.Container;
     WorkbenchViewModel workbench = tab.Workbench;
@@ -1517,11 +1529,7 @@ internal sealed partial class MainViewModel : ObservableObject
         () => freshVmRef ??
             throw new InvalidOperationException("session view-model not initialized"),
         id => freshVmRef!.Status.ModelId = id,
-        () => tab,
-        // A CHAIN STEP'S CARD OUTLIVES ITS SESSION (issue #329): the cell stays in the grid as a
-        // finished card, so its transcript must survive the retire teardown that would otherwise
-        // clear it.
-        keepsTranscript: chainStep is not null);
+        () => tab);
     freshVmRef = freshVm;
     session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
         () => freshVmRef?.AddSystemNotice(message));
@@ -1536,36 +1544,21 @@ internal sealed partial class MainViewModel : ObservableObject
     await freshVm.SeedUsageAsync().ConfigureAwait(true);
     freshVm.Transcript.Restore(session.Conversation.Messages);
 
-    if (chainStep is { } placement)
-    {
-      // A CHAIN STEP IS ITS OWN AGENT, SO IT GETS ITS OWN CELL (issue #329). The session that
-      // started the chain - or ran the previous step - keeps its cell and its transcript; the
-      // successor is appended beside it. Replacing the primary here would overwrite one agent's
-      // conversation with another's, which is how a five-step chain came to look like one cell.
-      _ = tab.AddCell(session, freshVm, placement);
-    }
-    else
-    {
-      // A HANDOFF OR `/new` CONTINUES IN THE SAME CELL (issue #234 + #307 D2): the same
-      // conversation restarted, not a second agent.
-      tab.ReplacePrimaryCell(session, freshVm);
-    }
-
+    // THE NEW SESSION GETS ITS OWN CELL (issue #332), whichever route started it: a chain step,
+    // a compaction handoff, and `/new` all append. The session that was there keeps its cell and
+    // its transcript, so the grid accumulates the record of what ran instead of morphing one
+    // cell through every agent the workspace has ever had.
+    _ = tab.AddCell(session, freshVm, chainStep);
     AttachTabWiring(session, tab, freshVm);
-    if (chainStep is not null)
-    {
-      // The predecessor is DONE and stays as a finished card (D7): the chain moved on, and the
-      // record of what ran keeps its grid position.
-      _ = tab.MarkSessionFinished(retiredCell.RootId);
-    }
 
     if (retiredSession is { } closing)
     {
-      // THE CARD STOPS NAMING THE CONTAINER IT JUST LOST (issue #329): the tab resolves its own
-      // session through the cells, so a finished card left holding a disposed provider would
-      // answer every later lookup with a dead session.
-      retiredCell.RetireContainer();
-      await CloseReplacedSessionAsync(retiredVm, closing);
+      // THE SUPERSEDED CARD IS FINISHED AND STOPS NAMING ITS CONTAINER (D7, issue #332): it
+      // stays in the grid as the record of what ran, and the tab resolves its own session
+      // through the cells, so a card left holding a disposed provider would answer every later
+      // lookup with a dead session.
+      tab.RetireCell(retiredCell);
+      await CloseSupersededSessionAsync(retiredVm, closing);
     }
 
     if (!string.IsNullOrWhiteSpace(prompt))
@@ -1576,11 +1569,12 @@ internal sealed partial class MainViewModel : ObservableObject
       _ = freshVm.SubmitAsync(prompt);
     }
 
-    return new ReplacedSession(tab, session.RootId);
+    return new StartedSession(tab, session.RootId);
   }
 
-  /// <summary>Starts the session for a chain step (issue #301 D2, seeded by #302): a
-  ///     SEED-ONLY in-place advance in the tab whose session completed the previous step.
+  /// <summary>Starts the session for a chain step (issue #301 D2, seeded by #302): a SEED-ONLY
+  ///     advance that APPENDS a cell in the tab whose session completed the previous step, so
+  ///     every step keeps its own card in step order (issue #332).
   ///     <para>SEED-ONLY AND BRIEF-SEEDED. The successor starts with the rendered brief as its
   ///     first message and no prompt: the brief IS what it works from, and firing a turn with
   ///     text this harness invents would be a handoff written by a model, which D5 forbids.</para>
@@ -1681,7 +1675,7 @@ internal sealed partial class MainViewModel : ObservableObject
     AgentId? previousStep = Guid.TryParse(predecessorSessionId, out Guid previousId)
         ? new AgentId(previousId)
         : null;
-    Result<ReplacedSession> started = await StartSessionAsync(tab, prompt: ChainKickoff.Line,
+    Result<StartedSession> started = await StartSessionAsync(tab, prompt: ChainKickoff.Line,
         seed: launch.Value.Seed, chainContract: launch.Value.Contract,
         role: assignment.Role, placement: placement, predecessorId: previousStep)
         .ConfigureAwait(true);
@@ -1793,16 +1787,13 @@ internal sealed partial class MainViewModel : ObservableObject
     return true;
   }
 
-  /// <summary>Adds a NEW agent cell to <paramref name="tab"/>'s grid (issue #307 D2): the
-  ///     parallel-dispatch shape, as opposed to a sequential advance, which replaces the
-  ///     primary cell in place.
-  ///     <para>Both shapes must be deliberate. A chain is a SEQUENCE of agents, so its advance
-  ///     continues in one cell; several agents working AT ONCE each need their own, and adding
-  ///     one must never disturb the agents already running beside it.</para>
-  ///     <para>This is the seam a parallel dispatch uses. Nothing calls it yet: parallel
-  ///     coordination is #314, which ships last. It exists now because D2 is a decision about
-  ///     the grid's shape, and a grid that could only ever hold one agent would have to be
-  ///     re-cut to admit the second.</para>
+  /// <summary>Adds a NEW agent cell to <paramref name="tab"/>'s grid (issue #307 D2): an agent
+  ///     the user starts beside the ones already there.
+  ///     <para>THE TAB'S OTHER ROUTES COME THROUGH <see cref="AppendSessionAsync"/> INSTEAD
+  ///     (issue #332): a chain advance, a compaction handoff, and `/new` all start a session
+  ///     that supersedes one already in the tab, so each of those also retires the card it
+  ///     replaced. This path supersedes nothing - the caller simply wants another agent - which
+  ///     is why it takes no predecessor.</para>
   ///     <para>Must run on the UI thread.</para></summary>
   public async Task<Result<AgentCellViewModel>> AddCellAsync(AgentTabViewModel tab, string? prompt)
   {
@@ -1876,7 +1867,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     <para>Issue #307: this takes the retired session and view-model directly rather than
   ///     the whole tab, because the tab SURVIVES a cell swap - its rail and its sibling cells
   ///     are not part of the teardown.</para></summary>
-  private async Task CloseReplacedSessionAsync(AgentSessionViewModel retiredVm, AgentSession retired)
+  private async Task CloseSupersededSessionAsync(AgentSessionViewModel retiredVm, AgentSession retired)
   {
     _sessionClosed?.Invoke(retired.RootId);
 #pragma warning disable CA1031 // Named decision: teardown is best effort, like CloseTabAsync.
@@ -1904,20 +1895,20 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Handles one host session-request (issue #234) for a tab: a compaction handoff
   ///     or a chain launch asked for a session in this tab's workspace. The HOST IS
   ///     BLOCKED awaiting the answer, so the request is answered with the new session's id
-  ///     as soon as the container exists — BEFORE the tab swap, which waits for the current
-  ///     turn to go idle (the host cannot swap its own tab mid-turn).
-  ///     <para>A CHAIN LAUNCH IS ANSWERED FIRST AND SWAPPED LAST (issue #313): the
+  ///     as soon as the container exists — BEFORE its cell is appended, which waits for the
+  ///     current turn to go idle (a session cannot be retired mid-turn).
+  ///     <para>A CHAIN LAUNCH IS ANSWERED FIRST AND APPENDED LAST (issue #313): the
   ///     <c>chain.create</c> action asked for step 1's session, so the answer is the id the
-  ///     chain must record, and the swap waits for the creating turn to go idle exactly as a
-  ///     handoff does. The creating session is NOT the chain's owner (D5) — it is closed and
-  ///     replaced like any other in-place launch, which is what makes 'plan, then stop'
-  ///     legitimate.</para>
+  ///     chain must record, and the append waits for the creating turn to go idle exactly as a
+  ///     handoff does. The creating session is NOT the chain's owner (D5) — its card is retired
+  ///     like any other superseded launch, which is what makes 'plan, then stop' legitimate.
+  ///     </para>
   ///     <para>REFUSALS ARE ANSWERED TOO: every failure path replies with its typed code,
   ///     because the unanswered alternative is a tool waiting out its own budget for an
   ///     answer that was never coming.</para>
-  ///     <para>ONE REPLACEMENT PER TAB: a second request while one is pending is refused
-  ///     (SessionRequestPending) — two launches racing for one tab slot would leave one
-  ///     session orphaned in no tab at all, alive and unreachable.</para>
+  ///     <para>ONE LAUNCH PER TAB: a second request while one is pending is refused
+  ///     (SessionRequestPending) — two launches racing for one tab would leave one session
+  ///     orphaned in no tab at all, alive and unreachable.</para>
   ///     <para>Must run on the UI thread (the view-model marshals it there).</para></summary>
   /// <param name="tab">The tab the request was raised from.</param>
   /// <param name="request">The request as the host sent it.</param>
@@ -2099,8 +2090,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    // A CHAIN LAUNCH APPENDS ITS OWN CELL (issue #329), and the cell states the step it runs.
-    // A compaction handoff continues in the requesting cell: same conversation, new session.
+    // A CHAIN LAUNCH'S CELL STATES THE STEP IT RUNS (issue #329); a handoff's states nothing.
     ChainPlacement? placement = request.ChainStep is { } step
         ? await ReadPlacementAsync(tab,
             new ChainStepAssignment(step.ChainId, step.PlanId, step.Position, null))
@@ -2108,10 +2098,12 @@ internal sealed partial class MainViewModel : ObservableObject
         : null;
     try
     {
-      // A chain launch through the request path retires the session that asked for it - that is
-      // the agent whose step just completed. A handoff replaces the requesting cell itself.
-      _ = await ReplaceSessionAsync(tab, session, index, request.Prompt, RoleOf(request), placement,
-          predecessorId: placement is null ? null : requestingSessionId).ConfigureAwait(true);
+      // THE SESSION THAT ASKED IS THE ONE THIS SUPERSEDES (issue #332), on both routes: it is
+      // the agent whose turn emitted the request, so it is the agent whose card becomes the
+      // finished record this launch continues from. A caller that cannot name it falls back to
+      // the tab's first live cell inside the append.
+      _ = await AppendSessionAsync(tab, session, index, request.Prompt, RoleOf(request), placement,
+          predecessorId: requestingSessionId).ConfigureAwait(true);
     }
     // Named decision (CA1031): a failed replacement surfaces as a notice — the turn is
     // already over and there is no tool left to report to.
@@ -2119,7 +2111,7 @@ internal sealed partial class MainViewModel : ObservableObject
     catch (Exception ex)
 #pragma warning restore CA1031
     {
-      tab.ViewModel.AddSystemNotice($"Error [SessionReplaceFailed]: the new session could not be opened in this tab: {ex.Message}");
+      requestingVm.AddSystemNotice($"Error [SessionStartFailed]: the new session could not be opened in this tab: {ex.Message}");
       await DisposeOrphanedSessionAsync(session).ConfigureAwait(true);
     }
     finally
@@ -2191,10 +2183,10 @@ internal sealed partial class MainViewModel : ObservableObject
   private Task<AgentTabViewModel> AttachSessionAsync(AgentSession session)
       => AttachSessionAsync(session, Tabs.Count);
 
-  /// <summary>The indexed attach (issue #234): the in-place replacement inserts the new
-  ///     tab where the old one was, so the strip does not reshuffle under the user. An index
-  ///     outside the collection is clamped — a tab that vanished while a container was
-  ///     building must not fault the attach.</summary>
+  /// <summary>The indexed attach (issue #234): a session whose tab has vanished is attached
+  ///     where that tab stood, so the strip does not reshuffle under the user. An index outside
+  ///     the collection is clamped — a tab that vanished while a container was building must not
+  ///     fault the attach.</summary>
   private async Task<AgentTabViewModel> AttachSessionAsync(AgentSession session, int index)
   {    // Self-referencing sink hook, the same pattern as the pre-tab window wiring:
     // the VM is captured after construction so its own sink marshals its events
@@ -2335,13 +2327,13 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     <para>The new-session seams (issue #234) are bound to the TAB the view-model ends
   ///     up in, and the tab does not exist yet — so both resolve it lazily through the same
   ///     accessor pattern, and both are no-ops until the tab is attached.</para>
-  ///     <para><paramref name="keepsTranscript"/> says whether the session's cell survives its
-  ///     own retirement (issue #329): a chain step's does, and the card must still render.</para>
+  ///     <para>THE TRANSCRIPT'S SURVIVAL IS NOT DECIDED HERE (issue #332): the CELL owns it,
+  ///     because whether a card outlives its session is a fact about the grid rather than about
+  ///     the launch.</para>
   ///     </summary>
   private AgentSessionViewModel BuildSessionViewModel(AgentSession session,
       WorkbenchViewModel workbench, Func<AgentSessionViewModel> currentViewModel,
-      Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab,
-      bool keepsTranscript = false)
+      Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab)
   {
     return new AgentSessionViewModel(
         // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
@@ -2368,8 +2360,8 @@ internal sealed partial class MainViewModel : ObservableObject
               ? null
               : () => SkillOptionsOf(session),
           // Issue #234: the /new slash command and the host's session-request both start a
-          // session in THIS tab's workspace, in place. Both refuse while the tab is unknown
-          // (the view-model is built before its tab exists).
+          // session in THIS tab's workspace, as a new cell. Both refuse while the tab is
+          // unknown (the view-model is built before its tab exists).
           NewSessionCommand = prompt => currentTab() is { } newSessionTab
               ? StartNewSessionAsync(newSessionTab, prompt)
               : Task.CompletedTask,
@@ -2414,9 +2406,7 @@ internal sealed partial class MainViewModel : ObservableObject
               : Task.CompletedTask,
           // Issue #307 D6: the tab's own rail, shared by every cell in it.
           Workbench = workbench,
-          // Issue #329: a session whose cell stays as a finished card keeps its transcript when
-          // it is retired.
-          KeepsTranscript = keepsTranscript,
+          // The CARD decides whether its transcript outlives the session (issue #332).
         });
   }
 
@@ -3270,14 +3260,16 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>Closes ONE session by root id (issue #301 D4): the session that completed its
-  ///     chain step is retired so the successor can take its cell.
+  /// <summary>Closes ONE session by root id (issue #301 D4): a session whose work is over is
+  ///     retired, and its card stays in the grid as the record of what ran.
   ///     <para>DISTINCT FROM <see cref="CloseTabAsync"/>: a tab is the WORKSPACE and holds
-  ///     1..N agents, so closing a chain step's session must not close its siblings or the
-  ///     rail. The cell is marked finished and its container disposed; the tab survives.</para>
-  ///     <para>When the closed session is a tab's PRIMARY cell the tab cannot be left without
-  ///     one, so the whole tab closes instead - the honest outcome, since that tab's identity
-  ///     was the session that just finished.</para>
+  ///     1..N agents, so closing one session must not close its siblings or the rail. The cell
+  ///     is marked finished and its container disposed; the tab survives.</para>
+  ///     <para>THE WHOLE TAB CLOSES ONLY WHEN THAT SESSION IS ITS LAST ONE (issue #332). Before
+  ///     every start appended, cell zero WAS the tab, so closing it closed the tab. Now a tab's
+  ///     cells are all ordinary agents and the first one finishing is the ordinary case: the
+  ///     card is kept and the tab lives on. With nothing left to show, closing the tab is the
+  ///     honest outcome.</para>
   ///     <para>Best effort: the transcript is already persisted, so a teardown fault must not
   ///     stop the chain from advancing. Must run on the UI thread.</para></summary>
   /// <summary>Finds the open session with this root id, across every tab and cell, or null when
@@ -3301,13 +3293,13 @@ internal sealed partial class MainViewModel : ObservableObject
       return; // already gone: the advance has nothing left to retire
     }
 
-    // THE TAB'S IDENTITY IS ITS PRIMARY CELL, not its earliest live container (issue #329): once
-    // a chain step's predecessor has retired, the first live container is a LATER cell, and
-    // comparing against it closed the whole workspace tab when a chain completed - destroying
-    // every card in the grid, including the ones D7 keeps so the work can be read.
-    if (tab.Cells.Count > 0 && tab.Cells[0].RootId == rootId)
+    // THE TAB CLOSES ONLY WHEN NOTHING WOULD BE LEFT (issue #332). Cells are all ordinary
+    // agents now, so the first one finishing is the ordinary case: its card stays as the record
+    // of what ran and the tab lives on. Closing on cell zero - which is what the pre-#332 code
+    // did - would destroy every card in the grid the moment the tab's first agent finished,
+    // including the ones D7 keeps so the work can be read.
+    if (tab.Cells.Count <= 1)
     {
-      // The primary cell is the tab's identity; there is no tab without it.
       await CloseTabAsync(tab).ConfigureAwait(true);
       return;
     }
@@ -3340,13 +3332,14 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
 
     // The card stays in the grid (D7: position carries meaning) and its container is disposed
-    // so the host process dies with it. THE CELL STOPS NAMING IT FIRST (issue #329): the tab's
-    // own Container resolves through the cells, so a card left holding a disposed provider would
-    // hand every later caller a dead session.
-    _ = tab.MarkSessionFinished(rootId);
-    if (cell.Container is { } container)
+    // so the host process dies with it. THE CELL STOPS NAMING IT (issue #332): the tab's own
+    // Container resolves through the cells, so a card left holding a disposed provider would
+    // hand every later caller a dead session - and the tab re-raises the surfaces that resolve
+    // through the cell it just retired.
+    AgentSession? container = cell.Container;
+    tab.RetireCell(cell);
+    if (container is not null)
     {
-      cell.RetireContainer();
       await container.Services.DisposeAsync().ConfigureAwait(true);
     }
   }

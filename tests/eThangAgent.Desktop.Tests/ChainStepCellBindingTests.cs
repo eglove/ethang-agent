@@ -277,12 +277,19 @@ public class ChainStepCellBindingTests
     Assert.Null(primary.RootActivityObserver);
   }
 
-  /// <summary>REGRESSION B: the advance waits for the PREDECESSOR's turn.
-  ///     <para>The predecessor is step 2's cell and its turn is held open; the PRIMARY is idle
-  ///     throughout. A wait on the primary returns at once, so the launch would complete while
-  ///     the predecessor is still busy. The correct wait does not.</para>
+  /// <summary>REGRESSION B: the advance waits for the PREDECESSOR's turn, not for whichever
+  ///     cell the tab happens to call its own.
+  ///     <para>The predecessor is step 2's cell and its turn is held open; the agent it
+  ///     superseded is a finished card and idle throughout. A wait addressed anywhere but the
+  ///     predecessor would complete while it is still busy - and the teardown would then dispose
+  ///     a container with a turn running through it, which is the failure #322 exists to
+  ///     prevent.</para>
   ///     <para>ASSERTED AS A PAIR: still pending while the predecessor is busy, and landed once
-  ///     that turn ends. Either half alone would pass for the wrong reason.</para></summary>
+  ///     that turn ends. Either half alone would pass for the wrong reason.</para>
+  ///     <para>WHY THE IDLE CELL IS CELL ZERO AND NOT <c>tab.ViewModel</c> (issue #332): the tab
+  ///     resolves 'its session' to its first LIVE cell, and in a two-cell tab that is the
+  ///     predecessor itself. The idle cell the wait must not be reading is the finished card the
+  ///     predecessor superseded, so that is what this names.</para></summary>
   [Fact]
   public async Task AChainAdvance_WaitsForThePredecessorsTurn_NotThePrimarys()
   {
@@ -299,9 +306,9 @@ public class ChainStepCellBindingTests
         .ConfigureAwait(true);
     shell.Chains.Chain = ThreeSteps(primaryId.ToString(), step2.RootId.ToString());
 
-    // THE PRIMARY IS IDLE, THE PREDECESSOR IS BUSY: the one arrangement that tells the two
-    // receivers apart.
-    Assert.False(tab.ViewModel.IsBusy);
+    // THE SUPERSEDED CARD IS IDLE, THE PREDECESSOR IS BUSY: the one arrangement in which a
+    // wait addressed at the wrong cell would return at once.
+    Assert.False(tab.Cells[0].ViewModel.IsBusy, "the superseded card is idle");
     Assert.True(step2.ViewModel.IsBusy);
     Task<Result<string>> advance = shell.ViewModel.StartChainStepSessionAsync(
         new ChainStepAssignment(1, 1, 3, null), step2.RootId.ToString());

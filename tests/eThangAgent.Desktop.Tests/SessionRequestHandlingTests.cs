@@ -85,20 +85,24 @@ public class SessionRequestHandlingTests
       => new("req-" + Guid.NewGuid().ToString("N"), prompt, handoffSummary);
 
   [Fact]
-  public async Task SessionRequest_AnswersWithTheNewSessionId_AndSwapsTheTab()
+  public async Task SessionRequest_AnswersWithTheNewSessionId_AndAppendsItsCell()
   {
     Shell shell = new();
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
     SessionRequestPayload request = Request("explore the auth module");
+    AgentCellViewModel original = Assert.Single(tab.Cells);
 
     await shell.ViewModel.HandleSessionRequestAsync(tab, request).ConfigureAwait(true);
 
-    // The new session exists, the CELL was replaced in place (issue #307 D2 - the tab
-    // survives, its rail and siblings untouched), and the request was answered with the id
-    // the host is blocked on.
+    // The new session exists, its CELL was APPENDED (issue #332 - the tab survives, its rail
+    // and its superseded card untouched), and the request was answered with the id the host
+    // is blocked on.
     Assert.Equal(2, shell.Created.Count);
     Assert.Same(tab, Assert.Single(shell.ViewModel.Tabs));
     Assert.Equal(@"C:\work\alpha", tab.Container.WorkspaceRoot, StringComparer.OrdinalIgnoreCase);
+    Assert.Equal(2, tab.Cells.Count);
+    Assert.Same(original, tab.Cells[0]);
+    Assert.True(original.IsFinished);
 
     (string requestId, string? sessionId, string? errorCode, string? errorMessage) =
         Assert.Single(shell.Host.SessionResponses);
@@ -106,6 +110,33 @@ public class SessionRequestHandlingTests
     Assert.Equal(tab.Container.RootId.ToString(), sessionId, StringComparer.Ordinal);
     Assert.Null(errorCode);
     Assert.Null(errorMessage);
+  }
+
+  /// <summary>A COMPACTION HANDOFF APPENDS A CELL (issue #332): the session that asked for a
+  ///     new one keeps its card and its transcript, and the new session arrives beside it.
+  ///     <para>THE TRANSCRIPT IS THE ASSERTION, not the cell count: a handoff that kept the card
+  ///     while clearing what it rendered would leave a finished record of nothing, which is the
+  ///     'work is unreachable' failure in its subtler form.</para></summary>
+  [Fact]
+  public async Task SessionRequest_FromAHandoff_AppendsACell_AndKeepsTheAskingsTranscript()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
+    AgentCellViewModel asking = Assert.Single(tab.Cells);
+    asking.ViewModel.Transcript.AddUser("the long conversation that got compacted");
+
+    await shell.ViewModel.HandleSessionRequestAsync(tab, Request("", "the dense summary"),
+        asking.RootId).ConfigureAwait(true);
+
+    Assert.Equal(2, tab.Cells.Count);
+    Assert.Same(asking, tab.Cells[0]);
+    Assert.True(asking.IsFinished);
+    Assert.Equal("the long conversation that got compacted",
+        Assert.Single(asking.ViewModel.Transcript.Entries.OfType<UserMessageEntry>()).Text);
+    // The new session is the tab's live one, and its cell states no chain step.
+    Assert.NotEqual(asking.RootId, tab.Cells[1].RootId);
+    Assert.Same(tab.Cells[1].ViewModel, tab.ViewModel);
+    Assert.Null(tab.Cells[1].PlacementLine);
   }
 
   [Fact]
