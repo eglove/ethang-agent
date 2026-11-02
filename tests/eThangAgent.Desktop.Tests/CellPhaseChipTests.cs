@@ -284,6 +284,44 @@ public class CellPhaseChipTests
     Assert.False(cell.HasReport);
   }
 
+  /// <summary>A RETRIED START WHOSE SETTLE LANDS FIRST STILL FINISHES THE CARD (issue #331 review
+  ///     F3). A resume republishes the started fact for an agent that ALREADY has a cell, and the
+  ///     resumed run can settle while that fact's record read is still outstanding.
+  ///     <para>THE STORE READ IS ASYNCHRONOUS ON PURPOSE: the retried start's decision about the
+  ///     existing cell lands after the settle has already been routed, which is the interleaving
+  ///     that left the card reading <c>Starting</c> forever with no report.</para>
+  ///     <para>THE NEW REPORT IS THE ASSERTION, not merely <c>Finished</c>: the resume reset
+  ///     clears the previous run's conclusion, so a card that kept it would be showing a report
+  ///     for a run that is over.</para></summary>
+  [Fact]
+  public async Task ARetriedStartWhoseSettleLandsFirst_StillFinishesTheCard()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
+    AgentCellViewModel cell = await shell.StartAgentAsync(tab, "reviewer");
+    shell.Store.SetReport(cell.RootId, "the first run concluded X.");
+    shell.Settle(cell.RootId);
+    await WaitUntilAsync(() => cell.PhaseChip == CellPhaseChip.Finished);
+    Assert.Equal("the first run concluded X.", cell.Report);
+
+    // The resume: the retried started fact and the settle the resumed run produces arrive back
+    // to back, while the started fact's own record read is still outstanding.
+    shell.Store.SetReport(cell.RootId, "the resumed run concluded Y.");
+    shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
+    shell.Events.Publish(new ChildStartedEvent(cell.RootId, DateTimeOffset.UtcNow,
+        tab.Container.RootId, "test/model", 2));
+    shell.Settle(cell.RootId);
+
+    // ONE CONDITION FOR THE WHOLE END STATE: the card is finished, its chip has stopped settling,
+    // and it carries the RESUMED run's report. Asserting 'finished' alone would pass on the
+    // previous run's card before the resume reset landed, which is not the outcome being pinned.
+    await WaitUntilAsync(() => cell.IsFinished
+        && cell.PhaseChip == CellPhaseChip.Finished
+        && cell.Report == "the resumed run concluded Y.");
+    Assert.Equal("the resumed run concluded Y.", cell.Report);
+    Assert.Null(cell.ReportNotice);
+  }
+
   /// <summary>Waits for an observable outcome rather than a fixed delay, so a slow machine
   ///     cannot turn a correct implementation into a red test.</summary>
   /// <param name="condition">The outcome to wait for.</param>

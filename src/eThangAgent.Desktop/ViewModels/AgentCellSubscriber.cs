@@ -93,6 +93,10 @@ internal sealed class AgentCellSubscriber(
           // HELD BEFORE THE FIRST AWAIT: from here until the cell lands, every fact for this
           // agent is kept rather than looked up, which is the whole of what closes the gap.
           Hold(started.ChildId);
+          // A RETRIED START IS DECIDED ON THE MARSHAL, before the read below suspends. The cell
+          // it resumes is the cell a later settle must finish, so the reset has to hold the
+          // started fact's position in the queue rather than land after whatever arrived since.
+          ResumeExistingCell(started.ChildId);
           _ = StartAsync(started);
           break;
         case ChildSettledEvent settled:
@@ -142,17 +146,6 @@ internal sealed class AgentCellSubscriber(
       return;
     }
 
-    if (tab.FindCell(agentId) is { } existing)
-    {
-      // A retried run of an agent this tab already shows: the cell is the same cell.
-      _marshal(() =>
-      {
-        existing.StartFollowing();
-        Release(agentId, existing);
-      });
-      return;
-    }
-
     string label = record.Label ?? string.Empty;
     ChainPlacement? placement = await ReadPlacementAsync(_chainStoreFor(tab), agentId)
         .ConfigureAwait(false);
@@ -171,6 +164,32 @@ internal sealed class AgentCellSubscriber(
       AgentCellViewModel cell = live.AddAgentCell(agentId, label, placement, store,
           _cellViewModelFor(live, agentId, label, placement, store));
       Release(agentId, cell);
+    });
+  }
+
+  /// <summary>Resumes the cell an agent already has, for a started fact that repeats an agent
+  ///     this app is already showing.
+  ///     <para>RUNS ON THE MARSHAL WITHOUT AWAITING ANYTHING FIRST, so it is ordered against the
+  ///     facts that follow it: a settle or a beat published after this started fact is applied
+  ///     after the reset, which is what lets the card finish on the new run. Deciding it after
+  ///     an asynchronous read instead leaves the reset landing after the settle, and
+  ///     <see cref="AgentCellViewModel.MarkFinished"/> is idempotent - the fact is consumed by a
+  ///     cell that is then un-finished, and nothing re-delivers it.</para>
+  ///     <para>A cell that already exists is found by the same any-tab lookup a beat and a settle
+  ///     use, so this needs no record read: only creating a cell needs the record's workspace.
+  ///     </para></summary>
+  /// <param name="agentId">The agent the started fact names.</param>
+  private void ResumeExistingCell(AgentId agentId)
+  {
+    _marshal(() =>
+    {
+      if (FindCell(agentId) is not { } existing)
+      {
+        return; // no cell yet: the create path appends one and releases the hold
+      }
+
+      existing.StartFollowing();
+      Release(agentId, existing);
     });
   }
 
