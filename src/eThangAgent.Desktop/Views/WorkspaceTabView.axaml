@@ -83,77 +83,98 @@
          it on every layout pass, so the view never re-derives it inline. Past what fits at
          the 480 x 360 minimum the grid scrolls; there is no cell maximum (D8). -->
     <Panel Grid.Column="0">
-      <ScrollViewer x:Name="CellScroll"
+      <DockPanel>
+        <!-- THE "+" CONTROL (issue #333, parent D11): the user adds an agent by hand. It sits
+             in a strip ABOVE the scrolling cell grid, so it stays put at any cell count and any
+             scroll offset and never covers a cell's header. Hidden while no request is attached
+             (a tab with no shell). -->
+        <Border DockPanel.Dock="Top" Background="#15000000" Padding="6,3">
+          <DockPanel>
+            <Button x:Name="AddAgentButton" DockPanel.Dock="Left" Content="+" Padding="8,1"
+                    FontSize="14" VerticalAlignment="Center"
+                    IsVisible="{Binding CanAddAgent}"
+                    Click="OnAddAgentClick"
+                    ToolTip.Tip="Start another agent in this workspace"/>
+            <!-- Why the last "+" click started no agent. A refused click appends no cell, so
+                 the reason renders here rather than in a transcript. -->
+            <SelectableTextBlock x:Name="AddAgentNoticeText" Text="{Binding AddAgentNotice}"
+                                 Margin="6,0,0,0" VerticalAlignment="Center"
+                                 FontSize="11" Foreground="#FF8A80" TextWrapping="Wrap"
+                                 IsVisible="{Binding HasAddAgentNotice}"/>
+          </DockPanel>
+        </Border>
+        <ScrollViewer x:Name="CellScroll"
                     HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-        <ItemsControl x:Name="CellGrid" ItemsSource="{Binding Cells, Mode=OneWay}">
-          <!-- The grid divides the space itself (AgentGridPanel): a WrapPanel would wrap on
-               the cells' own desired sizes, which is not the even split D8 describes. -->
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <views:AgentGridPanel/>
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:AgentCellViewModel">
-              <Border x:Name="CellFrame" Margin="2" Background="#0A000000"
-                      Classes.idle="{Binding IsIdle}"
-                      Classes.finished="{Binding IsFinished}"
-                      Classes.alerting="{Binding IsAlerting}">
-                <DockPanel>
-                  <Border DockPanel.Dock="Top" Background="#15000000" Padding="8,3">
-                    <DockPanel LastChildFill="False">
-                      <!-- The agent's name, and beneath it the chain step it executes when it
-                           has one (issue #329). A hand-started agent states nothing extra: the
-                           second line is absent, not blank. -->
-                      <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Title}" FontSize="11" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding PlacementLine}" FontSize="10" Opacity="0.7"
-                                   IsVisible="{Binding PlacementLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+          <ItemsControl x:Name="CellGrid" ItemsSource="{Binding Cells, Mode=OneWay}">
+            <!-- The grid divides the space itself (AgentGridPanel): a WrapPanel would wrap on
+                 the cells' own desired sizes, which is not the even split D8 describes. -->
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <views:AgentGridPanel/>
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:AgentCellViewModel">
+                <Border x:Name="CellFrame" Margin="2" Background="#0A000000"
+                        Classes.idle="{Binding IsIdle}"
+                        Classes.finished="{Binding IsFinished}"
+                        Classes.alerting="{Binding IsAlerting}">
+                  <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="#15000000" Padding="8,3">
+                      <DockPanel LastChildFill="False">
+                        <!-- The agent's name, and beneath it the chain step it executes when it
+                             has one (issue #329). A hand-started agent states nothing extra: the
+                             second line is absent, not blank. -->
+                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Title}" FontSize="11" FontWeight="SemiBold"/>
+                          <TextBlock Text="{Binding PlacementLine}" FontSize="10" Opacity="0.7"
+                                     IsVisible="{Binding PlacementLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        </StackPanel>
+                        <!-- The live phase chip (issue #331): a CLOSED five-value vocabulary, so
+                             the same agent state always reads the same way. It renders on every
+                             cell - a settled one reads Finished - because 'no chip' and 'not
+                             running' must not look alike. -->
+                        <Border DockPanel.Dock="Right" Background="#22FFFFFF" CornerRadius="3"
+                                Padding="5,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                          <TextBlock x:Name="PhaseChipText" Text="{Binding PhaseChip}" FontSize="10"
+                                     Opacity="0.85"/>
+                        </Border>
+                        <Button DockPanel.Dock="Right" Content="✕" Padding="4,0" FontSize="10"
+                                Background="Transparent" BorderThickness="0" Margin="6,0,0,0"
+                                IsVisible="{Binding IsFinished}"
+                                Click="OnDismissCellClick" Tag="{Binding}"
+                                ToolTip.Tip="Dismiss this finished agent"/>
+                      </DockPanel>
+                    </Border>
+                    <!-- The agent's final report (parent D5, issue #331): what it concluded,
+                         not only that it ended. Read from the shared store after settle, because
+                         the settled fact carries a byte count and never the report. -->
+                    <Border DockPanel.Dock="Top" Margin="8,4,8,0" Padding="6,4"
+                            Background="#14FFFFFF" CornerRadius="4"
+                            IsVisible="{Binding HasReport}">
+                      <StackPanel>
+                        <TextBlock Text="REPORT" FontSize="9" FontWeight="SemiBold" Opacity="0.6"/>
+                        <SelectableTextBlock x:Name="ReportText" Text="{Binding Report}" FontSize="11"
+                                             TextWrapping="Wrap"/>
                       </StackPanel>
-                      <!-- The live phase chip (issue #331): a CLOSED five-value vocabulary, so
-                           the same agent state always reads the same way. It renders on every
-                           cell - a settled one reads Finished - because 'no chip' and 'not
-                           running' must not look alike. -->
-                      <Border DockPanel.Dock="Right" Background="#22FFFFFF" CornerRadius="3"
-                              Padding="5,1" Margin="6,0,0,0" VerticalAlignment="Center">
-                        <TextBlock x:Name="PhaseChipText" Text="{Binding PhaseChip}" FontSize="10"
-                                   Opacity="0.85"/>
-                      </Border>
-                      <Button DockPanel.Dock="Right" Content="✕" Padding="4,0" FontSize="10"
-                              Background="Transparent" BorderThickness="0" Margin="6,0,0,0"
-                              IsVisible="{Binding IsFinished}"
-                              Click="OnDismissCellClick" Tag="{Binding}"
-                              ToolTip.Tip="Dismiss this finished agent"/>
-                    </DockPanel>
-                  </Border>
-                  <!-- The agent's final report (parent D5, issue #331): what it concluded,
-                       not only that it ended. Read from the shared store after settle, because
-                       the settled fact carries a byte count and never the report. -->
-                  <Border DockPanel.Dock="Top" Margin="8,4,8,0" Padding="6,4"
-                          Background="#14FFFFFF" CornerRadius="4"
-                          IsVisible="{Binding HasReport}">
-                    <StackPanel>
-                      <TextBlock Text="REPORT" FontSize="9" FontWeight="SemiBold" Opacity="0.6"/>
-                      <SelectableTextBlock x:Name="ReportText" Text="{Binding Report}" FontSize="11"
-                                           TextWrapping="Wrap"/>
-                    </StackPanel>
-                  </Border>
-                  <!-- A failed read is STATED: an empty report panel would read as 'this agent
-                       concluded nothing', which is a different fact. -->
-                  <SelectableTextBlock DockPanel.Dock="Top" Margin="8,4,8,0" FontSize="11"
-                                       Foreground="#FF8A80" TextWrapping="Wrap"
-                                       Text="{Binding ReportNotice}"
-                                       IsVisible="{Binding ReportNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                  <!-- The cell's chat surface is the unchanged AgentView: every cell renders
-                       live (D3), which the per-session stream sink already provides - the
-                       deltas and reasoning of each agent reach its own cell as they arrive. -->
-                  <views:AgentView DataContext="{Binding ViewModel}"/>
-                </DockPanel>
-              </Border>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-      </ScrollViewer>
+                    </Border>
+                    <!-- A failed read is STATED: an empty report panel would read as 'this agent
+                         concluded nothing', which is a different fact. -->
+                    <SelectableTextBlock DockPanel.Dock="Top" Margin="8,4,8,0" FontSize="11"
+                                         Foreground="#FF8A80" TextWrapping="Wrap"
+                                         Text="{Binding ReportNotice}"
+                                         IsVisible="{Binding ReportNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    <!-- The cell's chat surface is the unchanged AgentView: every cell renders
+                         live (D3), which the per-session stream sink already provides - the
+                         deltas and reasoning of each agent reach its own cell as they arrive. -->
+                    <views:AgentView DataContext="{Binding ViewModel}"/>
+                  </DockPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
       <!-- Reopen the rail (design D5, issue #307 D6): the control lives OUTSIDE the
            workbench because the workbench (strip included) is hidden while collapsed - a
            control inside it could never be clicked to bring it back. Visible only while

@@ -1794,6 +1794,9 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     that supersedes one already in the tab, so each of those also retires the card it
   ///     replaced. This path supersedes nothing - the caller simply wants another agent - which
   ///     is why it takes no predecessor.</para>
+  ///     <para>ITS CALLER IS THE TAB'S "+" CONTROL (issue #333), through
+  ///     <see cref="AddAgentFromControlAsync"/>: one click, one new agent, in this tab's
+  ///     workspace and provider, idle until the user types.</para>
   ///     <para>Must run on the UI thread.</para></summary>
   public async Task<Result<AgentCellViewModel>> AddCellAsync(AgentTabViewModel tab, string? prompt)
   {
@@ -1858,6 +1861,23 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     return Result.Success(cell);
+  }
+
+  /// <summary>The tab's "+" control (issue #333): starts one more agent in that workspace and
+  ///     appends its cell, idle, after the cells already there. Nothing is focused or scrolled.
+  ///     A refused launch records the reason on the tab, because a refused click produces no
+  ///     cell to carry it.</summary>
+  /// <param name="tab">The tab whose "+" was clicked.</param>
+  private async Task AddAgentFromControlAsync(AgentTabViewModel tab)
+  {
+    ArgumentNullException.ThrowIfNull(tab);
+    tab.ClearAddAgentNotice();
+    Result<AgentCellViewModel> added = await AddCellAsync(tab, prompt: null).ConfigureAwait(true);
+    if (!added.IsSuccess)
+    {
+      tab.ReportAddAgentFailure(
+          $"Error [{added.Error.Code}]: no agent was added - {added.Error.Message}");
+    }
   }
 
   /// <summary>Retires a replaced cell's session: completes it gracefully (so the Sessions
@@ -2514,6 +2534,8 @@ internal sealed partial class MainViewModel : ObservableObject
     // Issue #312 D6: a parked chain badges the tab header, because the rail may be closed and a
     // chain waiting for a human is the one thing here that needs attention.
     tab.AttachParkedChains(tab.Workbench.Chains);
+    // The tab's "+" control (issue #333) starts one more agent in this workspace.
+    tab.AttachAddAgent(() => AddAgentFromControlAsync(tab));
     // ROOT SUPERVISION IS THE SESSION'S OWN (issue #329): its clock is the turn facts of the
     // view-model passed here, which is the cell THIS session occupies - never the tab's primary.
     if (AttachRootSupervision(session, sessionVm) is { } rootWatchdog)

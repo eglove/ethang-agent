@@ -209,6 +209,18 @@ internal partial class WorkspaceTabView : UserControl
     }
   }
 
+  /// <summary>The tab's "+" control (issue #333): starts one more agent in this tab's
+  ///     workspace through the tab's own request seam. Not awaited: the launch builds a session
+  ///     and starts a host, and its outcome is reported by the cell it appends or by the tab's
+  ///     notice.</summary>
+  private void OnAddAgentClick(object? sender, RoutedEventArgs e)
+  {
+    if (Vm?.AddAgentRequested is { } request)
+    {
+      _ = request();
+    }
+  }
+
   /// <summary>Dismisses a FINISHED cell (D7). The card is removed only when the tab agrees -
   ///     a running cell or the primary cell is refused - so a click can never orphan a live
   ///     session or leave a tab whose primary session names nothing.</summary>

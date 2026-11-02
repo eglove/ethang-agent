@@ -137,7 +137,8 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     so the grid's existing cells keep their positions.
   ///     <para>EVERY SESSION THIS APP STARTS IN A TAB COMES THROUGH HERE (issue #332): a chain
   ///     step, a compaction handoff, and `/new` all append, because all three start an agent
-  ///     beside the one that was there rather than restarting that one in place.</para>
+  ///     beside the one that was there rather than restarting that one in place. The "+"
+  ///     control comes through here too (issue #333), superseding nothing.</para>
   ///     <para>NOTHING HERE SELECTS OR SCROLLS (D2): the cell arrives at the end of the row and
   ///     the user clicks into it. A handoff that arrived mid-task is exactly the case where
   ///     stealing the view would be worst.</para></summary>
@@ -178,6 +179,52 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     cell.StartFollowing();
     return cell;
   }
+
+  /// <summary>Starts one more agent in this workspace when the user clicks "+" (issue #333).
+  ///     Null when the tab has no shell attached, which is when <see cref="CanAddAgent"/> is
+  ///     false and the control does not render.</summary>
+  public Func<Task>? AddAgentRequested { get; private set; }
+
+  /// <summary>Sets the "+" launch for this tab. Calling again replaces the request; a tab
+  ///     holds at most one, so a click starts at most one agent.</summary>
+  /// <param name="request">Starts one agent in this tab's workspace.</param>
+  public void AttachAddAgent(Func<Task> request)
+  {
+    ArgumentNullException.ThrowIfNull(request);
+    AddAgentRequested = request;
+    OnPropertyChanged(nameof(CanAddAgent));
+  }
+
+  /// <summary>Whether a "+" click would start an agent: true once the shell has attached a
+  ///     request. The control renders only while this is true.</summary>
+  public bool CanAddAgent => AddAgentRequested is not null;
+
+  /// <summary>Why the last "+" click started nothing (issue #333), or null when it started an
+  ///     agent. It lives on the tab rather than in a cell's transcript because a refused click
+  ///     produces no cell. Cleared by the next click.</summary>
+  [ObservableProperty]
+  public partial string? AddAgentNotice { get; private set; }
+
+  /// <summary>Whether the tab renders the "+" refusal.</summary>
+  public bool HasAddAgentNotice => !string.IsNullOrWhiteSpace(AddAgentNotice);
+
+  /// <summary>Re-raises the derived visibility flag when the refusal moves: it is a computed
+  ///     property, so the generated setter's own notification says nothing about it.</summary>
+  /// <param name="value">The notice just assigned.</param>
+  partial void OnAddAgentNoticeChanged(string? value) => OnPropertyChanged(nameof(HasAddAgentNotice));
+
+  /// <summary>Records why a "+" click started no agent, so the tab renders the reason.
+  ///     </summary>
+  /// <param name="message">Why the agent was not started.</param>
+  public void ReportAddAgentFailure(string message)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(message);
+    AddAgentNotice = message;
+  }
+
+  /// <summary>Clears the previous "+" refusal, so no stale reason renders beside a later
+  ///     agent.</summary>
+  public void ClearAddAgentNotice() => AddAgentNotice = null;
 
   /// <summary>Retires one cell's session (issue #332): the card stops naming the container the
   ///     shell is about to dispose, stays where it is as a finished record, and the tab
