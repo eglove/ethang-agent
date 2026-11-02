@@ -159,6 +159,44 @@ public class AgentCellSteeringTests
     Assert.False(cell.ViewModel.IsSettled);
   }
 
+  /// <summary>A SETTLED CARD STOPS READING THE STORE (issue #330 review F1).
+  ///     <para>THE DEFECT THIS PINS: `MarkFinished` started the one final read but never
+  ///     retired the poll loop, and the loop's old `IsFinished` guard was gone with it - so a
+  ///     finished card kept reading the shared store every interval for the tab's whole
+  ///     lifetime, one timer per cell. On a chain with many steps that is unbounded work for
+  ///     agents that have already settled.</para>
+  ///     <para>THE ASSERTION IS THE READ COUNT, because that is the outcome: a flag saying
+  ///     'not following' while the loop still runs would satisfy anything weaker. The cell is
+  ///     genuinely following first - the reads before the settle prove the meter moves - so a
+  ///     zero delta afterwards cannot be a poller that never started.</para>
+  ///     <para>The window is several intervals wide, which is what makes a single surviving
+  ///     tick visible rather than a race the test could win by luck.</para></summary>
+  [Fact]
+  public async Task ASettledCard_StopsReadingTheStore()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync("C:\\work\\kappa");
+    AgentId agent = shell.StartAgent(tab, "reviewer");
+    AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
+
+    // Following is real: the poller's immediate first read has landed.
+    await WaitUntilAsync(() => shell.Store.Reads > 0);
+
+    shell.Settle(agent);
+    await WaitUntilAsync(() => cell.IsFinished);
+
+    // Let the in-flight tick and the one final read land, then measure an idle window.
+    await Task.Delay(AgentCellViewModel.TranscriptPollInterval * 2, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true);
+    int settledReads = shell.Store.Reads;
+    await Task.Delay(AgentCellViewModel.TranscriptPollInterval * 6, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true);
+    int idleReads = shell.Store.Reads;
+
+    Assert.True(idleReads > 0, "the cell was following, so the meter must have moved");
+    Assert.Equal(settledReads, idleReads);
+  }
+
   /// <summary>A LOST STEER DOES NOT WEDGE THE ECHO QUEUE (issue #330 review F2). A steer the
   ///     host accepts but the run never drains leaves a registration no store copy will ever
   ///     release; the next message must still render exactly once.
@@ -193,6 +231,86 @@ public class AgentCellSteeringTests
     UserMessageEntry lost = Assert.Single(cell.ViewModel.Transcript.Entries.OfType<UserMessageEntry>(),
         entry => entry.Text == "A - never drained");
     Assert.True(lost.Pending, "nothing drained A, so it is still waiting");
+  }
+
+  /// <summary>TWO IDENTICAL TEXTS, ONE DRAINED (issue #330 review F2). The release must follow the
+  ///     registration whose message the loop actually consumed, not whichever entry happens to be
+  ///     the oldest text match.
+  ///     <para>THE DEFECT THIS PINS: releasing by text alone unpinned the OLDEST 'yes', which was
+  ///     the steer the run never drained - so the lost message absorbed the release and the LIVE
+  ///     message stayed pinned for the rest of the session. The user reads that as an agent that
+  ///     never saw their message, while the store already holds it.</para>
+  ///     <para>THE DRAIN FACT IS THE EVIDENCE, and it is what production has: the loop publishes
+  ///     the ids it consumed, the tab releases exactly those echoes, and the store copy then
+  ///     arrives for a registration whose echo is already released. Nothing here depends on
+  ///     which text came first.</para></summary>
+  [Fact]
+  public async Task TwoMessagesWithTheSameText_ReleaseTheOneTheRunDrained()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync("C:\\work\\lambda");
+    AgentId agent = shell.StartAgent(tab, "tester");
+    AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
+    DateTimeOffset at = DateTimeOffset.UtcNow;
+
+    // The first is accepted by the host but never drained: the run settled before its safe point.
+    await cell.ViewModel.SubmitAsync("yes").ConfigureAwait(true);
+    // The second is drained, so the loop names it and its store copy follows.
+    await cell.ViewModel.SubmitAsync("yes").ConfigureAwait(true);
+
+    List<UserMessageEntry> pinned = [.. cell.ViewModel.Transcript.Entries
+        .OfType<UserMessageEntry>()
+        .Where(entry => entry.Text == "yes")];
+    Assert.Equal(2, pinned.Count);
+    Guid live = pinned[1].PendingId;
+
+    // The loop's own drain fact: it consumed the SECOND message, not the first.
+    cell.ViewModel.Transcript.MarkDrained(live);
+
+    await cell.ViewModel.AppendPersistedMessagesAsync(
+        [new Message(Role.User, "yes", at)]).ConfigureAwait(true);
+
+    List<UserMessageEntry> after = [.. cell.ViewModel.Transcript.Entries
+        .OfType<UserMessageEntry>()
+        .Where(entry => entry.Text == "yes")];
+    // Two entries, not three: the copy RELEASED an echo instead of being appended beside one.
+    Assert.Equal(2, after.Count);
+    UserMessageEntry released = Assert.Single(after, entry => !entry.Pending);
+    Assert.Equal(live, released.PendingId);
+    // The undrained message keeps its own echo and stays pending - the honest state of a message
+    // nothing consumed - which is what makes the released one provably the live message.
+    UserMessageEntry lost = Assert.Single(after, entry => entry.Pending);
+    Assert.NotEqual(live, lost.PendingId);
+  }
+
+  /// <summary>A STORE COPY THAT LANDS BEFORE THE HOST ANSWERS STILL RENDERS ONCE (issue #330
+  ///     review F2).
+  ///     <para>THE DEFECT THIS PINS: the echo used to be registered only AFTER the host await
+  ///     returned, while the poll reads the store every interval and the host persists a drained
+  ///     steer at its own safe point. A copy that arrived inside that window found nothing to
+  ///     release and was appended; the echo then landed beside it. Two entries, one message -
+  ///     on both halves of the submit path, because a resume returns as soon as its envelope is
+  ///     sent.</para>
+  ///     <para>THE FAKE HOLDS ITS ANSWER while the copy is appended, which is the ordering
+  ///     production does not guarantee but does produce.</para></summary>
+  [Fact]
+  public async Task AStoreCopyThatArrivesBeforeTheAnswer_StillRendersOnce()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync("C:\\work\\mu");
+    AgentId agent = shell.StartAgent(tab, "tester");
+    AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
+    DateTimeOffset at = DateTimeOffset.UtcNow;
+
+    // The store copy lands while the host has not answered yet.
+    shell.Steering.BeforeAnswer = () => cell.ViewModel.AppendPersistedMessagesAsync(
+        [new Message(Role.User, "are you there", at)]);
+
+    await cell.ViewModel.SubmitAsync("are you there").ConfigureAwait(true);
+
+    UserMessageEntry only = Assert.Single(cell.ViewModel.Transcript.Entries.OfType<UserMessageEntry>());
+    Assert.Equal("are you there", only.Text);
+    Assert.False(only.Pending, "the store holds it, so the model has seen it");
   }
 
   /// <summary>The resumed run persists the text it was given as its prompt, so the store copy is
@@ -356,18 +474,33 @@ public class AgentCellSteeringTests
     /// <summary>The refusal every steer receives. Null = the host accepted it.</summary>
     public DomainError? Refusal { get; set; }
 
-    public Task<Result<bool>> SteerAgentAsync(AgentId agentId, string text, Guid messageId)
+    /// <summary>Runs BEFORE either call answers, which is how a test makes the store copy land
+    ///     while the host has not answered yet (issue #330 review F2). Null = answer at once, the
+    ///     ordinary case.</summary>
+    public Func<Task>? BeforeAnswer { get; set; }
+
+    public async Task<Result<bool>> SteerAgentAsync(AgentId agentId, string text, Guid messageId)
     {
       Steers.Add((agentId, text, messageId));
-      return Task.FromResult(Refusal is { } refusal
+      if (BeforeAnswer is { } before)
+      {
+        await before().ConfigureAwait(true);
+      }
+
+      return Refusal is { } refusal
           ? Result.Failure<bool>(refusal)
-          : Result.Success(true));
+          : Result.Success(true);
     }
 
-    public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+    public async Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
     {
       Resumes.Add((id, message));
-      return Task.FromResult(Result.Success(id));
+      if (BeforeAnswer is { } before)
+      {
+        await before().ConfigureAwait(true);
+      }
+
+      return Result.Success(id);
     }
 
     // The root-turn half is not this cell's surface: a cell addresses an AGENT, never a turn.
@@ -422,9 +555,19 @@ public class AgentCellSteeringTests
     public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages,
         CancellationToken ct = default) => Task.FromResult(Result.Success(id.ToString()));
 
+    /// <summary>How many transcript reads this store has served. THE POLLER'S OWN METER: a cell
+    ///     that follows an agent reads here, so 'reads stopped' is observable without looking at
+    ///     any flag the cell keeps about itself.</summary>
+    public int Reads => Volatile.Read(ref _reads);
+
+    private int _reads;
+
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<Message>>(
-            Transcripts.TryGetValue(id.Value, out List<Message>? messages) ? messages : []));
+    {
+      _ = Interlocked.Increment(ref _reads);
+      return Task.FromResult(Result.Success<IReadOnlyList<Message>>(
+          Transcripts.TryGetValue(id.Value, out List<Message>? messages) ? messages : []));
+    }
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
         CancellationToken ct = default)

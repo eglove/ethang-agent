@@ -30,8 +30,27 @@ public interface IAgentRuntime
   ///     Unknown ids are a no-op. The parent-control path for tree teardown.</summary>
   void InterruptSubtree(AgentId rootOfSubtree);
 
+  /// <summary>Delivers one steering message to a LIVE run this runtime owns (issue #330),
+  ///     answering with the host's own typed reason when it cannot.
+  ///     <para>WHY THIS LIVES HERE RATHER THAN ONLY ON THE WIRE CHANNEL: an agent can run in a
+  ///     host this container never dialled - a host launched by another host - so the only object
+  ///     that knows which connection reaches that agent is the runtime that launched it. A caller
+  ///     holding one connection would otherwise have to guess, and a guess lands on the wrong
+  ///     process.</para>
+  ///     <para>THE DEFAULT IS A TYPED REFUSAL, never a silent success: a runtime that cannot
+  ///     reach an agent must say so, because the sender is a person who typed a message and
+  ///     cannot tell a swallowed steer from a slow agent.</para></summary>
+  /// <param name="agentId">The agent to steer.</param>
+  /// <param name="text">The message text.</param>
+  /// <param name="messageId">The identity the caller pinned its echo under.</param>
+  /// <returns>True on acceptance, or the host's typed refusal.</returns>
+  Task<Result<bool>> SteerAgentAsync(AgentId agentId, string text, Guid messageId)
+      => Task.FromResult(Result.Failure<bool>(new DomainError(RuntimeErrors.SteeringUnavailable,
+          "this runtime cannot deliver a steering message to an agent; it holds no connection to one.")));
+
   /// <summary>Interrupts active child runs by cancelling the token each run executes under.
   /// With no id, every active run owned by this runtime is interrupted; with an id, only that
   /// run. Unknown ids are a no-op — interruption is best-effort by design.</summary>
   void Interrupt(AgentId? childId = null);
 }
+

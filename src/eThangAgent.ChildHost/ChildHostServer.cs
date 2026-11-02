@@ -845,30 +845,119 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     }
 
     AgentId agentId = new(command.AgentId);
+    Guid messageId = command.MessageId == Guid.Empty ? Guid.NewGuid() : command.MessageId;
     // The box comes from the CHILD CONTAINER's leaf executor, which is the one that started
     // the run and therefore owns the mailbox the run's loop drains. A null box means this host
-    // is not running that agent (never started here, or it already settled and unregistered).
+    // runs no such agent ITSELF - which is not the same as the agent having no mailbox: this
+    // host may have LAUNCHED it into a host of its own, and that child's connection is the only
+    // one that reaches it (issue #330 review F3).
     IAgentInbox? inbox = _leafInboxes.TryGetValue(command.AgentId, out Func<AgentId, IAgentInbox?>? resolve)
         ? resolve(agentId)
         : null;
     if (inbox is not IAgentMailbox mailbox)
     {
-      await SendAsync("agent-steer-ack", JsonSerializer.Serialize(new AgentSteerAck(command.AgentId,
-          MailboxErrors.NotRunning,
-          "the agent has no live run in its host, so there is no mailbox to steer.")))
+      // FORWARD BEFORE REFUSING. Under the chain model an agent started by a step runs in a
+      // nested host this one launched, so the app's steer arrives HERE and the mailbox lives
+      // there. The orchestration seam holds that child's wire runtime, so it is asked first; a
+      // typed refusal from it is the honest answer, and it is what the app renders.
+      Result<bool> forwarded = await ForwardSteerToLaunchedAgentAsync(agentId, command.Text, messageId)
+          .ConfigureAwait(false);
+      await SendAsync("agent-steer-ack", JsonSerializer.Serialize(forwarded.IsSuccess
+          ? new AgentSteerAck(command.AgentId)
+          : new AgentSteerAck(command.AgentId, forwarded.Error.Code, forwarded.Error.Message)))
           .ConfigureAwait(false);
       return;
     }
 
-    Guid id = command.MessageId == Guid.Empty ? Guid.NewGuid() : command.MessageId;
     Result<bool> accepted = mailbox.Deliver(new PendingMessage(command.Text, DateTimeOffset.UtcNow,
-        command.Sender, id));
-    PublishAgentSteerDelivered(command.AgentId, accepted, id);
+        command.Sender, messageId));
+    PublishAgentSteerDelivered(command.AgentId, accepted, messageId);
     await SendAsync("agent-steer-ack", JsonSerializer.Serialize(accepted.IsSuccess
         ? new AgentSteerAck(command.AgentId)
         : new AgentSteerAck(command.AgentId, accepted.Error.Code, accepted.Error.Message)))
         .ConfigureAwait(false);
   }
+
+  /// <summary>Asks this host's orchestration seam to deliver a steer to an agent it LAUNCHED into
+  ///     a host of its own (issue #330 review F3).
+  ///     <para>WHY THE ORCHESTRATION SEAM: it holds one wire runtime per agent it launched, each
+  ///     attached to that agent's own host, so it is the only object in this process that can
+  ///     reach a nested host's mailbox. A host that answered NotRunning instead would be telling
+  ///     the app the agent has no mailbox, which is false.</para>
+  ///     <para>THE FALLBACK IS A TYPED REFUSAL, never silence: a container that wired no
+  ///     orchestration seam (a test rig) and an agent it never launched both answer NotRunning,
+  ///     which is exactly what the app's cell renders.</para></summary>
+  /// <param name="agentId">The agent to steer.</param>
+  /// <param name="text">The message text.</param>
+  /// <param name="messageId">The identity the app pinned its echo under.</param>
+  /// <returns>The nested host's answer, or the typed refusal.</returns>
+  private async Task<Result<bool>> ForwardSteerToLaunchedAgentAsync(AgentId agentId, string text,
+      Guid messageId)
+  {
+    Result<IAgentRuntime> orchestration = await ResolveOrchestrationRuntimeAsync().ConfigureAwait(false);
+    if (orchestration.IsSuccess)
+    {
+      Result<bool> forwarded = await orchestration.Value.SteerAgentAsync(agentId, text, messageId)
+          .ConfigureAwait(false);
+      if (forwarded.IsSuccess || forwarded.Error.Code != RuntimeErrors.SteeringUnavailable)
+      {
+        return forwarded;
+      }
+    }
+
+    // THE ROOT CONTAINER IS THE ONE THAT LAUNCHED IT. A host's orchestration seam launches the
+    // agent into a host of its own, and the ROOT conversation's container is the object holding
+    // that child's connection - a container built here would hold none, so asking it would report
+    // no route for an agent that is running. The root runner already resolves its container, so
+    // this costs no build.
+    RootRunHost? rootHost = await ResolveRootHostAsync().ConfigureAwait(false);
+    if (rootHost?.Services.GetService(typeof(IAgentRuntime)) is IAgentRuntime owner)
+    {
+      Result<bool> owned = await owner.SteerAgentAsync(agentId, text, messageId).ConfigureAwait(false);
+      if (owned.IsSuccess || owned.Error.Code != RuntimeErrors.SteeringUnavailable)
+      {
+        return owned;
+      }
+    }
+
+    return Result.Failure<bool>(new DomainError(MailboxErrors.NotRunning,
+        "the agent has no live run in its host, so there is no mailbox to steer."));
+  }
+
+  /// <summary>This host's own container, built on demand, so the orchestration seam it registers
+  ///     can be asked which agents it launched. A container that cannot be built is a named
+  ///     failure the steer answers with, never an escaping fault on the serve loop.</summary>
+  /// <returns>The container, or the reason it could not be built.</returns>
+  private Task<Result<IAgentRuntime>> ResolveOrchestrationRuntimeAsync()
+  {
+    lock (_rootHostGate)
+    {
+      _orchestrationBuild ??= BuildOrchestrationRuntimeAsync();
+      return _orchestrationBuild;
+    }
+  }
+
+  /// <summary>The one build attempt for <see cref="ResolveOrchestrationRuntimeAsync"/>.</summary>
+  /// <returns>The orchestration seam, or the typed reason it is unavailable.</returns>
+  private Task<Result<IAgentRuntime>> BuildOrchestrationRuntimeAsync()
+  {
+    try
+    {
+      return Task.FromResult(Result.Success(SessionHost.Create(settingsPath, databasePath).Runtime));
+    }
+#pragma warning disable CA1031 // Named decision: a container fault is a typed refusal, not a host crash.
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return Task.FromResult(Result.Failure<IAgentRuntime>(new DomainError("HostUnavailable",
+          "this host could not resolve its orchestration runtime: " + HostFault.Describe(ex))));
+    }
+  }
+
+  /// <summary>The lazily built orchestration-seam result (issue #330). Shared so one steer does not
+  ///     rebuild the container, and so a build failure is reported once rather than per envelope.
+  ///     </summary>
+  private Task<Result<IAgentRuntime>>? _orchestrationBuild;
 
   /// <summary>Publishes the AGENT STEER ACCEPTANCE fact (issue #330) on the container that owns
   ///     the agent, which the forwarder already carries to the app.

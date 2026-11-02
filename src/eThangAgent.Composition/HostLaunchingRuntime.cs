@@ -261,6 +261,28 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
     }
   }
 
+  /// <summary>Delivers one steering message to an agent THIS runtime launched (issue #330).
+  ///     <para>THE CHILD'S OWN CONNECTION IS THE ONLY ONE THAT REACHES IT. A launched host serves
+  ///     exactly one agent and this runtime holds the wire runtime attached to it, so forwarding
+  ///     here addresses the process that actually runs the agent - which is the whole reason this
+  ///     member exists. The caller's own channel speaks to the container this runtime lives in,
+  ///     and that container holds no mailbox for a child it did not start.</para>
+  ///     <para>AN AGENT THIS RUNTIME DID NOT LAUNCH IS REFUSED, never guessed at: a steer that
+  ///     travelled to the wrong host would land in a mailbox nothing drains.</para></summary>
+  /// <param name="agentId">The agent to steer.</param>
+  /// <param name="text">The message text.</param>
+  /// <param name="messageId">The identity the caller pinned its echo under.</param>
+  /// <returns>The child host's own answer.</returns>
+  public Task<Result<bool>> SteerAgentAsync(AgentId agentId, string text, Guid messageId)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(text);
+    RemoteAgentRuntime? runtime = RuntimeFor(agentId);
+    return runtime is null
+        ? Task.FromResult(Result.Failure<bool>(new DomainError(RuntimeErrors.SteeringUnavailable,
+            $"agent '{agentId}' has no live host in this container, so there is no mailbox to steer.")))
+        : runtime.SteerAgentAsync(agentId, text, messageId);
+  }
+
   /// <inheritdoc />
   public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
   {

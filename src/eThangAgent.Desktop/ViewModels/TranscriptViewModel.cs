@@ -101,6 +101,56 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     }
   }
 
+  /// <summary>Removes the pinned echo rendered under <paramref name="pendingId"/> (issue #330):
+  ///     the host refused the message, so nothing was queued and the entry must not stay.
+  ///     <para>ONLY A PENDING ENTRY IS REMOVABLE. An already-released entry is the record of a
+  ///     message the model DID see, so a retraction that arrived late cannot erase delivered
+  ///     work.</para></summary>
+  /// <param name="pendingId">The identity the echo was rendered under.</param>
+  /// <returns>True when an entry was removed.</returns>
+  public bool RemovePendingUser(Guid pendingId)
+  {
+    if (pendingId == Guid.Empty)
+    {
+      return false;
+    }
+
+    for (int i = 0; i < Entries.Count; i++)
+    {
+      if (Entries[i] is UserMessageEntry { Pending: true } entry && entry.PendingId == pendingId)
+      {
+        Entries.RemoveAt(i);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// <summary>Whether the echo rendered under <paramref name="pendingId"/> is still waiting to be
+  ///     released. False for an id no entry carries, and for one already released - which is how
+  ///     a caller tells 'the model has not seen this yet' from 'something already proved it did'
+  ///     without holding a second copy of the transcript's own state.</summary>
+  /// <param name="pendingId">The identity the echo was rendered under.</param>
+  /// <returns>True while the entry is still pinned.</returns>
+  public bool IsPending(Guid pendingId)
+  {
+    if (pendingId == Guid.Empty)
+    {
+      return false;
+    }
+
+    foreach (TranscriptEntry entry in Entries)
+    {
+      if (entry is UserMessageEntry { Pending: true } user && user.PendingId == pendingId)
+      {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
 
   public void AddToolCall(string name, string arguments)
   {

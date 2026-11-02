@@ -47,9 +47,28 @@ internal sealed class HostAgentSteering(IRootTurnChannel channel, IAgentRuntime 
   private readonly IRootTurnChannel _channel = channel ?? throw new ArgumentNullException(nameof(channel));
   private readonly IAgentRuntime _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
 
-  /// <inheritdoc />
-  public Task<Result<bool>> SteerAsync(AgentId agentId, string text, Guid messageId)
-      => _channel.SteerAgentAsync(agentId, text, messageId);
+  /// <summary>Delivers <paramref name="text"/> to the agent, asking the runtime that owns its
+  ///     host FIRST and falling back to the container's own channel (issue #330 review F3).
+  ///     <para>WHY THE RUNTIME COMES FIRST: an agent started by a chain step is launched into a
+  ///     host of its own, and the runtime that launched it is the only object holding a
+  ///     connection to that host. The container's channel speaks to the CONTAINER's host, which
+  ///     runs the conversation and not the agent - so a steer sent there is answered NotRunning
+  ///     by a process that was never going to serve it.</para>
+  ///     <para>THE FALLBACK IS NARROW ON PURPOSE: only
+  ///     <see cref="RuntimeErrors.SteeringUnavailable"/> means 'this runtime has no route at
+  ///     all'. A host's own refusal (a full box, a settled run) is a real answer about the
+  ///     agent, and retrying it on another connection would deliver a message the first host
+  ///     already reported it could not take.</para></summary>
+  /// <param name="agentId">The agent to steer.</param>
+  /// <param name="text">The message text.</param>
+  /// <param name="messageId">The identity the cell pinned its echo under.</param>
+  public async Task<Result<bool>> SteerAsync(AgentId agentId, string text, Guid messageId)
+  {
+    Result<bool> routed = await _runtime.SteerAgentAsync(agentId, text, messageId).ConfigureAwait(false);
+    return routed.IsSuccess || routed.Error.Code != RuntimeErrors.SteeringUnavailable
+        ? routed
+        : await _channel.SteerAgentAsync(agentId, text, messageId).ConfigureAwait(false);
+  }
 
   /// <inheritdoc />
   public Task<Result<AgentId>> ResumeAsync(AgentId agentId, string text)

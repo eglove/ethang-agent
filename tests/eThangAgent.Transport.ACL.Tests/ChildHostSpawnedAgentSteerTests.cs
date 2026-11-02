@@ -78,6 +78,55 @@ public class ChildHostSpawnedAgentSteerTests
     await rig.WaitForSteerInARequestAsync().ConfigureAwait(true);
   }
 
+  /// <summary>THE PRODUCTION TOPOLOGY (issue #330 review F3): the agent runs in a NESTED host the
+  ///     conversation host launched, and the app holds a connection to the CONVERSATION host only.
+  ///     <para>THE DEFECT THIS PINS: with the ordering fix in place, `agent.spawn` inside the
+  ///     conversation host launches a host of its own, so <c>RunChildAsync</c> registers the leaf
+  ///     mailbox on THAT host - a server the app holds no pipe to. The app's `agent-steer` then
+  ///     landed on the conversation host, which held no box for the agent and answered
+  ///     <c>NotRunning</c>. The mailbox existed, was registered, and was still unreachable: the
+  ///     acceptance item was false in the shape production actually runs.</para>
+  ///     <para>WHAT MAKES THIS THE REAL SHAPE: two <see cref="ChildHostServer"/>s over one settings
+  ///     file and one database, and the app's steer sent to the CONVERSATION server's pipe - never
+  ///     to the nested one, which production cannot dial. The conversation host must recognise
+  ///     that it launched this agent and forward the steer over the child's own connection.</para>
+  ///     <para>THE ASSERTION IS THE AGENT'S OWN TURN: not the ack, but the text the nested host's
+  ///     run was actually handed. An ack claiming success with nothing delivered would pass
+  ///     anything weaker.</para></summary>
+  [Fact]
+  public async Task ASteerSentToTheConversationHost_ReachesTheAgentInItsNestedHost()
+  {
+    using Rig rig = Rig.Create();
+    AgentRecord record = await rig.PersistAgentAsync().ConfigureAwait(true);
+
+    // The app's side of the CONVERSATION host - the only connection it holds.
+#pragma warning disable CA2007 // Named decision: 'await using' cannot carry ConfigureAwait.
+    await using NamedPipeChildTransport app = await rig.ConnectAsync().ConfigureAwait(true);
+#pragma warning restore CA2007
+
+    // The ROOT CONVERSATION's own container launches the agent into a host of its own - exactly
+    // what an agent.spawn inside the conversation does, and the object that holds the child's
+    // connection. Production reaches this same container through the server's root runner.
+    RootRunHost root = await rig.RootRunnerAsync().ConfigureAwait(true);
+    IAgentRuntime orchestration = root.Services.GetRequiredService<IAgentRuntime>();
+    Result<AgentId> launched = await orchestration.Start(record, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true);
+    Assert.True(launched.IsSuccess, launched.Error?.Message);
+
+    await rig.WaitForFirstRequestAsync(record.Id).ConfigureAwait(true);
+
+    Guid pinned = Guid.NewGuid();
+    await app.SendAsync(new TransportEnvelope("agent-steer",
+        JsonSerializer.Serialize(new AgentSteerCommand(record.Id.Value, SteerMarker, "human", pinned)), 2),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    AgentSteerAck ack = await ReadAckAsync(app, record.Id).ConfigureAwait(true);
+    Assert.Null(ack.ErrorCode);
+
+    rig.Mock.Release();
+    await rig.WaitForSteerInARequestAsync().ConfigureAwait(true);
+  }
+
   /// <summary>THE ORDERING FAULT ITSELF, asserted directly: a host container resolves the
   ///     HOST-LAUNCHING runtime as its orchestration seam and keeps the in-process runner as
   ///     its leaf executor. Before the fix the second registration silently replaced the first,
@@ -184,6 +233,20 @@ public class ChildHostSpawnedAgentSteerTests
 
       return new Rig(root, new ChildHostServer(settingsPath, database),
           SessionHost.Create(settingsPath, database), mock);
+    }
+
+    /// <summary>The ROOT RUNNER the server itself resolves for root turns - the object a root
+    ///     turn's `agent.spawn` runs through, and therefore the one holding any child it launches.
+    ///     <para>RESOLVED FROM THE SERVER, not built here: a container this rig made would be a
+    ///     DIFFERENT instance from the one the server forwards through, so a child launched from
+    ///     it would be invisible to the path under test - green for the wrong reason.</para>
+    ///     </summary>
+    /// <returns>The server's own root runner.</returns>
+    public async Task<RootRunHost> RootRunnerAsync()
+    {
+      RootRunHost? runner = await _server.ResolveRootHostForTest().ConfigureAwait(false);
+      Assert.NotNull(runner);
+      return runner;
     }
 
     /// <summary>Persists an agent record the launched run will load and execute.</summary>

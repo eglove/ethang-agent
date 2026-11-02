@@ -648,11 +648,23 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     await ResumeHostAgentAsync(steering, input).ConfigureAwait(true);
   }
 
-  /// <summary>The steer half: one message into the live run's own mailbox, echoed only when the
-  ///     host confirmed the deliver.</summary>
+  /// <summary>The steer half: one message into the live run's own mailbox. The echo renders and
+  ///     its registration is made BEFORE the host is asked, and a refusal RETRACTS both.
+  ///     <para>WHY NOT ECHO ON ACCEPTANCE (issue #330 review F2): the poll reads the store every
+  ///     interval, and the host persists a drained steer at its own safe point. Registering the
+  ///     echo only after the host answered left a window in which the store copy arrived first,
+  ///     found nothing to release, and was appended BESIDE the echo that landed afterwards - the
+  ///     same message rendered twice, which is the defect this path exists to prevent. The
+  ///     registration must therefore exist before the message can possibly come back.</para>
+  ///     <para>A REFUSAL IS STILL VISIBLE AND STILL RENDERS NOTHING: the echo is removed and the
+  ///     registration forgotten, then the typed notice names the host's own reason. Claiming a
+  ///     delivery that did not happen is the silent swallow this issue refuses; showing it for a
+  ///     moment and taking it back is not a claim, and the user is left with the notice.</para>
+  ///     </summary>
   private async Task SteerHostAgentAsync(IAgentSteering steering, string input)
   {
     Guid pendingId = Guid.NewGuid();
+    EchoLocalMessage(input, pendingId);
     Result<bool> accepted;
     try
     {
@@ -669,23 +681,25 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     if (!accepted.IsSuccess)
     {
-      // The message was NOT queued, so nothing is rendered for it: an echo would claim a
-      // delivery that did not happen.
+      // The message was NOT queued, so nothing is left rendered for it: an echo that stayed
+      // would claim a delivery that did not happen.
+      RetractLocalEcho(pendingId);
       Transcript.AddNotice($"Error [{accepted.Error.Code}]: your message was not delivered - {accepted.Error.Message}");
-      return;
     }
-
-    // A drained steer IS persisted by the agent loop, so its store copy is the same message this
-    // echo shows. Registered as awaiting that copy for the same reason the resume path is, and
-    // under the identity the host echoed back, so the release finds THIS entry.
-    NoteLocalEcho(input, pendingId);
-    MessageCount++;
-    Transcript.AddPendingUser(input, pendingId);
   }
 
-  /// <summary>The resume half: relaunch a host for the settled record and start a turn.</summary>
+  /// <summary>The resume half: relaunch a host for the settled record and start a turn.
+  ///     <para>THE ECHO IS REGISTERED FIRST, for the reason the steer half states (issue #330
+  ///     review F2): the resumed run persists this text as its prompt, and a host that persists
+  ///     it before answering would otherwise have its copy appended beside the echo. A refused
+  ///     resume retracts the echo and names the reason, so a resume that did not happen claims
+  ///     nothing.</para></summary>
   private async Task ResumeHostAgentAsync(IAgentSteering steering, string input)
   {
+    // The identity the echo is rendered under. Nothing names a message id on a resume, so this
+    // is the registration's own name: the store copy releases it by arriving.
+    Guid resumedId = Guid.NewGuid();
+    EchoLocalMessage(input, resumedId);
     Result<AgentId> resumed;
     try
     {
@@ -700,18 +714,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     if (!resumed.IsSuccess)
     {
+      RetractLocalEcho(resumedId);
       Transcript.AddNotice($"Error [{resumed.Error.Code}]: the agent could not be resumed - {resumed.Error.Message}");
       return;
     }
 
-    // The resumed run persists this text as the prompt it works from, so the persisted copy is
-    // the same message this echo shows: the echo is registered as awaiting its store copy, and
-    // the poll's reconciliation renders exactly one of the two (see AppendPersistedMessagesAsync).
-    // Nothing names a message id on a resume, so the store's copy is what releases the pin.
-    Guid resumedId = Guid.NewGuid();
-    NoteLocalEcho(input, resumedId);
-    MessageCount++;
-    Transcript.AddPendingUser(input, resumedId);
     // The agent is running again, so the cell leaves its finished state and follows it.
     IsSettled = false;
   }
@@ -1800,6 +1807,59 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     return applied.Task;
   }
 
+  /// <summary>Renders one locally typed message and registers it as awaiting its store copy, in
+  ///     that order and as ONE act (issue #330).
+  ///     <para>WHY ONE ACT: the registration and the entry are two halves of the same claim -
+  ///     'this text is on screen and its persisted copy has not been read back yet' - and a
+  ///     caller that did one without the other would either render a message twice or hold a
+  ///     registration for an entry that does not exist.</para>
+  ///     <para>IT RUNS BEFORE THE HOST IS ASKED, so a store copy that lands first still finds
+  ///     its registration (issue #330 review F2). A refused host call retracts it through
+  ///     <see cref="RetractLocalEcho"/>.</para></summary>
+  /// <param name="input">The submitted text.</param>
+  /// <param name="pendingId">The identity the echo is rendered under.</param>
+  private void EchoLocalMessage(string input, Guid pendingId)
+  {
+    NoteLocalEcho(input, pendingId);
+    MessageCount++;
+    Transcript.AddPendingUser(input, pendingId);
+  }
+
+  /// <summary>Withdraws an echo whose host call was refused (issue #330): the entry and its
+  ///     registration both go, because the message was never queued anywhere. The caller renders
+  ///     the typed notice in their place.</summary>
+  /// <param name="pendingId">The identity the echo was rendered under.</param>
+  private void RetractLocalEcho(Guid pendingId)
+  {
+    ForgetLocalEcho(pendingId);
+    if (Transcript.RemovePendingUser(pendingId))
+    {
+      MessageCount = Math.Max(0, MessageCount - 1);
+    }
+  }
+
+  /// <summary>Drops one registration without touching the transcript (issue #330): used when the
+  ///     echo it named is being withdrawn, so no later store copy can release an entry that is
+  ///     gone.</summary>
+  /// <param name="pendingId">The identity to forget.</param>
+  private void ForgetLocalEcho(Guid pendingId)
+  {
+    lock (_echoGate)
+    {
+      if (!_awaitingStoreCopy.Any(pending => pending.PendingId == pendingId))
+      {
+        return;
+      }
+
+      List<PendingEcho> kept = [.. _awaitingStoreCopy.Where(pending => pending.PendingId != pendingId)];
+      _awaitingStoreCopy.Clear();
+      foreach (PendingEcho pending in kept)
+      {
+        _awaitingStoreCopy.Enqueue(pending);
+      }
+    }
+  }
+
   /// <summary>Registers a locally rendered message whose store copy is still to arrive (issue
   ///     #330): the resumed run persists this text as its prompt, and a drained steer is
   ///     persisted by the agent loop, so both land in the store as a user message the poll will
@@ -1819,13 +1879,26 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>Releases the local echo whose store copy just arrived (issue #330), so the
-  ///     message renders once. Consumes ONE registration - the oldest whose text matches, which
-  ///     is the one this store copy belongs to when a text is submitted twice - and leaves the
-  ///     rest alone, so a later message releases its own entry.
+  ///     message renders once.
+  ///     <para>WHICH REGISTRATION IS CHOSEN (issue #330 review F2). Two messages can carry the
+  ///     same text, so the text alone does not name the entry this copy belongs to. The choice
+  ///     is made in three steps, strongest evidence first:</para>
+  ///     <list type="number">
+  ///     <item>A registration whose echo is ALREADY released by the loop's own drain fact is
+  ///     this copy's registration: the loop consumed that message and persisted it, so the copy
+  ///     cannot belong to an older message the loop never drained.</item>
+  ///     <item>Otherwise the OLDEST registration still pinned: with nothing drained yet, the
+  ///     copies arrive in submission order, so the first copy is the first message's.</item>
+  ///     </list>
+  ///     <para>WHY NOT THE OLDEST TEXT MATCH ALONE, which is what this replaced: a lost steer -
+  ///     accepted by the host, never drained because the run settled first - keeps its
+  ///     registration forever. Choosing it made the lost message's registration absorb the
+  ///     release, so the LIVE message stayed pinned for the rest of the session. Step one
+  ///     prefers the drained registration and leaves the lost one where
+  ///     <see cref="StaleEchoHorizon"/> can retire it.</para>
   ///     <para>REBUILDS THE QUEUE rather than peeking: the entry being released is not
-  ///     necessarily at the head, because a registration whose store copy never comes (a steer
-  ///     the run settled before draining) sits ahead of it forever. <see cref="StaleEchoHorizon"/>
-  ///     is what stops those from accumulating.</para></summary>
+  ///     necessarily at the head. <see cref="StaleEchoHorizon"/> is what stops undrained
+  ///     registrations from accumulating.</para></summary>
   /// <param name="text">The persisted user message's text.</param>
   /// <returns>True when a local echo was released and the caller must not append.</returns>
   private bool ReleaseLocalEcho(string text)
@@ -1839,21 +1912,30 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         return false;
       }
 
+      List<PendingEcho> matches = [.. _awaitingStoreCopy.Where(
+          pending => string.Equals(pending.Text, text, StringComparison.Ordinal))];
+      if (matches.Count == 0)
+      {
+        return false;
+      }
+
+      // The transcript's own pending state is the only honest evidence that the loop consumed a
+      // message: a registration is a claim the app made, while a released echo is a fact the loop
+      // reported.
+      released = matches.FirstOrDefault(pending => !Transcript.IsPending(pending.PendingId))
+          ?? matches[0];
+
       List<PendingEcho> kept = [];
+      bool dropped = false;
       foreach (PendingEcho pending in _awaitingStoreCopy)
       {
-        if (released is null && string.Equals(pending.Text, text, StringComparison.Ordinal))
+        if (!dropped && ReferenceEquals(pending, released))
         {
-          released = pending;
+          dropped = true;
           continue;
         }
 
         kept.Add(pending);
-      }
-
-      if (released is null)
-      {
-        return false;
       }
 
       _awaitingStoreCopy.Clear();

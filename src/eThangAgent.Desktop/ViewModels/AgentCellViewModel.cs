@@ -179,11 +179,12 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     IsFinished = true;
     if (RunsInOwnHost)
     {
-      // Retire the poller BEFORE the final read: the read is chained behind whatever the loop
-      // has in flight, so the card's last content lands even though the loop is done.
-      // MUTATION: the claim stays held, as it did before the fix.
+      // Retire the poller BEFORE the final read: releasing the generation stops the loop at its
+      // next tick, and the read is chained behind whatever that loop has in flight, so the
+      // card's last content lands even though the loop is done.
       // The terminal row and the report land AFTER the settled event, so the final read is
       // what puts them in the card.
+      StopFollowing();
       _ = FinishFollowingAsync();
     }
 

@@ -20,4 +20,10 @@ public static class RuntimeErrors
   public static string NotFound(Guid id) => $"Error [NotFound]: No agent exists with id '{id}'.";
 
   public static string NotComplete(Guid id) => $"Error [NotComplete]: Agent '{id}' has not finished running. Check agent.status later.";
+
+  /// <summary>This runtime cannot reach an agent at all: it holds no connection to the host that
+  ///     runs it (issue #330). Distinct from a HOST's refusal - a full box or a settled run is a
+  ///     real answer about the agent, while this one only says the caller asked the wrong object,
+  ///     so a caller holding another route may take it.</summary>
+  public const string SteeringUnavailable = "SteeringUnavailable";
 }
