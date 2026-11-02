@@ -8,14 +8,14 @@ public class ChildEventTests
   [Fact]
   public void Events_CarryMetadataOnly_NoReportContentMember()
   {
-    ChildSettledEvent evt = new(new AgentId(Guid.NewGuid()), T, AgentStatus.Completed, null, ReportBytes: 1234);
+    AgentSettledEvent evt = new(new AgentId(Guid.NewGuid()), T, AgentStatus.Completed, null, ReportBytes: 1234);
     Assert.Equal(1234, evt.ReportBytes);
-    Assert.DoesNotContain(typeof(ChildSettledEvent).GetProperties(),
+    Assert.DoesNotContain(typeof(AgentSettledEvent).GetProperties(),
         p => p.PropertyType == typeof(string) && p.Name.Contains("Report", StringComparison.Ordinal)
-            && p.Name != nameof(ChildSettledEvent.ReportBytes));
+            && p.Name != nameof(AgentSettledEvent.ReportBytes));
   }
 
   [Fact]
   public void ProgressEvent_PhaseValues_AreTheLoopPositions()
-    => Assert.Equal(["ModelCall", "ToolExec", "Draining"], [.. Enum.GetNames<ChildPhase>()]);
+    => Assert.Equal(["ModelCall", "ToolExec", "Draining"], [.. Enum.GetNames<AgentPhase>()]);
 }

@@ -420,14 +420,14 @@ public class AgentCellSteeringTests
       Store.Records[agent.Value] = AgentRecord.Spawned(agent, parentId: null, depth: 1,
           "test/model", label, "p", DateTimeOffset.UtcNow,
           workspaceId: WorkspaceId(tab.Container.WorkspaceRoot));
-      Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
+      Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
           "test/model", 1));
       return agent;
     }
 
     /// <summary>Publishes the settled fact the shell turns into a finished card.</summary>
     public void Settle(AgentId agent)
-        => Events.Publish(new ChildSettledEvent(agent, DateTimeOffset.UtcNow,
+        => Events.Publish(new AgentSettledEvent(agent, DateTimeOffset.UtcNow,
             AgentStatus.Completed, null, 12));
 
     private AgentSession Session(string root)
@@ -526,7 +526,7 @@ public class AgentCellSteeringTests
     public void InterruptSubtree(AgentId rootOfSubtree)
         => throw new NotSupportedException("a cell never interrupts a subtree.");
 
-    public void Interrupt(AgentId? childId = null)
+    public void Interrupt(AgentId? agentId = null)
         => throw new NotSupportedException("a cell never interrupts an agent.");
   }
 

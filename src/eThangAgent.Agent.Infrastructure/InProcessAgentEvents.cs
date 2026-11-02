@@ -24,7 +24,7 @@ public sealed class InProcessAgentEvents(Action<string>? faultLog = null) : IAge
     return new Lease(this, subscriber);
   }
 
-  public void Publish(ChildEvent evt)
+  public void Publish(AgentEvent evt)
   {
     ArgumentNullException.ThrowIfNull(evt);
     IAgentEventSubscriber[] snapshot;
@@ -44,8 +44,8 @@ public sealed class InProcessAgentEvents(Action<string>? faultLog = null) : IAge
 #pragma warning disable CA1031 // Do not catch general exception types
       catch (Exception ex)
       {
-        _faultLog?.Invoke($"child-event subscriber fault: {ex.Message}");
-        Debug.WriteLineIf(_faultLog is null, $"child-event subscriber fault: {ex}");
+        _faultLog?.Invoke($"agent-event subscriber fault: {ex.Message}");
+        Debug.WriteLineIf(_faultLog is null, $"agent-event subscriber fault: {ex}");
       }
 #pragma warning restore CA1031 // Do not catch general exception types
     }

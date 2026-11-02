@@ -69,13 +69,13 @@ public sealed record SpawnGraphRequest(string Label, IReadOnlyList<SpawnRequest>
 
 public sealed record JoinPolicy(bool FailFast = false);
 
-public sealed record MemberReceipt(AgentId ChildId, AgentStatus Status, AgentFailureReason? Reason);
+public sealed record MemberReceipt(AgentId AgentId, AgentStatus Status, AgentFailureReason? Reason);
 
 public sealed record SpawnGraphOutcome(bool AllCompleted, IReadOnlyList<MemberReceipt> Receipts)
 {
   public string Render()
       => "graph " + (AllCompleted ? "completed" : "failed") + "; receipts: "
           + string.Join("; ", Receipts.Select(receipt =>
-              receipt.ChildId + "=" + receipt.Status.ToString().ToUpperInvariant()
+              receipt.AgentId + "=" + receipt.Status.ToString().ToUpperInvariant()
                   + (receipt.Reason is null ? "" : "(" + receipt.Reason.Value + ")")));
 }

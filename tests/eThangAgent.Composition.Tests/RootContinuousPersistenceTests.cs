@@ -54,7 +54,7 @@ public sealed class RootContinuousPersistenceTests
   }
 
   /// <summary>Subscribes a sink to a conversation the way the agent does (the sink is an
-  ///     ordinary <see cref="IChildTranscriptStore"/>; the agent's own wiring lives in
+  ///     ordinary <see cref="IAgentTranscriptStore"/>; the agent's own wiring lives in
   ///     <see cref="AgentOptions.TranscriptSink"/>).</summary>
   private static IDisposable Attach(RootTranscriptSink sink, Conversation conversation)
       => conversation.Subscribe(message => _ = sink.AppendAsync(message),

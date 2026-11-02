@@ -20,7 +20,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
   ///     Without it, supervisors never hear from their children and any healthy child
   ///     outliving the idle threshold false-positives as hung.</summary>
   private readonly IDisposable? _feedLease =
-      services.Supervisors is null ? null : services.ChildEventStream?.Subscribe(new SupervisorFeed(services.Supervisors));
+      services.Supervisors is null ? null : services.AgentEventStream?.Subscribe(new SupervisorFeed(services.Supervisors));
   private DateTimeOffset? _lastErrorReport;
   /// <summary>Settle-poll cadence: one second in production; tests inject a sub-second
   ///     cadence so deadline paths run fast while the iteration bound still gates the loop.</summary>
@@ -119,7 +119,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
       return; // legacy wiring: registry absent — sweep below keeps today's behavior
     }
 
-    foreach (ChildSupervisor supervisor in services.Supervisors.All)
+    foreach (AgentSupervisor supervisor in services.Supervisors.All)
     {
       try
       {
@@ -127,8 +127,8 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
         // watchdog terminal decision, audited as BudgetExhausted.
         if (supervisor.HardCeilingReached)
         {
-          services.Runtime.Interrupt(supervisor.ChildId);
-          await AppendAsync(new WatchdogEvent(Guid.NewGuid(), supervisor.ChildId,
+          services.Runtime.Interrupt(supervisor.Id);
+          await AppendAsync(new WatchdogEvent(Guid.NewGuid(), supervisor.Id,
               WatchdogEventKind.TerminalReport, "budget hard ceiling reached", supervisor.Attempts, null,
               services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
           continue;
@@ -139,18 +139,18 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
         // tick's attention (the graduated response interrupts/awaits/retries), so the
         // stall check runs before it and the idle handling is the loop's LAST action
         // for this child. One idle alert is handled EXACTLY once per tick.
-        ChildStreamStalledEvent? stall = supervisor.CheckStreamStall(services.Policy.StallThreshold);
+        AgentStreamStalledEvent? stall = supervisor.CheckStreamStall(services.Policy.StallThreshold);
         if (stall is not null)
         {
           // Already published by CheckStreamStall under the supervisor's lock (the
           // CheckIdle pattern) — the watchdog only appends the audit row.
-          await AppendAsync(new WatchdogEvent(Guid.NewGuid(), stall.ChildId,
+          await AppendAsync(new WatchdogEvent(Guid.NewGuid(), stall.Id,
               WatchdogEventKind.StreamStalled,
               "stream stalled " + (int)stall.QuietFor.TotalSeconds + "s; last " + stall.LastActivityKind,
               supervisor.Attempts, null, services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
         }
 
-        ChildIdleAlertEvent? alert = supervisor.CheckIdle(services.Policy.IdleThreshold);
+        AgentIdleAlertEvent? alert = supervisor.CheckIdle(services.Policy.IdleThreshold);
         if (alert is null)
         {
           continue;
@@ -168,8 +168,8 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
       catch (Exception ex)
 #pragma warning restore CA1031 // Do not catch general exception types
       {
-        await AppendAsync(new WatchdogEvent(Guid.NewGuid(), supervisor.ChildId,
-            WatchdogEventKind.WatchdogErrored, SupervisionFaultDetail(supervisor.ChildId, ex), 0, null,
+        await AppendAsync(new WatchdogEvent(Guid.NewGuid(), supervisor.Id,
+            WatchdogEventKind.WatchdogErrored, SupervisionFaultDetail(supervisor.Id, ex), 0, null,
             services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
       }
     }
@@ -177,13 +177,13 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
 
   /// <summary>The idle-alert graduated response, extracted so the stall check can run
   ///     independently in the same tick iteration (a child can idle-alert AND stall-alert).</summary>
-  private async Task HandleIdleAsync(ChildSupervisor supervisor, ChildIdleAlertEvent alert, CancellationToken ct)
+  private async Task HandleIdleAsync(AgentSupervisor supervisor, AgentIdleAlertEvent alert, CancellationToken ct)
   {
-    await AppendAsync(new WatchdogEvent(Guid.NewGuid(), alert.ChildId,
+    await AppendAsync(new WatchdogEvent(Guid.NewGuid(), alert.Id,
         WatchdogEventKind.HungDetected, "idle " + (int)alert.IdleAge.TotalMinutes + "m; phase " + alert.LastPhase,
         supervisor.Attempts, null, services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
-    services.Runtime.Interrupt(alert.ChildId);
-    AgentRecord settled = await AwaitSettledAsync(alert.ChildId, ct).ConfigureAwait(false);
+    services.Runtime.Interrupt(alert.Id);
+    AgentRecord settled = await AwaitSettledAsync(alert.Id, ct).ConfigureAwait(false);
     if (settled.Status is AgentStatus.Running)
     {
       return; // cancel unobserved: next tick re-raises while still idle
@@ -241,7 +241,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
       CompletedAt = null,
       FinalReport = null,
       Attempts = nextAttempt,
-      Phase = ChildPhase.ModelCall,
+      Phase = AgentPhase.ModelCall,
     };
     Result<string> updated = await services.Store.UpdateAsync(reset, ct).ConfigureAwait(false);
     if (!updated.IsSuccess)
@@ -408,14 +408,14 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
   ///     exception's type plus message. A bare ex.Message read as an unexplained
   ///     'The operation timed out.' in the performance panel; the type and the
   ///     child id make the row diagnosable from the screen.</summary>
-  private static string SweepFaultDetail(Guid childId, Exception ex)
-      => "sweep failed for agent " + childId.ToString("D") + ": "
+  private static string SweepFaultDetail(Guid agentId, Exception ex)
+      => "sweep failed for agent " + agentId.ToString("D") + ": "
           + ex.GetType().Name + ": " + ex.Message;
 
   /// <summary>Issue #249: a supervision fault's audit detail is structured the same
   ///     way: the phase, the guarded child, and the exception's type plus message.</summary>
-  private static string SupervisionFaultDetail(AgentId childId, Exception ex)
-      => "supervision failed for agent " + childId.Value.ToString("D") + ": "
+  private static string SupervisionFaultDetail(AgentId agentId, Exception ex)
+      => "supervision failed for agent " + agentId.Value.ToString("D") + ": "
           + ex.GetType().Name + ": " + ex.Message;
 
   /// <summary>Issue #249: the tick-scope fault's detail names the phase and the

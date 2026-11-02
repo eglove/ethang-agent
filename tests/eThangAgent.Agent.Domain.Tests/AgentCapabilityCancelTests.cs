@@ -13,14 +13,14 @@ public class AgentCapabilityCancelTests
   {
     StubRuntime runtime = new();
     AgentCapabilityProvider provider = BuildProvider(runtime);
-    AgentId childId = StubChildId;
+    AgentId agentId = StubChildId;
 
     CapabilityInvocationResult result = await provider.InvokeAsync("cancel",
-        CancelJson(childId), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        CancelJson(agentId), TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.False(result.IsError, result.Content);
-    Assert.Contains($"interrupted id={childId}", result.Content, StringComparison.Ordinal);
-    Assert.Equal(childId.Value, Assert.Single(runtime.InterruptedIds));
+    Assert.Contains($"interrupted id={agentId}", result.Content, StringComparison.Ordinal);
+    Assert.Equal(agentId.Value, Assert.Single(runtime.InterruptedIds));
   }
 
   [Fact]
@@ -42,10 +42,10 @@ public class AgentCapabilityCancelTests
   {
     StubRuntime runtime = new();
     AgentCapabilityProvider provider = BuildProvider(runtime, completedChild: true);
-    AgentId childId = StubChildId;
+    AgentId agentId = StubChildId;
 
     CapabilityInvocationResult result = await provider.InvokeAsync("cancel",
-        CancelJson(childId), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        CancelJson(agentId), TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [NotRunning]:", result.Content, StringComparison.Ordinal);
@@ -55,10 +55,10 @@ public class AgentCapabilityCancelTests
   public async Task Cancel_WithoutRuntime_FailsNotAvailable()
   {
     AgentCapabilityProvider provider = BuildProvider(runtime: null);
-    AgentId childId = new(Guid.NewGuid());
+    AgentId agentId = new(Guid.NewGuid());
 
     CapabilityInvocationResult result = await provider.InvokeAsync("cancel",
-        CancelJson(childId), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        CancelJson(agentId), TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [NotAvailable]:", result.Content, StringComparison.Ordinal);
@@ -80,7 +80,7 @@ public class AgentCapabilityCancelTests
     }
 
     AgentStatus status = completedChild ? AgentStatus.Completed : AgentStatus.Running;
-    AgentRecord child = AgentRecord.Spawned(ChildId(), ParentId(), 1, "m", "child", "task", DateTimeOffset.UtcNow) with { Status = status };
+    AgentRecord child = AgentRecord.Spawned(AgentId(), ParentId(), 1, "m", "child", "task", DateTimeOffset.UtcNow) with { Status = status };
     return new AgentCapabilityProvider(new AgentProviderServices(
         new NoSpawn(), new StubQueries(child), NoParent, runtime, Clock: null));
   }
@@ -94,7 +94,7 @@ public class AgentCapabilityCancelTests
   ///     cancel JSON so the stub's GetStatus resolves it.</summary>
   public static AgentId StubChildId { get; } = new(Guid.NewGuid());
 
-  private static AgentId ChildId() => StubChildId;
+  private static AgentId AgentId() => StubChildId;
 
   private sealed class NoSpawn : IAgentSpawnCommand
   {
@@ -117,9 +117,9 @@ public class AgentCapabilityCancelTests
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-    public void Interrupt(AgentId? childId = null)
+    public void Interrupt(AgentId? agentId = null)
     {
-      if (childId is { } id)
+      if (agentId is { } id)
       {
         InterruptedIds.Add(id.Value);
       }

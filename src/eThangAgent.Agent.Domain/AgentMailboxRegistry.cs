@@ -9,7 +9,7 @@ namespace eThangAgent.AgentDomain;
 ///     child loop still takes its inbox from here at start, and the issue's scope note is
 ///     explicit that this issue must not remove a mailbox a future per-agent steering channel
 ///     would need. So the registry stays, one accessor narrower.</para></summary>
-public sealed class ChildMailboxRegistry
+public sealed class AgentMailboxRegistry
 {
   private readonly Lock _gate = new();
   private readonly Dictionary<Guid, IAgentMailbox> _mailboxes = [];

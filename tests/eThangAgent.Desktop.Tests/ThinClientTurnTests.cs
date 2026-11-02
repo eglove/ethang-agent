@@ -317,7 +317,7 @@ public sealed class ThinClientTurnTests
 
   /// <summary>Issue #253 B3, app side: the pinned echo is released by the loop's OWN drain
   ///     fact - the message id the loop names as consumed - and by nothing else. The drain
-  ///     happens in the host, so the fact arrives on the session's child-event stream.</summary>
+  ///     happens in the host, so the fact arrives on the session's agent-event stream.</summary>
   [Fact]
   public async Task PinnedSteerEcho_IsReleasedByTheDrainFactNamingItsId()
   {
@@ -335,7 +335,7 @@ public sealed class ThinClientTurnTests
         {
           WorkspaceRoot = @"C:\work\demo",
           RootTurnChannel = host,
-          ChildEvents = events,
+          AgentEvents = events,
           UiMarshal = action => action(),
         });
 

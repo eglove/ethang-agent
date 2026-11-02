@@ -142,9 +142,9 @@ internal sealed class ProcessTreeGuard : IDisposable
 
       // members.Add is the filter AND the bookkeeping: only a newly discovered child
       // joins the frontier, so each process is visited exactly once.
-      foreach (int childId in children.Where(members.Add))
+      foreach (int agentId in children.Where(members.Add))
       {
-        frontier.Enqueue(childId);
+        frontier.Enqueue(agentId);
       }
     }
 

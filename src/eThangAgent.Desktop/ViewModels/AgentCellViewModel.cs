@@ -116,7 +116,7 @@ internal sealed partial class AgentCellViewModel : ObservableObject
 
   /// <summary>The agent's final report (parent #325 D5), read from the shared store once it
   ///     settles. Null while the agent runs, and null when the record carries no report.
-  ///     <para>READ FROM THE STORE, NEVER FROM THE FACT: <see cref="ChildSettledEvent"/> carries
+  ///     <para>READ FROM THE STORE, NEVER FROM THE FACT: <see cref="AgentSettledEvent"/> carries
   ///     a byte count as a size hint, so the report has no other source.</para></summary>
   [ObservableProperty]
   public partial string? Report { get; private set; }

@@ -74,10 +74,10 @@ internal sealed record AgentSessionViewModelOptions
   ///     so the session-request path is drivable headless.</summary>
   public Action<Action>? UiMarshal { get; init; }
 
-  /// <summary>The session's child-event stream: the split view's subagent accordion
+  /// <summary>The session's agent-event stream: the split view's subagent accordion
   ///     subscribes to it (started adds rows, progress updates phases, settled marks
   ///     done). Null = the panel attaches nothing (headless stubs).</summary>
-  public IAgentEvents? ChildEvents { get; init; }
+  public IAgentEvents? AgentEvents { get; init; }
 
   /// <summary>This conversation's host channel (spec D6). When wired, EVERY turn travels
   ///     to the host process and the app runs no agent work; when null the session is a
@@ -179,7 +179,7 @@ internal sealed record AgentSessionViewModelOptions
   ///     a tool dispatch, a streamed fragment, a turn settled.
   ///     <para>WHY THIS EXISTS: the chain advance must be able to tell that a root session
   ///     has gone idle without completing its step, and the ONLY honest source for that is
-  ///     the root loop's own lifecycle. <c>ChildProgressEvent</c> describes a child run and is
+  ///     the root loop's own lifecycle. <c>AgentProgressEvent</c> describes a child run and is
   ///     retired by #305/#316; a wall-clock timer is the mechanism <c>ChildTimeout</c> was
   ///     deleted for. These are facts this view-model already knows, surfaced so the root
   ///     supervisor can read them.</para>
@@ -494,7 +494,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _rootActivity = options.RootActivitySink;
     _keepsTranscript = options.KeepsTranscript;
     RootTurnChannel = options.RootTurnChannel;
-    AttachDrainLease(options.ChildEvents, rootId);
+    AttachDrainLease(options.AgentEvents, rootId);
 
     // The workbench renders on the UI thread (its refresh completes on pool threads).
     // Issue #307 D6: a tab hands its OWN rail to every cell, because the rail is
@@ -512,7 +512,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   /// <summary>Subscribes the root loop's drain fact, which releases a pinned steering echo
   ///     (issue #253 B3). The drain happens in the HOST process, so the fact arrives over the
-  ///     child-event stream the session already subscribes to; the marshal keeps the transcript
+  ///     agent-event stream the session already subscribes to; the marshal keeps the transcript
   ///     mutation on the UI thread, exactly like the subagent panel's.
   ///     <para>Null stream (headless hosts) subscribes nothing.</para></summary>
   private void AttachDrainLease(IAgentEvents? events, AgentId rootId)
@@ -1060,9 +1060,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private sealed class SteerDrainSubscriber(AgentId rootId, Action<IReadOnlyList<Guid>> onDrained)
       : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt)
+    public void OnEvent(AgentEvent evt)
     {
-      if (evt is MailboxDrainedEvent { Count: > 0 } drained && drained.ChildId == rootId)
+      if (evt is MailboxDrainedEvent { Count: > 0 } drained && drained.Id == rootId)
       {
         onDrained(drained.MessageIds);
       }

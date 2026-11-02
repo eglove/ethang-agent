@@ -15,7 +15,7 @@ public class ChildEventWakeAdapterTests
       return new FakeLease(this);
     }
 
-    public void Publish(ChildEvent evt) => Subscriber?.OnEvent(evt);
+    public void Publish(AgentEvent evt) => Subscriber?.OnEvent(evt);
 
     private sealed class FakeLease(RecordingEvents owner) : IDisposable
     {
@@ -25,7 +25,7 @@ public class ChildEventWakeAdapterTests
 
   private static readonly DateTimeOffset Now = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
 
-  private static ChildProgressEvent Progress(AgentId id, ChildPhase phase, string label)
+  private static AgentProgressEvent Progress(AgentId id, AgentPhase phase, string label)
       => new(id, Now, phase, label);
 
   [Fact]
@@ -36,13 +36,13 @@ public class ChildEventWakeAdapterTests
     // watchdog's idle clock and the Desktop panel).
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
 
-    events.Subscriber!.OnEvent(Progress(child, ChildPhase.ToolExec, "tool:read"));
-    events.Subscriber.OnEvent(Progress(child, ChildPhase.Draining, "tool-result"));
+    events.Subscriber!.OnEvent(Progress(child, AgentPhase.ToolExec, "tool:read"));
+    events.Subscriber.OnEvent(Progress(child, AgentPhase.Draining, "tool-result"));
 
     Assert.Empty(seen);
   }
@@ -52,12 +52,12 @@ public class ChildEventWakeAdapterTests
   {
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
 
-    events.Subscriber!.OnEvent(new ChildIdleAlertEvent(child, Now, TimeSpan.FromMinutes(3), "ModelCall"));
+    events.Subscriber!.OnEvent(new AgentIdleAlertEvent(child, Now, TimeSpan.FromMinutes(3), "ModelCall"));
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.Idle, signal.Reason);
@@ -70,12 +70,12 @@ public class ChildEventWakeAdapterTests
   {
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
 
-    events.Subscriber!.OnEvent(new ChildBudgetAlertEvent(child, Now, "tokens", 1500.0, 2000.0, 12.5));
+    events.Subscriber!.OnEvent(new AgentBudgetAlertEvent(child, Now, "tokens", 1500.0, 2000.0, 12.5));
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.Budget, signal.Reason);
@@ -87,7 +87,7 @@ public class ChildEventWakeAdapterTests
   {
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
@@ -104,13 +104,13 @@ public class ChildEventWakeAdapterTests
   {
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
 
-    events.Subscriber!.OnEvent(new ChildSettledEvent(child, Now, AgentStatus.Completed, null, 100));
-    events.Subscriber.OnEvent(new ChildStartedEvent(child, Now, null, "model-x", 1));
+    events.Subscriber!.OnEvent(new AgentSettledEvent(child, Now, AgentStatus.Completed, null, 100));
+    events.Subscriber.OnEvent(new AgentStartedEvent(child, Now, null, "model-x", 1));
 
     Assert.Empty(seen);
   }
@@ -123,7 +123,7 @@ public class ChildEventWakeAdapterTests
     // write - so it carries its own reason and its own wakeOn token.
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
@@ -132,7 +132,7 @@ public class ChildEventWakeAdapterTests
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.Plan, signal.Reason);
-    Assert.Equal(child, signal.ChildId);
+    Assert.Equal(child, signal.Id);
     Assert.Contains("#42", signal.DigestLine, StringComparison.Ordinal);
     Assert.Contains("Completed", signal.DigestLine, StringComparison.Ordinal);
   }
@@ -143,7 +143,7 @@ public class ChildEventWakeAdapterTests
     // A step change has no new status: the digest must not claim one.
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
 
@@ -158,13 +158,13 @@ public class ChildEventWakeAdapterTests
   {
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    ChildEventWakeAdapter adapter = new(events, hub);
+    AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
 
     adapter.Dispose();
-    events.Publish(Progress(child, ChildPhase.ToolExec, "tool:read")); // Publish null-guards: unsubscribed = no-op
+    events.Publish(Progress(child, AgentPhase.ToolExec, "tool:read")); // Publish null-guards: unsubscribed = no-op
 
     Assert.Empty(seen);
   }
@@ -173,12 +173,12 @@ public class ChildEventWakeAdapterTests
   {
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = new(Guid.NewGuid());
 
-    events.Subscriber!.OnEvent(new ChildStreamStalledEvent(child, Now, TimeSpan.FromSeconds(130), "content"));
+    events.Subscriber!.OnEvent(new AgentStreamStalledEvent(child, Now, TimeSpan.FromSeconds(130), "content"));
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.StreamStall, signal.Reason);

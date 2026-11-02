@@ -164,7 +164,7 @@ public class AgentSteeringTests
     _ = await agent.SendMessage("start", default, inbox: inbox, ct: TestContext.Current.CancellationToken);
 
     MailboxDrainedEvent fact = Assert.Single(drained);
-    Assert.Equal(agentId, fact.ChildId);
+    Assert.Equal(agentId, fact.Id);
     _ = Assert.Single(fact.MessageIds);
   }
 
@@ -180,7 +180,7 @@ public class AgentSteeringTests
       return new Lease(this, subscriber);
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber subscriber in _subscribers.ToList())
       {
@@ -197,7 +197,7 @@ public class AgentSteeringTests
   /// <summary>Collects the mailbox drain facts a loop publishes.</summary>
   private sealed class DrainRecorder(List<MailboxDrainedEvent> into) : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt)
+    public void OnEvent(AgentEvent evt)
     {
       if (evt is MailboxDrainedEvent fact)
       {

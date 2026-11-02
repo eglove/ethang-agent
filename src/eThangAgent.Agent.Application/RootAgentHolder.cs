@@ -14,7 +14,7 @@ public sealed record RootDependencies(
     ISystemPromptProvider? SystemPrompt = null,
     int? MaxAutoContinuations = null,
     IContextCompactor? ContextCompactor = null,
-    IChildTranscriptStore? TranscriptSink = null,
+    IAgentTranscriptStore? TranscriptSink = null,
     IServerToolImageStore? ServerToolImages = null,
     IAgentEventLog? EventLog = null,
     // The session's event stream (issue #253 B3). The root loop publishes its mailbox

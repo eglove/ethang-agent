@@ -9,7 +9,7 @@ public sealed class NullAgentEvents : IAgentEvents
   public IDisposable Subscribe(IAgentEventSubscriber subscriber)
       => new FakeLease();
 
-  public void Publish(ChildEvent evt)
+  public void Publish(AgentEvent evt)
   {
   }
 

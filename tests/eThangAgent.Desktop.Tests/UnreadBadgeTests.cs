@@ -3,7 +3,7 @@ using eThangAgent.AgentDomain;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>W4.4: the unread badge is PUSHED its updates - a subscriber on the
-///     session's child-event stream raises the count on MessageDelivered and clears
+///     session's agent-event stream raises the count on MessageDelivered and clears
 ///     it on drain and settle. No timer ever samples the mailboxes (doctrine: no new
 ///     polling). Foreign ids never move the badge.</summary>
 public class UnreadBadgeTests
@@ -17,7 +17,7 @@ public class UnreadBadgeTests
       return new Lease();
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber s in _subscribers.ToArray())
       {
@@ -93,7 +93,7 @@ public class UnreadBadgeTests
 #pragma warning restore CA2000
     stream.Publish(new MessageDeliveredEvent(child, DateTimeOffset.UtcNow, "inbound", 8));
 
-    stream.Publish(new ChildSettledEvent(child, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 4));
+    stream.Publish(new AgentSettledEvent(child, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 4));
 
     Assert.Equal(0, subscriber.Count);
   }

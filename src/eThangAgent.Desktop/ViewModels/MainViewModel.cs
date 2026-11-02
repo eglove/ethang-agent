@@ -2391,7 +2391,7 @@ internal sealed partial class MainViewModel : ObservableObject
           SessionRequestHandler = request => currentTab() is { } requestTab
               ? HandleSessionRequestAsync(requestTab, request, session.RootId)
               : Task.CompletedTask,
-          ChildEvents = session.Services.GetService<IAgentEvents>(),
+          AgentEvents = session.Services.GetService<IAgentEvents>(),
           // Spec D6: the app runs NO agent work. A container built with the wire runtime
           // (every production session) resolves the channel here and every turn travels to
           // this conversation's host; a headless/test container that opted into the
@@ -2707,7 +2707,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     IN THE SENSE THAT MATTERS, and nudging it would be a message about work it never had.</para>
   ///     <para>THE CLOCK IS THE SESSION'S OWN TURN FACTS (<c>RootTurnActivity</c>): turn started,
   ///     tool started, streamed, turn settled. Those are facts the view-model already produces.
-  ///     Never <c>ChildProgressEvent</c> (#305/#316 retired that runtime) and never a wall-clock
+  ///     Never <c>AgentProgressEvent</c> (#305/#316 retired that runtime) and never a wall-clock
   ///     timer (the mechanism <c>ChildTimeout</c> was deleted for).</para>
   ///     <para>NULL IS A FIRST-CLASS ANSWER: a container without the watchdog store, or a session
   ///     that is not a chain step, gets no watchdog and the shell behaves exactly as it did before
@@ -2789,7 +2789,7 @@ internal sealed partial class MainViewModel : ObservableObject
   private sealed class ChainAdvanceEventSink(ChainAdvanceSubscriber subscriber, string workspaceId)
       : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt)
+    public void OnEvent(AgentEvent evt)
       => _ = Task.Run(() => subscriber.OnEventAsync(evt, workspaceId, CancellationToken.None));
   }
 

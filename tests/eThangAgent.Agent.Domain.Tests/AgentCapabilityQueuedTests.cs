@@ -65,7 +65,7 @@ public class AgentCapabilityQueuedTests
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-    public void Interrupt(AgentId? childId = null) => Interrupted.Add(childId);
+    public void Interrupt(AgentId? agentId = null) => Interrupted.Add(agentId);
   }
 
   private static (AgentCapabilityProvider Provider, RecordingRuntime Runtime, AgentRecord Child)

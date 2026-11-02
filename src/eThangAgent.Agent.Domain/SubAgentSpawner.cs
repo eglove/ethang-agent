@@ -9,7 +9,7 @@ namespace eThangAgent.AgentDomain;
 
 /// <summary>Terminal outcome of a child agent run: completion with its report, or failure with its reason.</summary>
 public sealed record AgentRunOutcome(
-    AgentId ChildId,
+    AgentId AgentId,
     AgentStatus Status,
     AgentFailureReason? Reason,
     string Report,
@@ -67,7 +67,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
   private readonly IModelCatalog? _catalog = catalog;
   private readonly IAgentHeartbeat? _heartbeat = services.Heartbeat;
-  private readonly Func<AgentId, ChildSupervisor?>? _supervisorFor = services.SupervisorFor;
+  private readonly Func<AgentId, AgentSupervisor?>? _supervisorFor = services.SupervisorFor;
   private readonly Func<string?, IServerToolImageStore?>? _serverToolImagesFor = services.ServerToolImagesFor;
   private readonly IAgentEvents? _events = services.Events;
 
@@ -256,7 +256,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     an interrupt or crash leaves the run's history persisted up to that point
   ///     instead of destroying it.</summary>
   private Agent BuildAgent(AgentRecord child, ModelConfig config, Conversation conversation,
-      IToolRegistry tools, int window, ChildTranscriptStore transcriptSink, string? anchor) =>
+      IToolRegistry tools, int window, AgentTranscriptStore transcriptSink, string? anchor) =>
       new(_factory.Create(config), conversation, config, tools,
           new AgentOptions
           {
@@ -377,7 +377,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     queue) and persists the terminal row. All of it runs with
   ///     CancellationToken.None: the run is already over, and its record plus
   ///     transcript must survive the caller's interrupt that ended it.</summary>
-  private async Task<AgentRunOutcome> FailedOutcomeAsync(AgentRecord child, ChildTranscriptStore transcriptSink,
+  private async Task<AgentRunOutcome> FailedOutcomeAsync(AgentRecord child, AgentTranscriptStore transcriptSink,
       AgentFailureReason failureReason)
   {
     await TerminalPersistAsync(child with
@@ -507,7 +507,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     (IToolRegistry tools, string? anchor) = await RunToolsAsync(child, ct).ConfigureAwait(false);
 
     // Each child gets its own accountant: two children must never share totals.
-    ChildTranscriptStore transcriptSink = new(_store, child.Id);
+    AgentTranscriptStore transcriptSink = new(_store, child.Id);
     try
     {
       return await RunFromSinkAsync(child,
@@ -529,7 +529,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
 
   /// <summary>Run phases after the transcript sink exists.</summary>
   private async Task<AgentRunOutcome> RunFromSinkAsync(AgentRecord child, RunSetup setup,
-      ChildTranscriptStore transcriptSink, CancellationToken ct)
+      AgentTranscriptStore transcriptSink, CancellationToken ct)
   {
     Agent agent = BuildAgent(child, setup.Config, setup.Conversation, setup.Tools, setup.Window,
         transcriptSink, setup.Anchor);
@@ -558,7 +558,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     whole transcript (never appends a sliced delta — the sink's ReplaceAsync also
   ///     resets its flushed baseline); otherwise the incremental persistence landed
   ///     every safe-point message and only stragglers are flushed.</summary>
-  private static async Task CoordinatorPersistAsync(Agent agent, ChildTranscriptStore transcriptSink)
+  private static async Task CoordinatorPersistAsync(Agent agent, AgentTranscriptStore transcriptSink)
   {
     if (agent.ShrankThisTurn)
     {
@@ -577,7 +577,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     dedicated exception the runtime maps honestly (never 'A task was canceled.'), so
   ///     a broken store surfaces as Failed(ProviderError) with a truthful report.</summary>
   private async Task TerminalPersistAsync(AgentRecord terminal,
-      ChildTranscriptStore transcriptSink)
+      AgentTranscriptStore transcriptSink)
   {
     try
     {
@@ -612,14 +612,14 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
 #pragma warning restore CA1031
   }
 
-  /// <summary>Emits ChildStartedEvent when a stream is wired; no-op otherwise (legacy wiring).</summary>
+  /// <summary>Emits AgentStartedEvent when a stream is wired; no-op otherwise (legacy wiring).</summary>
   private void PublishStarted(AgentRecord child)
-      => _events?.Publish(new ChildStartedEvent(
+      => _events?.Publish(new AgentStartedEvent(
           child.Id, DateTimeOffset.UtcNow, child.ParentId, child.ModelUsed, child.Attempts));
 
-  /// <summary>Emits ChildSettledEvent; ReportBytes is a size hint only, never content (D5).</summary>
+  /// <summary>Emits AgentSettledEvent; ReportBytes is a size hint only, never content (D5).</summary>
   private void PublishSettled(AgentId id, AgentStatus status, AgentFailureReason? reason, int reportBytes)
-      => _events?.Publish(new ChildSettledEvent(id, DateTimeOffset.UtcNow, status, reason, reportBytes));
+      => _events?.Publish(new AgentSettledEvent(id, DateTimeOffset.UtcNow, status, reason, reportBytes));
   private async Task PersistTerminalAsync(AgentRecord terminal, CancellationToken ct)
   {
     Result<string> update = await _store.UpdateAsync(terminal, ct).ConfigureAwait(false);
@@ -658,14 +658,14 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     BEFORE the child's loop begins, so the lookup here is a single lock.
   ///     A null resolution (registry race) degrades to no stamping for that run —
   ///     the watchdog's idle detection still covers it.</summary>
-  private Action<string>? ResolveStreamStamp(AgentId childId)
+  private Action<string>? ResolveStreamStamp(AgentId agentId)
   {
     if (_supervisorFor is null)
     {
       return null;
     }
 
-    ChildSupervisor? supervisor = _supervisorFor(childId);
+    AgentSupervisor? supervisor = _supervisorFor(agentId);
     return supervisor is null ? null : kind => supervisor.OnStreamActivity(kind);
   }
 }

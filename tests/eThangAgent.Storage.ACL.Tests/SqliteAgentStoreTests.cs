@@ -39,7 +39,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
       CompletedAt: new DateTimeOffset(2026, 8, 21, 10, 5, 0, TimeSpan.Zero),
       FinalReport: "all done",
       Attempts: 3,
-      Phase: ChildPhase.ToolExec,
+      Phase: AgentPhase.ToolExec,
       Contract: SpawnContract.Encode(new SpawnContract(Budgets: new BudgetCeilings(MaxTokens: 123))));
 
   [Fact]

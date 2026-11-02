@@ -19,7 +19,7 @@ namespace eThangAgent.ChildHost;
 public sealed class SessionHost
 {
   private SessionHost(IServiceProvider services, IAgentStore store, IAgentRuntime runtime,
-      InProcessAgentRuntime localRunner, ChildMailboxRegistry mailboxes, WatchdogSettings? watchdog,
+      InProcessAgentRuntime localRunner, AgentMailboxRegistry mailboxes, WatchdogSettings? watchdog,
       RootRunHost? rootRun)
   {
     Services = services;
@@ -50,7 +50,7 @@ public sealed class SessionHost
   /// <summary>The container's live-child mailbox registry — the delivery view the
   ///     server resolves 'deliver' envelopes through, so wire-delivered steering lands
   ///     in the SAME box the running child's loop drains (W3).</summary>
-  public ChildMailboxRegistry Mailboxes { get; }
+  public AgentMailboxRegistry Mailboxes { get; }
 
   /// <summary>The SubAgent:Watchdog configuration the app shipped (W1.2): null when no
   ///     watchdog section was configured. The settings JSON is the only carrier; the
@@ -73,7 +73,7 @@ public sealed class SessionHost
 
   /// <summary>Builds from the settings JSON the app writes before launching the host, plus
   ///     the app-owned database path (CLI arg — one host per app, sharing its database).
-  ///     The container's <see cref="ChildMailboxRegistry"/> is exposed as
+  ///     The container's <see cref="AgentMailboxRegistry"/> is exposed as
   ///     <see cref="Mailboxes"/> so the server's 'deliver' path resolves the SAME box
   ///     the running child's loop drains (FR-C2, W3 delivery fix).</summary>
   /// <param name="settingsJsonPath">The settings JSON the app wrote before launching this host.</param>
@@ -186,7 +186,7 @@ public sealed class SessionHost
         provider.GetRequiredService<IAgentStore>(),
         provider.GetRequiredService<IAgentRuntime>(),
         provider.GetRequiredService<InProcessAgentRuntime>(),
-        provider.GetRequiredService<ChildMailboxRegistry>(),
+        provider.GetRequiredService<AgentMailboxRegistry>(),
         settings.Watchdog,
         BuildRootRun(provider, settings.SessionId));
   }

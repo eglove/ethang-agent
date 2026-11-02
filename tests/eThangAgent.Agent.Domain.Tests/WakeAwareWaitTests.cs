@@ -25,8 +25,8 @@ public class WakeAwareWaitTests
     }
   }
 
-  private static WakeSignal Signal(WakeReason reason, AgentId childId) =>
-      new(reason, childId, DateTimeOffset.UtcNow, reason + " digest");
+  private static WakeSignal Signal(WakeReason reason, AgentId agentId) =>
+      new(reason, agentId, DateTimeOffset.UtcNow, reason + " digest");
 
   private static WakeFilter Parsed(string raw)
   {

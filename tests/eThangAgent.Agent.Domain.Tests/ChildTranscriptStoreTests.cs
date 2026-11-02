@@ -91,7 +91,7 @@ public class ChildTranscriptStoreTests
     CtRecordingStore store = new();
     AgentId id = new(Guid.NewGuid());
 #pragma warning disable CA2007
-    await using ChildTranscriptStore sink = new(store, id);
+    await using AgentTranscriptStore sink = new(store, id);
 #pragma warning restore CA2007
 
     Message first = new(Role.User, "hello", DateTimeOffset.UtcNow);
@@ -106,7 +106,7 @@ public class ChildTranscriptStoreTests
   {
     CtRecordingStore store = new();
 #pragma warning disable CA2007
-    await using ChildTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
+    await using AgentTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
 #pragma warning restore CA2007
     await sink.AppendAsync(new Message(Role.User, "m", DateTimeOffset.UtcNow)).ConfigureAwait(true);
 
@@ -120,7 +120,7 @@ public class ChildTranscriptStoreTests
   {
     CtRecordingStore store = new();
 #pragma warning disable CA2007
-    await using ChildTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
+    await using AgentTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
 #pragma warning restore CA2007
     Assert.Equal(0, await sink.FlushedCount().ConfigureAwait(true));
     await sink.AppendAsync(new Message(Role.User, "one", DateTimeOffset.UtcNow)).ConfigureAwait(true);
@@ -133,7 +133,7 @@ public class ChildTranscriptStoreTests
   {
     CtRecordingStore store = new();
 #pragma warning disable CA2007
-    await using ChildTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
+    await using AgentTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
 #pragma warning restore CA2007
     await sink.AppendAsync(new Message(Role.User, "one", DateTimeOffset.UtcNow)).ConfigureAwait(true);
     int before = store.AppendedMessages.Count;
@@ -146,7 +146,7 @@ public class ChildTranscriptStoreTests
   {
     CtRecordingStore store = new();
 #pragma warning disable CA2007
-    await using ChildTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
+    await using AgentTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
 #pragma warning restore CA2007
     await sink.AppendAsync(new Message(Role.User, "old", DateTimeOffset.UtcNow)).ConfigureAwait(true);
     Message[] replacement = [new Message(Role.System, "summary", DateTimeOffset.UtcNow, IsSummary: true)];
@@ -171,7 +171,7 @@ public class ChildTranscriptStoreTests
     YieldingRecordingStore store = new();
     AgentId id = new(Guid.NewGuid());
 #pragma warning disable CA2007
-    await using ChildTranscriptStore sink = new(store, id);
+    await using AgentTranscriptStore sink = new(store, id);
 #pragma warning restore CA2007
     Message[] messages = [.. Enumerable.Range(0, 16)
         .Select(i => new Message(Role.User, $"m{i}", DateTimeOffset.UtcNow))];
@@ -191,7 +191,7 @@ public class ChildTranscriptStoreTests
   {
     FailingStore store = new();
 #pragma warning disable CA2007
-    await using ChildTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
+    await using AgentTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
 #pragma warning restore CA2007
 
     Task append = sink.AppendAsync(new Message(Role.User, "stuck", DateTimeOffset.UtcNow));

@@ -17,7 +17,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     is the step <c>AgentCellSubscriber</c> used to drop. A test that called the cell's own
 ///     apply method would pass with the routing still missing, so nothing here does.</para>
 ///     <para>THE REPORT IS READ FROM THE STORE, not from the settled fact:
-///     <see cref="ChildSettledEvent"/> carries a byte count as a size hint, so a card that
+///     <see cref="AgentSettledEvent"/> carries a byte count as a size hint, so a card that
 ///     showed a report proves the read happened.</para></summary>
 public class CellPhaseChipTests
 {
@@ -136,7 +136,7 @@ public class CellPhaseChipTests
     AgentId agent = shell.RegisterAgent(tab, "reviewer");
     shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
 
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
         "test/model", 1));
     shell.Progress(agent, "turn-start");
     shell.Progress(agent, "tool:exec");
@@ -160,7 +160,7 @@ public class CellPhaseChipTests
     shell.Store.SetReport(agent, "too short a run to see.");
     shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
 
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
         "test/model", 1));
     shell.Settle(agent);
 
@@ -218,7 +218,7 @@ public class CellPhaseChipTests
     AgentCellViewModel cell = await shell.StartAgentAsync(tab, "reviewer");
     int before = cell.ViewModel.Transcript.Notices.Count;
 
-    shell.Events.Publish(new ChildIdleAlertEvent(cell.RootId, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentIdleAlertEvent(cell.RootId, DateTimeOffset.UtcNow,
         TimeSpan.FromMinutes(12), "ModelCall"));
 
     Assert.True(cell.IsAlerting);
@@ -236,7 +236,7 @@ public class CellPhaseChipTests
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
     AgentCellViewModel cell = await shell.StartAgentAsync(tab, "reviewer");
     int before = cell.ViewModel.Transcript.Notices.Count;
-    ChildBudgetAlertEvent alert = new(cell.RootId, DateTimeOffset.UtcNow, "tokens", 800_000, 1_000_000, 12_000);
+    AgentBudgetAlertEvent alert = new(cell.RootId, DateTimeOffset.UtcNow, "tokens", 800_000, 1_000_000, 12_000);
 
     shell.Events.Publish(alert);
     shell.Events.Publish(alert);
@@ -255,7 +255,7 @@ public class CellPhaseChipTests
     AgentCellViewModel cell = await shell.StartAgentAsync(tab, "reviewer");
     int before = cell.ViewModel.Transcript.Notices.Count;
 
-    shell.Events.Publish(new ChildIdleAlertEvent(AgentId.NewId(), DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentIdleAlertEvent(AgentId.NewId(), DateTimeOffset.UtcNow,
         TimeSpan.FromMinutes(9), "ModelCall"));
 
     Assert.False(cell.IsAlerting);
@@ -276,7 +276,7 @@ public class CellPhaseChipTests
     Assert.True(cell.HasReport);
 
     // The started fact for an agent this tab already shows is a RESTART of the same agent.
-    shell.Events.Publish(new ChildStartedEvent(cell.RootId, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentStartedEvent(cell.RootId, DateTimeOffset.UtcNow,
         tab.Container.RootId, "test/model", 2));
 
     await WaitUntilAsync(() => !cell.IsFinished);
@@ -308,7 +308,7 @@ public class CellPhaseChipTests
     // to back, while the started fact's own record read is still outstanding.
     shell.Store.SetReport(cell.RootId, "the resumed run concluded Y.");
     shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
-    shell.Events.Publish(new ChildStartedEvent(cell.RootId, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentStartedEvent(cell.RootId, DateTimeOffset.UtcNow,
         tab.Container.RootId, "test/model", 2));
     shell.Settle(cell.RootId);
 
@@ -373,7 +373,7 @@ public class CellPhaseChipTests
     public async Task<AgentCellViewModel> StartAgentAsync(AgentTabViewModel tab, string label)
     {
       AgentId agent = RegisterAgent(tab, label);
-      Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
+      Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
           "test/model", 1));
       return await WaitForCellAsync(tab, agent).ConfigureAwait(true);
     }
@@ -415,13 +415,13 @@ public class CellPhaseChipTests
     /// <param name="agentId">The agent the beat names.</param>
     /// <param name="label">The beat's short phase label.</param>
     public void Progress(AgentId agentId, string label)
-        => Events.Publish(new ChildProgressEvent(agentId, DateTimeOffset.UtcNow,
-            ChildPhase.ModelCall, label));
+        => Events.Publish(new AgentProgressEvent(agentId, DateTimeOffset.UtcNow,
+            AgentPhase.ModelCall, label));
 
     /// <summary>Publishes the settled fact the shell turns into a finished card.</summary>
     /// <param name="agentId">The agent that settled.</param>
     public void Settle(AgentId agentId)
-        => Events.Publish(new ChildSettledEvent(agentId, DateTimeOffset.UtcNow,
+        => Events.Publish(new AgentSettledEvent(agentId, DateTimeOffset.UtcNow,
             AgentStatus.Completed, null, 12));
 
     private AgentSession Session(string root)

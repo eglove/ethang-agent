@@ -5,10 +5,10 @@ namespace eThangAgent.AgentDomain;
 /// <summary>Per-child supervision machinery (D6): the idle timer fed by heartbeat beats,
 ///     budget accumulators fed by per-call usage reports, the attempt count and phase as
 ///     owned facts. One instance per RUNNING child; timers die with the child —
-///     O(running), no central sweep (P4). Raises ChildIdleAlertEvent when CheckIdle
+///     O(running), no central sweep (P4). Raises AgentIdleAlertEvent when CheckIdle
 ///     observes the threshold crossed; budget alerts fire from OnUsage at soft thresholds.
 ///     Every time read goes through the injected TimeProvider.</summary>
-public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimeProvider clock, BudgetCeilings? ceilings)
+public sealed class AgentSupervisor(AgentId agentId, IAgentEvents events, TimeProvider clock, BudgetCeilings? ceilings)
 {
   /// <summary>Soft threshold as a fraction of a ceiling; the graduated response (nudge,
   ///     retry, terminal) stays watchdog policy — the supervisor only raises facts (P5).</summary>
@@ -16,7 +16,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
 
   private readonly Lock _gate = new();
   private DateTimeOffset _lastBeat;
-  private ChildPhase _phase = ChildPhase.ModelCall;
+  private AgentPhase _phase = AgentPhase.ModelCall;
   private long _tokens;
   private bool _idleAlerted;
   private readonly HashSet<string> _budgetAlerts = [];
@@ -24,7 +24,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
   private string _lastStreamKind = "content";
   private bool _stallAlerted;
 
-  public AgentId ChildId { get; } = childId;
+  public AgentId Id { get; } = agentId;
   public int Attempts { get; private set; }
 
   /// <summary>Records a run (re)start: the attempt count is owned here as fact (FR-L2),
@@ -52,7 +52,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
   }
 
   /// <summary>Phase fact from progress events.</summary>
-  public void OnPhase(ChildPhase phase)
+  public void OnPhase(AgentPhase phase)
   {
     lock (_gate)
     {
@@ -60,12 +60,12 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
     }
   }
 
-  /// <summary>Accumulates one provider call's usage and raises a ChildBudgetAlertEvent
+  /// <summary>Accumulates one provider call's usage and raises a AgentBudgetAlertEvent
   ///     the first time a non-null ceiling's soft threshold is crossed (D8: resources,
   ///     never time). Hard-ceiling enforcement is a policy decision enacted elsewhere.</summary>
   public void OnUsage(TokenUsage usage)
   {
-    ChildBudgetAlertEvent? alert;
+    AgentBudgetAlertEvent? alert;
     lock (_gate)
     {
       _tokens += usage.InputTokens + usage.OutputTokens;
@@ -85,7 +85,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
   /// <summary>The token-budget alert for the just-accumulated usage: raised the first
   ///     time a non-null ceiling's soft threshold is crossed (once per
   ///     hard/soft/ceiling key). Null when no ceiling or not yet crossed.</summary>
-  private ChildBudgetAlertEvent? BudgetAlertIfCrossed()
+  private AgentBudgetAlertEvent? BudgetAlertIfCrossed()
   {
     if (ceilings?.MaxTokens is not { } tokenCeiling || _tokens < tokenCeiling * DefaultSoftThreshold)
     {
@@ -100,7 +100,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
     }
 
     string kind = hard ? "tokens:hard" : "tokens";
-    return new ChildBudgetAlertEvent(ChildId, clock.GetUtcNow(), kind, _tokens, tokenCeiling, BurnRatePerMinute());
+    return new AgentBudgetAlertEvent(Id, clock.GetUtcNow(), kind, _tokens, tokenCeiling, BurnRatePerMinute());
   }
 
   /// <summary>Facts for policy: a hard ceiling was crossed and enforcement has not run yet.
@@ -109,7 +109,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
 
   /// <summary>Idle observation for the watchdog tick. Returns the alert exactly once per
   ///     idle episode; a subsequent beat re-arms it.</summary>
-  public ChildIdleAlertEvent? CheckIdle(TimeSpan idleThreshold)
+  public AgentIdleAlertEvent? CheckIdle(TimeSpan idleThreshold)
   {
     lock (_gate)
     {
@@ -120,7 +120,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
       }
 
       _idleAlerted = true;
-      ChildIdleAlertEvent alert = new(ChildId, clock.GetUtcNow(), idle, _phase.ToString());
+      AgentIdleAlertEvent alert = new(Id, clock.GetUtcNow(), idle, _phase.ToString());
       events.Publish(alert);
       return alert;
     }
@@ -143,7 +143,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
   /// <summary>Stall observation for the watchdog tick. Returns the event exactly once
   ///     per stall episode; a subsequent stream activity re-arms it. Published under
   ///     the lock — never feeds itself (the SupervisorFeed contract).</summary>
-  public ChildStreamStalledEvent? CheckStreamStall(TimeSpan stallThreshold)
+  public AgentStreamStalledEvent? CheckStreamStall(TimeSpan stallThreshold)
   {
     lock (_gate)
     {
@@ -154,7 +154,7 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
       }
 
       _stallAlerted = true;
-      ChildStreamStalledEvent alert = new(ChildId, clock.GetUtcNow(), quiet, _lastStreamKind);
+      AgentStreamStalledEvent alert = new(Id, clock.GetUtcNow(), quiet, _lastStreamKind);
       events.Publish(alert);
       return alert;
     }
@@ -171,12 +171,12 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
 /// <summary>Thread-safe per-session registry of running children's supervisors. The
 ///     runtime registers at Start and unregisters at settle; the watchdog tick iterates
 ///     instead of sweeping the agent store (P4).</summary>
-public sealed class ChildSupervisorRegistry
+public sealed class AgentSupervisorRegistry
 {
   private readonly Lock _gate = new();
-  private readonly Dictionary<Guid, ChildSupervisor> _supervisors = [];
+  private readonly Dictionary<Guid, AgentSupervisor> _supervisors = [];
 
-  public void Register(AgentId id, ChildSupervisor supervisor)
+  public void Register(AgentId id, AgentSupervisor supervisor)
   {
     lock (_gate)
     {
@@ -195,15 +195,15 @@ public sealed class ChildSupervisorRegistry
   /// <summary>The supervisor for an id, or null when the registry owns none (never
   ///     started, settled, or foreign). The event feed resolves through this — the
   ///     feed must never create facts for a child it does not own.</summary>
-  public ChildSupervisor? Find(AgentId id)
+  public AgentSupervisor? Find(AgentId id)
   {
     lock (_gate)
     {
-      return _supervisors.TryGetValue(id.Value, out ChildSupervisor? supervisor) ? supervisor : null;
+      return _supervisors.TryGetValue(id.Value, out AgentSupervisor? supervisor) ? supervisor : null;
     }
   }
 
-  public IReadOnlyList<ChildSupervisor> All
+  public IReadOnlyList<AgentSupervisor> All
   {
     get
     {

@@ -5,7 +5,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>W4.4 Desktop E2E (BDD: 'Queued steering raises a badge on the session
 ///     tab' / 'The badge clears when the child catches up'): the real composed shell
 ///     (MainViewModel -> AgentTabViewModel -> AttachBadge against the session's
-///     child-event stream) runs a parent that spawns a child parked mid-tool, steers
+///     agent-event stream) runs a parent that spawns a child parked mid-tool, steers
 ///     it with agent.send, and the tab's unread badge rises - pushed by the
 ///     MessageDelivered event. The child drains at its next safe point (the mock
 ///     observes the steered text) and the badge clears - pushed by MailboxDrained.

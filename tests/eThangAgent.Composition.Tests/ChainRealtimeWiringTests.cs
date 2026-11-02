@@ -96,8 +96,8 @@ public class ChainRealtimeWiringTests
 
   private sealed class RecordingSubscriber : IAgentEventSubscriber
   {
-    public List<ChildEvent> Events { get; } = [];
+    public List<AgentEvent> Events { get; } = [];
 
-    public void OnEvent(ChildEvent evt) => Events.Add(evt);
+    public void OnEvent(AgentEvent evt) => Events.Add(evt);
   }
 }

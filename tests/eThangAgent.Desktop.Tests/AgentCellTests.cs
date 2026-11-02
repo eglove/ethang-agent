@@ -14,8 +14,8 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>Issue #329: an agent's started fact creates its cell, in the tab for its OWN
 ///     workspace. The event source is #326's - a launched host's forwarded events republish onto
 ///     the container that launched it - so what is asserted here is the step after that: the
-///     shell turns a <see cref="ChildStartedEvent"/> into exactly one cell in the workspace's
-///     tab, and a <see cref="ChildSettledEvent"/> into a finished card.
+///     shell turns a <see cref="AgentStartedEvent"/> into exactly one cell in the workspace's
+///     tab, and a <see cref="AgentSettledEvent"/> into a finished card.
 ///     <para>WHY THIS DRIVES THE REAL SHELL RATHER THAN THE SUBSCRIBER DIRECTLY: the defect being
 ///     closed is a MISSING CALLER. A test that built a subscriber by hand would pass with the
 ///     subscription never attached. Every test here goes through <c>OpenAgentAsync</c> and the
@@ -194,7 +194,7 @@ public class AgentCellTests
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "reviewer", @"C:\work\alpha");
 
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
         tab.Container.RootId, "test/model", 1));
 
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
@@ -220,7 +220,7 @@ public class AgentCellTests
     shell.Store.Records[agent.Value] = Record(agent, "tester", @"C:\work\beta");
 
     // Published on ALPHA's stream, while the agent belongs to BETA.
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
         alpha.Container.RootId, "test/model", 1));
 
     _ = await AwaitCellAsync(beta, agent);
@@ -236,7 +236,7 @@ public class AgentCellTests
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "reviewer", @"C:\work\alpha");
-    ChildStartedEvent started = new(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1);
+    AgentStartedEvent started = new(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1);
 
     shell.Events.Publish(started);
     _ = await AwaitCellAsync(tab, agent);
@@ -263,9 +263,9 @@ public class AgentCellTests
     shell.Store.Records[first.Value] = Record(first, "one", @"C:\work\alpha");
     shell.Store.Records[second.Value] = Record(second, "two", @"C:\work\alpha");
 
-    shell.Events.Publish(new ChildStartedEvent(first, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(first, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
     _ = await AwaitCellAsync(tab, first);
-    shell.Events.Publish(new ChildStartedEvent(second, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(second, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
     _ = await AwaitCellAsync(tab, second);
 
     Assert.Equal(3, tab.Cells.Count);
@@ -284,12 +284,12 @@ public class AgentCellTests
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "reviewer", @"C:\work\alpha");
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
     Assert.False(cell.IsFinished);
     Assert.True(cell.IsStreaming, "a running agent in its own host streams until it settles");
 
-    shell.Events.Publish(new ChildSettledEvent(agent, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentSettledEvent(agent, DateTimeOffset.UtcNow,
         AgentStatus.Completed, null, 12));
 
     DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
@@ -318,7 +318,7 @@ public class AgentCellTests
     shell.Store.Transcripts[agent.Value] =
         [new Message(Role.User, "review the diff", at), new Message(Role.Assistant, "the diff is correct", at)];
 
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
 
     DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
@@ -346,7 +346,7 @@ public class AgentCellTests
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "orphan", @"C:\work\elsewhere");
 
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
         AgentId.NewId(), "test/model", 1));
     await Task.Delay(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
 
@@ -367,7 +367,7 @@ public class AgentCellTests
     shell.Store.Records[agent.Value] = Record(agent, "step two", @"C:\work\alpha");
     shell.Chains.Chain = ChainWith(agent, position: 2, steps: 5);
 
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
         tab.Container.RootId, "test/model", 1));
 
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
@@ -386,7 +386,7 @@ public class AgentCellTests
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "by hand", @"C:\work\alpha");
 
-    shell.Events.Publish(new ChildStartedEvent(agent, DateTimeOffset.UtcNow,
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
         tab.Container.RootId, "test/model", 1));
 
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);

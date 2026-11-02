@@ -114,7 +114,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   public partial bool IsSelected { get; set; }
 
   /// <summary>The tab's unread-steering badge, attached by the shell against the
-  ///     session's child-event stream (W4.4). Null when no stream is wired
+  ///     session's agent-event stream (W4.4). Null when no stream is wired
   ///     (headless/test hosts construct nothing).</summary>
   [ObservableProperty]
   public partial TabBadgeViewModel? Badge { get; private set; }

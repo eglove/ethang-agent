@@ -20,7 +20,7 @@ public sealed record WatchdogPolicy
   public int MaxWrapUpAttempts { get; }
 
   /// <summary>Silence threshold on a running child's provider stream before the tick
-  ///     publishes a ChildStreamStalledEvent (observation only, never an interrupt).</summary>
+  ///     publishes a AgentStreamStalledEvent (observation only, never an interrupt).</summary>
   public TimeSpan StallThreshold { get; }
 
   public WatchdogPolicy(TimeSpan IdleThreshold, TimeSpan SettleWait, int MaxWrapUpAttempts, TimeSpan StallThreshold = default) // default => the 2-minute documented default below

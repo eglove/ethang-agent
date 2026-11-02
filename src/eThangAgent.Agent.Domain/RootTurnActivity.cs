@@ -9,7 +9,7 @@ namespace eThangAgent.AgentDomain;
 ///     <item>a provider stream produced a fragment</item>
 ///     <item>a turn SETTLED</item>
 ///     </list>
-///     <para>DELIBERATELY NOT <see cref="ChildProgressEvent"/>: that event exists to describe a
+///     <para>DELIBERATELY NOT <see cref="AgentProgressEvent"/>: that event exists to describe a
 ///     CHILD run, and #305 retired the child runtime while #316 retires the sibling machinery.
 ///     A clock fed by it would stop ticking the moment those land, and the failure would be
 ///     silent - a root that never went idle and therefore was never nudged.</para>

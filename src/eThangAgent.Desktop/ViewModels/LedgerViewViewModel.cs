@@ -392,7 +392,7 @@ internal sealed partial class LedgerViewViewModel(
   ///     does not render.</summary>
   private sealed class StateChangeSubscriber(Action onStateChanged) : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt)
+    public void OnEvent(AgentEvent evt)
     {
       if (evt is StateChangedEvent)
       {

@@ -4,7 +4,7 @@ using eThangAgent.AgentDomain;
 namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>W4.4: the session tab's unread-steering badge. Attach subscribes one
-///     <see cref="UnreadBadgeSubscriber"/> to the session's child-event stream and
+///     <see cref="UnreadBadgeSubscriber"/> to the session's agent-event stream and
 ///     mirrors its count into bindable properties; Dispose detaches. Push-only:
 ///     no timer, no sampling. A null stream (headless hosts) attaches nothing -
 ///     nothing UI-related is constructed. Threading contract: events arrive on
@@ -14,7 +14,7 @@ namespace eThangAgent.Desktop.ViewModels;
 ///     through the view-model's Apply - the marshal is about threads, never truth.</summary>
 internal sealed partial class TabBadgeViewModel : ObservableObject, IDisposable
 {
-  /// <summary>Attaches the badge to a session's child-event stream. Null stream:
+  /// <summary>Attaches the badge to a session's agent-event stream. Null stream:
   ///     returns null - headless hosts construct nothing.</summary>
   public static TabBadgeViewModel? Attach(IAgentEvents? events, AgentId rootId,
       Func<Action<int>, Action<int>>? marshal = null)

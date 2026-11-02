@@ -236,7 +236,7 @@ internal static class DesktopHost
         session.Services.GetRequiredService<IWatchdogEventStore>(),
         policy, watchdogOptions, TimeProvider.System,
         session.Services.GetService<IAgentEvents>(),
-        session.Services.GetService<ChildSupervisorRegistry>());
+        session.Services.GetService<AgentSupervisorRegistry>());
 
     // The mechanical advance (issue #301 D1/D2): a completion fact starts the next session.
     MainViewModel? vmRef = null;

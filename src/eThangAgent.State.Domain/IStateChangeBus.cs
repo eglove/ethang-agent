@@ -8,7 +8,7 @@ public enum StateChangeKind
 }
 
 /// <summary>One durable-state mutation. Metadata only — key names and kinds, never
-///     values (the same metadata-only doctrine the child-event family applies).</summary>
+///     values (the same metadata-only doctrine the agent-event family applies).</summary>
 public sealed record StateChange(string WorkspaceId, string Key, StateChangeKind Kind, string? WriterLabel, DateTimeOffset At);
 
 /// <summary>In-process, ephemeral stream of state mutations (no replay, no persistence).

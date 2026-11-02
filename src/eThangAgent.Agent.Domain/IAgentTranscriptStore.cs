@@ -7,7 +7,7 @@ namespace eThangAgent.AgentDomain;
 ///     interrupt or crash leaves the run's history persisted up to the last safe point.
 ///     Implementations must NEVER observe the run's cancellation token: persistence
 ///     must complete after the run is cancelled, which is exactly when it matters.</summary>
-public interface IChildTranscriptStore
+public interface IAgentTranscriptStore
 {
   /// <summary>Persists one message immediately. Fire-and-forget safe: the loop never
   ///     waits on it.</summary>

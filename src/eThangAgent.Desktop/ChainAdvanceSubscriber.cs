@@ -26,7 +26,7 @@ internal sealed class ChainAdvanceSubscriber(
   /// <param name="evt">The event.</param>
   /// <param name="workspaceId">The workspace the event belongs to.</param>
   /// <param name="ct">Cancellation.</param>
-  public async Task OnEventAsync(ChildEvent evt, string workspaceId, CancellationToken ct = default)
+  public async Task OnEventAsync(AgentEvent evt, string workspaceId, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(evt);
     if (evt is not PlanChangedEvent { Change: "steps" } plan)
@@ -45,7 +45,7 @@ internal sealed class ChainAdvanceSubscriber(
     try
     {
       Result<ChainAdvance> result = await advance
-          .OnCompletionAsync(plan.ChildId.ToString(), plan.PlanId, DateTimeOffset.UtcNow, ct)
+          .OnCompletionAsync(plan.Id.ToString(), plan.PlanId, DateTimeOffset.UtcNow, ct)
           .ConfigureAwait(false);
       if (!result.IsSuccess)
       {

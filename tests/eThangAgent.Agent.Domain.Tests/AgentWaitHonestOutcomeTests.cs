@@ -21,7 +21,7 @@ public class AgentWaitHonestOutcomeTests
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-    public void Interrupt(AgentId? childId = null) { }
+    public void Interrupt(AgentId? agentId = null) { }
 
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Success(outcome));

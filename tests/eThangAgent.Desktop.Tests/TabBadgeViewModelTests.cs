@@ -4,7 +4,7 @@ using eThangAgent.Desktop.ViewModels;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>W4.4: the tab view-model surfaces the unread count and pushes it from
-///     the session's child-event stream subscription (never a poll). The marshal
+///     the session's agent-event stream subscription (never a poll). The marshal
 ///     wrapper sees every transition (the shell's UI-thread poster; the test's
 ///     recorder); the badge state itself flows through the view-model. The lease is
 ///     disposed with the tab so a closed tab's badge never renders again.</summary>
@@ -19,7 +19,7 @@ public class TabBadgeViewModelTests
       return new Lease(_subscribers, subscriber);
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber s in _subscribers.ToArray())
       {

@@ -22,17 +22,17 @@ public class SessionsQueryHandlerTests
 
   /// <summary>Seeds a completed root, a running child, and a failed orphan child
   ///     (parent row absent) — saved oldest-first so ordering must reverse it.</summary>
-  private async Task<(AgentId RootId, AgentId ChildId, AgentId OrphanId)> SeedSessionsAsync()
+  private async Task<(AgentId RootId, AgentId AgentId, AgentId OrphanId)> SeedSessionsAsync()
   {
     AgentId rootId = AgentId.NewId();
-    AgentId childId = AgentId.NewId();
+    AgentId agentId = AgentId.NewId();
     AgentId orphanId = AgentId.NewId();
 
     AgentRecord root = AgentRecord.Root(rootId, At(0), "C:/workspaces/demo", "openrouter");
     _ = await _store.SaveAsync(root).ConfigureAwait(false);
     _ = await _store.UpdateAsync(root with { Status = AgentStatus.Completed }).ConfigureAwait(false);
 
-    _ = await _store.SaveAsync(AgentRecord.Spawned(childId, rootId, depth: 1,
+    _ = await _store.SaveAsync(AgentRecord.Spawned(agentId, rootId, depth: 1,
         modelUsed: "mock/model", label: "worker", taskPrompt: "do work", createdAt: At(1))).ConfigureAwait(false);
 
     _ = await _store.SaveAsync(new AgentRecord(orphanId, AgentId.NewId(), 1,
@@ -43,10 +43,10 @@ public class SessionsQueryHandlerTests
         new Message(Role.User, "root turn one", At(4))).ConfigureAwait(false);
     _ = await _store.AppendMessageAsync(rootId,
         new Message(Role.Assistant, "root turn two", At(5))).ConfigureAwait(false);
-    _ = await _store.AppendMessageAsync(childId,
+    _ = await _store.AppendMessageAsync(agentId,
         new Message(Role.User, "child turn", At(6))).ConfigureAwait(false);
 
-    return (rootId, childId, orphanId);
+    return (rootId, agentId, orphanId);
   }
 
   private static string Rendered(Result<IReadOnlyList<SessionSummary>> result)
@@ -108,13 +108,13 @@ public class SessionsQueryHandlerTests
   [Fact]
   public async Task Execute_ListsEverySession_NewestFirst_WithCountsStatusAndHotTier()
   {
-    (AgentId rootId, AgentId childId, AgentId orphanId) = await SeedSessionsAsync();
+    (AgentId rootId, AgentId agentId, AgentId orphanId) = await SeedSessionsAsync();
 
     Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 500, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     IReadOnlyList<SessionSummary> summaries = result.Value;
-    Assert.Equal([orphanId, childId, rootId], summaries.Select(s => s.Id).ToList());
+    Assert.Equal([orphanId, agentId, rootId], summaries.Select(s => s.Id).ToList());
 
     SessionSummary root = summaries[2];
     Assert.Equal("root", root.Label);

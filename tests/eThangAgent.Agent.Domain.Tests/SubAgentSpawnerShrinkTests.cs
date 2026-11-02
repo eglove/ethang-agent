@@ -52,7 +52,7 @@ public class SubAgentSpawnerShrinkTests
     // shrink then REPLACED the transcript wholesale, so the persisted frontier is the
     // post-shrink conversation — no duplicates, no stale rows.
     (AgentId id, IReadOnlyList<Message> messages) = store.ReplacedTranscripts.Single();
-    Assert.Equal(outcome.ChildId, id);
+    Assert.Equal(outcome.AgentId, id);
     Assert.Equal(4, messages.Count);
     Assert.Equal("child report", messages[^1].Content);
   }

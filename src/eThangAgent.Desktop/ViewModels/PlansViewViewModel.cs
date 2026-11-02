@@ -163,7 +163,7 @@ internal sealed partial class PlansViewViewModel(
   ///     view does not render.</summary>
   private sealed class PlanChangeSubscriber(Action onPlanChanged) : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt)
+    public void OnEvent(AgentEvent evt)
     {
       if (evt is PlanChangedEvent)
       {

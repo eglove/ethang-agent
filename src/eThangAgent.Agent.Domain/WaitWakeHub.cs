@@ -1,7 +1,7 @@
 namespace eThangAgent.AgentDomain;
 
 /// <summary>Why a waiting agent should wake. UserMessage is the unconditional
-/// user-steering wake; the rest map 1:1 onto the child-event family plus state writes.</summary>
+/// user-steering wake; the rest map 1:1 onto the agent-event family plus state writes.</summary>
 public enum WakeReason
 {
   UserMessage,
@@ -20,7 +20,7 @@ public enum WakeReason
 
 /// <summary>A wake event. <paramref name="DigestLine"/> is the one-line digest entry rendered
 /// into the wait result — metadata only (D5): ids, phases, durations, never message or report content.</summary>
-public sealed record WakeSignal(WakeReason Reason, AgentId ChildId, DateTimeOffset At, string DigestLine);
+public sealed record WakeSignal(WakeReason Reason, AgentId Id, DateTimeOffset At, string DigestLine);
 
 /// <summary>The seam the wait logic depends on. Subscriptions are leases: registering a signal
 /// wakes current subscribers only — no replay.</summary>

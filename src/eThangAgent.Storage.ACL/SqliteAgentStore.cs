@@ -449,7 +449,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
       reader.IsDBNull(11) ? null : reader.GetString(11),
       reader.IsDBNull(12) ? null : reader.GetString(12),
       reader.GetInt32(13),
-      reader.IsDBNull(14) ? null : (ChildPhase?)reader.GetInt32(14),
+      reader.IsDBNull(14) ? null : (AgentPhase?)reader.GetInt32(14),
       reader.IsDBNull(15) ? null : reader.GetString(15));
 
   private static DomainError NotFound(AgentId id)

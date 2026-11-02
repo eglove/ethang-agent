@@ -2,7 +2,7 @@ namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>The phase chip's FIXED vocabulary (issue #331): five values, so the same agent state
 ///     always reads the same way.
-///     <para>WHY A CLOSED SET RATHER THAN THE EVENT'S OWN LABEL: <c>ChildProgressEvent</c> carries
+///     <para>WHY A CLOSED SET RATHER THAN THE EVENT'S OWN LABEL: <c>AgentProgressEvent</c> carries
 ///     wire vocabulary (<c>turn-start</c>, <c>iteration</c>, <c>tool:NAME</c>). A chip that
 ///     sometimes showed that text and sometimes a rendering of it would be worse than one that
 ///     is occasionally vague, so an unrecognised label falls back to <see cref="Thinking"/>

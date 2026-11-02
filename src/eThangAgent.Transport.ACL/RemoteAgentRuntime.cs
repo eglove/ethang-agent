@@ -31,7 +31,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   }
 
   /// <summary>Creates a runtime with an explicit root-turn budget and the event stream
-  ///     forwarded <c>child-event</c> envelopes republish onto (issue #245). Null keeps
+  ///     forwarded <c>agent-event</c> envelopes republish onto (issue #245). Null keeps
   ///     the legacy shape: forwarded events are dropped, byte-identical to before.</summary>
   public RemoteAgentRuntime(NamedPipeChildTransport? transport, RootTurnBudget rootTurnBudget,
       IAgentEvents? events)
@@ -48,7 +48,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentRunOutcome>> _settling = [];
   private readonly ConcurrentDictionary<Guid, byte> _owned = [];
 
-  // The session's event stream (issue #245): forwarded child-event envelopes republish
+  // The session's event stream (issue #245): forwarded agent-event envelopes republish
   // here, so the app's panel/badge/wake adapters observe remote children. Null (tests,
   // legacy wiring) drops them - the legacy shape is byte-identical.
   private readonly IAgentEvents? _events;
@@ -133,7 +133,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   }
 
   /// <inheritdoc cref="IAgentRuntime.WhenSettledAsync"/>
-  /// <remarks>Remote waits do NOT wake on events (user steering, child events, stream
+  /// <remarks>Remote waits do NOT wake on events (user steering, agent events, stream
   ///     stalls, state writes) in this build — wire forwarding is a planned follow-up;
   ///     the wait blocks until settlement or cancellation exactly as before.</remarks>
   public async Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
@@ -343,8 +343,8 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
           new AgentId(Guid.NewGuid()), CancellationToken.None);
 
   /// <inheritdoc cref="IAgentRuntime.Interrupt"/>
-  public void Interrupt(AgentId? childId = null)
-      => _ = SendEnvelopeAsync("interrupt", JsonSerializer.Serialize(new InterruptCommand(childId?.Value)), childId ?? new AgentId(Guid.NewGuid()), CancellationToken.None);
+  public void Interrupt(AgentId? agentId = null)
+      => _ = SendEnvelopeAsync("interrupt", JsonSerializer.Serialize(new InterruptCommand(agentId?.Value)), agentId ?? new AgentId(Guid.NewGuid()), CancellationToken.None);
 
   /// <summary>Sends one root turn to the conversation host and streams its events back
   ///     (spec D6). The app runs no agent work: it forwards the user's input and renders
@@ -695,8 +695,8 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       case "root-turn-event":
         HandleRootTurnEvent(envelope.Json);
         break;
-      case "child-event":
-        HandleChildEvent(envelope.Json);
+      case "agent-event":
+        HandleAgentEvent(envelope.Json);
         break;
       case "agent-steer-ack":
         HandleAgentSteerAck(envelope.Json);
@@ -768,26 +768,26 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   }
 
   /// <summary>Republishes one forwarded child event onto the session's event stream
-  ///     (issue #245): the host serializes the child container's own ChildEvent and this
+  ///     (issue #245): the host serializes the child container's own AgentEvent and this
   ///     side re-publishes it verbatim, so the Desktop's subagent panel, unread badge, and
   ///     wait-wake adapters observe REMOTE children exactly like in-process ones. An
   ///     undecodable payload is dropped (a peer's forward-compatible event kind) - never
   ///     a pump fault. No stream wired: a no-op, byte-identical to the legacy shape.
   ///     <para>The app-side supervisor feed is unaffected: remote children are never
-  ///     registered in the app's ChildSupervisorRegistry, so a forwarded progress or
+  ///     registered in the app's AgentSupervisorRegistry, so a forwarded progress or
   ///     settled event finds no supervisor and feeds nothing - supervision of remote
   ///     children stays host-side (R3 doctrine).</para></summary>
-  private void HandleChildEvent(string json)
+  private void HandleAgentEvent(string json)
   {
     if (_events is null)
     {
       return;
     }
 
-    ChildEventEnvelope? envelope;
+    AgentEventEnvelope? envelope;
     try
     {
-      envelope = JsonSerializer.Deserialize<ChildEventEnvelope>(json);
+      envelope = JsonSerializer.Deserialize<AgentEventEnvelope>(json);
     }
 #pragma warning disable CA1031 // Named decision: an undecodable envelope is a peer fault, not a pump crash.
     catch (JsonException)

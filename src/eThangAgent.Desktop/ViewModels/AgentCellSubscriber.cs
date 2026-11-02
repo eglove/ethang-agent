@@ -5,8 +5,8 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>Turns an agent's lifecycle facts into grid cells (issue #329): a
-///     <see cref="ChildStartedEvent"/> appends a cell to the tab for the agent's OWN
-///     workspace, and a <see cref="ChildSettledEvent"/> marks that cell finished.
+///     <see cref="AgentStartedEvent"/> appends a cell to the tab for the agent's OWN
+///     workspace, and a <see cref="AgentSettledEvent"/> marks that cell finished.
 ///     <para>CREATED FROM THE EVENT, NEVER FROM A QUERY. Polling
 ///     <c>IAgentStore.ListChildrenAsync</c> is the mechanism this replaces: a scan cannot tell
 ///     'just started' from 'was already there', so it would resurrect every agent a workspace
@@ -17,7 +17,7 @@ namespace eThangAgent.Desktop.ViewModels;
 ///     existing cell instead of appending a duplicate.</para>
 ///     <para>THE CELL'S LABEL AND ITS CHAIN COME FROM THE AGENT'S OWN RECORD, read once at
 ///     start. The event carries metadata only (ids, timestamps, model, attempts) by the
-///     ChildEvent family's own contract, so neither the label a user typed nor the chain step
+///     AgentEvent family's own contract, so neither the label a user typed nor the chain step
 ///     the agent executes is on it - and D9 requires the UI to show a label. One read at
 ///     creation is a creation-time fact, not the per-tick polling this design rejects.</para>
 ///     <para>THREADING: events arrive on stream threads; every cell mutation runs through the
@@ -67,7 +67,7 @@ internal sealed class AgentCellSubscriber(
   /// <summary>The facts that arrived for an agent whose cell is still being created, keyed by
   ///     agent and kept in arrival order. An entry exists from the started fact until its cell
   ///     lands, and every fact for that agent joins the list instead of being routed.</summary>
-  private readonly Dictionary<AgentId, List<ChildEvent>> _held = [];
+  private readonly Dictionary<AgentId, List<AgentEvent>> _held = [];
 
   /// <summary>Routes one agent fact to its cell: started appends it, settled finishes it,
   ///     a progress beat moves its phase chip (#331), and an idle or budget alert sets its
@@ -81,7 +81,7 @@ internal sealed class AgentCellSubscriber(
   ///     </para>
   ///     <para>Contained: a presentation fault must never reach the agent loop, the same rule
   ///     every stream subscriber follows.</para></summary>
-  public void OnEvent(ChildEvent evt)
+  public void OnEvent(AgentEvent evt)
   {
     ArgumentNullException.ThrowIfNull(evt);
 #pragma warning disable CA1031 // Named decision: a UI fault must never reach the agent loop.
@@ -89,27 +89,27 @@ internal sealed class AgentCellSubscriber(
     {
       switch (evt)
       {
-        case ChildStartedEvent started:
+        case AgentStartedEvent started:
           // HELD BEFORE THE FIRST AWAIT: from here until the cell lands, every fact for this
           // agent is kept rather than looked up, which is the whole of what closes the gap.
-          Hold(started.ChildId);
+          Hold(started.Id);
           // A RETRIED START IS DECIDED ON THE MARSHAL, before the read below suspends. The cell
           // it resumes is the cell a later settle must finish, so the reset has to hold the
           // started fact's position in the queue rather than land after whatever arrived since.
-          ResumeExistingCell(started.ChildId);
+          ResumeExistingCell(started.Id);
           _ = StartAsync(started);
           break;
-        case ChildSettledEvent settled:
-          Route(settled.ChildId, settled);
+        case AgentSettledEvent settled:
+          Route(settled.Id, settled);
           break;
-        case ChildProgressEvent progress:
-          Route(progress.ChildId, progress);
+        case AgentProgressEvent progress:
+          Route(progress.Id, progress);
           break;
-        case ChildIdleAlertEvent idle:
-          Route(idle.ChildId, idle);
+        case AgentIdleAlertEvent idle:
+          Route(idle.Id, idle);
           break;
-        case ChildBudgetAlertEvent budget:
-          Route(budget.ChildId, budget);
+        case AgentBudgetAlertEvent budget:
+          Route(budget.Id, budget);
           break;
         default:
           break;
@@ -131,11 +131,11 @@ internal sealed class AgentCellSubscriber(
   ///     <para>AN AGENT WHOSE WORKSPACE HAS NO OPEN TAB IS DROPPED, not queued: it keeps
   ///     running in its host, but a cell can only exist inside an open tab, and inventing one
   ///     would open a workspace the user did not ask for.</para></summary>
-  private async Task StartAsync(ChildStartedEvent started)
+  private async Task StartAsync(AgentStartedEvent started)
   {
-    // The fact family names the field ChildId; in this path it is the agent's id, so it is named
+    // The fact family names the field AgentId; in this path it is the agent's id, so it is named
     // that from here on and nothing downstream reads it as anything else.
-    AgentId agentId = started.ChildId;
+    AgentId agentId = started.Id;
     IAgentStore? store = _storeFor();
     AgentRecord? record = await ReadRecordAsync(store, agentId).ConfigureAwait(false);
     if (record?.WorkspaceId is not { } workspaceId || _tabForWorkspace(workspaceId) is not { } tab)
@@ -226,7 +226,7 @@ internal sealed class AgentCellSubscriber(
   /// <param name="cell">The cell to apply the held facts to.</param>
   private void Release(AgentId agentId, AgentCellViewModel cell)
   {
-    List<ChildEvent>? held;
+    List<AgentEvent>? held;
     lock (_heldGate)
     {
       if (!_held.TryGetValue(agentId, out held))
@@ -237,7 +237,7 @@ internal sealed class AgentCellSubscriber(
       _ = _held.Remove(agentId);
     }
 
-    foreach (ChildEvent fact in held)
+    foreach (AgentEvent fact in held)
     {
       Apply(fact, cell);
     }
@@ -252,7 +252,7 @@ internal sealed class AgentCellSubscriber(
   ///     </para></summary>
   /// <param name="agentId">The agent the fact names.</param>
   /// <param name="fact">The fact to apply.</param>
-  private void Route(AgentId agentId, ChildEvent fact)
+  private void Route(AgentId agentId, AgentEvent fact)
   {
     _marshal(() =>
     {
@@ -264,7 +264,7 @@ internal sealed class AgentCellSubscriber(
 
       lock (_heldGate)
       {
-        if (_held.TryGetValue(agentId, out List<ChildEvent>? held))
+        if (_held.TryGetValue(agentId, out List<AgentEvent>? held))
         {
           held.Add(fact);
         }
@@ -275,20 +275,20 @@ internal sealed class AgentCellSubscriber(
   /// <summary>Applies one fact to one cell.</summary>
   /// <param name="fact">The fact to apply.</param>
   /// <param name="cell">The cell it belongs to.</param>
-  private static void Apply(ChildEvent fact, AgentCellViewModel cell)
+  private static void Apply(AgentEvent fact, AgentCellViewModel cell)
   {
     switch (fact)
     {
-      case ChildSettledEvent:
+      case AgentSettledEvent:
         cell.MarkFinished();
         break;
-      case ChildProgressEvent progress:
+      case AgentProgressEvent progress:
         cell.ApplyPhaseBeat(progress.Label);
         break;
-      case ChildIdleAlertEvent idle:
+      case AgentIdleAlertEvent idle:
         cell.ApplyAlert(IdleNotice(idle));
         break;
-      case ChildBudgetAlertEvent budget:
+      case AgentBudgetAlertEvent budget:
         cell.ApplyAlert(BudgetNotice(budget));
         break;
       default:
@@ -318,13 +318,13 @@ internal sealed class AgentCellSubscriber(
 
   /// <summary>The one line an idle alert states in its cell's transcript.</summary>
   /// <param name="idle">The alert, whose idle age is the fact worth reading.</param>
-  private static string IdleNotice(ChildIdleAlertEvent idle)
+  private static string IdleNotice(AgentIdleAlertEvent idle)
     => string.Create(CultureInfo.InvariantCulture,
         $"this agent has been idle for {(int)idle.IdleAge.TotalMinutes}m (last phase {idle.LastPhase}); the harness will nudge it.");
 
   /// <summary>The one line a budget alert states in its cell's transcript.</summary>
   /// <param name="budget">The alert, whose kind and consumption are the facts worth reading.</param>
-  private static string BudgetNotice(ChildBudgetAlertEvent budget)
+  private static string BudgetNotice(AgentBudgetAlertEvent budget)
     => string.Create(CultureInfo.InvariantCulture,
         $"this agent has consumed {budget.Consumed:0.#} {budget.BudgetKind} (ceiling {(budget.Ceiling is { } ceiling ? ceiling.ToString("0.#", CultureInfo.InvariantCulture) : "none")}, burn {budget.BurnRatePerMinute:0.#}/min).");
 

@@ -228,7 +228,7 @@ public class AgentSteeringDesktopTests
         {
           WorkspaceRoot = @"C:\work\demo",
           Inbox = inbox,
-          ChildEvents = events,
+          AgentEvents = events,
           UiMarshal = action => action(),
         });
 

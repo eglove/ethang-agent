@@ -247,7 +247,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // Child-event forwarding (issue #245): the app's subagent panel subscribes the
       // APP container's event stream, and this child publishes into ITS OWN container's
       // stream — a different object in a different process. The forwarder republishes
-      // every event as a child-event envelope, so the panel, badge, and wake adapters
+      // every event as a agent-event envelope, so the panel, badge, and wake adapters
       // observe remote children exactly like in-process ones. SUBSCRIBED BEFORE THE RUN
       // IS DISPATCHED: the run's first act is to publish its started event, and a
       // forwarder attached after the dispatch races it and loses.
@@ -270,7 +270,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // Host-side idle detection (handoff item 2): the host runs the watchdog over the
       // child run — facts from the child container's event stream, policy enacted
       // through the host's own runtime. The app never guesses from absent beats.
-      if (BuildChildWatchdog(host, loaded.Value.Id) is { } watchdog)
+      if (BuildAgentWatchdog(host, loaded.Value.Id) is { } watchdog)
       {
         watchdog.Start();
       }
@@ -308,14 +308,14 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     }
   }
 
-  /// <summary>Subscribes the child-event forwarder (issue #245) to the CHILD CONTAINER's
+  /// <summary>Subscribes the agent-event forwarder (issue #245) to the CHILD CONTAINER's
   ///     own event stream: every event the child publishes is serialized into a
-  ///     <see cref="ChildEventEnvelope"/> and sent as a <c>child-event</c> envelope, so
+  ///     <see cref="AgentEventEnvelope"/> and sent as a <c>agent-event</c> envelope, so
   ///     the app-side runtime can republish it onto the session's stream. The lease is
   ///     registered for the child's finally block to dispose. Best-effort: a container
   ///     without an event stream (a test rig) skips silently — the child still runs, only
   ///     the app's realtime view is absent. A failed subscribe never fails the run.
-  ///     <para>The events are METADATA-ONLY by the ChildEvent family's own contract (D5):
+  ///     <para>The events are METADATA-ONLY by the AgentEvent family's own contract (D5):
   ///     ids, timestamps, enums, counts, short labels — never message or report content —
   ///     so the wire carries nothing the transcript does not already hold.</para></summary>
   private void AttachEventForwarder(SessionHost host, Guid recordId)
@@ -325,9 +325,9 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return;
     }
 
-    // The envelope's child id comes from the EVENT itself (ChildEventEnvelope.From), so
+    // The envelope's child id comes from the EVENT itself (AgentEventEnvelope.From), so
     // the forwarder needs no per-child state — one subscriber shape serves every child.
-    ChildEventForwarder forwarder = new(SendChildEventAsync);
+    AgentEventForwarder forwarder = new(SendAgentEventAsync);
     IDisposable lease = events.Subscribe(forwarder);
     _eventLeases[recordId] = lease;
   }
@@ -338,13 +338,13 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///   event — the app's panel is a realtime VIEW, not a durable record (the transcript
   ///   store is), and a dropped progress beat costs nothing. The fault is contained
   ///   here: the stream's other subscribers must never see it.</summary>
-  private async Task SendChildEventAsync(ChildEventEnvelope envelope)
+  private async Task SendAgentEventAsync(AgentEventEnvelope envelope)
   {
     _ = Interlocked.Increment(ref _forwardedEvents);
 #pragma warning disable CA1031 // Named decision: a failed wire send must never reach the child loop.
     try
     {
-      await SendAsync("child-event", JsonSerializer.Serialize(envelope)).ConfigureAwait(false);
+      await SendAsync("agent-event", JsonSerializer.Serialize(envelope)).ConfigureAwait(false);
     }
     catch
     {
@@ -353,7 +353,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 #pragma warning restore CA1031 // Do not catch general exception types
   }
 
-  /// <summary>How many forwarded child-event envelopes this host has handed to the wire.
+  /// <summary>How many forwarded agent-event envelopes this host has handed to the wire.
   ///     An OBSERVATION seam for tests: a rig with no app attached drops every write by
   ///     contract, so 'was the forwarder subscribed at all' is otherwise unobservable.</summary>
   private long _forwardedEvents;
@@ -364,9 +364,9 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   /// <summary>The forwarder itself: translates one child event into its wire envelope.
   ///   A fault in serialization is contained (the stream's fault boundary) — a lost
   ///   event degrades the realtime view, never the run.</summary>
-  private sealed class ChildEventForwarder(Func<ChildEventEnvelope, Task> send) : IAgentEventSubscriber
+  private sealed class AgentEventForwarder(Func<AgentEventEnvelope, Task> send) : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt)
+    public void OnEvent(AgentEvent evt)
     {
       // Named decision (CA1031): presentation containment — the child loop's other
       // subscribers (the host watchdog's SupervisorFeed among them) must never see a
@@ -374,7 +374,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 #pragma warning disable CA1031 // Do not catch general exception types
       try
       {
-        _ = send(ChildEventEnvelope.From(evt));
+        _ = send(AgentEventEnvelope.From(evt));
       }
       catch
       {
@@ -389,7 +389,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     session, here rooted at the child id so the registry path supervises it.
   ///     Best-effort: a container missing a seam yields no watchdog (the child still
   ///     runs; only idle detection is absent), never a failed start.</summary>
-  private static HostChildWatchdog? BuildChildWatchdog(SessionHost host, AgentId childId)
+  private static HostAgentWatchdog? BuildAgentWatchdog(SessionHost host, AgentId agentId)
   {
     if (host.Services.GetService(typeof(IAgentHeartbeat)) is not IAgentHeartbeat heartbeat
         || host.Services.GetService(typeof(IWatchdogEventStore)) is not IWatchdogEventStore audit)
@@ -401,7 +401,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     // exactly those values, or WatchdogOptions.Default when the app shipped none.
     WatchdogOptions options = host.EffectiveWatchdogOptions;
     IAgentEvents? stream = host.Services.GetService(typeof(IAgentEvents)) as IAgentEvents;
-    ChildSupervisorRegistry? supervisors = host.Services.GetService(typeof(ChildSupervisorRegistry)) as ChildSupervisorRegistry;
+    AgentSupervisorRegistry? supervisors = host.Services.GetService(typeof(AgentSupervisorRegistry)) as AgentSupervisorRegistry;
     // THE LEAF EXECUTOR, NOT THE ORCHESTRATION SEAM (issue #330 review F3). The watchdog
     // supervises the one agent THIS host runs, and every act it takes - interrupt the idle run,
     // start the wrap-up retry - must land on the runtime that owns that run's cancellation token
@@ -412,7 +412,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     WatchdogServices services = new(host.Store, host.LocalRunner, heartbeat, audit,
         WatchdogPolicyFactory.FromOptions(options),
         options, TimeProvider.System, stream, supervisors);
-    return new HostChildWatchdog(childId, services);
+    return new HostAgentWatchdog(agentId, services);
   }
 
   /// <summary>Handles one root turn (spec D6): the app forwards the user's input and the
@@ -753,7 +753,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         System.Text.Encoding.UTF8.GetByteCount("steer"), messageId));
   }
 
-  /// <summary>Subscribes the child-event forwarder to the ROOT container's event stream
+  /// <summary>Subscribes the agent-event forwarder to the ROOT container's event stream
   ///     (issue #253 B3), so the root loop's mailbox lifecycle facts - above all the DRAIN
   ///     naming which steering messages it consumed - reach the app. The app's pinned
   ///     steering echo is released by exactly that name; without the forwarder the echo
@@ -767,7 +767,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return;
     }
 
-    ChildEventForwarder forwarder = new(SendChildEventAsync);
+    AgentEventForwarder forwarder = new(SendAgentEventAsync);
     _rootEventLease ??= events.Subscribe(forwarder);
   }
 
@@ -1164,7 +1164,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         return;
       }
 
-      if (BuildChildWatchdog(host, loaded.Value.Id) is { } watchdog)
+      if (BuildAgentWatchdog(host, loaded.Value.Id) is { } watchdog)
       {
         watchdog.Start();
       }

@@ -113,7 +113,7 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   /// <summary>Placeholder replaced with the most recently observed child-agent id before a
   ///     scripted response is served: child ids are runtime Guids no static script can
   ///     predict, so scripts reference them only through this placeholder.</summary>
-  public const string ChildIdPlaceholder = "{{child_id}}";
+  public const string AgentIdPlaceholder = "{{child_id}}";
 
   /// <summary>Agent-id annotation inside a tool result. The async contract renders
   ///     'id=&lt;guid&gt; status=…' lines (spawn/status results); the legacy '[agent] '
@@ -216,7 +216,7 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
         && scripted.Count > 0
         ? scripted.Dequeue()
         : NextDefaultScriptedBody();
-    return SubstituteChildId(body, requestBody);
+    return SubstituteAgentId(body, requestBody);
   }
 
   private string NextDefaultScriptedBody()
@@ -230,19 +230,19 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   ///     recent agent id observed in the request's tool results. A script demanding
   ///     substitution with no observed id is a broken test script: refused loudly as a 500,
   ///     never served as-is where the failure would surface far from its cause.</summary>
-  private static string SubstituteChildId(string scriptedBody, string requestBody)
+  private static string SubstituteAgentId(string scriptedBody, string requestBody)
   {
-    return !scriptedBody.Contains(ChildIdPlaceholder, StringComparison.Ordinal)
+    return !scriptedBody.Contains(AgentIdPlaceholder, StringComparison.Ordinal)
         ? scriptedBody
         : Substitute(scriptedBody, requestBody);
   }
 
   private static string Substitute(string scriptedBody, string requestBody)
   {
-    return TryGetMostRecentAgentId(requestBody) is { } childId
-        ? scriptedBody.Replace(ChildIdPlaceholder, childId.ToString("D"), StringComparison.Ordinal)
+    return TryGetMostRecentAgentId(requestBody) is { } agentId
+        ? scriptedBody.Replace(AgentIdPlaceholder, agentId.ToString("D"), StringComparison.Ordinal)
         : throw new InvalidOperationException(
-            $"Scripted response contains '{ChildIdPlaceholder}' but no tool result " +
+            $"Scripted response contains '{AgentIdPlaceholder}' but no tool result " +
             "in the request carries an agent id ('id=<guid>').");
   }
 

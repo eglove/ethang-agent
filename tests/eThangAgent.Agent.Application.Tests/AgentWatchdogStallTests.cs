@@ -77,9 +77,9 @@ public class AgentWatchdogStallTests
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-    public void Interrupt(AgentId? childId = null)
+    public void Interrupt(AgentId? agentId = null)
     {
-      if (childId is { } id)
+      if (agentId is { } id)
       {
         Interrupted.Add(id.Value);
         OnInterrupt?.Invoke(id.Value);
@@ -122,7 +122,7 @@ public class AgentWatchdogStallTests
     public Task<Result<int>> CountKindForAgentAsync(AgentId agentId, WatchdogEventKind kind, CancellationToken ct = default)
       => Task.FromResult(Result.Success(Appended.Count(e => e.AgentId == agentId && e.Kind == kind)));
   }
-  private sealed class ChildEventStream : IAgentEvents
+  private sealed class AgentEventStream : IAgentEvents
   {
     private readonly List<IAgentEventSubscriber> _subscribers = [];
 
@@ -132,7 +132,7 @@ public class AgentWatchdogStallTests
       return new StreamLease();
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber subscriber in _subscribers.ToArray())
       {
@@ -156,12 +156,12 @@ public class AgentWatchdogStallTests
     FakeRuntime runtime = new();
     FakeHeartbeat heartbeat = new();
     FakeEvents audit = new();
-    ChildEventStream stream = new();
-    ChildSupervisorRegistry supervisors = new();
-    AgentId childId = new(Guid.NewGuid());
-    ChildSupervisor supervisor = new(childId, stream, clock, ceilings: null);
+    AgentEventStream stream = new();
+    AgentSupervisorRegistry supervisors = new();
+    AgentId agentId = new(Guid.NewGuid());
+    AgentSupervisor supervisor = new(agentId, stream, clock, ceilings: null);
     supervisor.OnStart(0);
-    supervisors.Register(childId, supervisor);
+    supervisors.Register(agentId, supervisor);
     // Policy: idle threshold 15m (child stays under it), stall threshold 2m (child crosses it).
     WatchdogServices services = new(store, runtime, heartbeat, audit,
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
@@ -172,12 +172,12 @@ public class AgentWatchdogStallTests
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
     AgentRecord child = Child(root.Id, T0);
     store.Records[root.Id.Value] = root;
-    store.Records[childId.Value] = child;
+    store.Records[agentId.Value] = child;
 
     clock.Now = T0.AddMinutes(3); // under idle (15m), past stall (2m)
     await watchdog.TickAsync();
 
-    Assert.DoesNotContain(runtime.Interrupted, id => id == childId.Value); // observation only
+    Assert.DoesNotContain(runtime.Interrupted, id => id == agentId.Value); // observation only
     Assert.Contains(audit.Appended, e => e.Kind == WatchdogEventKind.StreamStalled);
   }
 
@@ -190,13 +190,13 @@ public class AgentWatchdogStallTests
     FakeRuntime runtime = new();
     FakeHeartbeat heartbeat = new();
     FakeEvents audit = new();
-    ChildEventStream stream = new();
-    ChildSupervisorRegistry supervisors = new();
-    AgentId childId = new(Guid.NewGuid());
-    ChildSupervisor supervisor = new(childId, stream, clock, ceilings: null);
+    AgentEventStream stream = new();
+    AgentSupervisorRegistry supervisors = new();
+    AgentId agentId = new(Guid.NewGuid());
+    AgentSupervisor supervisor = new(agentId, stream, clock, ceilings: null);
     supervisor.OnStart(0);
     supervisor.OnStreamActivity("content");
-    supervisors.Register(childId, supervisor);
+    supervisors.Register(agentId, supervisor);
     WatchdogServices services = new(store, runtime, heartbeat, audit,
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
@@ -206,7 +206,7 @@ public class AgentWatchdogStallTests
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
     AgentRecord child = Child(root.Id, T0);
     store.Records[root.Id.Value] = root;
-    store.Records[childId.Value] = child;
+    store.Records[agentId.Value] = child;
 
     clock.Now = T0.AddMinutes(1); // under the 2-minute stall threshold
     await watchdog.TickAsync();
@@ -353,13 +353,13 @@ public class AgentWatchdogStallTests
     FakeRuntime runtime = new();
     FakeHeartbeat heartbeat = new();
     FakeEvents audit = new();
-    ChildEventStream stream = new();
-    ChildSupervisorRegistry supervisors = new();
-    AgentId childId = new(Guid.NewGuid());
-    ChildSupervisor supervisor = new(childId, stream, clock, ceilings: null);
+    AgentEventStream stream = new();
+    AgentSupervisorRegistry supervisors = new();
+    AgentId agentId = new(Guid.NewGuid());
+    AgentSupervisor supervisor = new(agentId, stream, clock, ceilings: null);
     supervisor.OnStart(0);
     supervisor.OnStreamActivity("content"); // stream fresh; never stalls
-    supervisors.Register(childId, supervisor);
+    supervisors.Register(agentId, supervisor);
     WatchdogServices services = new(store, runtime, heartbeat, audit,
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
@@ -369,7 +369,7 @@ public class AgentWatchdogStallTests
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
     AgentRecord child = Child(root.Id, T0);
     store.Records[root.Id.Value] = root;
-    store.Records[childId.Value] = child;
+    store.Records[agentId.Value] = child;
     runtime.OnInterrupt = id => store.Records[id] = store.Records[id] with
     {
       Status = AgentStatus.Failed,

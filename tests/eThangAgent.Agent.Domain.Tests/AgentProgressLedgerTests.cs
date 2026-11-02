@@ -11,15 +11,15 @@ public class ChildProgressLedgerTests
   [Fact]
   public void Progress_Event_RecordsTheLatestSnapshot()
   {
-    ChildProgressLedger ledger = new();
+    AgentProgressLedger ledger = new();
     AgentId child = AgentId.NewId();
 
-    ledger.OnEvent(new ChildProgressEvent(child, T0, ChildPhase.ModelCall, "iteration"));
-    ledger.OnEvent(new ChildProgressEvent(child, T0.AddSeconds(5), ChildPhase.ToolExec, "tool:read"));
+    ledger.OnEvent(new AgentProgressEvent(child, T0, AgentPhase.ModelCall, "iteration"));
+    ledger.OnEvent(new AgentProgressEvent(child, T0.AddSeconds(5), AgentPhase.ToolExec, "tool:read"));
 
-    ChildProgressSnapshot? latest = ledger.Find(child);
+    AgentProgressSnapshot? latest = ledger.Find(child);
     Assert.NotNull(latest);
-    Assert.Equal(ChildPhase.ToolExec, latest.Phase);
+    Assert.Equal(AgentPhase.ToolExec, latest.Phase);
     Assert.Equal("tool:read", latest.Label);
     Assert.Equal(T0.AddSeconds(5), latest.At);
   }
@@ -27,11 +27,11 @@ public class ChildProgressLedgerTests
   [Fact]
   public void Settled_Event_DropsTheEntry()
   {
-    ChildProgressLedger ledger = new();
+    AgentProgressLedger ledger = new();
     AgentId child = AgentId.NewId();
-    ledger.OnEvent(new ChildProgressEvent(child, T0, ChildPhase.ToolExec, "tool:read"));
+    ledger.OnEvent(new AgentProgressEvent(child, T0, AgentPhase.ToolExec, "tool:read"));
 
-    ledger.OnEvent(new ChildSettledEvent(child, T0.AddSeconds(9), AgentStatus.Completed, null, 12));
+    ledger.OnEvent(new AgentSettledEvent(child, T0.AddSeconds(9), AgentStatus.Completed, null, 12));
 
     Assert.Null(ledger.Find(child));
   }
@@ -39,7 +39,7 @@ public class ChildProgressLedgerTests
   [Fact]
   public void UnknownChild_HasNoSnapshot()
   {
-    ChildProgressLedger ledger = new();
+    AgentProgressLedger ledger = new();
 
     Assert.Null(ledger.Find(AgentId.NewId()));
   }
@@ -47,11 +47,11 @@ public class ChildProgressLedgerTests
   [Fact]
   public void OtherEventKinds_CreateNoFacts()
   {
-    ChildProgressLedger ledger = new();
+    AgentProgressLedger ledger = new();
     AgentId child = AgentId.NewId();
 
     ledger.OnEvent(new MessageDeliveredEvent(child, T0, "root-steer", 64));
-    ledger.OnEvent(new ChildIdleAlertEvent(child, T0, TimeSpan.FromMinutes(3), "ModelCall"));
+    ledger.OnEvent(new AgentIdleAlertEvent(child, T0, TimeSpan.FromMinutes(3), "ModelCall"));
 
     Assert.Null(ledger.Find(child));
   }
@@ -59,13 +59,13 @@ public class ChildProgressLedgerTests
   [Fact]
   public void Children_AreTrackedIndependently()
   {
-    ChildProgressLedger ledger = new();
+    AgentProgressLedger ledger = new();
     AgentId first = AgentId.NewId();
     AgentId second = AgentId.NewId();
 
-    ledger.OnEvent(new ChildProgressEvent(first, T0, ChildPhase.ModelCall, "iteration"));
-    ledger.OnEvent(new ChildProgressEvent(second, T0.AddSeconds(1), ChildPhase.Draining, "tool-result"));
-    ledger.OnEvent(new ChildSettledEvent(first, T0.AddSeconds(2), AgentStatus.Completed, null, 1));
+    ledger.OnEvent(new AgentProgressEvent(first, T0, AgentPhase.ModelCall, "iteration"));
+    ledger.OnEvent(new AgentProgressEvent(second, T0.AddSeconds(1), AgentPhase.Draining, "tool-result"));
+    ledger.OnEvent(new AgentSettledEvent(first, T0.AddSeconds(2), AgentStatus.Completed, null, 1));
 
     Assert.Null(ledger.Find(first));
     Assert.Equal("tool-result", ledger.Find(second)!.Label);

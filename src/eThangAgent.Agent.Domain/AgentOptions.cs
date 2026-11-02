@@ -39,7 +39,7 @@ public sealed record AgentOptions
   ///     mutation flows here at the safe point it happens, so an interrupt or crash
   ///     leaves the run's history persisted. Null (legacy wiring) persists nothing
   ///     during the run: byte-identical legacy behavior.</summary>
-  public IChildTranscriptStore? TranscriptSink { get; init; }
+  public IAgentTranscriptStore? TranscriptSink { get; init; }
 
   /// <summary>Invoked with "content" or "reasoning" on every provider stream fragment
   ///     (the stream-stall liveness signal). May fire on arbitrary threads; observers

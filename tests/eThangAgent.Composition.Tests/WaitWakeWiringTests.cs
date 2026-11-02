@@ -9,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace eThangAgent.Composition.Tests;
 
 /// <summary>The wait wake bus must exist per container: the hub singleton, the
-///     child-event adapter connected, the state bus publishing through the state
+///     agent-event adapter connected, the state bus publishing through the state
 ///     service, the signaling inbox decorating the root mailbox, and the provider's
 ///     wake parsing live through DI.</summary>
 public class WaitWakeWiringTests
@@ -79,11 +79,11 @@ public class WaitWakeWiringTests
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = AgentId.NewId();
 
-    events.Publish(new ChildIdleAlertEvent(child, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(3), "ToolExec"));
+    events.Publish(new AgentIdleAlertEvent(child, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(3), "ToolExec"));
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.Idle, signal.Reason);
-    Assert.Equal(child, signal.ChildId);
+    Assert.Equal(child, signal.Id);
   }
 
   [Fact]
@@ -96,7 +96,7 @@ public class WaitWakeWiringTests
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
 
-    events.Publish(new ChildProgressEvent(AgentId.NewId(), DateTimeOffset.UtcNow, ChildPhase.ToolExec, "tool:read"));
+    events.Publish(new AgentProgressEvent(AgentId.NewId(), DateTimeOffset.UtcNow, AgentPhase.ToolExec, "tool:read"));
 
     Assert.Empty(seen);
   }
@@ -126,10 +126,10 @@ public class WaitWakeWiringTests
     // resolves it, so a lazy registration would never subscribe).
     using ServiceProvider services = Build();
     IAgentEvents events = services.GetRequiredService<IAgentEvents>();
-    ChildProgressLedger ledger = services.GetRequiredService<ChildProgressLedger>();
+    AgentProgressLedger ledger = services.GetRequiredService<AgentProgressLedger>();
     AgentId child = AgentId.NewId();
 
-    events.Publish(new ChildProgressEvent(child, DateTimeOffset.UtcNow, ChildPhase.ToolExec, "tool:read"));
+    events.Publish(new AgentProgressEvent(child, DateTimeOffset.UtcNow, AgentPhase.ToolExec, "tool:read"));
 
     Assert.Equal("tool:read", ledger.Find(child)!.Label);
   }
@@ -140,13 +140,13 @@ public class WaitWakeWiringTests
     // The ledger is a READ surface only: subscribing it must not make progress
     // wake-worthy (a wait that woke on every tool call would never rest).
     using ServiceProvider services = Build();
-    _ = services.GetRequiredService<ChildProgressLedger>();
+    _ = services.GetRequiredService<AgentProgressLedger>();
     IAgentEvents events = services.GetRequiredService<IAgentEvents>();
     WaitWakeHub hub = services.GetRequiredService<WaitWakeHub>();
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
 
-    events.Publish(new ChildProgressEvent(AgentId.NewId(), DateTimeOffset.UtcNow, ChildPhase.ToolExec, "tool:read"));
+    events.Publish(new AgentProgressEvent(AgentId.NewId(), DateTimeOffset.UtcNow, AgentPhase.ToolExec, "tool:read"));
 
     Assert.Empty(seen);
   }
@@ -158,9 +158,9 @@ public class WaitWakeWiringTests
     SubAgentServices svc = services.GetRequiredService<SubAgentServices>();
     Assert.NotNull(svc.SupervisorFor);
 
-    ChildSupervisorRegistry registry = services.GetRequiredService<ChildSupervisorRegistry>();
+    AgentSupervisorRegistry registry = services.GetRequiredService<AgentSupervisorRegistry>();
     AgentId child = AgentId.NewId();
-    ChildSupervisor supervisor = new(child, NullAgentEvents.Instance, TimeProvider.System, ceilings: null);
+    AgentSupervisor supervisor = new(child, NullAgentEvents.Instance, TimeProvider.System, ceilings: null);
     registry.Register(child, supervisor);
 
     Assert.Same(supervisor, svc.SupervisorFor!(child));

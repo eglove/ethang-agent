@@ -32,7 +32,7 @@ public interface IRootSessionHost
 ///     (<see cref="RootSupervisionPolicy"/> reads the same attempt budget); the supervision
 ///     had to be built.</para>
 ///     <para>THE CLOCK IS THE ROOT LOOP'S OWN TURN FACTS (<see cref="RootTurnActivity"/>),
-///     never <see cref="ChildProgressEvent"/> - #305 retired the child runtime and #316
+///     never <see cref="AgentProgressEvent"/> - #305 retired the child runtime and #316
 ///     retires the sibling machinery, so a clock fed by child beats would stop ticking
 ///     silently. It is also never a bare wall-clock timer, the mechanism <c>ChildTimeout</c>
 ///     was deleted for.</para>

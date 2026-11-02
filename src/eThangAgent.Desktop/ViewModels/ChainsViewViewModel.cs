@@ -599,7 +599,7 @@ internal sealed partial class ChainsViewViewModel(
   ///     is child-run telemetry this view does not render.</summary>
   private sealed class ChainChangeSubscriber(Action onChainChanged) : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt)
+    public void OnEvent(AgentEvent evt)
     {
       if (evt is ChainChangedEvent)
       {

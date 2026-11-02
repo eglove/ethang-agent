@@ -99,7 +99,7 @@ public class AgentCapabilityProviderTests
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-    public void Interrupt(AgentId? childId = null) { }
+    public void Interrupt(AgentId? agentId = null) { }
   }
 
   // --- spawn ---------------------------------------------------------------
@@ -467,16 +467,16 @@ public class AgentCapabilityProviderTests
   [Fact]
   public async Task Resume_DispatchesToRuntime_AndReturnsStartReceipt()
   {
-    Guid childId = Guid.NewGuid();
+    Guid agentId = Guid.NewGuid();
     FakeRuntime runtime = new();
     (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), runtime: runtime);
 
     CapabilityInvocationResult result = await provider.InvokeAsync("resume",
-        $"{{\"id\":\"{childId}\",\"text\":\"fix the failing tests\"}}", TestContext.Current.CancellationToken);
+        $"{{\"id\":\"{agentId}\",\"text\":\"fix the failing tests\"}}", TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError, result.Content);
-    Assert.Equal($"id={childId} status=running", result.Content.Trim());
-    Assert.Equal([(childId, "fix the failing tests")], runtime.Resumed);
+    Assert.Equal($"id={agentId} status=running", result.Content.Trim());
+    Assert.Equal([(agentId, "fix the failing tests")], runtime.Resumed);
   }
 
   [Fact]

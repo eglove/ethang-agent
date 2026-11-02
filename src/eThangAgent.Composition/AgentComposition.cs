@@ -819,7 +819,7 @@ public static class AgentComposition
   private static IServiceCollection AddWakeAndMailboxServices(IServiceCollection wired)
   {
     return wired
-        // The wait wake bus (spec #62): one hub per session; the child-event adapter and
+        // The wait wake bus (spec #62): one hub per session; the agent-event adapter and
         // the state-change adapter feed it; the root inbox decorator fires the
         // unconditional user wake. Ephemeral, in-process — remote waits keep today's
         // behavior (documented at RemoteAgentRuntime).
@@ -832,7 +832,7 @@ public static class AgentComposition
         .AddSingleton(sp =>
         {
           WaitWakeHub hub = new();
-          _ = new ChildEventWakeAdapter(sp.GetRequiredService<IAgentEvents>(), hub);
+          _ = new AgentEventWakeAdapter(sp.GetRequiredService<IAgentEvents>(), hub);
           _ = new StateChangeWakeAdapter(sp.GetRequiredService<IStateChangeBus>(), hub);
           return hub;
         })
@@ -843,7 +843,7 @@ public static class AgentComposition
         // attached to the wake hub (progress must never wake a wait).
         .AddSingleton(sp =>
         {
-          ChildProgressLedger ledger = new();
+          AgentProgressLedger ledger = new();
           _ = sp.GetRequiredService<IAgentEvents>().Subscribe(ledger);
           return ledger;
         })
@@ -854,8 +854,8 @@ public static class AgentComposition
             ownerId: sp.GetRequiredService<RootSessionIdentity>().Id ?? AgentId.NewId()))
         .AddSingleton<IAgentEvents, InProcessAgentEvents>()
 
-        .AddSingleton<ChildSupervisorRegistry>()
-        .AddSingleton<ChildMailboxRegistry>();
+        .AddSingleton<AgentSupervisorRegistry>()
+        .AddSingleton<AgentMailboxRegistry>();
   }
 
   /// <summary>The sub-agent stack: the workspace anchor scope, the spawner and its services, and
@@ -880,10 +880,10 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentHeartbeat>(),
             sp.GetRequiredService<IAgentEvents>(),
             sp.GetRequiredService<IWatchdogEventStore>(),
-            InboxFor: id => sp.GetRequiredService<ChildMailboxRegistry>().InboxFor(id),
+            InboxFor: id => sp.GetRequiredService<AgentMailboxRegistry>().InboxFor(id),
             AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>(),
             Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>(),
-            SupervisorFor: id => sp.GetRequiredService<ChildSupervisorRegistry>().Find(id),
+            SupervisorFor: id => sp.GetRequiredService<AgentSupervisorRegistry>().Find(id),
             // The artifact store resolves at the child's ANCHOR when it has one (issue
             // #230): a generated image belongs beside the work that produced it.
             ServerToolImagesFor: anchor => anchor is null
@@ -950,7 +950,7 @@ public static class AgentComposition
                   sp.GetRequiredService<IAgentRuntime>(),
                   WakeSource: sp.GetRequiredService<WaitWakeHub>(),
                   Clock: TimeProvider.System,
-                  Progress: sp.GetRequiredService<ChildProgressLedger>(),
+                  Progress: sp.GetRequiredService<AgentProgressLedger>(),
                   // Fail-fast join: agent.fanout's advertised contract - failed STARTS
                   // (DepthExceeded, InvalidSpawnRequest, ...) fail the join immediately
                   // and surface under their own error code.
@@ -1062,9 +1062,9 @@ public static class AgentComposition
 
             if (contract.DecodedEffectiveTools is { } effective)
             {
-              AgentId childId = running.Id;
+              AgentId agentId = running.Id;
               surface = new FilteredCapabilityRegistry(surface, effective,
-                  onDenial: name => AuditGrantDenial(sp, childId, name));
+                  onDenial: name => AuditGrantDenial(sp, agentId, name));
             }
 
             return surface;
@@ -1317,8 +1317,8 @@ public static class AgentComposition
               sp.GetRequiredService<IAgentStore>(),
               settings.SubAgents.MaxConcurrentAgents,
               sp.GetRequiredService<IAgentEvents>(),
-              sp.GetRequiredService<ChildSupervisorRegistry>(),
-              sp.GetRequiredService<ChildMailboxRegistry>()));
+              sp.GetRequiredService<AgentSupervisorRegistry>(),
+              sp.GetRequiredService<AgentMailboxRegistry>()));
     return asOrchestrationRuntime
         ? wired.AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<InProcessAgentRuntime>())
         : wired;
@@ -1359,7 +1359,7 @@ public static class AgentComposition
               databasePath,
               sp.GetRequiredService<HostAdmissionGate>(),
               notice => sp.GetRequiredService<SessionNoticeSink>().Post(notice),
-              // A launched host forwards its agent's child events; the container that
+              // A launched host forwards its agent's agent events; the container that
               // launched it is what observes them, so they republish onto its own stream.
               sp.GetRequiredService<IAgentEvents>())
           {
@@ -1418,7 +1418,7 @@ public static class AgentComposition
                transport: null,
                settings.SubAgents.RootTurnBudget ?? RootTurnBudget.Default,
                // Child-event forwarding (issue #245): the runtime republishes the host's
-               // forwarded child-event envelopes onto THIS session's stream, so the
+               // forwarded agent-event envelopes onto THIS session's stream, so the
                // Desktop's subagent panel, unread badge, and wake adapters observe remote
                // children exactly like in-process ones.
                sp.GetRequiredService<IAgentEvents>()))
@@ -1592,14 +1592,14 @@ public static class AgentComposition
   }
   /// <summary>Best-effort exec-path grant audit (R1.4): a denied dispatch lands as a
   ///     GrantViolation watchdog row; a failing write never blocks the denial.</summary>
-  private static void AuditGrantDenial(IServiceProvider sp, AgentId childId, string actionName)
+  private static void AuditGrantDenial(IServiceProvider sp, AgentId agentId, string actionName)
   {
     _ = Task.Run(async () =>
     {
       try
       {
         _ = await sp.GetRequiredService<IWatchdogEventStore>().AppendAsync(new WatchdogEvent(
-            Guid.NewGuid(), childId, WatchdogEventKind.GrantViolation,
+            Guid.NewGuid(), agentId, WatchdogEventKind.GrantViolation,
             "action '" + actionName + "' denied at exec dispatch", 0, null, DateTimeOffset.UtcNow)).ConfigureAwait(false);
       }
       // Named decision (CA1031): audit is best-effort by contract — a failed event

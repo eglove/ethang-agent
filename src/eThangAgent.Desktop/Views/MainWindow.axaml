@@ -126,7 +126,7 @@
           <DataTemplate x:DataType="vm:AgentTabViewModel">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
-              <!-- W4.4: unread-steering badge - pushed by the session's child-event
+              <!-- W4.4: unread-steering badge - pushed by the session's agent-event
                    stream (deliver raises, drain/settle clear), never polled. -->
               <Border CornerRadius="8" Padding="5,0" Background="#4C8CFF"
                       VerticalAlignment="Center"

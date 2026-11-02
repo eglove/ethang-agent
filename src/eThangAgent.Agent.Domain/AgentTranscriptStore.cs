@@ -15,7 +15,7 @@ namespace eThangAgent.AgentDomain;
 ///     (2026-10-19: ~1 in 10 nested-spawn E2E runs failed this way). FlushAsync waits the
 ///     active drain out instead of returning early, so a terminal flush never reports a
 ///     count the store has not reached.</para></summary>
-public sealed class ChildTranscriptStore(IAgentStore store, AgentId childId) : IChildTranscriptStore, IAsyncDisposable
+public sealed class AgentTranscriptStore(IAgentStore store, AgentId agentId) : IAgentTranscriptStore, IAsyncDisposable
 {
   private readonly Queue<Message> _pending = new();
   private int _flushed;
@@ -59,7 +59,7 @@ public sealed class ChildTranscriptStore(IAgentStore store, AgentId childId) : I
       _flushed = messages.Count;
     }
 
-    _ = await store.ReplaceTranscriptAsync(childId, messages, CancellationToken.None).ConfigureAwait(false);
+    _ = await store.ReplaceTranscriptAsync(agentId, messages, CancellationToken.None).ConfigureAwait(false);
   }
 
   /// <summary>Terminal flush: disposes by draining any pending messages.</summary>
@@ -111,7 +111,7 @@ public sealed class ChildTranscriptStore(IAgentStore store, AgentId childId) : I
           return;
         }
 
-        Result<string> appended = await store.AppendMessageAsync(childId, next, CancellationToken.None).ConfigureAwait(false);
+        Result<string> appended = await store.AppendMessageAsync(agentId, next, CancellationToken.None).ConfigureAwait(false);
         if (!appended.IsSuccess)
         {
           return; // stays pending; the terminal FlushAsync retries it

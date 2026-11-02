@@ -26,7 +26,7 @@ public class SupervisorFeedTests
       _subscribers.Add(subscriber);
       return new Lease();
     }
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber s in _subscribers.ToArray())
       {
@@ -43,21 +43,21 @@ public class SupervisorFeedTests
   public void Progress_Event_Resets_The_Supervisor_Idle_Clock()
   {
     FakeStream stream = new();
-    ChildSupervisorRegistry registry = new();
+    AgentSupervisorRegistry registry = new();
     StubClock clock = new(T0);
     AgentId child = new(Guid.NewGuid());
-    ChildSupervisor supervisor = new(child, stream, clock, ceilings: null);
+    AgentSupervisor supervisor = new(child, stream, clock, ceilings: null);
     supervisor.OnStart(0);
     registry.Register(child, supervisor);
     using IDisposable lease = stream.Subscribe(new SupervisorFeed(registry));
 
     clock.Now = T0.AddMinutes(10);
-    stream.Publish(new ChildProgressEvent(child, clock.Now, ChildPhase.ToolExec, "tool:exec"));
+    stream.Publish(new AgentProgressEvent(child, clock.Now, AgentPhase.ToolExec, "tool:exec"));
 
     clock.Now = T0.AddMinutes(16);
     Assert.Null(supervisor.CheckIdle(TimeSpan.FromMinutes(15))); // beat reset the window
     clock.Now = T0.AddMinutes(26);
-    ChildIdleAlertEvent? late = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? late = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     Assert.NotNull(late); // 26 minutes silent: idle now
   }
 
@@ -65,19 +65,19 @@ public class SupervisorFeedTests
   public void Unrelated_Child_Events_Do_Not_Feed_The_Wrong_Supervisor()
   {
     FakeStream stream = new();
-    ChildSupervisorRegistry registry = new();
+    AgentSupervisorRegistry registry = new();
     StubClock clock = new(T0);
     AgentId child = new(Guid.NewGuid());
     AgentId other = new(Guid.NewGuid());
-    ChildSupervisor supervisor = new(child, stream, clock, ceilings: null);
+    AgentSupervisor supervisor = new(child, stream, clock, ceilings: null);
     supervisor.OnStart(0);
     registry.Register(child, supervisor);
     using IDisposable lease = stream.Subscribe(new SupervisorFeed(registry));
 
-    stream.Publish(new ChildProgressEvent(other, T0.AddMinutes(1), ChildPhase.ToolExec, "tool:x"));
+    stream.Publish(new AgentProgressEvent(other, T0.AddMinutes(1), AgentPhase.ToolExec, "tool:x"));
 
     clock.Now = T0.AddMinutes(16);
-    ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     Assert.NotNull(alert); // another child's beat must not refresh THIS supervisor
   }
 
@@ -85,15 +85,15 @@ public class SupervisorFeedTests
   public void Settled_Child_Is_Forgotten_By_The_Feed()
   {
     FakeStream stream = new();
-    ChildSupervisorRegistry registry = new();
+    AgentSupervisorRegistry registry = new();
     StubClock clock = new(T0);
     AgentId child = new(Guid.NewGuid());
-    ChildSupervisor supervisor = new(child, stream, clock, ceilings: null);
+    AgentSupervisor supervisor = new(child, stream, clock, ceilings: null);
     supervisor.OnStart(0);
     registry.Register(child, supervisor);
     using IDisposable lease = stream.Subscribe(new SupervisorFeed(registry));
 
-    stream.Publish(new ChildSettledEvent(child, T0.AddMinutes(1), AgentStatus.Completed, null, 10));
+    stream.Publish(new AgentSettledEvent(child, T0.AddMinutes(1), AgentStatus.Completed, null, 10));
 
     // The supervisor is gone from the registry after the settle event: the tick
     // iterates the registry, so a settled child can never raise an idle alert again.

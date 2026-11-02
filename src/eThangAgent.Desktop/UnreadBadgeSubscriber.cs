@@ -31,10 +31,10 @@ internal sealed class UnreadBadgeSubscriber(AgentId id, Action<int> render) : IA
   /// <summary>The current unread count (the badge's value).</summary>
   public int Count => Interlocked.CompareExchange(ref _count, 0, 0);
 
-  public void OnEvent(ChildEvent evt)
+  public void OnEvent(AgentEvent evt)
   {
     ArgumentNullException.ThrowIfNull(evt);
-    if (!evt.ChildId.Equals(_id))
+    if (!evt.Id.Equals(_id))
     {
       return; // another session's child: never this badge's business
     }
@@ -46,7 +46,7 @@ internal sealed class UnreadBadgeSubscriber(AgentId id, Action<int> render) : IA
         Render();
         break;
       case MailboxDrainedEvent:
-      case ChildSettledEvent:
+      case AgentSettledEvent:
         if (Interlocked.Exchange(ref _count, 0) != 0)
         {
           Render();

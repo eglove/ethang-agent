@@ -6,9 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Transport.ACL.Tests;
 
-/// <summary>Issue #281: child events published in the conversation HOST must reach the APP
+/// <summary>Issue #281: agent events published in the conversation HOST must reach the APP
 ///     process. The root turn - and therefore <c>agent.spawn</c> - runs in the root
-///     container, so <c>ChildStartedEvent</c> is published onto THAT container's
+///     container, so <c>AgentStartedEvent</c> is published onto THAT container's
 ///     <see cref="IAgentEvents"/>, and the root forwarder is the only one that can carry
 ///     it across the wire.
 ///     <para>WHY THIS FILE EXISTS: the sibling test
@@ -40,16 +40,16 @@ public class ChildHostRootChildEventForwardingTests
       Assert.True(runner is not null, "the rig's settings name a root session, so a runner must build");
       IAgentEvents rootEvents = (IAgentEvents)runner.Services.GetRequiredService(typeof(IAgentEvents));
 
-      AgentId childId = AgentId.NewId();
+      AgentId agentId = AgentId.NewId();
       // Exactly what SubAgentSpawner publishes when agent.spawn starts a run.
-      rootEvents.Publish(new ChildStartedEvent(childId, DateTimeOffset.UtcNow,
+      rootEvents.Publish(new AgentStartedEvent(agentId, DateTimeOffset.UtcNow,
           new AgentId(rig.RootId), "probe/model", 0));
 
       // No steering message is sent at any point in this test - that is the whole point.
-      ChildEvent? delivered = await rig.WaitForEventAsync(childId).ConfigureAwait(true);
+      AgentEvent? delivered = await rig.WaitForEventAsync(agentId).ConfigureAwait(true);
 
-      ChildStartedEvent started = Assert.IsType<ChildStartedEvent>(delivered);
-      Assert.Equal(childId, started.ChildId);
+      AgentStartedEvent started = Assert.IsType<AgentStartedEvent>(delivered);
+      Assert.Equal(agentId, started.Id);
       Assert.Equal("probe/model", started.ModelId, StringComparer.Ordinal);
     }
     finally
@@ -70,14 +70,14 @@ public class ChildHostRootChildEventForwardingTests
       Assert.True(runner is not null);
       IAgentEvents rootEvents = (IAgentEvents)runner.Services.GetRequiredService(typeof(IAgentEvents));
 
-      AgentId childId = AgentId.NewId();
-      rootEvents.Publish(new ChildSettledEvent(childId, DateTimeOffset.UtcNow,
+      AgentId agentId = AgentId.NewId();
+      rootEvents.Publish(new AgentSettledEvent(agentId, DateTimeOffset.UtcNow,
           AgentStatus.Completed, null, 12));
 
-      ChildEvent? delivered = await rig.WaitForEventAsync(childId).ConfigureAwait(true);
+      AgentEvent? delivered = await rig.WaitForEventAsync(agentId).ConfigureAwait(true);
 
-      ChildSettledEvent settled = Assert.IsType<ChildSettledEvent>(delivered);
-      Assert.Equal(childId, settled.ChildId);
+      AgentSettledEvent settled = Assert.IsType<AgentSettledEvent>(delivered);
+      Assert.Equal(agentId, settled.Id);
       Assert.Equal(AgentStatus.Completed, settled.TerminalStatus);
     }
     finally
@@ -192,12 +192,12 @@ public class ChildHostRootChildEventForwardingTests
     /// <summary>Waits for the app-side stream to see ANY event for the child. Bounded: a
     ///     forwarder that never attached would otherwise hang the suite instead of failing
     ///     it (deadlock vigilance).</summary>
-    public async Task<ChildEvent?> WaitForEventAsync(AgentId childId)
+    public async Task<AgentEvent?> WaitForEventAsync(AgentId agentId)
     {
       DateTimeOffset deadline = DateTimeOffset.UtcNow + Limit;
       while (DateTimeOffset.UtcNow < deadline)
       {
-        if (Events.Published.Find(e => e.ChildId == childId) is { } found)
+        if (Events.Published.Find(e => e.Id == agentId) is { } found)
         {
           return found;
         }
@@ -205,7 +205,7 @@ public class ChildHostRootChildEventForwardingTests
         await Task.Delay(25, TestContext.Current.CancellationToken).ConfigureAwait(true);
       }
 
-      return Events.Published.Find(e => e.ChildId == childId);
+      return Events.Published.Find(e => e.Id == agentId);
     }
 
     public async ValueTask DisposeAsync()
@@ -230,9 +230,9 @@ public class ChildHostRootChildEventForwardingTests
   ///     here, and the publish/subscribe contract is identical.</summary>
   private sealed class RecordingEvents : IAgentEvents
   {
-    private readonly List<ChildEvent> _published = [];
+    private readonly List<AgentEvent> _published = [];
 
-    public List<ChildEvent> Published
+    public List<AgentEvent> Published
     {
       get
       {
@@ -249,7 +249,7 @@ public class ChildHostRootChildEventForwardingTests
       return new NoopLease();
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       ArgumentNullException.ThrowIfNull(evt);
       lock (_published)

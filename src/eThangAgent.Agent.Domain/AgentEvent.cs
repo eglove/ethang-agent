@@ -4,30 +4,30 @@ namespace eThangAgent.AgentDomain;
 ///     (D5): ids, timestamps, counts, enums, and short labels — never message or report
 ///     content, which belongs to transcripts. In-process delivery is synchronous
 ///     in-order fan-out, at-most-once, ephemeral (D1).</summary>
-public abstract record ChildEvent(AgentId ChildId, DateTimeOffset At);
+public abstract record AgentEvent(AgentId Id, DateTimeOffset At);
 
 /// <summary>The runtime accepted a Start (initial or watchdog retry).</summary>
-public sealed record ChildStartedEvent(AgentId ChildId, DateTimeOffset At, AgentId? ParentId, string ModelId, int Attempts)
-    : ChildEvent(ChildId, At);
+public sealed record AgentStartedEvent(AgentId Id, DateTimeOffset At, AgentId? ParentId, string ModelId, int Attempts)
+    : AgentEvent(Id, At);
 
 /// <summary>Emitted at the loop's existing beat points; label is a short phase tag
 ///     ("turn-start" / "iteration" / "tool:NAME"), never content.</summary>
-public sealed record ChildProgressEvent(AgentId ChildId, DateTimeOffset At, ChildPhase Phase, string Label)
-    : ChildEvent(ChildId, At);
+public sealed record AgentProgressEvent(AgentId Id, DateTimeOffset At, AgentPhase Phase, string Label)
+    : AgentEvent(Id, At);
 
 /// <summary>The supervisor's idle timer crossed its threshold.</summary>
-public sealed record ChildIdleAlertEvent(AgentId ChildId, DateTimeOffset At, TimeSpan IdleAge, string LastPhase)
-    : ChildEvent(ChildId, At);
+public sealed record AgentIdleAlertEvent(AgentId Id, DateTimeOffset At, TimeSpan IdleAge, string LastPhase)
+    : AgentEvent(Id, At);
 
 /// <summary>Budget accumulators crossed a soft threshold (D8: resources, never time).</summary>
-public sealed record ChildBudgetAlertEvent(AgentId ChildId, DateTimeOffset At, string BudgetKind,
+public sealed record AgentBudgetAlertEvent(AgentId Id, DateTimeOffset At, string BudgetKind,
     double Consumed, double? Ceiling, double BurnRatePerMinute)
-    : ChildEvent(ChildId, At);
+    : AgentEvent(Id, At);
 
 /// <summary>The run settled terminally; ReportBytes is a size hint, never the report.</summary>
-public sealed record ChildSettledEvent(AgentId ChildId, DateTimeOffset At, AgentStatus TerminalStatus,
+public sealed record AgentSettledEvent(AgentId Id, DateTimeOffset At, AgentStatus TerminalStatus,
     AgentFailureReason? Reason, int ReportBytes)
-    : ChildEvent(ChildId, At);
+    : AgentEvent(Id, At);
 
 /// <summary>A message landed in a mailbox. Size in bytes; content stays out (D5).
 ///     <para><paramref name="MessageId"/> is the delivered message's identity (issue #92):
@@ -40,17 +40,17 @@ public sealed record ChildSettledEvent(AgentId ChildId, DateTimeOffset At, Agent
 ///     <para>THE ONLY PUBLISHER IS THE ROOT STEER ACCEPTANCE PATH (issue #316 D6): the human
 ///     is the only remaining sender, so this fact means "a steering message this session sent
 ///     has been queued for the agent", published on ACCEPTANCE and never on a refused post.</para></summary>
-public sealed record MessageDeliveredEvent(AgentId ChildId, DateTimeOffset At, string Direction, int Size,
+public sealed record MessageDeliveredEvent(AgentId Id, DateTimeOffset At, string Direction, int Size,
     Guid MessageId = default)
-    : ChildEvent(ChildId, At);
+    : AgentEvent(Id, At);
 
 /// <summary>The owning loop drained its mailbox at a safe point (W4.4). Content stays out
 ///     (D5). Mailbox-lifecycle, not progress.
 ///     <para><paramref name="MessageIds"/> names exactly which messages the drain consumed
 ///     (issue #92): this is the fact that turns "enqueued" into "received". The count is
 ///     derived, never carried beside the ids, so the two can never disagree.</para></summary>
-public sealed record MailboxDrainedEvent(AgentId ChildId, DateTimeOffset At, IReadOnlyList<Guid> MessageIds)
-    : ChildEvent(ChildId, At)
+public sealed record MailboxDrainedEvent(AgentId Id, DateTimeOffset At, IReadOnlyList<Guid> MessageIds)
+    : AgentEvent(Id, At)
 {
   /// <summary>The number of messages taken — derived from the ids, never a second fact.</summary>
   public int Count => MessageIds.Count;
@@ -60,7 +60,7 @@ public sealed record MailboxDrainedEvent(AgentId ChildId, DateTimeOffset At, IRe
 ///     updated/removed, or a status moved. This is what makes the workbench's Plans view
 ///     INSTANT and what lets a parent agent watch a subagent's plan work with
 ///     <c>wakeOn=plan</c> - one subscribable for both readers.
-///     <para><paramref name="ChildId"/> is the AUTHORING agent: the child whose run wrote
+///     <para><paramref name="Id"/> is the AUTHORING agent: the child whose run wrote
 ///     the plan, or the root session for a root write. A parent filtering on plan work
 ///     therefore sees which of its children did it. <paramref name="Change"/> is a short
 ///     tag (created | steps | status) and <paramref name="Status"/> names the new status
@@ -69,8 +69,8 @@ public sealed record MailboxDrainedEvent(AgentId ChildId, DateTimeOffset At, IRe
 ///     Domain's own events: the Plan Domain cannot reference this assembly, so the
 ///     translation lives at the composition root (the same shape the state-change
 ///     adapter uses).</para></summary>
-public sealed record PlanChangedEvent(AgentId ChildId, DateTimeOffset At, int PlanId, string Change, string? Status)
-    : ChildEvent(ChildId, At);
+public sealed record PlanChangedEvent(AgentId Id, DateTimeOffset At, int PlanId, string Change, string? Status)
+    : AgentEvent(Id, At);
 
 /// <summary>A durable CHAIN record changed (issue #312): created, a step claimed/settled/
 ///     reopened, or a status moved (including a PARK, which is the fact a human must see).
@@ -78,7 +78,7 @@ public sealed record PlanChangedEvent(AgentId ChildId, DateTimeOffset At, int Pl
 ///     the design and a chain is its execution, so they are different artifacts with different
 ///     lifetimes (#312 D5). One event carrying both would force every reader to ask which record
 ///     it was looking at, and the rail renders them as two views.</para>
-///     <para><paramref name="ChildId"/> is the AUTHORING agent, exactly as the plan fact's is.
+///     <para><paramref name="Id"/> is the AUTHORING agent, exactly as the plan fact's is.
 ///     <paramref name="Change"/> is a short tag (created | step | status) and <paramref name="Status"/>
 ///     names the new chain status for a status move, null otherwise - metadata only (D5).</para>
 ///     <para>THE PARK REASON AND THE PARKED STEP ARE DELIBERATELY NOT CARRIED. They are on the
@@ -89,8 +89,8 @@ public sealed record PlanChangedEvent(AgentId ChildId, DateTimeOffset At, int Pl
 ///     own events - the <see cref="PlanChangedEvent"/> shape, for the same reason: the fact must
 ///     ride the stream the ChildHost already forwards, or a chain the model writes in the host
 ///     process would never reach the app.</para></summary>
-public sealed record ChainChangedEvent(AgentId ChildId, DateTimeOffset At, int ChainId, string Change, string? Status)
-    : ChildEvent(ChildId, At);
+public sealed record ChainChangedEvent(AgentId Id, DateTimeOffset At, int ChainId, string Change, string? Status)
+    : AgentEvent(Id, At);
 
 /// <summary>A DURABLE STATE KEY changed (issue #318): a set, an append, or a delete.
 ///     <para>WHY A FACT ON THIS STREAM RATHER THAN A BUS SUBSCRIPTION: <c>IStateChangeBus</c>
@@ -100,7 +100,7 @@ public sealed record ChainChangedEvent(AgentId ChildId, DateTimeOffset At, int C
 ///     passed. That is the exact defect <see cref="PlanChangedEvent"/> and
 ///     <see cref="ChainChangedEvent"/> exist to close, and the ledger view needs the same
 ///     treatment for the same reason.</para>
-///     <para><paramref name="ChildId"/> is the AUTHORING agent, as the plan and chain facts'
+///     <para><paramref name="Id"/> is the AUTHORING agent, as the plan and chain facts'
 ///     is. <paramref name="Key"/> is the namespaced key (e.g. <c>sci.my-plan/ledger</c>) and
 ///     <paramref name="Change"/> is a short tag (set | append | delete) - metadata only
 ///     (D5), NEVER the stored value. A view told a key moved re-reads it; the record says
@@ -108,21 +108,21 @@ public sealed record ChainChangedEvent(AgentId ChildId, DateTimeOffset At, int C
 ///     <para>THE VALUE IS DELIBERATELY ABSENT for the same reason the chain fact omits its park
 ///     reason: a ledger can be a hundred kilobytes, and shipping it on every append would put
 ///     the whole record on the wire to announce that one line joined it.</para></summary>
-public sealed record StateChangedEvent(AgentId ChildId, DateTimeOffset At, string Key, string Change)
-    : ChildEvent(ChildId, At);
+public sealed record StateChangedEvent(AgentId Id, DateTimeOffset At, string Key, string Change)
+    : AgentEvent(Id, At);
 
 /// <summary>A RUNNING child's provider stream went silent past the stall threshold.
 ///     Informational: the child is still running; consumers (waits, UI) decide.
 ///     LastActivityKind is "content" or "reasoning" — the last stream fragment type seen.</summary>
-public sealed record ChildStreamStalledEvent(AgentId ChildId, DateTimeOffset At, TimeSpan QuietFor, string LastActivityKind)
-    : ChildEvent(ChildId, At);
+public sealed record AgentStreamStalledEvent(AgentId Id, DateTimeOffset At, TimeSpan QuietFor, string LastActivityKind)
+    : AgentEvent(Id, At);
 
 public interface IAgentEventSubscriber
 {
   /// <summary>Called synchronously for every published event. Implementations must be
   ///     fast and fault-free: a throwing subscriber is contained and logged, never
   ///     propagated into the child loop.</summary>
-  void OnEvent(ChildEvent evt);
+  void OnEvent(AgentEvent evt);
 }
 
 /// <summary>The runtime's event stream: children publish lifecycle, liveness, progress,
@@ -134,5 +134,5 @@ public interface IAgentEvents
 
   /// <summary>Publishes to every current subscriber in subscription order. Subscriber
   ///     faults are contained at the stream, never surfaced into publishers.</summary>
-  void Publish(ChildEvent evt);
+  void Publish(AgentEvent evt);
 }

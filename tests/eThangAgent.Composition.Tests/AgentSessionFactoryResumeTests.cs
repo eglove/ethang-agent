@@ -149,11 +149,11 @@ public class AgentSessionFactoryResumeTests
     try
     {
       SqliteAgentStore store = new(new AppDatabase(db));
-      AgentId childId = AgentId.NewId();
-      _ = await store.SaveAsync(AgentRecord.Spawned(childId, AgentId.NewId(), depth: 1,
+      AgentId agentId = AgentId.NewId();
+      _ = await store.SaveAsync(AgentRecord.Spawned(agentId, AgentId.NewId(), depth: 1,
           modelUsed: "mock/model", label: "child", taskPrompt: "task", createdAt: DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken);
 
-      Result<AgentSession> resumed = await factory.ResumeAsync(childId, ct: TestContext.Current.CancellationToken);
+      Result<AgentSession> resumed = await factory.ResumeAsync(agentId, ct: TestContext.Current.CancellationToken);
       Assert.False(resumed.IsSuccess);
       Assert.Equal("NotResumable", resumed.Error.Code);
     }

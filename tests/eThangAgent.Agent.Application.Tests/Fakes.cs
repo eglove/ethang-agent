@@ -109,7 +109,7 @@ internal sealed class FakeAgentRuntime(List<string>? callLog = null) : IAgentRun
 
   public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-  public void Interrupt(AgentId? childId = null) => Interrupted.Add(childId);
+  public void Interrupt(AgentId? agentId = null) => Interrupted.Add(agentId);
 
   public List<AgentId?> Interrupted { get; } = [];
 }

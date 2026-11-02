@@ -42,7 +42,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   private readonly Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? _fanout;
   private readonly IWaitWakeSource? _wakeSource;
   private readonly TimeProvider? _clock;
-  private readonly ChildProgressLedger? _progress;
+  private readonly AgentProgressLedger? _progress;
   private readonly FrozenDictionary<string, ActionHandler> _handlers;
 
   public string Id => ProviderId;
@@ -451,11 +451,11 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
 
   /// <summary>Lowercase phase words for the status line (CA1308 forbids ToLowerInvariant
   ///     normalization; the words are pinned, not computed).</summary>
-  private static string PhaseWord(ChildPhase phase) => phase switch
+  private static string PhaseWord(AgentPhase phase) => phase switch
   {
-    ChildPhase.ModelCall => "model-call",
-    ChildPhase.ToolExec => "tool-exec",
-    ChildPhase.Draining => "draining",
+    AgentPhase.ModelCall => "model-call",
+    AgentPhase.ToolExec => "tool-exec",
+    AgentPhase.Draining => "draining",
     _ => throw new InvalidOperationException($"Unknown child phase '{phase}'."),
   };
 

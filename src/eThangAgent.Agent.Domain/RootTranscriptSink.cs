@@ -30,7 +30,7 @@ namespace eThangAgent.AgentDomain;
 ///     wedging every caller.</para>
 ///     <para>Persistence always runs with <see cref="CancellationToken.None"/>: it must
 ///     survive the cancellation of the turn it is recording.</para></summary>
-public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAsyncDisposable
+public sealed class RootTranscriptSink : IAgentTranscriptStore, IDisposable, IAsyncDisposable
 {
   private readonly IAgentStore _store;
   private readonly Func<AgentId?> _rootIdSource;
@@ -225,10 +225,10 @@ public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAs
   ///     end-of-turn path needs so an inert or failing sink cannot silently swallow a
   ///     compacted turn. The plain interface shape discards that answer; the Try shape
   ///     carries it.</summary>
-  Task IChildTranscriptStore.ReplaceAsync(IReadOnlyList<Message> messages) => ReplaceAsync(messages);
+  Task IAgentTranscriptStore.ReplaceAsync(IReadOnlyList<Message> messages) => ReplaceAsync(messages);
 
   /// <inheritdoc />
-  Task<bool> IChildTranscriptStore.TryReplaceAsync(IReadOnlyList<Message> messages) => ReplaceAsync(messages);
+  Task<bool> IAgentTranscriptStore.TryReplaceAsync(IReadOnlyList<Message> messages) => ReplaceAsync(messages);
 
   /// <summary>Replaces the whole persisted transcript (compaction/shrink survival) and, ON
   ///     SUCCESS, resets the absolute baseline to the replacement's length. An inert sink

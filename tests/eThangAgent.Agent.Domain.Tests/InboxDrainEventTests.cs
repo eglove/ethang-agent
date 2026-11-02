@@ -46,7 +46,7 @@ public class InboxDrainEventTests
     Assert.Equal(AgentStatus.Completed, outcome.Status);
     MailboxDrainedEvent drained = Assert.Single(capture.Events.OfType<MailboxDrainedEvent>());
     Assert.Equal(1, drained.Count);
-    Assert.Equal(id, drained.ChildId);
+    Assert.Equal(id, drained.Id);
   }
 
   [Fact]
@@ -69,9 +69,9 @@ public class InboxDrainEventTests
 
   private sealed class EventCapture : IAgentEvents
   {
-    public List<ChildEvent> Events { get; } = [];
+    public List<AgentEvent> Events { get; } = [];
     public IDisposable Subscribe(IAgentEventSubscriber subscriber) => new NoLease();
-    public void Publish(ChildEvent evt) => Events.Add(evt);
+    public void Publish(AgentEvent evt) => Events.Add(evt);
     private sealed class NoLease : IDisposable
     {
       public void Dispose() { }

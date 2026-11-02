@@ -13,9 +13,9 @@ public class ChildSupervisorTests
     public override DateTimeOffset GetUtcNow() => Now;
   }
 
-  private sealed class Collecting(List<ChildEvent> sink) : IAgentEventSubscriber
+  private sealed class Collecting(List<AgentEvent> sink) : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt) => sink.Add(evt);
+    public void OnEvent(AgentEvent evt) => sink.Add(evt);
   }
 
   private static readonly DateTimeOffset T0 = new(2026, 9, 2, 10, 0, 0, TimeSpan.Zero);
@@ -29,7 +29,7 @@ public class ChildSupervisorTests
       return new FakeLease(this, subscriber);
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber subscriber in _subscribers)
       {
@@ -48,17 +48,17 @@ public class ChildSupervisorTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    List<ChildEvent> seen = [];
+    List<AgentEvent> seen = [];
     using IDisposable lease = events.Subscribe(new Collecting(seen));
     AgentId id = new(Guid.NewGuid());
-    ChildSupervisor supervisor = new(id, events, clock, ceilings: null);
+    AgentSupervisor supervisor = new(id, events, clock, ceilings: null);
     supervisor.OnStart(1);
 
     clock.Now = T0.AddMinutes(10);
     Assert.Null(supervisor.CheckIdle(TimeSpan.FromMinutes(15)));
 
     clock.Now = T0.AddMinutes(16);
-    ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     Assert.NotNull(alert);
     Assert.Equal(TimeSpan.FromMinutes(16), alert.IdleAge);
     _ = Assert.Single(seen);
@@ -73,16 +73,16 @@ public class ChildSupervisorTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    List<ChildEvent> seen = [];
+    List<AgentEvent> seen = [];
     using IDisposable lease = events.Subscribe(new Collecting(seen));
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
     supervisor.OnStart(1);
 
     clock.Now = T0.AddMinutes(20);
     _ = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     supervisor.OnBeat();
     clock.Now = T0.AddMinutes(40);
-    ChildIdleAlertEvent? second = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? second = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     Assert.NotNull(second);
     Assert.Equal(2, seen.Count);
   }
@@ -92,9 +92,9 @@ public class ChildSupervisorTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    List<ChildEvent> seen = [];
+    List<AgentEvent> seen = [];
     using IDisposable lease = events.Subscribe(new Collecting(seen));
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock,
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock,
         new BudgetCeilings(MaxTokens: 1000));
     supervisor.OnStart(1);
 
@@ -107,7 +107,7 @@ public class ChildSupervisorTests
     supervisor.OnUsage(new TokenUsage(100, 100)); // already alerted
     _ = Assert.Single(seen);
 
-    ChildBudgetAlertEvent alert = (ChildBudgetAlertEvent)seen[0];
+    AgentBudgetAlertEvent alert = (AgentBudgetAlertEvent)seen[0];
     Assert.Equal("tokens:hard", alert.BudgetKind);
     Assert.Equal(1200, alert.Consumed);
     Assert.Equal(1000, alert.Ceiling);
@@ -118,9 +118,9 @@ public class ChildSupervisorTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    List<ChildEvent> seen = [];
+    List<AgentEvent> seen = [];
     using IDisposable lease = events.Subscribe(new Collecting(seen));
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock,
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock,
         new BudgetCeilings(MaxTokens: 2000));
     supervisor.OnStart(1);
 
@@ -128,7 +128,7 @@ public class ChildSupervisorTests
     supervisor.OnUsage(new TokenUsage(300, 300)); // 1800 >= 1600 soft, < 2000 hard
 
     _ = Assert.Single(seen);
-    ChildBudgetAlertEvent alert = (ChildBudgetAlertEvent)seen[0];
+    AgentBudgetAlertEvent alert = (AgentBudgetAlertEvent)seen[0];
     Assert.Equal("tokens", alert.BudgetKind);
     Assert.False(supervisor.HardCeilingReached);
   }
@@ -138,9 +138,9 @@ public class ChildSupervisorTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    List<ChildEvent> seen = [];
+    List<AgentEvent> seen = [];
     using IDisposable lease = events.Subscribe(new Collecting(seen));
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
     supervisor.OnStart(1);
 
     supervisor.OnUsage(new TokenUsage(1_000_000, 1_000_000));

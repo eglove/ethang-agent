@@ -12,9 +12,9 @@ public class ChildSupervisorStreamStallTests
     public override DateTimeOffset GetUtcNow() => Now;
   }
 
-  private sealed class Collecting(List<ChildEvent> sink) : IAgentEventSubscriber
+  private sealed class Collecting(List<AgentEvent> sink) : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt) => sink.Add(evt);
+    public void OnEvent(AgentEvent evt) => sink.Add(evt);
   }
 
   private sealed class FakeEventStream : IAgentEvents
@@ -27,7 +27,7 @@ public class ChildSupervisorStreamStallTests
       return new FakeLease(this, subscriber);
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber subscriber in _subscribers.ToArray())
       {
@@ -47,16 +47,16 @@ public class ChildSupervisorStreamStallTests
   public void OnStreamActivity_ThenThresholdCrossed_PublishesStallEventOnce()
   {
     StubClock clock = new(T0);
-    List<ChildEvent> published = [];
+    List<AgentEvent> published = [];
     FakeEventStream events = new();
     using IDisposable lease = events.Subscribe(new Collecting(published));
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
     supervisor.OnStart(1);
     supervisor.OnStreamActivity("reasoning");
     clock.Now = T0.AddMinutes(3);
 
-    ChildStreamStalledEvent? first = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
-    ChildStreamStalledEvent? second = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
+    AgentStreamStalledEvent? first = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
+    AgentStreamStalledEvent? second = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
 
     Assert.NotNull(first);
     Assert.Null(second);
@@ -69,14 +69,14 @@ public class ChildSupervisorStreamStallTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
     supervisor.OnStart(1);
     clock.Now = T0.AddMinutes(3);
     _ = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
 
     supervisor.OnStreamActivity("content");
     clock.Now = T0.AddMinutes(6);
-    ChildStreamStalledEvent? again = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
+    AgentStreamStalledEvent? again = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
 
     Assert.NotNull(again);
     Assert.Equal(TimeSpan.FromMinutes(3), again.QuietFor);
@@ -88,7 +88,7 @@ public class ChildSupervisorStreamStallTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
     supervisor.OnStart(1);
     clock.Now = T0.AddMinutes(1);
 
@@ -100,12 +100,12 @@ public class ChildSupervisorStreamStallTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
     supervisor.OnStart(1);
     supervisor.OnStreamActivity("content");
     clock.Now = T0.AddMinutes(20);
 
-    ChildIdleAlertEvent? idle = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? idle = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
 
     Assert.NotNull(idle); // stream stamps alone never refresh the idle window
   }
@@ -115,12 +115,12 @@ public class ChildSupervisorStreamStallTests
   {
     StubClock clock = new(T0);
     FakeEventStream events = new();
-    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
+    AgentSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock, ceilings: null);
     supervisor.OnStart(1);
     supervisor.OnStreamActivity("reasoning");
     clock.Now = T0.AddMinutes(5);
 
-    ChildStreamStalledEvent? alert = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
+    AgentStreamStalledEvent? alert = supervisor.CheckStreamStall(TimeSpan.FromMinutes(2));
 
     Assert.Equal("reasoning", alert!.LastActivityKind);
     Assert.Equal(TimeSpan.FromMinutes(5), alert.QuietFor);

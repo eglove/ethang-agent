@@ -3,34 +3,34 @@ using eThangAgent.AgentDomain;
 
 namespace eThangAgent.Transport.ACL;
 
-/// <summary>One child-event envelope forwarded from the conversation host to the app
+/// <summary>One agent-event envelope forwarded from the conversation host to the app
 ///     (issue #245): the host subscribes a forwarder to every child container's event
-///     stream and republishes what it sees as <c>child-event</c> envelopes; the app-side
+///     stream and republishes what it sees as <c>agent-event</c> envelopes; the app-side
 ///     runtime re-publishes them onto the session's own <see cref="IAgentEvents"/> stream,
 ///     so the Desktop's subagent panel, unread badge, and wait-wake adapters observe
 ///     REMOTE children exactly like in-process ones.
-/// <para>The payload is the serialized <see cref="ChildEvent"/> itself - the event family
+/// <para>The payload is the serialized <see cref="AgentEvent"/> itself - the event family
 ///     is metadata-only by design (D5: ids, timestamps, counts, enums, short labels; never
 ///     message or report content), so the wire carries no transcript content. The envelope
 ///     carries the child's id beside the payload so a receiver can route without parsing
 ///     the event JSON.</para></summary>
-public sealed record ChildEventEnvelope(Guid ChildId, string EventKind, string EventJson)
+public sealed record AgentEventEnvelope(Guid AgentId, string EventKind, string EventJson)
 {
   /// <summary>Serializes one child event into its wire envelope. The event's own JSON
-  ///     is the carrier: <see cref="ChildEvent"/> records are plain serializable shapes
-  ///     (ids, enums, timestamps), and the envelope's ChildId duplicates the event's
-  ///     ChildId so the receiver's routing never depends on the payload decoding.</summary>
-  public static ChildEventEnvelope From(ChildEvent evt)
+  ///     is the carrier: <see cref="AgentEvent"/> records are plain serializable shapes
+  ///     (ids, enums, timestamps), and the envelope's AgentId duplicates the event's
+  ///     AgentId so the receiver's routing never depends on the payload decoding.</summary>
+  public static AgentEventEnvelope From(AgentEvent evt)
   {
     ArgumentNullException.ThrowIfNull(evt);
-    return new ChildEventEnvelope(evt.ChildId.Value, evt.GetType().Name, JsonSerializer.Serialize(evt, evt.GetType()));
+    return new AgentEventEnvelope(evt.Id.Value, evt.GetType().Name, JsonSerializer.Serialize(evt, evt.GetType()));
   }
 
   /// <summary>Decodes the payload back into a typed child event, or null when the
   ///     payload names a type this build does not know - a forward-compatible peer's
   ///     new event kind is dropped here rather than crashing the pump (the same
   ///     forward-compatibility rule the envelope kinds follow).</summary>
-  public ChildEvent? Decode()
+  public AgentEvent? Decode()
   {
     Type? eventType = EventTypeFor(EventKind);
 
@@ -41,7 +41,7 @@ public sealed record ChildEventEnvelope(Guid ChildId, string EventKind, string E
 
     try
     {
-      return (ChildEvent?)JsonSerializer.Deserialize(EventJson, eventType);
+      return (AgentEvent?)JsonSerializer.Deserialize(EventJson, eventType);
     }
 #pragma warning disable CA1031 // Named decision: an undecodable payload is a peer fault, not a pump crash.
     catch (Exception)
@@ -56,12 +56,12 @@ public sealed record ChildEventEnvelope(Guid ChildId, string EventKind, string E
   ///     Null for an unknown kind - a forward-compatible peer's new event.</summary>
   private static readonly Dictionary<string, Type> EventTypes = new(StringComparer.Ordinal)
   {
-    [nameof(ChildStartedEvent)] = typeof(ChildStartedEvent),
-    [nameof(ChildProgressEvent)] = typeof(ChildProgressEvent),
-    [nameof(ChildSettledEvent)] = typeof(ChildSettledEvent),
-    [nameof(ChildIdleAlertEvent)] = typeof(ChildIdleAlertEvent),
-    [nameof(ChildBudgetAlertEvent)] = typeof(ChildBudgetAlertEvent),
-    [nameof(ChildStreamStalledEvent)] = typeof(ChildStreamStalledEvent),
+    [nameof(AgentStartedEvent)] = typeof(AgentStartedEvent),
+    [nameof(AgentProgressEvent)] = typeof(AgentProgressEvent),
+    [nameof(AgentSettledEvent)] = typeof(AgentSettledEvent),
+    [nameof(AgentIdleAlertEvent)] = typeof(AgentIdleAlertEvent),
+    [nameof(AgentBudgetAlertEvent)] = typeof(AgentBudgetAlertEvent),
+    [nameof(AgentStreamStalledEvent)] = typeof(AgentStreamStalledEvent),
     [nameof(MessageDeliveredEvent)] = typeof(MessageDeliveredEvent),
     [nameof(MailboxDrainedEvent)] = typeof(MailboxDrainedEvent),
     [nameof(PlanChangedEvent)] = typeof(PlanChangedEvent),

@@ -10,9 +10,9 @@ namespace eThangAgent.ChildHost;
 ///     policy decides retry/terminal locally and settle envelopes reach the app as
 ///     usual. Deliberately NOT app-side guessing from absent beats: the app never
 ///     ships idle facts for remote children (R3 doctrine).</summary>
-public sealed class HostChildWatchdog(AgentId childId, WatchdogServices services, TimeSpan? tickInterval = null) : IAsyncDisposable
+public sealed class HostAgentWatchdog(AgentId agentId, WatchdogServices services, TimeSpan? tickInterval = null) : IAsyncDisposable
 {
-  private readonly AgentWatchdog _watchdog = new(childId, services);
+  private readonly AgentWatchdog _watchdog = new(agentId, services);
   private readonly WatchdogLoop _loop = new(tickInterval ?? services.Options.TickInterval, services.Clock);
   private readonly CancellationTokenSource _cts = new();
 
@@ -20,7 +20,7 @@ public sealed class HostChildWatchdog(AgentId childId, WatchdogServices services
   public void Start()
   {
     _ = Task.Run(() => _loop.RunAsync(_cts.Token), CancellationToken.None);
-    _loop.Attach(childId, _watchdog);
+    _loop.Attach(agentId, _watchdog);
   }
 
   /// <summary>One synchronous tick — the direct seam for focused tests.</summary>
@@ -28,7 +28,7 @@ public sealed class HostChildWatchdog(AgentId childId, WatchdogServices services
 
   public async Task StopAsync()
   {
-    _loop.Detach(childId);
+    _loop.Detach(agentId);
     await _cts.CancelAsync().ConfigureAwait(false);
     _watchdog.Dispose();
   }

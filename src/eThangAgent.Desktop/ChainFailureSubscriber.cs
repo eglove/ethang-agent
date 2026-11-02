@@ -24,10 +24,10 @@ internal sealed class ChainFailureSubscriber(ChainLifecycleService lifecycle, Ac
   ///     ignored.</summary>
   /// <param name="evt">The event.</param>
   /// <param name="ct">Cancellation.</param>
-  public async Task OnEventAsync(ChildEvent evt, CancellationToken ct = default)
+  public async Task OnEventAsync(AgentEvent evt, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(evt);
-    if (evt is not ChildSettledEvent { TerminalStatus: AgentStatus.Failed } settled)
+    if (evt is not AgentSettledEvent { TerminalStatus: AgentStatus.Failed } settled)
     {
       return;
     }
@@ -36,7 +36,7 @@ internal sealed class ChainFailureSubscriber(ChainLifecycleService lifecycle, Ac
     try
     {
       Result<ChainFailureOutcome> outcome = await lifecycle
-          .OnStepFailedAsync(settled.ChildId.ToString(), DescribeReason(settled),
+          .OnStepFailedAsync(settled.Id.ToString(), DescribeReason(settled),
               settled.At, ct)
           .ConfigureAwait(false);
       if (!outcome.IsSuccess)
@@ -67,7 +67,7 @@ internal sealed class ChainFailureSubscriber(ChainLifecycleService lifecycle, Ac
   /// <summary>What the settle recorded about why the run failed, or null when it recorded
   ///     nothing. The lifecycle stores this as the step's outcome, so a human reading the
   ///     parked chain learns the actual reason rather than only that something went wrong.</summary>
-  private static string? DescribeReason(ChildSettledEvent settled) =>
+  private static string? DescribeReason(AgentSettledEvent settled) =>
       settled.Reason is { } reason ? reason.ToString() : null;
 }
 
@@ -77,11 +77,11 @@ internal sealed class ChainFailureSubscriber(ChainLifecycleService lifecycle, Ac
 internal sealed class ChainFailureEventSink(ChainFailureSubscriber subscriber, AgentId sessionId)
     : IAgentEventSubscriber
 {
-  public void OnEvent(ChildEvent evt)
+  public void OnEvent(AgentEvent evt)
   {
     // ONLY THIS SESSION'S OWN SETTLE. The stream carries every child's facts, and a failed
     // SUBAGENT must not be mistaken for a failed chain step.
-    if (evt.ChildId != sessionId)
+    if (evt.Id != sessionId)
     {
       return;
     }

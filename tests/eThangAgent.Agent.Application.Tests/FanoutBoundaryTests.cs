@@ -35,7 +35,7 @@ public class FanoutBoundaryTests
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
     => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
 
-    public void Interrupt(AgentId? childId = null) { }
+    public void Interrupt(AgentId? agentId = null) { }
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
   }

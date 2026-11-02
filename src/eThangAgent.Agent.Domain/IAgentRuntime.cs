@@ -51,6 +51,6 @@ public interface IAgentRuntime
   /// <summary>Interrupts active child runs by cancelling the token each run executes under.
   /// With no id, every active run owned by this runtime is interrupted; with an id, only that
   /// run. Unknown ids are a no-op — interruption is best-effort by design.</summary>
-  void Interrupt(AgentId? childId = null);
+  void Interrupt(AgentId? agentId = null);
 }
 

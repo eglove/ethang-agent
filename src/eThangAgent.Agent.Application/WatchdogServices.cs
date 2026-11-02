@@ -12,5 +12,5 @@ public sealed record WatchdogServices(
     WatchdogPolicy Policy,
     WatchdogOptions Options,
     TimeProvider Clock,
-    IAgentEvents? ChildEventStream = null,
-    ChildSupervisorRegistry? Supervisors = null);
+    IAgentEvents? AgentEventStream = null,
+    AgentSupervisorRegistry? Supervisors = null);

@@ -81,7 +81,7 @@ public class SubAgentSpawnerTests
     _ = Assert.NotNull(updated.CompletedAt);
     Assert.Equal("child report", updated.FinalReport);
 
-    Assert.Equal(child.Id, outcome.ChildId);
+    Assert.Equal(child.Id, outcome.AgentId);
     Assert.Equal(AgentStatus.Completed, outcome.Status);
     Assert.Null(outcome.Reason);
     Assert.Equal("child report", outcome.Report);
@@ -99,7 +99,7 @@ public class SubAgentSpawnerTests
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "do things"), CancellationToken.None);
 
-    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcome.ChildId, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcome.AgentId, ct: TestContext.Current.CancellationToken);
 
     Assert.True(transcript.IsSuccess);
     Assert.Equal(2, transcript.Value.Count);

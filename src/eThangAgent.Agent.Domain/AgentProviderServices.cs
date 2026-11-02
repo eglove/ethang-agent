@@ -30,4 +30,4 @@ public sealed record AgentProviderServices(
     Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? Fanout = null,
     IWaitWakeSource? WakeSource = null,
     TimeProvider? Clock = null,
-    ChildProgressLedger? Progress = null);
+    AgentProgressLedger? Progress = null);

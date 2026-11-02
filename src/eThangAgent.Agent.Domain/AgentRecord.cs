@@ -15,7 +15,7 @@ public sealed record AgentRecord(
     string? WorkspaceId = null,
     string? Provider = null,
     int Attempts = 0,
-    ChildPhase? Phase = null,
+    AgentPhase? Phase = null,
     string? Contract = null)
 {
 

@@ -124,7 +124,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
 
-  private static IDisposable SubscribeSink(Conversation conversation, IChildTranscriptStore sink)
+  private static IDisposable SubscribeSink(Conversation conversation, IAgentTranscriptStore sink)
   {
     return conversation.Subscribe(
         onAdded: message => _ = PersistQuietlyAsync(sink, message),
@@ -135,7 +135,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     conversation mutation flows to it at the safe point where the message is
   ///     added. A sink fault is swallowed (best-effort persistence): the loop must
   ///     never crash because persistence hiccupped — the terminal flush retries.</summary>
-  private static async Task PersistQuietlyAsync(IChildTranscriptStore sink, Message message)
+  private static async Task PersistQuietlyAsync(IAgentTranscriptStore sink, Message message)
   {
     try
     {
@@ -148,7 +148,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
   }
 
-  private static async Task ReplaceQuietlyAsync(Conversation conversation, IChildTranscriptStore sink)
+  private static async Task ReplaceQuietlyAsync(Conversation conversation, IAgentTranscriptStore sink)
   {
     try
     {
@@ -175,7 +175,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     with it so the sink retires the previous build's subscription. Roots are rebuilt on
   ///     every model change over the same conversation; a second live subscription would push
   ///     every message twice. Child sinks are per-run and need no retirement.</summary>
-  private static IDisposable? SubscribeTranscript(Conversation conversation, IChildTranscriptStore? sink)
+  private static IDisposable? SubscribeTranscript(Conversation conversation, IAgentTranscriptStore? sink)
   {
     if (sink is null)
     {
@@ -717,13 +717,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private void Beat()
   {
     _heartbeat?.Beat(Id);
-    _events?.Publish(new ChildProgressEvent(Id, DateTimeOffset.UtcNow, ChildPhase.ModelCall, "iteration"));
+    _events?.Publish(new AgentProgressEvent(Id, DateTimeOffset.UtcNow, AgentPhase.ModelCall, "iteration"));
   }
 
   /// <summary>Publishes a progress event to the wired event stream, or no-op when none
   ///     is wired. Labels are short phase tags, never content (D5).</summary>
-  private void PublishProgress(ChildPhase phase, string label)
-      => _events?.Publish(new ChildProgressEvent(Id, DateTimeOffset.UtcNow, phase, label));
+  private void PublishProgress(AgentPhase phase, string label)
+      => _events?.Publish(new AgentProgressEvent(Id, DateTimeOffset.UtcNow, phase, label));
 
   /// <summary>Pressure phase of an iteration: when a compactor and monitor are wired,
   ///     derives the compaction policy from the monitor's context window (per iteration,
@@ -895,7 +895,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
 
     Beat();
-    PublishProgress(ChildPhase.ModelCall, "overflow-recovery");
+    PublishProgress(AgentPhase.ModelCall, "overflow-recovery");
     // ALWAYS IN PLACE (issue #234 fix round): the handoff is a ceiling-path decision
     // only. A handoff here would skip the compaction and re-send the identical
     // oversized request into the same overflow — the turn would fail with no handoff
@@ -1125,7 +1125,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
 
     _heartbeat?.Beat(Id);
-    PublishProgress(ChildPhase.Draining, "tool-result");
+    PublishProgress(AgentPhase.Draining, "tool-result");
     string summary = SummarizeToolResult(toolResult);
     callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError,
         toolResult.Title is null ? null : toolResult);
@@ -1165,7 +1165,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     the standard UnknownTool line.</summary>
   private async Task<ToolResult> ExecuteOneToolAsync(ToolCallRequest call, ITool? tool, CancellationToken ct)
   {
-    PublishProgress(ChildPhase.ToolExec, "tool:" + call.Name);
+    PublishProgress(AgentPhase.ToolExec, "tool:" + call.Name);
     _heartbeat?.Beat(Id);
     return tool is null
         ? new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)

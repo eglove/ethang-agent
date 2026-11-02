@@ -113,7 +113,7 @@ public class ChildHostAgentSteerWireTests
     AgentId agent = AgentId.NewId();
     host.Server.AttachAgentSteering(agent.Value, _ => mailbox, host.Services);
     IAgentEvents events = (IAgentEvents)host.Services.GetService(typeof(IAgentEvents))!;
-    List<ChildEvent> seen = [];
+    List<AgentEvent> seen = [];
     using IDisposable lease = events.Subscribe(new Collector(seen));
 
 #pragma warning disable CA2007 // Named decision: 'await using' cannot carry ConfigureAwait.
@@ -127,7 +127,7 @@ public class ChildHostAgentSteerWireTests
     _ = await ReadAckAsync(app, agent).ConfigureAwait(true);
 
     MessageDeliveredEvent delivered = Assert.Single(seen.OfType<MessageDeliveredEvent>());
-    Assert.Equal(agent, delivered.ChildId);
+    Assert.Equal(agent, delivered.Id);
     Assert.Equal(pinned, delivered.MessageId);
   }
 
@@ -191,8 +191,8 @@ public class ChildHostAgentSteerWireTests
 
   /// <summary>Collects every fact the container publishes, so a test can assert what the steer
   ///     path raised.</summary>
-  private sealed class Collector(List<ChildEvent> seen) : IAgentEventSubscriber
+  private sealed class Collector(List<AgentEvent> seen) : IAgentEventSubscriber
   {
-    public void OnEvent(ChildEvent evt) => seen.Add(evt);
+    public void OnEvent(AgentEvent evt) => seen.Add(evt);
   }
 }

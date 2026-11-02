@@ -132,7 +132,7 @@ public class SearchServiceTests
   public void Search_ActivePath_KeepsRootLineageOnly_ExcludesOrphanChains()
   {
     AgentId rootId = NewId();
-    AgentId childId = NewId();
+    AgentId agentId = NewId();
     AgentId grandchildId = NewId();
     AgentId missingAncestorId = NewId();
     AgentId orphanId = NewId();
@@ -140,8 +140,8 @@ public class SearchServiceTests
     List<SessionCorpus> sessions =
         [
             new(rootId, null, 0, [new(rootId, 1, "user", "root line", At(0))]),
-            new(childId, rootId, 1, [new(childId, 1, "user", "child line", At(1))]),
-            new(grandchildId, childId, 2, [new(grandchildId, 1, "user", "grandchild line", At(2))]),
+            new(agentId, rootId, 1, [new(agentId, 1, "user", "child line", At(1))]),
+            new(grandchildId, agentId, 2, [new(grandchildId, 1, "user", "grandchild line", At(2))]),
             // Orphan chain: ancestor row absent from the set — excluded under ActivePath.
             new(orphanId, missingAncestorId, 1, [new(orphanId, 1, "user", "orphan line", At(3))]),
             new(orphanChildId, orphanId, 2, [new(orphanChildId, 1, "user", "orphan child line", At(4))]),

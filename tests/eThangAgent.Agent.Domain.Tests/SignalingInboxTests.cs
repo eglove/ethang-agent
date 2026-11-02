@@ -63,7 +63,7 @@ public class SignalingInboxTests
     Assert.Equal("check on the child", text);
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.UserMessage, signal.Reason);
-    Assert.Equal(owner, signal.ChildId);
+    Assert.Equal(owner, signal.Id);
   }
 
   [Fact]
@@ -147,7 +147,7 @@ public class SignalingInboxTests
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.UserMessage, signal.Reason);
-    Assert.Equal(owner, signal.ChildId);
+    Assert.Equal(owner, signal.Id);
   }
 
   /// <summary>Issue #319 D2: a decorator over a NON-addressable inbox is refused at

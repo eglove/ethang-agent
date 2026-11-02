@@ -42,7 +42,7 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
   private readonly Func<string> _hostExePath;
   private readonly Action<string> _reportNotice;
   private readonly HostAdmissionGate _admission;
-  // The stream a launched host's forwarded child events republish onto. Null drops them.
+  // The stream a launched host's forwarded agent events republish onto. Null drops them.
   private readonly IAgentEvents? _events;
   private readonly Lock _gate = new();
 
@@ -131,7 +131,7 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
           _hostExePath);
 #pragma warning restore CA2000
 
-      // The launched host forwards its child's events as child-event envelopes; this
+      // The launched host forwards its child's events as agent-event envelopes; this
       // stream is where they land, so the container that launched the agent observes it.
       RemoteAgentRuntime runtime = new(
           transport: null,
@@ -299,9 +299,9 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
   /// <summary>Interrupts one agent (or every agent this host launched). Cancelling a PARKED
   ///     agent withdraws it from the park queue and completes its settle source, so its waiter
   ///     never hangs on a run that will not happen.</summary>
-  public void Interrupt(AgentId? childId = null)
+  public void Interrupt(AgentId? agentId = null)
   {
-    if (childId is { } one)
+    if (agentId is { } one)
     {
       RuntimeFor(one)?.Interrupt(one);
       if (_admission.Withdraw(one.Value) && _settling.TryRemove(one.Value, out TaskCompletionSource<AgentRunOutcome>? parked))

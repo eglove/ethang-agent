@@ -3,7 +3,7 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.AgentDomain.Tests;
 
 /// <summary>The progress wake is GONE from agent.wait: a child's progress beats fire on
-///     every tool call, so a wait that woke on them never rests. The ChildProgressEvent
+///     every tool call, so a wait that woke on them never rests. The AgentProgressEvent
 ///     itself survives (it feeds the watchdog's idle clock and the Desktop panel) — but
 ///     it no longer wakes a wait. These tests pin both halves of that contract: the
 ///     vocabulary refuses the retired token, and the adapter never registers a progress
@@ -20,7 +20,7 @@ public class WaitProgressRemovalTests
       return new FakeLease(this);
     }
 
-    public void Publish(ChildEvent evt) => Subscriber?.OnEvent(evt);
+    public void Publish(AgentEvent evt) => Subscriber?.OnEvent(evt);
 
     private sealed class FakeLease(RecordingEvents owner) : IDisposable
     {
@@ -35,12 +35,12 @@ public class WaitProgressRemovalTests
   {
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = AgentId.NewId();
 
-    events.Publish(new ChildProgressEvent(child, Now, ChildPhase.ToolExec, "tool:read"));
+    events.Publish(new AgentProgressEvent(child, Now, AgentPhase.ToolExec, "tool:read"));
 
     Assert.Empty(seen);
   }
@@ -52,13 +52,13 @@ public class WaitProgressRemovalTests
     // a progress beat never does.
     RecordingEvents events = new();
     WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
+    using AgentEventWakeAdapter adapter = new(events, hub);
     List<WakeSignal> seen = [];
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = AgentId.NewId();
 
-    events.Publish(new ChildProgressEvent(child, Now, ChildPhase.ModelCall, "iteration"));
-    events.Publish(new ChildIdleAlertEvent(child, Now, TimeSpan.FromMinutes(3), "ModelCall"));
+    events.Publish(new AgentProgressEvent(child, Now, AgentPhase.ModelCall, "iteration"));
+    events.Publish(new AgentIdleAlertEvent(child, Now, TimeSpan.FromMinutes(3), "ModelCall"));
 
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.Idle, signal.Reason);

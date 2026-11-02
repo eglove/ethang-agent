@@ -34,7 +34,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   // delivers here any more (issue #316): the only sender left is the human steering the
   // ROOT, whose message goes to the root container's inbox, not through this registry.
   private readonly ConcurrentDictionary<AgentId, BoundedAgentMailbox> _mailboxes = [];
-  private readonly ChildMailboxRegistry? _registry;
+  private readonly AgentMailboxRegistry? _registry;
 
   // Concurrency-boundary admission (FR-B6, issue #238): ONE gate owns both the slot count
   // and the waiter list, so a settled run hands its slot DIRECTLY to the head waiter
@@ -46,11 +46,11 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
   private sealed record SpawnWaiter(AgentRecord Record, int Priority, DateTimeOffset EnqueuedAt);
   private readonly IAgentEvents? _events;
-  private readonly ChildSupervisorRegistry? _supervisors;
+  private readonly AgentSupervisorRegistry? _supervisors;
 
   public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents,
       IAgentEvents? events = null,
-      ChildSupervisorRegistry? supervisors = null, ChildMailboxRegistry? mailboxes = null)
+      AgentSupervisorRegistry? supervisors = null, AgentMailboxRegistry? mailboxes = null)
   {
     ArgumentNullException.ThrowIfNull(runner);
     ArgumentNullException.ThrowIfNull(store);
@@ -221,7 +221,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     {
       if (_supervisors is not null)
       {
-        ChildSupervisor supervisor = new(record.Id, _events ?? NullAgentEvents.Instance, TimeProvider.System, ceilings: null);
+        AgentSupervisor supervisor = new(record.Id, _events ?? NullAgentEvents.Instance, TimeProvider.System, ceilings: null);
         supervisor.OnStart(record.Attempts);
         _supervisors.Register(record.Id, supervisor);
       }
@@ -265,9 +265,9 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   public IReadOnlyCollection<Guid> ActiveChildren
       => [.. _active.Keys.Select(id => id.Value)];
 
-  public void Interrupt(AgentId? childId = null)
+  public void Interrupt(AgentId? agentId = null)
   {
-    if (childId is { } id)
+    if (agentId is { } id)
     {
       InterruptOne(id);
       return;
@@ -456,7 +456,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       FailureReason = null,
       CompletedAt = null,
       FinalReport = null,
-      Phase = ChildPhase.ModelCall,
+      Phase = AgentPhase.ModelCall,
       Attempts = record.Attempts + 1,
       Contract = SpawnContract.Encode(contract.WithResumeMessage(message)),
     };
@@ -625,7 +625,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       _registry?.Unregister(id);
       _supervisors?.Unregister(id);
       mailbox.Close();
-      _events?.Publish(new ChildSettledEvent(id, DateTimeOffset.UtcNow, outcome.Status,
+      _events?.Publish(new AgentSettledEvent(id, DateTimeOffset.UtcNow, outcome.Status,
           outcome.Reason, System.Text.Encoding.UTF8.GetByteCount(outcome.Report)));
     }
   }

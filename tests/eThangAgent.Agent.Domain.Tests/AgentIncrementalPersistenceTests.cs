@@ -19,7 +19,7 @@ public class AgentIncrementalPersistenceTests
   private static ModelConfig DefaultConfig =>
       ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
-  private sealed class RecordingSink : IChildTranscriptStore, IAsyncDisposable
+  private sealed class RecordingSink : IAgentTranscriptStore, IAsyncDisposable
   {
     public List<Message> Appended { get; } = [];
     public List<IReadOnlyList<Message>> Replaced { get; } = [];

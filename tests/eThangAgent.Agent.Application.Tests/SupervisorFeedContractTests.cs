@@ -30,7 +30,7 @@ public partial class SupervisorFeedContractTests
       return new Lease();
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber s in _subscribers.ToArray())
       {
@@ -46,13 +46,13 @@ public partial class SupervisorFeedContractTests
 
   /// <summary>A supervisor whose idle window started at T0, registered under its id,
   ///     with the feed subscribed to the shared stream.</summary>
-  private static (FakeStream Stream, ChildSupervisor Supervisor, AgentId Child, StubClock Clock) Fresh()
+  private static (FakeStream Stream, AgentSupervisor Supervisor, AgentId Child, StubClock Clock) Fresh()
   {
     FakeStream stream = new();
-    ChildSupervisorRegistry registry = new();
+    AgentSupervisorRegistry registry = new();
     StubClock clock = new(T0);
     AgentId child = new(Guid.NewGuid());
-    ChildSupervisor supervisor = new(child, stream, clock, ceilings: new BudgetCeilings(MaxTokens: 1_000));
+    AgentSupervisor supervisor = new(child, stream, clock, ceilings: new BudgetCeilings(MaxTokens: 1_000));
     supervisor.OnStart(0);
     registry.Register(child, supervisor);
 
@@ -69,45 +69,45 @@ public partial class SupervisorFeedContractTests
   {
     // The stall event is published from inside CheckStreamStall under the supervisor's
     // lock — a self-echo would deadlock, and a beat would clear the very alert raised.
-    (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
+    (FakeStream stream, AgentSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
 
-    stream.Publish(new ChildStreamStalledEvent(child, T0, TimeSpan.FromSeconds(130), "content"));
+    stream.Publish(new AgentStreamStalledEvent(child, T0, TimeSpan.FromSeconds(130), "content"));
 
     clock.Now = T0.AddMinutes(15).AddTicks(1);
-    ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     Assert.NotNull(alert); // no beat: the idle window was NOT reset by the stall event
   }
   [Fact]
   public void BudgetAlert_DoesNotBeat()
   {
-    (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
+    (FakeStream stream, AgentSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
 
-    stream.Publish(new ChildBudgetAlertEvent(child, T0, "tokens", 800, 1_000, 0.0));
+    stream.Publish(new AgentBudgetAlertEvent(child, T0, "tokens", 800, 1_000, 0.0));
 
     clock.Now = T0.AddMinutes(15).AddTicks(1);
-    ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     Assert.NotNull(alert); // no beat: the idle window was NOT reset by the budget alert
   }
 
   [Fact]
   public void MessageDelivered_DoesNotBeat()
   {
-    (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
+    (FakeStream stream, AgentSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
 
     stream.Publish(new MessageDeliveredEvent(child, T0, "root-steer", 64));
 
     clock.Now = T0.AddMinutes(15).AddTicks(1);
-    ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     Assert.NotNull(alert); // no beat: mailbox lifecycle is not run progress
   }
 
   [Fact]
   public void IdleAlert_FeedsNothing_AndPreservesTheAlertItself()
   {
-    (FakeStream stream, ChildSupervisor supervisor, _, StubClock clock) = Fresh();
+    (FakeStream stream, AgentSupervisor supervisor, _, StubClock clock) = Fresh();
 
     clock.Now = T0.AddMinutes(15).AddTicks(1);
-    ChildIdleAlertEvent? first = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    AgentIdleAlertEvent? first = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
     Assert.NotNull(first);
 
     // A second CheckIdle inside the alert's own publish would either deadlock on the
@@ -122,13 +122,13 @@ public partial class SupervisorFeedContractTests
   [Fact]
   public void Started_Beats_TheFreshSupervisor()
   {
-    (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
+    (FakeStream stream, AgentSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
 
     // Publish the start 10 minutes in: a beat resets the window to THAT instant, so
     // the timings below distinguish beat from no-beat (at T0 they would not — the
     // window already starts at T0 via OnStart).
     clock.Now = T0.AddMinutes(10);
-    stream.Publish(new ChildStartedEvent(child, clock.Now, null, "m/sub", 2));
+    stream.Publish(new AgentStartedEvent(child, clock.Now, null, "m/sub", 2));
 
     clock.Now = T0.AddMinutes(20);
     Assert.Null(supervisor.CheckIdle(TimeSpan.FromMinutes(15))); // beat: only 10 min silent
@@ -141,7 +141,7 @@ public partial class SupervisorFeedContractTests
   public void EveryKind_ForAnUnregisteredChild_IsANoOp_NotAFault()
   {
     FakeStream stream = new();
-    ChildSupervisorRegistry registry = new();
+    AgentSupervisorRegistry registry = new();
     AgentId stranger = new(Guid.NewGuid());
     // Named decision (CA2000): test-local stream, lease outlives the publishes below.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
@@ -150,12 +150,12 @@ public partial class SupervisorFeedContractTests
 
     Exception? ex = Record.Exception(() =>
     {
-      stream.Publish(new ChildStartedEvent(stranger, T0, null, "m/sub", 1));
-      stream.Publish(new ChildProgressEvent(stranger, T0, ChildPhase.ModelCall, "iteration"));
-      stream.Publish(new ChildBudgetAlertEvent(stranger, T0, "tokens", 1, 10, 0));
+      stream.Publish(new AgentStartedEvent(stranger, T0, null, "m/sub", 1));
+      stream.Publish(new AgentProgressEvent(stranger, T0, AgentPhase.ModelCall, "iteration"));
+      stream.Publish(new AgentBudgetAlertEvent(stranger, T0, "tokens", 1, 10, 0));
       stream.Publish(new MessageDeliveredEvent(stranger, T0, "root-steer", 8));
-      stream.Publish(new ChildIdleAlertEvent(stranger, T0, TimeSpan.FromMinutes(15), "ModelCall"));
-      stream.Publish(new ChildSettledEvent(stranger, T0, AgentStatus.Failed, AgentFailureReason.Hung, 0));
+      stream.Publish(new AgentIdleAlertEvent(stranger, T0, TimeSpan.FromMinutes(15), "ModelCall"));
+      stream.Publish(new AgentSettledEvent(stranger, T0, AgentStatus.Failed, AgentFailureReason.Hung, 0));
     });
 
     Assert.Null(ex); // the feed must never create facts for a child it does not own

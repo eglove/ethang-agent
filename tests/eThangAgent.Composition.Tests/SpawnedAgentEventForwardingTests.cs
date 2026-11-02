@@ -15,7 +15,7 @@ namespace eThangAgent.Composition.Tests;
 
 /// <summary>Issue #326: a spawned agent's events reach the app. The defect was one
 ///     argument — <c>HostLaunchingRuntime</c> built each launched host's wire runtime with
-///     <c>events: null</c>, so <c>RemoteAgentRuntime.HandleChildEvent</c> dropped every
+///     <c>events: null</c>, so <c>RemoteAgentRuntime.HandleAgentEvent</c> dropped every
 ///     forwarded envelope at the process boundary and the app never observed a spawned
 ///     agent's lifecycle: nothing downstream could observe a spawn because there was never
 ///     an event to observe, not because a consumer was mis-wired.
@@ -121,9 +121,9 @@ public class SpawnedAgentEventForwardingTests
   private sealed class Collector : IAgentEventSubscriber
   {
     private readonly Lock _gate = new();
-    private readonly List<ChildEvent> _events = [];
+    private readonly List<AgentEvent> _events = [];
 
-    public void OnEvent(ChildEvent evt)
+    public void OnEvent(AgentEvent evt)
     {
       lock (_gate)
       {
@@ -131,7 +131,7 @@ public class SpawnedAgentEventForwardingTests
       }
     }
 
-    public IReadOnlyList<ChildEvent> Snapshot()
+    public IReadOnlyList<AgentEvent> Snapshot()
     {
       lock (_gate)
       {
@@ -171,7 +171,7 @@ public class SpawnedAgentEventForwardingTests
     ///     pre-#326 code did.</summary>
     public static ParentHost Create(bool wireEvents)
     {
-      string root = Directory.CreateTempSubdirectory("ethang-child-events").FullName;
+      string root = Directory.CreateTempSubdirectory("ethang-agent-events").FullName;
       string workspace = Directory.CreateDirectory(Path.Combine(root, "ws")).FullName;
       string database = Path.Combine(root, "app.db");
       MockProviderServer mock = new();
@@ -247,14 +247,14 @@ public class SpawnedAgentEventForwardingTests
   /// <summary>Waits until the parent's stream carries a settled fact for the child, or
   ///     fails with what the row and stream actually hold. The settle FACT is the assertion
   ///     under test (issue #326); waiting on a runtime await would test a different seam.</summary>
-  private static async Task<ChildSettledEvent> AwaitSettledAsync(ParentHost parent, AgentRecord child)
+  private static async Task<AgentSettledEvent> AwaitSettledAsync(ParentHost parent, AgentRecord child)
   {
     DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(60);
     while (DateTimeOffset.UtcNow < deadline)
     {
-      ChildSettledEvent? settled = parent.Events.Snapshot()
-          .OfType<ChildSettledEvent>()
-          .FirstOrDefault(e => e.ChildId == child.Id);
+      AgentSettledEvent? settled = parent.Events.Snapshot()
+          .OfType<AgentSettledEvent>()
+          .FirstOrDefault(e => e.Id == child.Id);
       if (settled is not null)
       {
         return settled;
@@ -273,7 +273,7 @@ public class SpawnedAgentEventForwardingTests
     string state = row.IsSuccess
         ? $"status={row.Value.Status} reason={row.Value.FailureReason} attempts={row.Value.Attempts} report={row.Value.FinalReport}"
         : $"unreadable: {row.Error?.Message}";
-    IReadOnlyList<ChildEvent> seen = parent.Events.Snapshot();
+    IReadOnlyList<AgentEvent> seen = parent.Events.Snapshot();
     return "settle never arrived.\n  row: " + state
         + "\n  events: " + (seen.Count == 0 ? "(none)" : string.Join(", ", seen.Select(e => e.GetType().Name)))
         + "\n  notices: " + (parent.Notices.Count == 0 ? "(none)" : string.Join(" | ", parent.Notices));
@@ -289,23 +289,23 @@ public class SpawnedAgentEventForwardingTests
     Result<AgentId> started = await parent.Runtime.Start(child, ct).ConfigureAwait(true);
     Assert.True(started.IsSuccess, started.Error?.Message);
 
-    ChildSettledEvent settled = await AwaitSettledAsync(parent, child).ConfigureAwait(true);
+    AgentSettledEvent settled = await AwaitSettledAsync(parent, child).ConfigureAwait(true);
     Assert.Equal(AgentStatus.Completed, settled.TerminalStatus);
 
-    IReadOnlyList<ChildEvent> events = parent.Events.Snapshot();
+    IReadOnlyList<AgentEvent> events = parent.Events.Snapshot();
     // Acceptance: the started fact is what tells the app a cell should exist.
-    ChildStartedEvent begun = Assert.Single(events.OfType<ChildStartedEvent>(),
-        e => e.ChildId == child.Id);
+    AgentStartedEvent begun = Assert.Single(events.OfType<AgentStartedEvent>(),
+        e => e.Id == child.Id);
     Assert.Equal(ChildModel, begun.ModelId);
 
     // Acceptance: progress beats arrive DURING the run — the live phase chip reads them.
-    Assert.Contains(events.OfType<ChildProgressEvent>(), e => e.ChildId == child.Id);
+    Assert.Contains(events.OfType<AgentProgressEvent>(), e => e.Id == child.Id);
 
     // Acceptance: no event is published twice. The launched host forwards each event
     // once, so the parent's stream holds exactly the facts the child published — a
     // second republish path would show up here as a duplicate instance.
-    Assert.Equal(events.Count(e => e.ChildId == child.Id),
-        events.Where(e => e.ChildId == child.Id).Distinct().Count());
+    Assert.Equal(events.Count(e => e.Id == child.Id),
+        events.Where(e => e.Id == child.Id).Distinct().Count());
   }
 
   [Fact]
@@ -328,7 +328,7 @@ public class SpawnedAgentEventForwardingTests
       {
         Assert.Equal(AgentStatus.Completed, row.Value.Status);
         // The legacy shape drops forwarded events, byte-identical to before the fix.
-        Assert.DoesNotContain(parent.Events.Snapshot(), e => e.ChildId == child.Id);
+        Assert.DoesNotContain(parent.Events.Snapshot(), e => e.Id == child.Id);
         return;
       }
 

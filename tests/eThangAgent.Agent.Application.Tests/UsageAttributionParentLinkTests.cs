@@ -80,7 +80,7 @@ public class UsageAttributionParentLinkTests
       // No runs to interrupt in this test.
     }
 
-    public void Interrupt(AgentId? childId = null)
+    public void Interrupt(AgentId? agentId = null)
     {
       // No runs to interrupt in this test.
     }

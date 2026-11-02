@@ -497,7 +497,7 @@ public sealed class ChainsViewViewModelTests : IDisposable
       return new Lease(this, subscriber);
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber subscriber in _subscribers.ToArray())
       {

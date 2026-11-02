@@ -41,9 +41,9 @@ internal static class TestFixtures
 
     public void InterruptSubtree(AgentId rootOfSubtree) => SubtreeInterrupts.Add(rootOfSubtree);
 
-    public void Interrupt(AgentId? childId = null)
+    public void Interrupt(AgentId? agentId = null)
     {
-      if (childId is null)
+      if (agentId is null)
       {
         InterruptAllCount++;
       }

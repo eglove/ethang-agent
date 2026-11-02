@@ -35,7 +35,7 @@ public class SubAgentSpawnerInterruptPersistenceTests
 
     Assert.Equal(AgentStatus.Failed, outcome.Status);
     Assert.Equal(AgentFailureReason.Interrupted, outcome.Reason);
-    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcome.ChildId, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcome.AgentId, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(transcript.IsSuccess);
     // The task prompt plus every loop-iterated message pair persisted incrementally,
     // not just the terminal row: the run's history survives the interrupt.

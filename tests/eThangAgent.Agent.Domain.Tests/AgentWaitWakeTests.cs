@@ -41,7 +41,7 @@ public class AgentWaitWakeTests
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-    public void Interrupt(AgentId? childId = null) { }
+    public void Interrupt(AgentId? agentId = null) { }
   }
 
   private static AgentCapabilityProvider MakeProvider(IAgentRuntime runtime, IWaitWakeSource? source = null)
@@ -182,7 +182,7 @@ public class AgentWaitWakeTests
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-    public void Interrupt(AgentId? childId = null) { }
+    public void Interrupt(AgentId? agentId = null) { }
   }
 
   private sealed class NotFoundRuntime : IAgentRuntime
@@ -198,6 +198,6 @@ public class AgentWaitWakeTests
 
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
-    public void Interrupt(AgentId? childId = null) { }
+    public void Interrupt(AgentId? agentId = null) { }
   }
 }

@@ -41,7 +41,7 @@ public class SubAgentSpawnerProviderInvariantTests
     Assert.Equal(AgentStatus.Failed, updated.Status);
     Assert.Equal(AgentFailureReason.ProviderError, updated.FailureReason);
     // The decision lands in the watchdog event store as audit.
-    _ = Assert.Single(audit.Events, e => e.AgentId == outcome.ChildId);
+    _ = Assert.Single(audit.Events, e => e.AgentId == outcome.AgentId);
   }
 
   [Fact]

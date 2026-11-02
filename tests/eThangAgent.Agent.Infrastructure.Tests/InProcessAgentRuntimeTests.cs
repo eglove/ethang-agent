@@ -11,8 +11,8 @@ public class InProcessAgentRuntimeTests
       AgentRecord.Spawned(new AgentId(Guid.NewGuid()), parentId: null, depth: 1,
           modelUsed: "mock/model", label: "test", taskPrompt: prompt, createdAt: DateTimeOffset.UtcNow);
 
-  private static AgentRunOutcome CompletedOutcome(AgentId childId, string report) =>
-      new(childId, AgentStatus.Completed, Reason: null, Report: report, ModelUsed: "mock/model", Depth: 1);
+  private static AgentRunOutcome CompletedOutcome(AgentId agentId, string report) =>
+      new(agentId, AgentStatus.Completed, Reason: null, Report: report, ModelUsed: "mock/model", Depth: 1);
 
   /// <summary>Runner whose shared gate holds children in-flight until the test releases them.
   ///     Dispatch observation counts: FirstCall resolves once one child entered RunAsync, and

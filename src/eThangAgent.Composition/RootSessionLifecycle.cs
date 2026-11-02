@@ -24,7 +24,7 @@ namespace eThangAgent.Composition;
 ///     a resumed one (the hydrated prefix was persisted by the session that wrote it) and
 ///     while the sink is inert. The conversation is the only authority on its own length;
 ///     the sink is asked only how far it has advanced.</para></remarks>
-public class RootSessionLifecycle(IAgentStore store, IChildTranscriptStore? transcriptSink = null)
+public class RootSessionLifecycle(IAgentStore store, IAgentTranscriptStore? transcriptSink = null)
 {
   /// <summary>Appends the messages that are not yet persisted, starting at the ABSOLUTE
   ///     conversation index <paramref name="alreadyPersisted"/>. When a sink is wired it can

@@ -85,7 +85,7 @@ public class RemoteAgentRuntimeE2ETests
   ///     contract InProcessAgentEvents serves (the app container wires one).</summary>
   private sealed class RecordingEvents : IAgentEvents
   {
-    public List<ChildEvent> Published { get; } = [];
+    public List<AgentEvent> Published { get; } = [];
     private readonly List<IAgentEventSubscriber> _subscribers = [];
 
     public IDisposable Subscribe(IAgentEventSubscriber subscriber)
@@ -94,7 +94,7 @@ public class RemoteAgentRuntimeE2ETests
       return new Lease(_subscribers, subscriber);
     }
 
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       Published.Add(evt);
       foreach (IAgentEventSubscriber subscriber in _subscribers.ToArray())
@@ -112,7 +112,7 @@ public class RemoteAgentRuntimeE2ETests
   [Fact]
   public async Task ChildEventEnvelope_RoundTripsThroughTheWire()
   {
-    // Issue #245: the host forwards child events as child-event envelopes; the app-side
+    // Issue #245: the host forwards agent events as agent-event envelopes; the app-side
     // runtime republishes them onto the session's stream. The event must arrive verbatim.
     (NamedPipeChildTransport app, NamedPipeChildTransport host) = await ConnectAsync().ConfigureAwait(true);
     RecordingEvents events = new();
@@ -122,10 +122,10 @@ public class RemoteAgentRuntimeE2ETests
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 
-      AgentId childId = AgentId.NewId();
-      ChildStartedEvent started = new(childId, DateTimeOffset.UtcNow, null, "test/model", 0);
-      await host.SendAsync(new TransportEnvelope("child-event",
-          System.Text.Json.JsonSerializer.Serialize(ChildEventEnvelope.From(started)), 1),
+      AgentId agentId = AgentId.NewId();
+      AgentStartedEvent started = new(agentId, DateTimeOffset.UtcNow, null, "test/model", 0);
+      await host.SendAsync(new TransportEnvelope("agent-event",
+          System.Text.Json.JsonSerializer.Serialize(AgentEventEnvelope.From(started)), 1),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
 
       // Bounded wait: the pump must route the envelope and publish the event.
@@ -133,8 +133,8 @@ public class RemoteAgentRuntimeE2ETests
       {
         await Task.Delay(10, TestContext.Current.CancellationToken).ConfigureAwait(true);
       }
-      ChildStartedEvent republished = Assert.IsType<ChildStartedEvent>(Assert.Single(events.Published));
-      Assert.Equal(childId, republished.ChildId);
+      AgentStartedEvent republished = Assert.IsType<AgentStartedEvent>(Assert.Single(events.Published));
+      Assert.Equal(agentId, republished.Id);
       Assert.Equal("test/model", republished.ModelId, StringComparer.Ordinal);
     }
     finally
@@ -157,9 +157,9 @@ public class RemoteAgentRuntimeE2ETests
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 
-      // A payload that decodes to no known ChildEvent subtype.
-      ChildEventEnvelope envelope = new(Guid.NewGuid(), "BrandNewEvent", System.Text.Json.JsonSerializer.Serialize(new { }));
-      await host.SendAsync(new TransportEnvelope("child-event",
+      // A payload that decodes to no known AgentEvent subtype.
+      AgentEventEnvelope envelope = new(Guid.NewGuid(), "BrandNewEvent", System.Text.Json.JsonSerializer.Serialize(new { }));
+      await host.SendAsync(new TransportEnvelope("agent-event",
           System.Text.Json.JsonSerializer.Serialize(envelope), 1),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
 

@@ -88,8 +88,8 @@ public class ChildHostInterruptScopeTests
     try
     {
       Guid sessionRoot = Guid.NewGuid();
-      Guid childId = Guid.NewGuid();
-      AgentRecord record = AgentRecord.Spawned(new AgentId(childId), new AgentId(sessionRoot), 1,
+      Guid agentId = Guid.NewGuid();
+      AgentRecord record = AgentRecord.Spawned(new AgentId(agentId), new AgentId(sessionRoot), 1,
           "mock/model", "scoped-stop", "park until interrupted", DateTimeOffset.UtcNow);
       ParkingRunRunner runner = new();
       InProcessAgentRuntime runtime = new(runner, new SilentStore(), maxConcurrentAgents: 1);
@@ -99,7 +99,7 @@ public class ChildHostInterruptScopeTests
       CancellationTokenSource bookkeeping = new();
       // Named decision (CA2000): ownership transfers to the server's active set.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
-      server.AttachActiveChild(childId, sessionRoot, bookkeeping, runtime);
+      server.AttachActiveChild(agentId, sessionRoot, bookkeeping, runtime);
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
 
       await appSide.SendAsync(new TransportEnvelope("interrupt",
@@ -193,9 +193,9 @@ public class ChildHostInterruptScopeTests
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised")));
     public void InterruptSubtree(AgentId rootOfSubtree) { }
-    public void Interrupt(AgentId? childId = null)
+    public void Interrupt(AgentId? agentId = null)
     {
-      if (childId is { } id)
+      if (agentId is { } id)
       {
         Interrupts.Add(id);
       }

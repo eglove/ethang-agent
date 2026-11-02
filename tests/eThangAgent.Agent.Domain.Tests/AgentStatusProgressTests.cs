@@ -43,7 +43,7 @@ public class AgentStatusProgressTests
         CompletedAt = status is AgentStatus.Running ? null : T0,
       };
 
-  private static AgentCapabilityProvider Provider(AgentRecord record, ChildProgressLedger? ledger, TimeProvider? clock = null)
+  private static AgentCapabilityProvider Provider(AgentRecord record, AgentProgressLedger? ledger, TimeProvider? clock = null)
       => new(new AgentProviderServices(new NoopSpawnCommand(), new FakeQueries(record),
           () => record, Progress: ledger, Clock: clock));
 
@@ -51,8 +51,8 @@ public class AgentStatusProgressTests
   public async Task Running_WithABeat_RendersPhaseLabelAndAge()
   {
     AgentRecord child = Child(AgentStatus.Running);
-    ChildProgressLedger ledger = new();
-    ledger.OnEvent(new ChildProgressEvent(child.Id, T0, ChildPhase.ToolExec, "tool:exec"));
+    AgentProgressLedger ledger = new();
+    ledger.OnEvent(new AgentProgressEvent(child.Id, T0, AgentPhase.ToolExec, "tool:exec"));
     StubClock clock = new(T0.AddSeconds(42));
 
     CapabilityInvocationResult result = await Provider(child, ledger, clock)
@@ -68,7 +68,7 @@ public class AgentStatusProgressTests
   {
     AgentRecord child = Child(AgentStatus.Running);
 
-    CapabilityInvocationResult result = await Provider(child, new ChildProgressLedger(), new StubClock(T0))
+    CapabilityInvocationResult result = await Provider(child, new AgentProgressLedger(), new StubClock(T0))
         .InvokeAsync("status", $"{{\"id\":\"{child.Id}\"}}", ct: TestContext.Current.CancellationToken)
         .ConfigureAwait(true);
 
@@ -94,9 +94,9 @@ public class AgentStatusProgressTests
   public async Task NonRunningStatus_NeverCarriesTheSuffix(AgentStatus status)
   {
     AgentRecord child = Child(status);
-    ChildProgressLedger ledger = new();
+    AgentProgressLedger ledger = new();
     // A stale beat for a record that is no longer running: the suffix must not appear.
-    ledger.OnEvent(new ChildProgressEvent(child.Id, T0, ChildPhase.ToolExec, "tool:exec"));
+    ledger.OnEvent(new AgentProgressEvent(child.Id, T0, AgentPhase.ToolExec, "tool:exec"));
 
     CapabilityInvocationResult result = await Provider(child, ledger, new StubClock(T0.AddSeconds(5)))
         .InvokeAsync("status", $"{{\"id\":\"{child.Id}\"}}", ct: TestContext.Current.CancellationToken)
@@ -109,8 +109,8 @@ public class AgentStatusProgressTests
   public async Task FailedStatus_KeepsItsReasonSuffixAndNoProgress()
   {
     AgentRecord child = Child(AgentStatus.Failed) with { FailureReason = AgentFailureReason.Hung };
-    ChildProgressLedger ledger = new();
-    ledger.OnEvent(new ChildProgressEvent(child.Id, T0, ChildPhase.ToolExec, "tool:exec"));
+    AgentProgressLedger ledger = new();
+    ledger.OnEvent(new AgentProgressEvent(child.Id, T0, AgentPhase.ToolExec, "tool:exec"));
 
     CapabilityInvocationResult result = await Provider(child, ledger, new StubClock(T0.AddSeconds(5)))
         .InvokeAsync("status", $"{{\"id\":\"{child.Id}\"}}", ct: TestContext.Current.CancellationToken)

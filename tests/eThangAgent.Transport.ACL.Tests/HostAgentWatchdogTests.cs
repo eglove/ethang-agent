@@ -59,9 +59,9 @@ public class HostChildWatchdogTests
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
     => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
     public void InterruptSubtree(AgentId rootOfSubtree) => Interrupts.Add(rootOfSubtree);
-    public void Interrupt(AgentId? childId = null)
+    public void Interrupt(AgentId? agentId = null)
     {
-      if (childId is { } id)
+      if (agentId is { } id)
       {
         Interrupts.Add(id);
       }
@@ -105,7 +105,7 @@ public class HostChildWatchdogTests
       _subscribers.Add(subscriber);
       return new StreamLease();
     }
-    public void Publish(ChildEvent evt)
+    public void Publish(AgentEvent evt)
     {
       foreach (IAgentEventSubscriber subscriber in _subscribers.ToArray())
       {
@@ -119,7 +119,7 @@ public class HostChildWatchdogTests
   }
 
   private static WatchdogServices Services(StubClock clock, FakeListStore store, RecordingRuntime runtime,
-      FakeHeartbeat heartbeat, FakeAudit audit, TestStream stream, ChildSupervisorRegistry supervisors)
+      FakeHeartbeat heartbeat, FakeAudit audit, TestStream stream, AgentSupervisorRegistry supervisors)
     => new(store, runtime, heartbeat, audit,
         new WatchdogPolicy(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(5), 0, TimeSpan.FromMinutes(2)),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
@@ -132,16 +132,16 @@ public class HostChildWatchdogTests
     FakeListStore store = new();
     RecordingRuntime runtime = new();
     TestStream stream = new();
-    ChildSupervisorRegistry supervisors = new();
+    AgentSupervisorRegistry supervisors = new();
     AgentId child = new(Guid.NewGuid());
     _ = await store.SaveAsync(AgentRecord.Spawned(child, null, 1, "m/sub", "hung", "task", DateTimeOffset.UtcNow));
     // The runtime registers the child's supervisor at Start; a never-beating run is
     // idle from OnStart onward (its clock = the watchdog's clock in production).
-    ChildSupervisor supervisor = new(child, stream, clock, ceilings: null);
+    AgentSupervisor supervisor = new(child, stream, clock, ceilings: null);
     supervisor.OnStart(0);
     supervisors.Register(child, supervisor);
 
-    HostChildWatchdog watchdog = new(new AgentId(Guid.NewGuid()), Services(clock, store, runtime, new FakeHeartbeat(), new FakeAudit(), stream, supervisors),
+    HostAgentWatchdog watchdog = new(new AgentId(Guid.NewGuid()), Services(clock, store, runtime, new FakeHeartbeat(), new FakeAudit(), stream, supervisors),
         tickInterval: TimeSpan.FromMilliseconds(20));
     watchdog.Start();
 
@@ -159,20 +159,20 @@ public class HostChildWatchdogTests
     FakeListStore store = new();
     RecordingRuntime runtime = new();
     TestStream stream = new();
-    ChildSupervisorRegistry supervisors = new();
+    AgentSupervisorRegistry supervisors = new();
     AgentId child = new(Guid.NewGuid());
     _ = await store.SaveAsync(AgentRecord.Spawned(child, null, 1, "m/sub", "worker", "task", DateTimeOffset.UtcNow));
-    ChildSupervisor supervisor = new(child, stream, clock, ceilings: null);
+    AgentSupervisor supervisor = new(child, stream, clock, ceilings: null);
     supervisor.OnStart(0);
     supervisors.Register(child, supervisor);
 
-    HostChildWatchdog watchdog = new(new AgentId(Guid.NewGuid()), Services(clock, store, runtime, new FakeHeartbeat(), new FakeAudit(), stream, supervisors),
+    HostAgentWatchdog watchdog = new(new AgentId(Guid.NewGuid()), Services(clock, store, runtime, new FakeHeartbeat(), new FakeAudit(), stream, supervisors),
         tickInterval: TimeSpan.FromMilliseconds(20));
     watchdog.Start();
 
     // Alive at +30s (fed by a progress event), then silent: acted on only after silence.
     clock.Now = clock.Now.AddSeconds(30);
-    stream.Publish(new ChildProgressEvent(child, clock.Now, ChildPhase.ToolExec, "tool:edit"));
+    stream.Publish(new AgentProgressEvent(child, clock.Now, AgentPhase.ToolExec, "tool:edit"));
     await watchdog.TickOnceAsync();
     Assert.DoesNotContain(runtime.Interrupts, id => id == child);
 

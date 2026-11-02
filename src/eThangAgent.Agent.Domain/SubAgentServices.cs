@@ -59,7 +59,7 @@ public sealed record SubAgentServices(
     Func<AgentId, IAgentInbox?>? InboxFor = null,
     IWorkspaceAnchorScope? AnchorScope = null,
     IWorkspaceCleanlinessCheck? Cleanliness = null,
-    Func<AgentId, ChildSupervisor?>? SupervisorFor = null,
+    Func<AgentId, AgentSupervisor?>? SupervisorFor = null,
     Func<string?, IServerToolImageStore?>? ServerToolImagesFor = null,
     bool ProviderRequired = false,
     IAgentEventLog? EventLog = null,

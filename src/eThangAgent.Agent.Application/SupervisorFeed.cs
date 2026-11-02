@@ -2,55 +2,55 @@ using eThangAgent.AgentDomain;
 
 namespace eThangAgent.Agent.Application;
 
-/// <summary>The supervisor registry feed: translates a container's child-event stream
+/// <summary>The supervisor registry feed: translates a container's agent-event stream
 ///     into supervisor facts (D6). The per-kind contract is pinned by
 ///     SupervisorFeedContractTests (W1.3) — decided once, in the open:
-///     - ChildProgressEvent: a heartbeat plus a phase (the loop emits it at every
+///     - AgentProgressEvent: a heartbeat plus a phase (the loop emits it at every
 ///       safe point).
-///     - ChildStartedEvent: a heartbeat — the runtime registers a FRESH supervisor at
+///     - AgentStartedEvent: a heartbeat — the runtime registers a FRESH supervisor at
 ///       every (re)start, so the retry's started event lands on that new instance as
 ///       the liveness fact of a live run.
-///     - ChildBudgetAlertEvent: NO beat — a budget alert is not progress (near-zero
+///     - AgentBudgetAlertEvent: NO beat — a budget alert is not progress (near-zero
 ///       burn while alerts fire is the watchdog's strongest stuck evidence), and it is
 ///       published from inside the supervisor's non-reentrant lock, which a self-echo
 ///       would deadlock.
 ///     - (a retired event kind's line was removed with issue #316)
 ///       after publish; the interrupt must be allowed to stall the idle window.
 ///     - MessageDeliveredEvent: NO beat — mailbox lifecycle is not run progress.
-///     - ChildIdleAlertEvent: NEVER feeds — it is published from inside CheckIdle
+///     - AgentIdleAlertEvent: NEVER feeds — it is published from inside CheckIdle
 ///       under the same lock; a beat there would self-deadlock AND clear the very
 ///       alert being raised, stalling the graduated response at the first breach.
-///     - ChildSettledEvent: retires the child's supervisor.
+///     - AgentSettledEvent: retires the child's supervisor.
 ///     Without this feed a supervisor's idle clock starts at OnStart and never
 ///     refreshes, so ANY healthy child outliving the idle threshold false-positives as
 ///     hung — the defect this class exists to close, shared by the app-side watchdog
 ///     and the ChildHost's.</summary>
-public sealed class SupervisorFeed(ChildSupervisorRegistry supervisors) : IAgentEventSubscriber
+public sealed class SupervisorFeed(AgentSupervisorRegistry supervisors) : IAgentEventSubscriber
 {
-  public void OnEvent(ChildEvent evt)
+  public void OnEvent(AgentEvent evt)
   {
     ArgumentNullException.ThrowIfNull(evt);
     switch (evt)
     {
-      case ChildProgressEvent progress:
-        if (supervisors.Find(progress.ChildId) is { } fed)
+      case AgentProgressEvent progress:
+        if (supervisors.Find(progress.Id) is { } fed)
         {
           fed.OnBeat();
           fed.OnPhase(progress.Phase);
         }
 
         break;
-      case ChildStartedEvent started:
-        if (supervisors.Find(started.ChildId) is { } begun)
+      case AgentStartedEvent started:
+        if (supervisors.Find(started.Id) is { } begun)
         {
           begun.OnBeat(); // fresh-supervisor liveness; phase stays the OnStart default
         }
 
         break;
-      case ChildSettledEvent:
-        supervisors.Unregister(evt.ChildId);
+      case AgentSettledEvent:
+        supervisors.Unregister(evt.Id);
         break;
-      case ChildIdleAlertEvent:
+      case AgentIdleAlertEvent:
         break; // never feeds: see the contract above — lock reentrancy AND alert preservation
       default:
         break; // budget alerts, preemptions, mail deliveries: no supervision facts
