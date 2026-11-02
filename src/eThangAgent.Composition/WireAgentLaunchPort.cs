@@ -12,10 +12,10 @@ namespace eThangAgent.Composition;
 ///     it, because a session is a tab cell, a container, and a host process. A second
 ///     envelope kind for 'a model wants an agent' would be a second codec, a second host
 ///     emitter, and a second app handler for one behaviour.</para>
-///     <para>WHAT THIS ADAPTER DOES NOT DO: it names no predecessor, stamps no parent id,
-///     and records no depth. The payload it builds carries the caller's WORKSPACE (a
-///     placement fact) and that is the whole of the relationship. The session that results
-///     is a sibling, and nothing downstream can read it as a subordinate.</para>
+///     <para>WHAT THIS ADAPTER DOES NOT DO: it names no predecessor and writes nothing that
+///     could be read back as a hierarchy. The payload it builds carries the caller's
+///     WORKSPACE (a placement fact) and that is the whole of the relationship. The session
+///     that results is a sibling, and nothing downstream can read it as a subordinate.</para>
 ///     <para>A REFUSAL IS THE APP'S, VERBATIM. This port translates nothing, so the app's
 ///     typed code (TabClosed, SessionLaunchFailed, SeedUnsupported, ...) reaches the caller
 ///     unchanged. An unreachable launch fails at once with the channel's own

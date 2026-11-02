@@ -155,6 +155,12 @@ public class AgentLaunchCapabilityTests
 
     Assert.Equal(["prompt"], launch.RequiredParameters);
     Assert.Contains("SIBLING", launch.Description, StringComparison.Ordinal);
+    // Issue #338 F3: the output contract states a status the action actually renders. A launch
+    // creates a session and its host; it touches no admission gate, so there is no queued state
+    // for this action to reach, and the first line below is the only thing it can print.
+    Assert.Contains("id=<id> status=running", launch.Description, StringComparison.Ordinal);
+    Assert.DoesNotContain("queued", launch.Description, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("HOST CAPACITY", launch.Description, StringComparison.Ordinal);
     // The descriptor must never teach delegation: the retired vocabulary stays out of it.
     foreach (string retired in new[] { "parent", "subordinate agent", "delegate" })
     {

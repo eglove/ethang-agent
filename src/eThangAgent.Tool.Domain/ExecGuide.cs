@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.25";
+  public const string Version = "2.26";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -194,17 +194,21 @@ public static class ExecGuide
     Nothing it produces is reported back to you, and you supervise neither its work nor its turn.
 
     agent.launch RETURNS the new agent's id and returns. Reading what it produced is your OWN
-    later act - agent.result for its report, agent.wait to await its outcome, agent.status for a
-    projection - and those are acts you choose to take, not a join the launch performs. You are
-    never made a supervisor by having started something.
+    later act - agent.status projects its current state, agent.result returns its report once it
+    settles - and those are acts you choose to take, not a join the launch performs. You are never
+    made a supervisor by having started something. agent.wait and agent.resume address a run in
+    THIS host and cannot address the host a launched agent runs in yet, so use agent.result and
+    agent.status on the id a launch returns.
 
     Optional 'label' names the cell it gets, which is how a caller that starts several agents
     keeps them apart; optional 'model' serves that agent, and omitting it inherits this
     workspace's choice. There is no spawn tool and no fan-out, nothing caps an agent by nesting,
     and no launch turns one agent into many: starting one CREATES AN AGENT, which is all it is.
 
-    Concurrency is bounded by HOST CAPACITY, which is a measurement of this machine, not a
-    setting and not a rule you apply. A start past the cap parks and runs on its own when a slot
+    WHAT A LAUNCH COSTS: each launch is a session and its own host process, so start the ones you
+    need and no more. Nothing gates that - no cap, no queue, and no parked state for this action -
+    which is why the count is yours to keep. A chain step's start inside a conversation host is
+    bounded by that host's capacity, and only there does a past-the-cap start park until a slot
     frees.
 
     ### Reading another agent's outcome

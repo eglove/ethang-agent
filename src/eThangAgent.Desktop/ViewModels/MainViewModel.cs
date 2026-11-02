@@ -1389,7 +1389,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // THE BUSY SESSION IS THE ONE BEING RETIRED (issue #329), not the tab's primary: a chain
     // step occupies its own cell, so the cell that must be idle is the predecessor's. Checking
     // the primary there would test an agent the launch does not touch.
-    if (RetiredViewModel(tab, predecessorId).IsBusy)
+    if (SessionViewModelOf(tab, predecessorId).IsBusy)
     {
       return Result.Failure<StartedSession>(new DomainError("TurnBusy",
           "a turn is running in that tab; stop it before starting a new session."));
@@ -1452,17 +1452,22 @@ internal sealed partial class MainViewModel : ObservableObject
         new AppendOptions(Role: role, ChainStep: placement, PredecessorId: predecessorId)));
   }
 
-  /// <summary>The view-model a launch retires (issue #329): the cell of the session named by
-  ///     <paramref name="retiredId"/>, or the tab's primary when the launch names none.
-  ///     <para>WHY IT MATTERS: a chain step is its own agent with its own cell, so 'is the tab
-  ///     busy' and 'wait for the turn' both have to address the session whose container the
-  ///     launch is about to dispose. Reading the primary there would find an idle agent that
-  ///     nothing is going to touch - the #322 wait would return at once and the teardown would
-  ///     dispose a container with a turn still running through it.</para></summary>
-  /// <param name="tab">The tab the launch lands in.</param>
-  /// <param name="retiredId">The session the launch retires, or null for the primary.</param>
-  private static AgentSessionViewModel RetiredViewModel(AgentTabViewModel tab, AgentId? retiredId)
-    => (retiredId is { } id ? tab.FindCell(id)?.ViewModel : null) ?? tab.ViewModel;
+  /// <summary>The view-model of the session a request NAMES - its own cell, or the tab's live
+  ///     one when the request names none or the named cell is gone.
+  ///     <para>EVERY CELL OWNS ONE, SO WHICH ONE IS NAMED DECIDES THREE THINGS (issue #329):
+  ///     whether the tab is busy, which turn to wait for, and WHICH HOST CHANNEL CARRIES THE
+  ///     ANSWER (issue #338). Each cell wires its request handler over its own session, so
+  ///     answering on the tab's primary would deliver the id to a host that has no such pending
+  ///     request and leave the host that asked waiting until its turn ended.
+  ///     </para>
+  ///     <para>READING THE PRIMARY WOULD ALSO FIND THE WRONG AGENT: a chain step is its own agent
+  ///     with its own cell, so the primary is an idle agent nothing is about to touch - the #322
+  ///     wait would return at once and the teardown would dispose a container with a turn still
+  ///     running through it.</para></summary>
+  /// <param name="tab">The tab the request landed in.</param>
+  /// <param name="sessionId">The session the request names, or null for the tab's live one.</param>
+  private static AgentSessionViewModel SessionViewModelOf(AgentTabViewModel tab, AgentId? sessionId)
+    => (sessionId is { } id ? tab.FindCell(id)?.ViewModel : null) ?? tab.ViewModel;
 
   /// <summary>What one start produced: the tab it landed in, and the id of the session it
   ///     started.
@@ -1714,7 +1719,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // THE WAIT ADDRESSES THE PREDECESSOR'S OWN CELL (issue #329): a chain step is its own agent,
     // so the session that must go idle is the one named by predecessorSessionId - never the tab's
     // primary, which is the agent that started the chain and is idle throughout.
-    AgentSessionViewModel predecessorVm = RetiredViewModel(tab,
+    AgentSessionViewModel predecessorVm = SessionViewModelOf(tab,
         Guid.TryParse(predecessorSessionId, out Guid waiting) ? new AgentId(waiting) : null);
 #pragma warning disable CA1031 // Do not catch general exception types
     try
@@ -2014,7 +2019,9 @@ internal sealed partial class MainViewModel : ObservableObject
     ArgumentNullException.ThrowIfNull(tab);
     ArgumentNullException.ThrowIfNull(request);
 
-    AgentSessionViewModel sessionVm = tab.ViewModel;
+    // THE REQUESTING SESSION'S CHANNEL, NOT THE TAB'S (issue #338): every cell has its own host,
+    // and the one that asked is the one blocked on the answer.
+    AgentSessionViewModel sessionVm = SessionViewModelOf(tab, requestingSessionId);
     IRootTurnChannel? channel = sessionVm.RootTurnChannel;
     if (channel is null)
     {
@@ -2038,7 +2045,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // tab happens to be doing.
     if (request.SiblingOfWorkspaceId is { Length: > 0 })
     {
-      await AnswerSiblingLaunchAsync(tab, request).ConfigureAwait(true);
+      await AnswerSiblingLaunchAsync(tab, request, requestingSessionId).ConfigureAwait(true);
       return;
     }
 
@@ -2101,14 +2108,19 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     <para>Must run on the UI thread.</para></summary>
   /// <param name="tab">The tab the request was raised from.</param>
   /// <param name="request">The launch, as the host sent it.</param>
-  private async Task AnswerSiblingLaunchAsync(AgentTabViewModel tab, SessionRequestPayload request)
+  /// <param name="requestingSessionId">The session whose turn raised the launch, or null when
+  ///     the caller cannot name it. It decides WHICH HOST RECEIVES THE ANSWER: a tab with two
+  ///     cells has two hosts, and the one that asked is the one waiting.</param>
+  private async Task AnswerSiblingLaunchAsync(AgentTabViewModel tab, SessionRequestPayload request,
+      AgentId? requestingSessionId)
   {
     ArgumentNullException.ThrowIfNull(tab);
     ArgumentNullException.ThrowIfNull(request);
-    IRootTurnChannel? channel = tab.ViewModel.RootTurnChannel;
+    AgentSessionViewModel requestingVm = SessionViewModelOf(tab, requestingSessionId);
+    IRootTurnChannel? channel = requestingVm.RootTurnChannel;
     if (channel is null)
     {
-      tab.ViewModel.AddSystemNotice("Error [SessionRequestUnroutable]: this session has no host channel; no agent was started.");
+      requestingVm.AddSystemNotice("Error [SessionRequestUnroutable]: this session has no host channel; no agent was started.");
       return;
     }
 
@@ -2161,7 +2173,7 @@ internal sealed partial class MainViewModel : ObservableObject
     catch (Exception ex)
 #pragma warning restore CA1031
     {
-      tab.ViewModel.AddSystemNotice(
+      requestingVm.AddSystemNotice(
           "Error [SessionStartFailed]: the launched agent could not be opened in this tab: " + ex.Message);
       await DisposeOrphanedSessionAsync(created.Value).ConfigureAwait(true);
     }
@@ -2277,7 +2289,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // THE REQUESTING SESSION'S OWN CELL (issue #329): the turn that emitted the request is the
     // one that must finish, and it is not the tab's primary once a chain step has its own cell.
     // A handoff names no requesting session, and the primary is then the right answer.
-    AgentSessionViewModel requestingVm = RetiredViewModel(tab, requestingSessionId);
+    AgentSessionViewModel requestingVm = SessionViewModelOf(tab, requestingSessionId);
     try
     {
       await requestingVm.WaitForTurnAsync().ConfigureAwait(true);

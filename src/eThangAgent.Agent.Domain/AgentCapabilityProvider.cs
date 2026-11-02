@@ -9,10 +9,10 @@ namespace eThangAgent.AgentDomain;
 /// <summary>The agent capability surface: status and result retrieve an agent's state and
 ///     report, resume continues a settled one, cancel stops a running one, and launch starts
 ///     a SIBLING one (issue #338).
-///     <para>LAUNCH IS NOT DELEGATION. The agent it starts is recorded as nobody's: the row is
-///     a session's row and nothing more, so there is no owner field, no ancestor reference, and
-///     no nesting fact to read back as a hierarchy. It is placed by its own workspace rather
-///     than the caller's, and read afterwards with agent.result or agent.wait - the caller's own
+///     <para>LAUNCH IS NOT DELEGATION. The agent it starts is recorded as nobody's: nothing is
+///     written that could be read back as a hierarchy - no owner field, no ancestor reference,
+///     and no nesting fact. It is placed by its own workspace, appears as a cell beside the
+///     caller's, and is followed afterwards with agent.status and agent.result - the caller's own
 ///     later acts. That is what makes this the act #334 retired agent.spawn for, rather than that
 ///     act restored.</para></summary>
 public sealed class AgentCapabilityProvider : ICapabilityProvider
@@ -114,9 +114,9 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
              Starts one agent: a session of its own, in YOUR workspace, seeded with 'prompt' as its first turn, and shown as a cell beside yours. Returns its id at once and returns - this is not a delegation and not a join.
              The agent it starts is a SIBLING, not a subordinate. Nothing records it as yours: it carries no owner, no ancestor reference, and no nesting fact of any kind, and it is indistinguishable from an agent the user opened by hand apart from its creation time, its label, and its prompt. There is no fan-out, and nothing caps an agent by nesting.
              Optional 'label' is the caption its cell shows (default: the workspace name). Optional 'model' serves that agent; omit it to inherit this workspace's own choice.
-             Reading what it produced is your OWN later act: agent.result for the report, agent.wait to await the outcome, agent.status for a projection. A launch that waited would be supervision, which is what a sibling is not.
+             HOW TO FOLLOW IT: agent.status projects its current state and agent.result returns its report once it settles. agent.wait and agent.resume address a run inside THIS host and cannot address the host a launched agent runs in, so neither is available on the id this action returns; a launch that waited would also be supervision, which is what a sibling is not.
              Output contract:
-             id=<id> status=<running|queued>   (queued when the start parks at HOST CAPACITY; it runs on its own when a slot frees)
+             id=<id> status=running
              Fails: InvalidActionInput (empty 'prompt'), LaunchUnavailable (this host wired no session-start seam), and the app's own typed refusal verbatim (SessionRequestUnreachable when no live turn can carry the request - never a hang).
              """,
              [

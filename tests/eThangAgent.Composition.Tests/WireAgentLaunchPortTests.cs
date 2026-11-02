@@ -65,6 +65,28 @@ public class WireAgentLaunchPortTests
     Assert.DoesNotContain("depth", raw, StringComparison.OrdinalIgnoreCase);
   }
 
+  /// <summary>A LAUNCH ADDS WIRE MEMBERS AND CHANGES NOBODY ELSE'S (issue #338 F6). A chain
+  ///     launch and a handoff must serialize to exactly what they did before the launch members
+  ///     existed: an unset launch member is ABSENT from the JSON, not written as null.
+  ///     <para>MEASURED, NOT EYEBALLED: the two literals below are the text the pre-#338 build
+  ///     produced - every member it had, and none of the three this change adds.</para></summary>
+  [Fact]
+  public void SerializingAChainLaunchOrAHandoff_WritesNoLaunchMember()
+  {
+    SessionRequestPayload chain = new("req-1", "", HandoffSummary: null)
+    {
+      ChainStep = new SessionRequestChainStep(2, 3, 1, "review", "prov/m"),
+    };
+    SessionRequestPayload handoff = new("req-2", "", HandoffSummary: "the dense summary");
+
+    Assert.Equal(
+        /*lang=json,strict*/ "{\"RequestId\":\"req-1\",\"Prompt\":\"\",\"HandoffSummary\":null,\"ChainStep\":{\"ChainId\":2,\"PlanId\":3,\"Position\":1,\"Role\":\"review\",\"Model\":\"prov/m\"}}",
+        JsonSerializer.Serialize(chain));
+    Assert.Equal(
+        /*lang=json,strict*/ "{\"RequestId\":\"req-2\",\"Prompt\":\"\",\"HandoffSummary\":\"the dense summary\",\"ChainStep\":null}",
+        JsonSerializer.Serialize(handoff));
+  }
+
   [Fact]
   public async Task StartAsync_WithNoLiveTurn_FailsUnreachableImmediately()
   {

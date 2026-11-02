@@ -22,11 +22,17 @@ namespace eThangAgent.Desktop.Tests;
 ///     prompt' means operationally.</para></summary>
 public class SiblingLaunchTests
 {
-  /// <summary>The shell under test: every created session resolves <see cref="Host"/>, so the
-  ///     tab and its siblings can all answer requests.</summary>
+  /// <summary>The shell under test: EVERY CREATED SESSION RESOLVES ITS OWN HOST CHANNEL.
+  ///     <para>A tab's cells each own one, and the host that raised a request is the host that
+  ///     must receive its answer, so a single shared channel could not tell a correct answer
+  ///     from one delivered to the wrong cell.</para></summary>
   private sealed class Shell
   {
-    public FakeRootTurnChannel Host { get; } = new([], holdOpen: false);
+    /// <summary>Every host channel a created session resolved, in creation order.</summary>
+    public List<FakeRootTurnChannel> Hosts { get; } = [];
+
+    /// <summary>The primary cell's channel: the first session this shell created.</summary>
+    public FakeRootTurnChannel Host => Hosts[0];
 
     public List<(string Root, string Provider)> Created { get; } = [];
 
@@ -41,10 +47,12 @@ public class SiblingLaunchTests
     private Task<Result<AgentSession>> Create(string root, string provider)
     {
       Created.Add((root, provider));
+      FakeRootTurnChannel host = new([], holdOpen: false);
+      Hosts.Add(host);
       ServiceProvider services = new ServiceCollection()
           .AddSingleton<IAgentStore>(new TestFixtures.StubStore())
           .AddSingleton<IWorkspaceContext>(new FixedWorkspaceContext("ws-alpha", root))
-          .AddSingleton<IRootTurnChannel>(Host)
+          .AddSingleton<IRootTurnChannel>(host)
           .BuildServiceProvider();
       return Task.FromResult(Result.Success(new AgentSession(
           services, AgentId.NewId(), new Conversation(), Handler: null!,
@@ -64,7 +72,7 @@ public class SiblingLaunchTests
       };
 
   [Fact]
-  public async Task SiblingLaunch_AppendsACell_AndRetiresTheCallers()
+  public async Task SiblingLaunch_AppendsACell_AndRetiresNoCell()
   {
     Shell shell = new();
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
@@ -105,6 +113,37 @@ public class SiblingLaunchTests
     Assert.Equal(request.RequestId, requestId, StringComparer.Ordinal);
     Assert.Null(errorCode);
     Assert.Equal(tab.Cells[1].RootId.ToString(), sessionId, StringComparer.Ordinal);
+  }
+
+  /// <summary>A LAUNCH IS ANSWERED ON THE REQUESTING SESSION'S CHANNEL, not the tab's.
+  ///     <para>EVERY CELL OWNS ITS OWN HOST CHANNEL, and the host whose turn asked is the host
+  ///     that blocks on the answer. A tab whose SECOND cell asked and whose answer went to the
+  ///     first cell's channel would leave the asking host waiting until its turn ended, where the
+  ///     pending request fails as <c>SessionRequestUnreachable</c> - a tool told its launch never
+  ///     happened by a host that was never asked.</para>
+  ///     <para>This drives the launch exactly as production does: the per-cell request handler
+  ///     passes the session that raised it.</para></summary>
+  [Fact]
+  public async Task SiblingLaunch_FromASecondCell_IsAnsweredOnThatCellsChannel()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
+    Result<AgentCellViewModel> added = await shell.ViewModel.AddCellAsync(tab, prompt: null)
+        .ConfigureAwait(true);
+    Assert.True(added.IsSuccess, added.Error?.Message);
+    AgentCellViewModel second = added.Value;
+    Assert.Equal(2, shell.Hosts.Count);
+
+    await shell.ViewModel.HandleSessionRequestAsync(tab,
+        Launch("go", tab.WorkspaceId!), second.RootId).ConfigureAwait(true);
+
+    // THE ASKING CELL'S HOST RECEIVED IT, and the tab's first cell heard nothing.
+    (string requestId, string? sessionId, string? errorCode, string? _) =
+        Assert.Single(shell.Hosts[1].SessionResponses);
+    Assert.Null(errorCode);
+    Assert.Equal(tab.Cells[^1].RootId.ToString(), sessionId, StringComparer.Ordinal);
+    Assert.False(string.IsNullOrEmpty(requestId));
+    Assert.Empty(shell.Hosts[0].SessionResponses);
   }
 
   /// <summary>A SIBLING IS ANSWERED MID-TURN. The caller's turn is running when the launch is
@@ -153,7 +192,11 @@ public class SiblingLaunchTests
   }
 
   /// <summary>THE CONTROL: a sibling and a "+" cell differ only in their label, timestamp, and
-  ///     prompt. This compares the shapes the grid actually sees.</summary>
+  ///     prompt. This compares the shapes the grid actually sees.
+  ///     <para>THE LABEL AND THE PROMPT DO NOT SURVIVE A RESTART, and this pins that too: the
+  ///     persisted row is an ordinary root record, so it carries the fixed root label and the
+  ///     fixed root prompt. A caption that lived only in the cell is how a plus row and a
+  ///     launch row stay indistinguishable in the store.</para></summary>
   [Fact]
   public async Task SiblingCell_HasTheSameShapeAsAPlusCell()
   {
@@ -175,6 +218,16 @@ public class SiblingLaunchTests
     Assert.Equal("sibling", sibling.Title);
     Assert.Equal(plus.Container!.WorkspaceRoot, sibling.Container!.WorkspaceRoot,
         StringComparer.OrdinalIgnoreCase);
+
+    // THE LABEL IS THE CELL'S, AND THE ROW IS THE ORDINARY ROOT ROW: a persisted session
+    // carries the fixed root label and the fixed root prompt whichever route started it, so
+    // the two rows differ in nothing but their id and their creation time.
+    AgentRecord row = AgentRecord.Root(sibling.RootId, DateTimeOffset.UnixEpoch,
+        "ws-alpha", "openrouter");
+    Assert.Equal("root", row.Label, StringComparer.Ordinal);
+    Assert.Equal("conversation root", row.TaskPrompt, StringComparer.Ordinal);
+    Assert.Equal("sibling", sibling.Label, StringComparer.Ordinal);
+    Assert.Null(plus.Label);
   }
 
   [Fact]

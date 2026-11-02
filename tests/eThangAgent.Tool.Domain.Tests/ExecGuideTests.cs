@@ -9,7 +9,7 @@ public partial class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.25", ExecGuide.Version);
+    Assert.Equal("2.26", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -98,15 +98,21 @@ public partial class ExecGuideTests
     Assert.Contains("nothing caps an agent by nesting", section, StringComparison.Ordinal);
     Assert.Contains("CREATES AN AGENT", section, StringComparison.Ordinal);
     // Issue #338: the third way is the model's OWN path, and it starts a sibling.
-    // Concurrency is host capacity — a measurement, not a rule the model applies.
-    Assert.Contains("HOST CAPACITY", section, StringComparison.Ordinal);
+    // Issue #338 F4: the section must also say what BOUNDS a launch. A launch is a session and
+    // its own host process, which no host-capacity gate governs, so 'host capacity caps you'
+    // would be false here — the model has to know that each launch costs a process.
+    // Collapsed: the claims wrap across lines in the guide, and this is about what it SAYS.
+    string claims = Collapse(section);
+    Assert.Contains("each launch is a session and its own host process", claims, StringComparison.Ordinal);
+    Assert.Contains("start the ones you need", claims, StringComparison.Ordinal);
+    Assert.Contains("no parked state for this action", claims, StringComparison.Ordinal);
 
     int[] markers =
     [
       IndexOf(section, "An agent IS a session"),
       IndexOf(section, "a CHAIN STEP"),
       IndexOf(section, "no spawn tool"),
-      IndexOf(section, "HOST CAPACITY"),
+      IndexOf(section, "WHAT A LAUNCH COSTS"),
     ];
     Assert.All(markers, m => Assert.True(m >= 0, "teaching marker missing"));
     Assert.Equal(markers.OrderBy(m => m), markers);
@@ -128,6 +134,11 @@ public partial class ExecGuideTests
     // It returns an id and returns: reading the outcome is the caller's own later act.
     Assert.Contains("RETURNS the new agent's id and returns", section, StringComparison.Ordinal);
     Assert.Contains("not a join the launch performs", section, StringComparison.Ordinal);
+    // Issue #338 F5: agent.wait and agent.resume cannot address a launched id yet, so the
+    // section must not advertise them — a documented continuation the runtime refuses is the
+    // #288 defect, and this is where it would be taught.
+    Assert.Contains("use agent.result and agent.status", Collapse(section), StringComparison.Ordinal);
+    Assert.Contains("cannot address the host a launched agent runs in yet", Collapse(section), StringComparison.Ordinal);
     // The sibling language, not the retired delegation language.
     foreach (string retired in new[]
     {

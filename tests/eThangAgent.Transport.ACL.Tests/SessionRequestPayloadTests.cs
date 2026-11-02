@@ -22,6 +22,24 @@ public class SessionRequestPayloadTests
     Assert.Null(parsed.HandoffSummary);
   }
 
+  /// <summary>THE WIRE PAYLOAD NAMES NO OWNER AND NO DEPTH (issue #338). The issue's acceptance
+  ///     states this as a grep over <c>src</c>, which no longer distinguishes a regression from
+  ///     prose; this is the same rule as a property of the type, so a member that put a
+  ///     relationship on the wire fails here whatever it is called.
+  ///     <para>THE MEMBER LIST IS EXACT, not a blocklist: a new member has to be added here, and
+  ///     adding one that carries ancestry is a decision this test forces into the open.</para></summary>
+  [Fact]
+  public void SessionRequestPayload_CarriesPlacementFactsOnly()
+  {
+    string[] members = [.. typeof(SessionRequestPayload).GetProperties()
+        .Select(p => p.Name)
+        .OrderBy(n => n, StringComparer.Ordinal)];
+
+    Assert.Equal(
+        ["ChainStep", "HandoffSummary", "Label", "Model", "Prompt", "RequestId", "SiblingOfWorkspaceId"],
+        members);
+  }
+
   [Fact]
   public void SessionRequestPayload_TheHandoffSummary_RoundTrips()
   {
