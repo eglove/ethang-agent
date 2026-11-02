@@ -19,11 +19,9 @@ public class AgentWatchdogStallTests
 
   private static readonly DateTimeOffset T0 = new(2026, 9, 2, 10, 0, 0, TimeSpan.Zero);
 
-  private static AgentRecord Root() => AgentRecord.Spawned(
-      AgentId.NewId(), null, 0, "m", "root", "root", T0);
+  private static AgentRecord Root() => AgentRecord.Started(AgentId.NewId(), "m", "root", "root", T0);
 
-  private static AgentRecord Child(AgentId parent, DateTimeOffset createdAt) => AgentRecord.Spawned(
-      AgentId.NewId(), parent, 1, "m", "child", "task", createdAt);
+  private static AgentRecord Child(DateTimeOffset createdAt) => AgentRecord.Started(AgentId.NewId(), "m", "child", "task", createdAt);
 
   private sealed class FakeStore : IAgentStore
   {
@@ -54,9 +52,6 @@ public class AgentWatchdogStallTests
 
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
-
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));
@@ -168,9 +163,9 @@ public class AgentWatchdogStallTests
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentWatchdog watchdog = new(root.Id, services);
+    AgentWatchdog watchdog = new(services);
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentRecord child = Child(root.Id, T0);
+    AgentRecord child = Child(T0);
     store.Records[root.Id.Value] = root;
     store.Records[agentId.Value] = child;
 
@@ -202,9 +197,9 @@ public class AgentWatchdogStallTests
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentWatchdog watchdog = new(root.Id, services);
+    AgentWatchdog watchdog = new(services);
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentRecord child = Child(root.Id, T0);
+    AgentRecord child = Child(T0);
     store.Records[root.Id.Value] = root;
     store.Records[agentId.Value] = child;
 
@@ -228,14 +223,17 @@ public class AgentWatchdogStallTests
     FakeRuntime runtime = new();
     FakeHeartbeat heartbeat = new();
     FakeEvents audit = new();
+    // ONE AGENT, ONE RUN (issue #334): the registry is the ownership record the sweep reads.
+    AgentSupervisorRegistry supervisors = new();
     WatchdogServices services = new(store, runtime, heartbeat, audit,
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
-        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock);
+        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
+        Supervisors: supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentWatchdog watchdog = new(root.Id, services);
+    AgentWatchdog watchdog = new(services);
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
     store.Records[root.Id.Value] = root;
-    AgentRecord child = Child(root.Id, T0);
+    AgentRecord child = Child(T0);
     store.Records[child.Id.Value] = child;
     heartbeat.Beats[child.Id.Value] = T0 - TimeSpan.FromMinutes(20); // past idle: the sweep proceeds
 
@@ -264,7 +262,7 @@ public class AgentWatchdogStallTests
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentWatchdog watchdog = new(root.Id, services);
+    AgentWatchdog watchdog = new(services);
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
 
     await watchdog.TickAsync();
@@ -308,9 +306,6 @@ public class AgentWatchdogStallTests
 
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
-
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
       => faultOnList ? throw fault : Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));
@@ -365,9 +360,9 @@ public class AgentWatchdogStallTests
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentWatchdog watchdog = new(root.Id, services);
+    AgentWatchdog watchdog = new(services);
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentRecord child = Child(root.Id, T0);
+    AgentRecord child = Child(T0);
     store.Records[root.Id.Value] = root;
     store.Records[agentId.Value] = child;
     runtime.OnInterrupt = id => store.Records[id] = store.Records[id] with

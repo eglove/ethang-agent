@@ -23,7 +23,7 @@ public class SingleToolSurfaceTests
     using TestAppDatabase db = TestAppDatabase.Create();
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-        new SubAgentOptions(null, 2),
+        new AgentRunOptions(null, 2),
         ComputerUse: computerUse);
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,

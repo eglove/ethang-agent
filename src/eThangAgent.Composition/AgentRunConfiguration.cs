@@ -4,7 +4,7 @@ using eThangAgent.AgentDomain;
 namespace eThangAgent.Composition;
 
 /// <summary>Strict composition-root binding of SubAgent configuration into
-///     <see cref="SubAgentOptions"/>. Keys:
+///     <see cref="AgentRunOptions"/>. Keys:
 ///     "SubAgent:DefaultModel" — optional; absent is legal (spawns must then pass a
 ///     model explicitly); present-but-empty is a startup validation error.
 ///     "SubAgent:MaxConcurrentAgents" — required positive integer; absent,
@@ -20,15 +20,15 @@ namespace eThangAgent.Composition;
 ///     not bound.
 ///     Nothing is silently coerced or clamped. There is deliberately no child-timeout
 ///     key (FR-L4/A4): wall-clock is never a child cancellation source.</summary>
-public static class SubAgentConfiguration
+public static class AgentRunConfiguration
 {
-  public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents,
+  public static AgentRunOptions Bind(string? defaultModel, string? maxConcurrentAgents,
       string? rootTurnIdle = null)
   {
     ValidateDefaultModel(defaultModel);
     int maxConcurrent = ParseMaxConcurrentAgents(maxConcurrentAgents);
     RootTurnBudget? rootTurn = BindRootTurnBudget(rootTurnIdle);
-    return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent,
+    return new AgentRunOptions(defaultModel, MaxConcurrentAgents: maxConcurrent,
         RootTurnBudget: rootTurn);
   }
 

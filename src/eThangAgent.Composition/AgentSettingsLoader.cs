@@ -35,7 +35,7 @@ public static class AgentSettingsDefaults
 ///     the retired file binder was: a present-but-invalid stored value throws
 ///     InvalidOperationException naming the key, never coerced; absent keys bind
 ///     as absent, and MaxConcurrentAgents falls back to the shipped default. The
-///     SubAgentConfiguration binders are reused verbatim so their error matrix
+///     AgentRunConfiguration binders are reused verbatim so their error matrix
 ///     cannot drift from the binding rules.</summary>
 public static class AgentSettingsLoader
 {
@@ -56,14 +56,14 @@ public static class AgentSettingsLoader
     string? rootTurnIdle = await preferences.GetAsync(AgentPreferenceKeys.RootTurnIdle).ConfigureAwait(false);
 
     bool computerUse;
-    SubAgentOptions subAgents;
+    AgentRunOptions subAgents;
     bool verificationGate;
     string? registryTarget;
     WatchdogSettings? watchdog;
     try
     {
-      subAgents = SubAgentConfiguration.Bind(defaultModel, maxConcurrent, rootTurnIdle);
-      watchdog = SubAgentConfiguration.BindWatchdog(tick, idle, wrapUp);
+      subAgents = AgentRunConfiguration.Bind(defaultModel, maxConcurrent, rootTurnIdle);
+      watchdog = AgentRunConfiguration.BindWatchdog(tick, idle, wrapUp);
       computerUse = ParseComputerUseEnabled(computerUseStored);
       verificationGate = ParseVerificationGateEnabled(verificationGateStored);
       registryTarget = ParseRegistryDefaultTarget(registryTargetStored);
@@ -91,7 +91,7 @@ public static class AgentSettingsLoader
 
   /// <summary>Re-surfaces a binder error with this loader's preference-key names —
   ///     the one shared translation for every path that binds through the
-  ///     SubAgentConfiguration binders (LoadAsync and the Desktop's store-less
+  ///     AgentRunConfiguration binders (LoadAsync and the Desktop's store-less
   ///     rebind), so surfaced error naming cannot diverge between them. Only the
   ///     key naming is translated; the rule text travels verbatim and the original
   ///     error rides as the inner exception.</summary>

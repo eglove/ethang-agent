@@ -123,7 +123,7 @@ public class RemoteAgentRuntimeE2ETests
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 
       AgentId agentId = AgentId.NewId();
-      AgentStartedEvent started = new(agentId, DateTimeOffset.UtcNow, null, "test/model", 0);
+      AgentStartedEvent started = new(agentId, DateTimeOffset.UtcNow, "test/model", 0);
       await host.SendAsync(new TransportEnvelope("agent-event",
           System.Text.Json.JsonSerializer.Serialize(AgentEventEnvelope.From(started)), 1),
           TestContext.Current.CancellationToken).ConfigureAwait(true);

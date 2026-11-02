@@ -64,13 +64,13 @@ public class ExecGuideTests
     Assert.Contains("APP's launch directory", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("[exec: workspace note", ExecGuide.Text, StringComparison.Ordinal);
   }
-  // Issue #93: a parent must be able to see what a RUNNING child is doing. The guide
+  // Issue #93: an observer must be able to see what a RUNNING agent is doing. The guide
   // teaches the status line's progress suffix and states that it is a PULL surface —
   // progress still never wakes a wait.
   [Fact]
-  public void Guide_TeachesRunningChildProgressOnStatus()
+  public void Guide_TeachesRunningAgentProgressOnStatus()
   {
-    string section = DelegationSection();
+    string section = OutcomeSection();
 
     Assert.Contains("progress phase=model-call|tool-exec|draining", section, StringComparison.Ordinal);
     Assert.Contains("never content", section, StringComparison.Ordinal);
@@ -80,53 +80,51 @@ public class ExecGuideTests
   [Fact]
   public void Guide_DocumentsDurableState()
   {
-    Assert.Contains("Tools.Invoke(\"agent.spawn\", new {", ExecGuide.Text, StringComparison.Ordinal);
-    Assert.Contains("Delegating subtasks", ExecGuide.Text, StringComparison.Ordinal);
-    Assert.Contains("depth limit 3", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("Tools.Invoke(\"state.set\", new {", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("Tools.Invoke(\"state.verify\", new { timeoutSeconds = 30 })", ExecGuide.Text, StringComparison.Ordinal);
   }
 
+  /// <summary>Issue #334: the guide states the TWO ways an agent comes into existence and
+  ///     that nothing a model does creates one. If a spawn tool, a fan-out, or a depth limit
+  ///     is put back, this test fails.</summary>
   [Fact]
-  public void Guide_TeachesNonBlockingDelegation_InOrder()
+  public void Guide_StatesTheTwoWaysAnAgentExists_AndTeachesNoSpawnTool()
   {
-    string section = DelegationSection();
+    string section = ExistenceSection();
 
-    // (1) spawn returns immediately — never wait inside the spawn call.
-    Assert.Contains("returns immediately with `id=<guid> status=running`", section, StringComparison.Ordinal);
-    Assert.Contains("Never wait", section, StringComparison.Ordinal);
-    // (2) continue useful work or fan out siblings.
-    Assert.Contains("continue useful work", section, StringComparison.Ordinal);
-    Assert.Contains("fan out siblings", section, StringComparison.Ordinal);
-    // (3) poll agent.status between turns.
-    Assert.Contains("Tools.Invoke(\"agent.status\", new { timeoutSeconds = 30, id = \"<guid>\" })", section, StringComparison.Ordinal);
-    Assert.Contains("between turns", section, StringComparison.Ordinal);
-    // (4) fetch agent.result — NotComplete = later, NotFound = wrong id.
-    Assert.Contains("Tools.Invoke(\"agent.result\", new { timeoutSeconds = 60, id = \"<guid>\" })", section, StringComparison.Ordinal);
-    Assert.Contains("`Error [NotComplete]`", section, StringComparison.Ordinal);
-    Assert.Contains("try again later", section, StringComparison.Ordinal);
-    Assert.Contains("`Error [NotFound]`", section, StringComparison.Ordinal);
-    Assert.Contains("id is wrong", section, StringComparison.Ordinal);
-    // (5) the concurrency boundary QUEUES (issue #238) — a queued child starts on its
-    // own; ConcurrencyCapReached now means the child host refused the start outright.
-    Assert.Contains("status=queued", section, StringComparison.Ordinal);
-    Assert.Contains("re-spawn a queued child", section, StringComparison.Ordinal);
-    Assert.Contains("`Error [ConcurrencyCapReached]`", section, StringComparison.Ordinal);
-    Assert.Contains("refused the start outright", section, StringComparison.Ordinal);
-    // (6) depth limit unchanged.
-    Assert.Contains("depth limit 3", section, StringComparison.Ordinal);
+    Assert.Contains("An agent IS a session", section, StringComparison.Ordinal);
+    Assert.Contains("a CHAIN STEP", section, StringComparison.Ordinal);
+    Assert.Contains("no spawn tool and no fan-out", section, StringComparison.Ordinal);
+    Assert.Contains("nothing caps an agent by nesting", section, StringComparison.Ordinal);
+    Assert.Contains("CREATES AN AGENT", section, StringComparison.Ordinal);
+    // Concurrency is host capacity — a measurement, not a rule the model applies.
+    Assert.Contains("HOST CAPACITY", section, StringComparison.Ordinal);
 
     int[] markers =
     [
-            IndexOf(section, "returns immediately"),
-            IndexOf(section, "continue useful work"),
-            IndexOf(section, "Tools.Invoke(\"agent.status\""),
-            IndexOf(section, "Tools.Invoke(\"agent.result\""),
-            IndexOf(section, "ConcurrencyCapReached"),
-            IndexOf(section, "depth limit 3"),
-        ];
+      IndexOf(section, "An agent IS a session"),
+      IndexOf(section, "a CHAIN STEP"),
+      IndexOf(section, "no spawn tool"),
+      IndexOf(section, "HOST CAPACITY"),
+    ];
     Assert.All(markers, m => Assert.True(m >= 0, "teaching marker missing"));
     Assert.Equal(markers.OrderBy(m => m), markers);
+  }
+
+  /// <summary>The retired vocabulary appears NOWHERE in the guide. This is the acceptance
+  ///     criterion the issue states, and it is what a revert breaks.</summary>
+  [Fact]
+  public void Guide_TeachesNoRetiredSpawnVocabulary_Anywhere()
+  {
+    foreach (string retired in new[]
+    {
+      "agent.spawn", "agent.fanout", "depth limit", "spawn a child", "subagent",
+      "children may spawn", "grandchild", "child agent",
+    })
+    {
+      Assert.True(ExecGuide.Text.IndexOf(retired, StringComparison.OrdinalIgnoreCase) < 0,
+          "the guide still teaches the retired vocabulary '" + retired + "'");
+    }
   }
 
   [Fact]
@@ -134,7 +132,7 @@ public class ExecGuideTests
   {
     string section = RecallSection();
 
-    int delegationEnd = ExecGuide.Text.IndexOf("depth limit 3", StringComparison.Ordinal);
+    int delegationEnd = ExecGuide.Text.IndexOf("### How an agent comes into existence", StringComparison.Ordinal);
     int recallStart = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
     Assert.True(delegationEnd >= 0, "delegation section marker missing");
     Assert.True(recallStart > delegationEnd, "recall section must come after the delegation section");
@@ -189,7 +187,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_TeachesThatAgentsDoNotMessageEachOther()
   {
-    int delegationStart = ExecGuide.Text.IndexOf("### Delegating subtasks", StringComparison.Ordinal);
+    int delegationStart = ExecGuide.Text.IndexOf("### How an agent comes into existence", StringComparison.Ordinal);
     int recallStart = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
     Assert.True(delegationStart >= 0 && recallStart > delegationStart, "section anchors missing");
     string section = ExecGuide.Text[delegationStart..recallStart];
@@ -221,7 +219,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_Headings_AppearExactlyOnce()
   {
-    foreach (string heading in new[] { "### Calling tools", "### Rules", "### Errors", "### Writing output", "### Delegating subtasks" })
+    foreach (string heading in new[] { "### Calling tools", "### Rules", "### Errors", "### Writing output", "### How an agent comes into existence", "### Reading another agent's outcome" })
     {
       int count = Regex.Count(ExecGuide.Text, "^" + Regex.Escape(heading) + "\\s*$", RegexOptions.Multiline);
       Assert.True(count == 1, $"'{heading}' appears {count} times, expected exactly once.");
@@ -236,12 +234,21 @@ public class ExecGuideTests
     return ExecGuide.Text[start..end];
   }
 
-  private static string DelegationSection()
+  private static string ExistenceSection()
   {
-    int start = ExecGuide.Text.IndexOf("### Delegating subtasks", StringComparison.Ordinal);
-    int end = ExecGuide.Text.IndexOf("### Errors", StringComparison.Ordinal);
-    Assert.True(start >= 0, "Delegating subtasks section missing");
-    Assert.True(end > start, "Errors section missing after delegation section");
+    int start = ExecGuide.Text.IndexOf("### How an agent comes into existence", StringComparison.Ordinal);
+    int end = ExecGuide.Text.IndexOf("### Reading another agent's outcome", StringComparison.Ordinal);
+    Assert.True(start >= 0, "How an agent comes into existence section missing");
+    Assert.True(end > start, "Reading another agent's outcome section missing after it");
+    return ExecGuide.Text[start..end];
+  }
+
+  private static string OutcomeSection()
+  {
+    int start = ExecGuide.Text.IndexOf("### Reading another agent's outcome", StringComparison.Ordinal);
+    int end = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
+    Assert.True(start >= 0, "Reading another agent's outcome section missing");
+    Assert.True(end > start, "Recalling earlier work section missing after it");
     return ExecGuide.Text[start..end];
   }
 

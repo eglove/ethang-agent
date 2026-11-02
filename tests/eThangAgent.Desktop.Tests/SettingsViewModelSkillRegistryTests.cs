@@ -96,7 +96,7 @@ public class SettingsViewModelSkillRegistryTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings(null, new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   private static async Task<AgentTabViewModel> OpenShellAsync(MainViewModel shell, string root)
   {

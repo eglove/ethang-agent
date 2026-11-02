@@ -3,7 +3,7 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain;
 
-/// <summary>Collaborator services a <see cref="SubAgentSpawner"/> runs a child with:
+/// <summary>Collaborator services a <see cref="AgentRunLoop"/> runs a child with:
 ///     the provider factory, transcript persistence, the child tool registry, the
 ///     system-prompt provider, and the child budgets. One value per session; keeps
 ///     the spawner's constructor parameter-light (S107) without loosening any
@@ -47,12 +47,12 @@ namespace eThangAgent.AgentDomain;
 ///     its tokens and cost reads as null rather than being fabricated.</param>
 /// <param name="WorkspaceId">The workspace a child's usage rows belong to (issue #23).
 ///     Null (legacy wiring) records no workspace.</param>
-public sealed record SubAgentServices(
+public sealed record AgentRunServices(
     IModelProviderFactory Factory,
     IAgentStore Store,
     IToolRegistry Tools,
     ISystemPromptProvider SystemPrompt,
-    SubAgentOptions Options,
+    AgentRunOptions Options,
     IAgentHeartbeat? Heartbeat = null,
     IAgentEvents? Events = null,
     IWatchdogEventStore? Audit = null,

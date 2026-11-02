@@ -20,7 +20,7 @@ public class ComputerUseProcessLevelWiringTests
 {
   private static AgentSettings Settings(bool computerUse) => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2),
+      new AgentRunOptions(null, 2),
       ComputerUse: computerUse);
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings settings)

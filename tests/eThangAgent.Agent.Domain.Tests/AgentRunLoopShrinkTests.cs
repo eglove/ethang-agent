@@ -10,12 +10,12 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     shrink's wholesale replacement supersedes the incremental appends that already
 ///     landed during the run (the sink's ReplaceAsync resets the flushed baseline).
 ///     The sentinel contract mirrors the root loop's.</summary>
-public class SubAgentSpawnerShrinkTests
+public class AgentRunLoopShrinkTests
 {
   private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
   private static AgentRecord Child(string taskPrompt = "do things")
-      => AgentRecord.Spawned(AgentId.NewId(), null, 0, "default/sub-model", null, taskPrompt, FixedNow);
+      => AgentRecord.Started(AgentId.NewId(), "default/sub-model", null, taskPrompt, FixedNow);
 
   private sealed class ShrinkingTool : ITool
   {
@@ -27,13 +27,13 @@ public class SubAgentSpawnerShrinkTests
       => Task.FromResult(new ToolResult(SentinelResult, false));
   }
 
-  private static SubAgentSpawner MakeRunner(IModelProvider provider, FakeAgentStore store, IToolRegistry tools)
-      => new(new SubAgentServices(
+  private static AgentRunLoop MakeRunner(IModelProvider provider, FakeAgentStore store, IToolRegistry tools)
+      => new(new AgentRunServices(
           new FakeModelProviderFactory(provider),
           store,
           tools,
           new StaticPromptProvider("guide text"),
-          new SubAgentOptions(DefaultModel: "default/sub-model")));
+          new AgentRunOptions(DefaultModel: "default/sub-model")));
 
   [Fact]
   public async Task RunAsync_ChildShrinks_ReplacesTranscript_NoDuplicateAppends()
@@ -43,7 +43,7 @@ public class SubAgentSpawnerShrinkTests
     FakeProvider provider = new(
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "context_edit", "{}")])),
         Result.Success(new ModelResponse("child report", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store, new ToolRegistry([tool]));
+    AgentRunLoop spawner = MakeRunner(provider, store, new ToolRegistry([tool]));
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(), CancellationToken.None);
 
@@ -63,7 +63,7 @@ public class SubAgentSpawnerShrinkTests
     FakeAgentStore store = new();
     FakeProvider provider = new(
         Result.Success(new ModelResponse("child report", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store, new ToolRegistry([]));
+    AgentRunLoop spawner = MakeRunner(provider, store, new ToolRegistry([]));
 
     _ = await spawner.RunAsync(Child(), CancellationToken.None);
 

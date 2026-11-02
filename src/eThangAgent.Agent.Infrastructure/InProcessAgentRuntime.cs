@@ -237,7 +237,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     {
       string report = "Error [ProviderError]: the child run could not be admitted (admission fault): " + ex.Message;
       AgentRunOutcome outcome = new(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
-          report, record.ModelUsed, record.Depth);
+          report, record.ModelUsed);
       _ = Task.Run(async () =>
       {
         // The run never began: it must not stay in the active set (orphan repair trusts
@@ -339,7 +339,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     }
 
     AgentRunOutcome outcome = new(record.Id, AgentStatus.Failed, AgentFailureReason.Interrupted,
-        report, record.ModelUsed, record.Depth);
+        report, record.ModelUsed);
     CloseMailbox(record.Id, outcome);
     _ = Settle(record.Id, outcome);
   }
@@ -377,9 +377,9 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       await TerminalUpdateAsync(record, AgentStatus.Failed, AgentFailureReason.ProviderError,
           "Error [ProviderError]: " + ex.Message).ConfigureAwait(false);
       CloseMailbox(record.Id, new AgentRunOutcome(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
-          "Error [ProviderError]: " + ex.Message, record.ModelUsed, record.Depth));
+          "Error [ProviderError]: " + ex.Message, record.ModelUsed));
       _ = Settle(record.Id, new AgentRunOutcome(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
-          "Error [ProviderError]: " + ex.Message, record.ModelUsed, record.Depth));
+          "Error [ProviderError]: " + ex.Message, record.ModelUsed));
     }
     finally
     {
@@ -547,64 +547,11 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   private static TaskCompletionSource<AgentRunOutcome> NewSettleSource()
       => new(TaskCreationOptions.RunContinuationsAsynchronously);
   /// <inheritdoc cref="IAgentRuntime.InterruptSubtree"/>
-  public void InterruptSubtree(AgentId rootOfSubtree)
-  {
-    // Only ids this runtime actively owns can be cancelled; edges come from the store.
-    Dictionary<Guid, Guid?> edges = [];
-    List<AgentId> deepestFirst = [];
-    foreach (AgentId activeId in _active.Keys)
-    {
-      Result<AgentRecord> record = _store.GetAsync(activeId).GetAwaiter().GetResult();
-      if (record.IsSuccess)
-      {
-        edges[activeId.Value] = record.Value.ParentId?.Value;
-      }
-    }
-
-    bool IsDescendantOf(Guid candidate, Guid root)
-    {
-      Guid? cursor = candidate;
-      while (cursor is { } current)
-      {
-        if (current == root)
-        {
-          return true;
-        }
-
-        cursor = edges.GetValueOrDefault(current);
-      }
-
-      return false;
-    }
-
-    foreach (AgentId activeId in _active.Keys)
-    {
-      if (activeId.Value == rootOfSubtree.Value || IsDescendantOf(activeId.Value, rootOfSubtree.Value))
-      {
-        deepestFirst.Add(activeId);
-      }
-    }
-
-    // Depth order: deepest (longest parent chain among active ids) first.
-    deepestFirst.Sort((a, b) => DepthOf(b, edges).CompareTo(DepthOf(a, edges)));
-    foreach (AgentId id in deepestFirst)
-    {
-      Interrupt(id);
-    }
-  }
-
-  private static int DepthOf(AgentId id, Dictionary<Guid, Guid?> edges)
-  {
-    int depth = 0;
-    Guid? cursor = id.Value;
-    while (cursor is { } current && edges.TryGetValue(current, out Guid? parent) && parent is not null)
-    {
-      depth++;
-      cursor = parent;
-    }
-
-    return depth;
-  }
+  /// <remarks>ONE AGENT, ONE RUN (issue #334): the subtree this used to tear down was the
+  ///     parent-child link, and there is no link. A stop names the agent it stops; other
+  ///     sessions' agents are untouched because they are not this agent's descendants - they are
+  ///     simply other agents.</remarks>
+  public void InterruptSubtree(AgentId rootOfSubtree) => Interrupt(rootOfSubtree);
   /// <summary>The owning loop's inbox via the shared registry, or null when this
   ///     runtime owns no live run for the id (never started, settled, or foreign).
   ///     <para>THIS IS THE HUMAN-STEERING PATH THAT SURVIVES (issue #316): the root

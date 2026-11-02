@@ -22,7 +22,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   // Subtree resolution (task 1, scoped stop): each active child's parent link, read
   // from the record the start command loaded. Interrupt dispatch walks these edges
   // deepest-first so a subtree-root interrupt cancels only that session's descendants.
-  private readonly ConcurrentDictionary<Guid, Guid?> _parents = [];
 
   // Enactment (fix round 1): each active child's own container runtime — the owner of
   // the run's REAL cancellation token. The server's _active CTSs are only waiter tokens
@@ -234,7 +233,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 
       // Subtree resolution: record the parent edge while the record is in hand, so
       // interrupt dispatch walks THIS child's ancestry without a store round-trip.
-      _parents[command.RecordId] = loaded.Value.ParentId?.Value;
       // Enactment: the child's own container runtime owns the run's REAL cancellation
       // token — scoped interrupts must enact through it, not through the bookkeeping
       // CTS (whose cancellation only ends the settle WAIT, never the run).
@@ -298,7 +296,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       }
 
       _ = _active.TryRemove(command.RecordId, out _);
-      _ = _parents.TryRemove(command.RecordId, out _);
       _ = _runtimes.TryRemove(command.RecordId, out _);
       // The run is over, so its box is closed: a steer that raced this must resolve nothing
       // and be answered NotRunning rather than delivering into a mailbox nothing drains.
@@ -1007,12 +1004,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   /// <summary>Registers a live child run the way RunChildAsync does (a cancellable CTS
   ///     in the active set) together with the record's parent link and the CHILD
   ///     CONTAINER's runtime — the runtime whose internal CTS is the run's ACTUAL
-  ///     cancellation token, so interrupt dispatch can enact through it. The parent
-  ///     edge is read from the record the start command loaded; tests may attach rigs
-  ///     the same way they attach delivery registries.</summary>
-  public void AttachActiveChild(Guid recordId, Guid? parentId, CancellationTokenSource cts, IAgentRuntime runtime)
+  ///     cancellation token, so interrupt dispatch can enact through it. Tests may attach
+  ///     rigs the same way they attach delivery registries.</summary>
+  public void AttachActiveChild(Guid recordId, CancellationTokenSource cts, IAgentRuntime runtime)
   {
-    _parents[recordId] = parentId;
     _active[recordId] = cts;
     _runtimes[recordId] = runtime;
   }
@@ -1095,10 +1090,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 
     if (command.RecordId is { } root)
     {
-      // Deepest first: children settle before their parents observe the teardown.
-      List<Guid> targets = [.. _active.Keys
-          .Where(activeId => activeId == root || IsDescendantOf(activeId, root))
-          .OrderByDescending(DepthOf)];
+      // ONE AGENT, ONE RUN (issue #334): the stop names the agent it stops. The descendant
+      // walk it used to perform followed the parent-child link, and there is no link, so the
+      // target set is exactly the named id when this host is running it.
+      List<Guid> targets = [.. _active.Keys.Where(activeId => activeId == root)];
       foreach (Guid id in targets)
       {
         // Enactment: cancel the run's REAL token through the child container's own
@@ -1152,7 +1147,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         return;
       }
 
-      _parents[recordId] = loaded.Value.ParentId?.Value;
       _runtimes[recordId] = host.LocalRunner;
       AttachAgentContainer(recordId, host);
 
@@ -1193,41 +1187,11 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       }
 
       _ = _active.TryRemove(recordId, out _);
-      _ = _parents.TryRemove(recordId, out _);
       _ = _runtimes.TryRemove(recordId, out _);
       _ = _leafInboxes.TryRemove(recordId, out _);
       _ = _leafServices.TryRemove(recordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
     }
-  }
-
-  private bool IsDescendantOf(Guid candidate, Guid root)
-  {
-    Guid? cursor = candidate;
-    while (cursor is { } current)
-    {
-      if (current == root)
-      {
-        return true;
-      }
-
-      cursor = _parents.GetValueOrDefault(current);
-    }
-
-    return false;
-  }
-
-  private int DepthOf(Guid id)
-  {
-    int depth = 0;
-    Guid? cursor = id;
-    while (cursor is { } current && _parents.TryGetValue(current, out Guid? parent) && parent is not null)
-    {
-      depth++;
-      cursor = parent;
-    }
-
-    return depth;
   }
 
   /// <summary>Declares the host's live child set to the app (R3.2's exact orphan

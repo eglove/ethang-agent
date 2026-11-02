@@ -26,7 +26,7 @@ public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl, string? Man
 ///     selection on OpenRouter) or by the user through the host's model picker.</summary>
 public sealed record AgentSettings(
     OpenRouterSettings OpenRouter,
-    SubAgentOptions SubAgents,
+    AgentRunOptions SubAgents,
     bool ComputerUse = false,
     bool VerificationGateEnabled = true,
     WatchdogSettings? Watchdog = null,

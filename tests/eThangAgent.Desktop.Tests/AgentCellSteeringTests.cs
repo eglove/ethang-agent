@@ -417,11 +417,9 @@ public class AgentCellSteeringTests
     public AgentId StartAgent(AgentTabViewModel tab, string label)
     {
       AgentId agent = AgentId.NewId();
-      Store.Records[agent.Value] = AgentRecord.Spawned(agent, parentId: null, depth: 1,
-          "test/model", label, "p", DateTimeOffset.UtcNow,
+      Store.Records[agent.Value] = AgentRecord.Started(agent, "test/model", label, "p", DateTimeOffset.UtcNow,
           workspaceId: WorkspaceId(tab.Container.WorkspaceRoot));
-      Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
-          "test/model", 1));
+      Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
       return agent;
     }
 
@@ -568,11 +566,6 @@ public class AgentCellSteeringTests
       return Task.FromResult(Result.Success<IReadOnlyList<Message>>(
           Transcripts.TryGetValue(id.Value, out List<Message>? messages) ? messages : []));
     }
-
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
-        CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
-            [.. Records.Values.Where(record => record.ParentId == parentId)]));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));

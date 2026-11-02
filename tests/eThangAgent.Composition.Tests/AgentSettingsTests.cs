@@ -9,7 +9,7 @@ public class AgentSettingsTests
 {
   private static AgentSettings Settings(string? openRouter = null) => new(
       new OpenRouterSettings(openRouter, new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   [Fact]
   public void Preference_Keys_Name_The_Stored_Api_Key_Slots() =>

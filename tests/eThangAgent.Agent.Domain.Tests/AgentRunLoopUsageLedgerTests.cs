@@ -8,7 +8,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     under the CHILD's own persisted id, carrying the session's prices and workspace —
 ///     never the parent's id. The session a child's spend belongs to is derived by walking
 ///     agents.parent_id at read time (#24), so nothing is stamped here.</summary>
-public class SubAgentSpawnerUsageLedgerTests
+public class AgentRunLoopUsageLedgerTests
 {
   private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
@@ -33,8 +33,7 @@ public class SubAgentSpawnerUsageLedgerTests
     }
   }
 
-  private static AgentRecord Child() => AgentRecord.Spawned(
-      AgentId.NewId(), null, 0, "default/sub-model", null, "do things", FixedNow);
+  private static AgentRecord Child() => AgentRecord.Started(AgentId.NewId(), "default/sub-model", null, "do things", FixedNow);
 
   [Fact]
   public async Task RunAsync_ChildUsageRow_CarriesTheChildsOwnIdAndTheSessionsPrices()
@@ -45,9 +44,9 @@ public class SubAgentSpawnerUsageLedgerTests
       Usage = new TokenUsage(100, 20, 64, null, 7),
     }));
     RecordingEventLog log = new();
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), store, new ToolRegistry([]),
-        new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "default/sub-model"),
+        new StaticPromptProvider("guide text"), new AgentRunOptions(DefaultModel: "default/sub-model"),
         EventLog: log, UsagePrices: new FixedPriceSource(Known), WorkspaceId: "ws-1"));
 
     AgentRecord child = Child();
@@ -73,9 +72,9 @@ public class SubAgentSpawnerUsageLedgerTests
       Usage = new TokenUsage(100, 20),
     }));
     RecordingEventLog log = new();
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), store, new ToolRegistry([]),
-        new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "default/sub-model"),
+        new StaticPromptProvider("guide text"), new AgentRunOptions(DefaultModel: "default/sub-model"),
         EventLog: log));
 
     _ = await spawner.RunAsync(Child(), CancellationToken.None);

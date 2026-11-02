@@ -177,80 +177,81 @@ public static class ExecGuide
         var sizes = files.Select(f => new { Name = Path.GetFileName(f), Size = new FileInfo(f).Length });
         return string.Join("\n", sizes.Select(x => $"{x.Name}: {x.Size}"));
 
-    ### Delegating subtasks
+    ### How an agent comes into existence
 
-    Spawn a child agent for a self-contained subtask through Tools.Invoke("agent.spawn", ...).
-    agent.spawn is non-blocking: it returns immediately with `id=<guid> status=running`
-    and the child runs in the background. Never wait for a child inside the spawn call.
+    An agent IS a session. Exactly two things start one, and neither is a tool you can call:
 
-        Tools.Invoke("agent.spawn", new { timeoutSeconds = 30,
-            taskPrompt = "Summarize the auth module",
-            label = "research" })   // omit model: children inherit the configured default
-        → id=3fa85f64-591c-4a0e-b3d8-0266a14e5a11 status=running
+        a CHAIN STEP      the harness starts the session for the next step of a chain
+        the user's "+"    a person adds a cell by hand
 
-    - Frame the task so a stranger could complete it; say exactly what the report must contain.
-    - Omit `model`: children always inherit the configured default. There is no model selection.
+    There is no spawn tool and no fan-out, and nothing caps an agent by nesting. NOTHING YOU DO
+    CREATES AN AGENT, so nothing you do needs a report handed back to you: if you want work done,
+    do it, or record it as a plan step for a chain to execute.
 
-    While children run, continue useful work on your own task, or fan out siblings for parallel
-    independent subtasks so they run concurrently.
+    Concurrency is bounded by HOST CAPACITY, which is a measurement of this machine, not a
+    setting and not a rule you apply. A start past the cap parks and runs on its own when a slot
+    frees.
 
-    Await the outcome when you need it — one wait replaces repeated status polls:
+    ### Reading another agent's outcome
 
-        Tools.Invoke("agent.wait", new { timeoutSeconds = 300, id = "<guid>" })   → the child's outcome (unbounded by design; your stop cancels it)
-        Tools.Invoke("agent.wait", new { timeoutSeconds = 120, id = "<guid>", wakeOn = "all" })   → wakes early on child idles/stream stalls/state writes/budget/mail; returns [wait: woken ...] with the child still running — then re-wait, or intervene
+    A chain's record is how you know what happened. Read the chain and its steps; the record is
+    the join, and the harness is what reads it.
 
-    USER STEERING ALWAYS WAKES a wait: if the user sends a message while you wait,
-    the wait returns immediately with reason=user-message — read it and act.
-    Optional wakeOn (default "message"): "all" or a comma list of
-    message|idle|settled|state|stream|budget|mailbox. There is deliberately NO progress
-    reason: a child's progress beats fire on every tool call, so a wait that woke on
-    them would never rest. Optional timeoutSeconds is a soft cap (expiry is an
-    annotation, never an error) that must fit inside this exec call's own
-    timeoutSeconds budget.
+        Tools.Invoke("chain.show", new { timeoutSeconds = 30, id = 12 })
 
-        Tools.Invoke("agent.status", new { timeoutSeconds = 30, id = "<guid>" })   → projection for humans/debugging: status=running|completed|failed
+    An agent's own state is available as a projection when you already hold its id — for humans
+    and debugging, never as a poll target:
 
-    agent.status is an observation window between turns — for humans and debugging,
-    never a completion check. A RUNNING child's line also carries its latest mid-run
-    activity, so a long run is not a black box:
+        Tools.Invoke("agent.status", new { timeoutSeconds = 30, id = "<guid>" })   → status=running|queued|completed|failed
+
+    A RUNNING agent's line also carries its latest mid-run activity, so a long run is not a black
+    box:
 
         id=<guid> status=running progress phase=model-call|tool-exec|draining label=<short tag> age=<n>s
 
-    phase/label name what the child is doing right now (label is a phase tag such as
-    'iteration' or 'tool:read', never content); age is how long since that beat. The
-    suffix appears only while running and only once a beat has been observed. It is a
-    PULL surface: nothing pushes a child's progress into your context, so read it when
-    you want a status check — a wait still wakes only on the reasons listed above.
+    phase/label name what the agent is doing right now (label is a phase tag such as 'iteration'
+    or 'tool:read', never content); age is how long since that beat. The suffix appears only while
+    running and only once a beat has been observed. It is a PULL surface: nothing pushes an
+    agent's progress into your context.
 
-    agent.result remains available when you already hold a
-    settled id or need the report without blocking the current call:
+    agent.result remains available when you already hold a settled id:
 
         Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "<guid>" })
 
-    Resume a settled child for a fix round (same id, same transcript, same anchor/grants):
+    agent.wait blocks until an agent settles, and returns early on a matching event:
+
+        Tools.Invoke("agent.wait", new { timeoutSeconds = 300, id = "<guid>" })   → the agent's outcome (unbounded by design; your stop cancels it)
+        Tools.Invoke("agent.wait", new { timeoutSeconds = 120, id = "<guid>", wakeOn = "all" })   → wakes early on idles/stream stalls/state writes/budget/mail; returns [wait: woken ...] with the agent still running — then re-wait, or intervene
+
+    USER STEERING ALWAYS WAKES a wait: if the user sends a message while you wait, the wait returns
+    immediately with reason=user-message — read it and act. Optional wakeOn (default "message"):
+    "all" or a comma list of message|idle|settled|state|stream|budget|mailbox. There is deliberately
+    NO progress reason: an agent's progress beats fire on every tool call, so a wait that woke on
+    them would never rest. Optional timeoutSeconds is a soft cap (expiry is an annotation, never an
+    error) that must fit inside this exec call's own timeoutSeconds budget.
+
+    Resume a settled agent for a fix round (same id, same transcript, same anchor/grants):
 
         Tools.Invoke("agent.resume", new { timeoutSeconds = 30, id = "<guid>", text = "tests still fail - fix them" })
         → id=<guid> status=running
 
-    - Only SETTLED children (completed or failed) take agent.resume; a RUNNING child is
-      not resumable — await it with agent.wait instead.
-    - Every fix round on a settled child beats re-spawning from scratch.
-    - `Error [NotComplete]` means the child is still running — try again later
+    - Only SETTLED agents (completed or failed) take agent.resume; a RUNNING agent is not
+      resumable — await it with agent.wait, or let the human steer it in its own cell.
+    - Every fix round on a settled agent beats starting a new one from scratch.
+    - `Error [NotComplete]` means the agent is still running — try again later
       (one agent.wait beats repeated polling).
     - `Error [NotFound]` means the id is wrong.
-    - A spawn past the runtime's concurrent-agent limit does NOT fail: it returns
-      status=queued and starts on its own when a slot frees. agent.wait on a queued id
-      blocks normally, agent.status reports status=queued, agent.cancel stops it. Never
-      re-spawn a queued child. `Error [ConcurrencyCapReached]` now means the child host
-      refused the start outright (a remote-host ceiling).
-    - Children see the full tool surface and may spawn their own children — depth limit 3.
+    - An agent past the concurrency limit does NOT fail its start: it returns status=queued and
+      starts on its own when a slot frees. agent.wait on a queued id blocks normally,
+      agent.status reports status=queued, agent.cancel stops it. `Error [ConcurrencyCapReached]`
+      means the child host refused the start outright (a remote-host ceiling).
 
     AGENTS DO NOT MESSAGE EACH OTHER. There is no send, route, escalate, notify, or receipt
     surface: agents communicate by STATUS only, through the database (a plan step, a chain
     record, a state key). Steering a running agent is the HUMAN's channel — the person typing
     in the session tab — and it reaches the model at its next safe point without any action
-    from you. If you need another agent's outcome, wait for it or read its record; do not look
-    for a message channel, because there is not one.
+    from you. If you need another agent's outcome, read its record; do not look for a message
+    channel, because there is not one.
 
         ### Recalling earlier work
 
@@ -258,7 +259,7 @@ public static class ExecGuide
     it lists what conversations exist:
 
         Tools.Invoke("memory.sessions", new { timeoutSeconds = 30 })
-        → session=<guid> label=root depth=0 entries=42 status=running tier=hot
+        → session=<guid> label=root entries=42 status=running tier=hot
 
     memory.recall searches transcripts for earlier decisions, errors, and context:
 

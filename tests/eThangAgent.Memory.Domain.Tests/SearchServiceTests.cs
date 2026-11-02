@@ -113,8 +113,8 @@ public class SearchServiceTests
     AgentId b = new(Guid.NewGuid());
     List<SessionCorpus> sessions =
         [
-            new(a, null, 0, [new(a, 1, "user", "alpha from a", At(1))]),
-            new(b, null, 0, [new(b, 1, "user", "beta from b", At(2))]),
+            new(a, [new(a, 1, "user", "alpha from a", At(1))]),
+            new(b, [new(b, 1, "user", "beta from b", At(2))]),
         ];
 
     SearchOutcome outcome = SearchService.Search(
@@ -129,22 +129,21 @@ public class SearchServiceTests
   // ---- Branch resolution ----
 
   [Fact]
-  public void Search_ActivePath_KeepsRootLineageOnly_ExcludesOrphanChains()
+  public void Search_ActivePath_KeepsEverySession_BecauseNoSessionHasALineage()
   {
     AgentId rootId = NewId();
     AgentId agentId = NewId();
     AgentId grandchildId = NewId();
-    AgentId missingAncestorId = NewId();
     AgentId orphanId = NewId();
     AgentId orphanChildId = NewId();
     List<SessionCorpus> sessions =
         [
-            new(rootId, null, 0, [new(rootId, 1, "user", "root line", At(0))]),
-            new(agentId, rootId, 1, [new(agentId, 1, "user", "child line", At(1))]),
-            new(grandchildId, agentId, 2, [new(grandchildId, 1, "user", "grandchild line", At(2))]),
+            new(rootId, [new(rootId, 1, "user", "root line", At(0))]),
+            new(agentId, [new(agentId, 1, "user", "child line", At(1))]),
+            new(grandchildId, [new(grandchildId, 1, "user", "grandchild line", At(2))]),
             // Orphan chain: ancestor row absent from the set — excluded under ActivePath.
-            new(orphanId, missingAncestorId, 1, [new(orphanId, 1, "user", "orphan line", At(3))]),
-            new(orphanChildId, orphanId, 2, [new(orphanChildId, 1, "user", "orphan child line", At(4))]),
+            new(orphanId, [new(orphanId, 1, "user", "orphan line", At(3))]),
+            new(orphanChildId, [new(orphanChildId, 1, "user", "orphan child line", At(4))]),
         ];
 
     SearchOutcome outcome = SearchService.Search(
@@ -153,21 +152,19 @@ public class SearchServiceTests
 
     SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(
-        ["grandchild line", "child line", "root line"],
-        ok.Result.Hits.Select(h => h.Entry.Content));
-    Assert.Equal(3, ok.Result.TotalMatched);
+        5,
+        ok.Result.TotalMatched);
   }
 
   [Fact]
   public void Search_AllBranches_KeepsOrphanChainsToo()
   {
     AgentId rootId = NewId();
-    AgentId missingAncestorId = NewId();
     AgentId orphanId = NewId();
     List<SessionCorpus> sessions =
         [
-            new(rootId, null, 0, [new(rootId, 1, "user", "root line", At(0))]),
-            new(orphanId, missingAncestorId, 1, [new(orphanId, 1, "user", "orphan line", At(3))]),
+            new(rootId, [new(rootId, 1, "user", "root line", At(0))]),
+            new(orphanId, [new(orphanId, 1, "user", "orphan line", At(3))]),
         ];
 
     SearchOutcome outcome = SearchService.Search(
@@ -187,8 +184,7 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<SessionCorpus> sessions =
         [
-            new(id, null, 0,
-            [
+            new(id, [
                 new(id, 3, "assistant", "alpha beta together", At(3)),
                 new(id, 2, "user", "alpha alone", At(2)),
                 new(id, 1, "tool", "BETA-ALPHA both canonical tokens", At(1)),
@@ -212,8 +208,7 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<SessionCorpus> sessions =
         [
-            new(id, null, 0,
-            [
+            new(id, [
                 new(id, 2, "user", "alpha here", At(2)),
                 new(id, 1, "user", "zebra there", At(1)),
             ]),
@@ -237,8 +232,7 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<SessionCorpus> sessions =
         [
-            new(id, null, 0,
-            [
+            new(id, [
                 new(id, 4, "user", "catch22 details", At(4)),
                 new(id, 3, "assistant", "nothing relevant here", At(3)),
                 new(id, 2, "user", "CAT-22 report", At(2)),
@@ -260,7 +254,7 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<SessionCorpus> sessions =
         [
-            new(id, null, 0, [new(id, 1, "user", "content", At(1))]),
+            new(id, [new(id, 1, "user", "content", At(1))]),
         ];
 
     SearchOutcome outcome = SearchService.Search(
@@ -277,7 +271,7 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<SessionCorpus> sessions =
         [
-            new(id, null, 0, [new(id, 1, "user", "content", At(1))]),
+            new(id, [new(id, 1, "user", "content", At(1))]),
         ];
 
     SearchOutcome outcome = SearchService.Search(
@@ -298,8 +292,7 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<SessionCorpus> sessions =
         [
-            new(id, null, 0,
-            [
+            new(id, [
                 new(id, 2, "assistant", "alpha from assistant", At(2)),
                 new(id, 1, "user", "alpha from user", At(1)),
             ]),
@@ -320,8 +313,7 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<SessionCorpus> sessions =
         [
-            new(id, null, 0,
-            [
+            new(id, [
                 new(id, 2, "assistant", "assistant line", At(2)),
                 new(id, 1, "user", "user line", At(1)),
             ]),
@@ -341,8 +333,7 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<SessionCorpus> sessions =
         [
-            new(id, null, 0,
-            [
+            new(id, [
                 new(id, 2, "assistant", "assistant line", At(2)),
                 new(id, 1, "user", "user line", At(1)),
             ]),
@@ -375,13 +366,11 @@ public class SearchServiceTests
 
     List<SessionCorpus> sessions =
         [
-            new(right, null, 0,
-            [
+            new(right, [
                 new(right, 3, "user", "late right", At(5)),
                 new(right, 4, "user", "early right seq4", At(0)),
             ]),
-            new(left, null, 0,
-            [
+            new(left, [
                 new(left, 7, "user", "late left", At(5)),
                 new(left, 4, "user", "early left seq4", At(0)),
             ]),
@@ -404,7 +393,7 @@ public class SearchServiceTests
   {
     AgentId id = NewId();
     List<MemoryEntry> entries = [.. Enumerable.Range(1, 25).Select(n => new MemoryEntry(id, n, "user", $"entry {n}", Base.AddSeconds(n)))];
-    List<SessionCorpus> sessions = [new(id, null, 0, entries)];
+    List<SessionCorpus> sessions = [new(id, entries)];
 
     SearchResult page1 = Assert.IsType<SearchOk>(SearchService.Search(
         sessions, new BrowsePlan(), new AllSessionsScope(),

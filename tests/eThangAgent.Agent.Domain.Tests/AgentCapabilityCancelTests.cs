@@ -75,32 +75,19 @@ public class AgentCapabilityCancelTests
   {
     if (runtime is null)
     {
-      return new AgentCapabilityProvider(new AgentProviderServices(
-          new NoSpawn(), new StubQueries(null), NoParent, Clock: null));
+      return new AgentCapabilityProvider(new AgentProviderServices(new StubQueries(null), Clock: null));
     }
 
     AgentStatus status = completedChild ? AgentStatus.Completed : AgentStatus.Running;
-    AgentRecord child = AgentRecord.Spawned(AgentId(), ParentId(), 1, "m", "child", "task", DateTimeOffset.UtcNow) with { Status = status };
-    return new AgentCapabilityProvider(new AgentProviderServices(
-        new NoSpawn(), new StubQueries(child), NoParent, runtime, Clock: null));
+    AgentRecord child = AgentRecord.Started(AgentId(), "m", "child", "task", DateTimeOffset.UtcNow) with { Status = status };
+    return new AgentCapabilityProvider(new AgentProviderServices(new StubQueries(child), runtime, Clock: null));
   }
-
-  private static AgentRecord NoParent()
-      => AgentRecord.Spawned(new AgentId(Guid.NewGuid()), null, 0, "m", "parent", "root", DateTimeOffset.UtcNow);
-
-  private static AgentId ParentId() => new(Guid.NewGuid());
 
   /// <summary>The id the stub's child record carries; tests pass the SAME id in the
   ///     cancel JSON so the stub's GetStatus resolves it.</summary>
   public static AgentId StubChildId { get; } = new(Guid.NewGuid());
 
   private static AgentId AgentId() => StubChildId;
-
-  private sealed class NoSpawn : IAgentSpawnCommand
-  {
-    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
-      => throw new NotSupportedException("not exercised");
-  }
 
   private sealed class StubRuntime : IAgentRuntime
   {
@@ -136,7 +123,5 @@ public class AgentCapabilityCancelTests
     public Task<Result<string>> GetResult(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<string>(new DomainError("NotFound", "no report")));
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
   }
 }

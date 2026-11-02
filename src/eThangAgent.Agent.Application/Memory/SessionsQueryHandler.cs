@@ -62,7 +62,6 @@ public sealed class SessionsQueryHandler(IAgentStore store) : IMemorySessionsQue
           // AgentRecord.Label is nullable; the summary projection renders an empty
           // label rather than inventing a display name.
           record.Label ?? string.Empty,
-          record.Depth,
           transcript.Value.Count,
           record.Status.ToString(),
           Tier: "hot"));

@@ -8,11 +8,10 @@ public class AgentDomainEventTests
   public void AgentSpawned_CarriesPayload()
   {
     AgentId id = AgentId.NewId();
-    AgentSpawned spawned = new(id, At, 2, "prov/model", "research");
+    AgentSpawned spawned = new(id, At, "prov/model", "research");
 
     Assert.Equal(id, spawned.AgentId);
     Assert.Equal(At, spawned.OccurredAt);
-    Assert.Equal(2, spawned.Depth);
     Assert.Equal("prov/model", spawned.ModelUsed);
     Assert.Equal("research", spawned.Label);
     _ = Assert.IsType<AgentDomainEvent>(spawned, exactMatch: false);

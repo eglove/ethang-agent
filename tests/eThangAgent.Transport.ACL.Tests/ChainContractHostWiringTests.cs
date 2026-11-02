@@ -30,7 +30,7 @@ public sealed class ChainContractHostWiringTests
     string workspace = Directory.CreateTempSubdirectory("ethang-chain-contract-ws").FullName;
     AgentSettings settings = new AgentSettings(
         new OpenRouterSettings("sk-test", BaseUrl),
-        new SubAgentOptions(null, 1),
+        new AgentRunOptions(null, 1),
         WorkspaceRoot: workspace).WithChainContract(contract);
     string path = Path.Combine(Path.GetTempPath(),
         "ethang-chain-contract-" + Guid.NewGuid().ToString("N") + ".json");
@@ -90,7 +90,7 @@ public sealed class ChainContractHostWiringTests
     // supervisor wrote, so a member the serializer dropped would be a fact the host never had.
     ChainContract contract = new(7, 104, 2, "sci.dashboard-truth/ledger", ["dotnet build"]);
     AgentSettings settings = new AgentSettings(
-        new OpenRouterSettings("sk-test", BaseUrl), new SubAgentOptions(null, 1))
+        new OpenRouterSettings("sk-test", BaseUrl), new AgentRunOptions(null, 1))
         .WithChainContract(contract);
 
     ChainContract? roundTripped =

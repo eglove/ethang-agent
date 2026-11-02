@@ -13,14 +13,13 @@ public sealed record AgentRunOutcome(
     AgentStatus Status,
     AgentFailureReason? Reason,
     string Report,
-    string ModelUsed,
-    int Depth);
+    string ModelUsed);
 
 /// <summary>Child-loop runner implementing <see cref="IAgentRunner"/>: executes a persisted child
 ///     agent's conversation loop to completion and persists its terminal state and transcript.
 ///     Validation, depth enforcement, model resolution, and the initial Running save belong to the
 ///     spawn command (<c>StartSpawnHandler</c>), which hands the persisted record here.</summary>
-public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPreferences? preferences = null,
+public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferences? preferences = null,
     IContextWindowSource? windowSource = null, IContextCompactor? contextCompactor = null,
     IModelCatalog? catalog = null)
     : IAgentRunner
@@ -76,7 +75,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   /// <summary>The child whose loop is currently executing on this async flow, if any.
   ///     Nested agent.spawn calls must resolve their parent from here rather than
   ///     from the composition root's static root record; compositions wire the
-  ///     parent context as <c>() => SubAgentSpawner.RunningChild ?? rootRecord</c>.</summary>
+  ///     parent context as <c>() => AgentRunLoop.RunningChild ?? rootRecord</c>.</summary>
   public static AgentRecord? RunningChild => RunningChildCurrent.Value;
 
   /// <summary>Test seam: lifts the running-child ambient for the scope of the returned
@@ -140,7 +139,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     await PersistTerminalAsync(terminal, CancellationToken.None).ConfigureAwait(false);
     PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.ProviderError, 0);
     return new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
-        terminal.FinalReport ?? string.Empty, child.ModelUsed, child.Depth);
+        terminal.FinalReport ?? string.Empty, child.ModelUsed);
   }
 
   /// <summary>Children inherit the session's runtime preferences (the effort picker,
@@ -262,7 +261,6 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           {
             SystemPrompt = _systemPrompt,
             Id = child.Id,
-            Depth = child.Depth,
             ContextMonitor = new ContextAccountant(window),
             ContextCompactor = _contextCompactor,
             Heartbeat = _heartbeat,
@@ -388,7 +386,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     }, transcriptSink).ConfigureAwait(false);
     PublishSettled(child.Id, AgentStatus.Failed, failureReason, 0);
     return new AgentRunOutcome(child.Id, AgentStatus.Failed, failureReason,
-        FailureDetail(failureReason), child.ModelUsed, child.Depth);
+        FailureDetail(failureReason), child.ModelUsed);
   }
 
   /// <summary>Structured results (step 10, approved D3): one bounded repair round; a
@@ -441,7 +439,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
         Encoding.UTF8.GetByteCount(finalReport));
     return (finalReport, new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
-        "Error [InvalidResult]: " + secondPass.Error, child.ModelUsed, child.Depth));
+        "Error [InvalidResult]: " + secondPass.Error, child.ModelUsed));
   }
 
   /// <summary>Workspace-cleanliness check (grand-plan BUG 3): fresh implementers left
@@ -490,7 +488,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
 
     PublishSettled(child.Id, AgentStatus.Completed, null, Encoding.UTF8.GetByteCount(finalReport));
     return new AgentRunOutcome(child.Id, AgentStatus.Completed, null, finalReport,
-        child.ModelUsed, child.Depth);
+        child.ModelUsed);
   }
 
   /// <summary>Phase-orchestrated begin-run: every phase lives in its own helper with
@@ -615,7 +613,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   /// <summary>Emits AgentStartedEvent when a stream is wired; no-op otherwise (legacy wiring).</summary>
   private void PublishStarted(AgentRecord child)
       => _events?.Publish(new AgentStartedEvent(
-          child.Id, DateTimeOffset.UtcNow, child.ParentId, child.ModelUsed, child.Attempts));
+          child.Id, DateTimeOffset.UtcNow, child.ModelUsed, child.Attempts));
 
   /// <summary>Emits AgentSettledEvent; ReportBytes is a size hint only, never content (D5).</summary>
   private void PublishSettled(AgentId id, AgentStatus status, AgentFailureReason? reason, int reportBytes)

@@ -29,9 +29,6 @@ internal sealed class StubStore : IAgentStore
   public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
     => throw new NotSupportedException();
 
-  public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-      => throw new NotSupportedException();
-
   public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
       => throw new NotSupportedException();
 }

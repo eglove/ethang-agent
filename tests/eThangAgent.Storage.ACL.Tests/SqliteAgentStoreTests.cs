@@ -26,10 +26,8 @@ public sealed class SqliteAgentStoreTests : IDisposable
 #pragma warning restore CA1031, S108
   }
 
-  private static AgentRecord FullyPopulatedRecord(AgentId? id = null, AgentId? parentId = null) => new(
+  private static AgentRecord FullyPopulatedRecord(AgentId? id = null) => new(
       id ?? AgentId.NewId(),
-      parentId ?? AgentId.NewId(),
-      Depth: 2,
       Status: AgentStatus.Failed,
       FailureReason: AgentFailureReason.Timeout,
       ModelUsed: "provider/model-x",
@@ -47,7 +45,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
   {
     AgentRecord populated = FullyPopulatedRecord();
     AgentRecord root = new(
-        AgentId.NewId(), null, 0, AgentStatus.Running, null, "provider/model-root",
+        AgentId.NewId(), AgentStatus.Running, null, "provider/model-root",
         null, "root task", new DateTimeOffset(2026, 8, 21, 9, 0, 0, TimeSpan.Zero), null, null);
 
     Assert.True((await _store.SaveAsync(populated, ct: TestContext.Current.CancellationToken)).IsSuccess);
@@ -60,8 +58,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
   [Fact]
   public async Task Update_RunningToCompleted_SetsFinalReportAndCompletedAt()
   {
-    AgentRecord running = AgentRecord.Spawned(
-        AgentId.NewId(), AgentId.NewId(), 1, "provider/model", "child", "do work",
+    AgentRecord running = AgentRecord.Started(AgentId.NewId(), "provider/model", "child", "do work",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero));
     _ = await _store.SaveAsync(running, ct: TestContext.Current.CancellationToken);
 
@@ -81,8 +78,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
   public async Task LegacyRow_ReadsWithDefaultFacts()
   {
     AgentId id = AgentId.NewId();
-    AgentRecord legacy = AgentRecord.Spawned(
-        id, AgentId.NewId(), 1, "provider/model", null, "do work",
+    AgentRecord legacy = AgentRecord.Started(id, "provider/model", null, "do work",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero));
     _ = await _store.SaveAsync(legacy, ct: TestContext.Current.CancellationToken);
 
@@ -99,8 +95,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
   {
     AgentId id = AgentId.NewId();
     SpawnContract contract = new(MaxUrgency: 2, PreemptGrant: true);
-    AgentRecord spawned = AgentRecord.Spawned(
-        id, AgentId.NewId(), 1, "provider/model", null, "do work",
+    AgentRecord spawned = AgentRecord.Started(id, "provider/model", null, "do work",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero), contract);
     _ = await _store.SaveAsync(spawned, ct: TestContext.Current.CancellationToken);
 
@@ -117,8 +112,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
   public async Task AppendAndGetTranscript_PreservesOrderAndContent()
   {
     AgentId id = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Spawned(
-        id, null, 1, "provider/model", null, "task",
+    _ = await _store.SaveAsync(AgentRecord.Started(id, "provider/model", null, "task",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)), ct: TestContext.Current.CancellationToken);
 
     Message first = new(Role.User, "first prompt",
@@ -170,39 +164,12 @@ public sealed class SqliteAgentStoreTests : IDisposable
   }
 
   [Fact]
-  public async Task ListChildren_FiltersByParent_OrdersByCreatedAt()
-  {
-    AgentId parentA = AgentId.NewId();
-    AgentId parentB = AgentId.NewId();
-
-    AgentRecord oldest = AgentRecord.Spawned(AgentId.NewId(), parentA, 1, "provider/model", "oldest",
-        "task", new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero));
-    AgentRecord newest = AgentRecord.Spawned(AgentId.NewId(), parentA, 1, "provider/model", "newest",
-        "task", new DateTimeOffset(2026, 8, 21, 11, 0, 0, TimeSpan.Zero));
-    AgentRecord middle = AgentRecord.Spawned(AgentId.NewId(), parentA, 1, "provider/model", "middle",
-        "task", new DateTimeOffset(2026, 8, 21, 10, 30, 0, TimeSpan.Zero));
-    AgentRecord otherParent = AgentRecord.Spawned(AgentId.NewId(), parentB, 1, "provider/model", "other",
-        "task", new DateTimeOffset(2026, 8, 21, 10, 15, 0, TimeSpan.Zero));
-
-    foreach (AgentRecord? child in new[] { newest, otherParent, oldest, middle })
-    {
-      _ = await _store.SaveAsync(child, ct: TestContext.Current.CancellationToken);
-    }
-
-    Result<IReadOnlyList<AgentRecord>> children = await _store.ListChildrenAsync(parentA, ct: TestContext.Current.CancellationToken);
-
-    Assert.True(children.IsSuccess);
-    Assert.Equal([oldest.Id, middle.Id, newest.Id],
-        [.. children.Value.Select(c => c.Id)]);
-  }
-
-  [Fact]
   public async Task Events_PersistAndReload()
   {
     AgentId id = AgentId.NewId();
     AgentId otherId = AgentId.NewId();
     AgentSpawned spawned = new(id,
-        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero), 1, "provider/model", "child");
+        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero), "provider/model", "child");
     AgentCompleted completed = new(id,
         new DateTimeOffset(2026, 8, 21, 10, 2, 0, TimeSpan.Zero), AgentStatus.Completed, null);
     AgentCompleted failed = new(id,
@@ -211,7 +178,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
 
     _ = await _store.AppendEventAsync(spawned, ct: TestContext.Current.CancellationToken);
     _ = await _store.AppendEventAsync(new AgentSpawned(otherId,
-        new DateTimeOffset(2026, 8, 21, 10, 1, 0, TimeSpan.Zero), 1, "provider/model", null), ct: TestContext.Current.CancellationToken);
+        new DateTimeOffset(2026, 8, 21, 10, 1, 0, TimeSpan.Zero), "provider/model", null), ct: TestContext.Current.CancellationToken);
     _ = await _store.AppendEventAsync(completed, ct: TestContext.Current.CancellationToken);
     _ = await _store.AppendEventAsync(failed, ct: TestContext.Current.CancellationToken);
 
@@ -228,7 +195,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
   public async Task DataPersistsAcrossStoreRecreation()
   {
     AgentId id = AgentId.NewId();
-    AgentRecord record = AgentRecord.Spawned(id, null, 1, "provider/model", null, "task",
+    AgentRecord record = AgentRecord.Started(id, "provider/model", null, "task",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero));
     _ = await _store.SaveAsync(record, ct: TestContext.Current.CancellationToken);
     _ = await _store.AppendMessageAsync(id,
@@ -246,8 +213,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
   public async Task ReplaceTranscript_ReplacesWholesale_PreservesOrderAndMeta()
   {
     AgentId id = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Spawned(
-        id, null, 1, "provider/model", null, "task",
+    _ = await _store.SaveAsync(AgentRecord.Started(id, "provider/model", null, "task",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)), ct: TestContext.Current.CancellationToken);
     _ = await _store.AppendMessageAsync(id, new Message(Role.User, "old", DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken);
 
@@ -271,8 +237,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
   public async Task ReplaceTranscript_EmptyReplacement_Fails_TranscriptUnchanged()
   {
     AgentId id = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Spawned(
-        id, null, 1, "provider/model", null, "task",
+    _ = await _store.SaveAsync(AgentRecord.Started(id, "provider/model", null, "task",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)), ct: TestContext.Current.CancellationToken);
     _ = await _store.AppendMessageAsync(id, new Message(Role.User, "kept", DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken);
 

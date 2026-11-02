@@ -25,7 +25,7 @@ public class AgentHostKillIsolationTests
       string workspace = Directory.CreateDirectory(Path.Combine(root, "ws")).FullName;
       AgentSettings settings = new AgentSettings(
           new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-          new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
+          new AgentRunOptions(null, 2)).WithWorkspaceRoot(workspace);
       string database = Path.Combine(root, "app.db");
 
       // Two agents, each with its own identity — exactly what HostLaunchingRuntime does per start.

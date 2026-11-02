@@ -51,9 +51,6 @@ public class AgentWatchdogTests
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
-
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));
   }
@@ -126,24 +123,27 @@ public class AgentWatchdogTests
       => Task.FromResult(Result.Success(Appended.Count(e => e.AgentId == agentId && e.Kind == kind)));
   }
 
-  private static AgentRecord Root() => AgentRecord.Spawned(
-      AgentId.NewId(), null, 0, "m", "root", "root", T0);
+  private static AgentRecord Root() => AgentRecord.Started(AgentId.NewId(), "m", "root", "root", T0);
 
-  private static AgentRecord Child(AgentId parent, DateTimeOffset createdAt) => AgentRecord.Spawned(
-      AgentId.NewId(), parent, 1, "m", "child", "task", createdAt);
+  private static AgentRecord Child(DateTimeOffset createdAt) => AgentRecord.Started(AgentId.NewId(), "m", "child", "task", createdAt);
 
   private static (AgentWatchdog Watchdog, FakeStore Store, FakeRuntime Runtime, FakeHeartbeat
       Heartbeat, FakeEvents Events, StubClock Clock) Harness(
-          AgentId rootId, StubClock clock, TimeSpan? settlePoll = null)
+          StubClock clock, TimeSpan? settlePoll = null)
   {
     FakeStore store = new();
     FakeRuntime runtime = new();
     FakeHeartbeat heartbeat = new();
     FakeEvents events = new();
+    // ONE AGENT, ONE RUN (issue #334): the registry is the ownership record the sweep reads, so
+    // a supervised run must be registered here. Without a parent link there is no other way for
+    // a watchdog to know which agents this container runs.
+    AgentSupervisorRegistry supervisors = new();
     WatchdogServices services = new(store, runtime, heartbeat, events,
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
-        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock);
-    AgentWatchdog watchdog = new(rootId, services);
+        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
+        Supervisors: supervisors);
+    AgentWatchdog watchdog = new(services);
     AgentWatchdog settled = settlePoll is { } poll ? watchdog.WithSettlePollInterval(poll) : watchdog;
     return (settled, store, runtime, heartbeat, events, clock);
   }
@@ -168,8 +168,8 @@ public class AgentWatchdogTests
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, FakeHeartbeat heartbeat, FakeEvents events, _) =
-        Harness(root.Id, clock, settlePoll: TimeSpan.FromMilliseconds(1));
-    AgentRecord child = Child(root.Id, T0 - TimeSpan.FromMinutes(30));
+        Harness(clock, settlePoll: TimeSpan.FromMilliseconds(1));
+    AgentRecord child = Child(T0 - TimeSpan.FromMinutes(30));
     store.Records[root.Id.Value] = root;
     store.Records[child.Id.Value] = child;
     SettleOnInterrupt(runtime, store, heartbeat, child.Id, T0 - TimeSpan.FromMinutes(20));
@@ -192,8 +192,8 @@ public class AgentWatchdogTests
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, FakeHeartbeat heartbeat, FakeEvents events, _) =
-        Harness(root.Id, clock, settlePoll: TimeSpan.FromMilliseconds(1));
-    AgentRecord child = Child(root.Id, T0 - TimeSpan.FromMinutes(30));
+        Harness(clock, settlePoll: TimeSpan.FromMilliseconds(1));
+    AgentRecord child = Child(T0 - TimeSpan.FromMinutes(30));
     store.Records[root.Id.Value] = root;
     store.Records[child.Id.Value] = child;
     heartbeat.Beats[child.Id.Value] = T0 - TimeSpan.FromMinutes(20);
@@ -211,8 +211,8 @@ public class AgentWatchdogTests
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, FakeHeartbeat heartbeat, FakeEvents events, _) =
-        Harness(root.Id, clock, settlePoll: TimeSpan.FromMilliseconds(1));
-    AgentRecord child = Child(root.Id, T0 - TimeSpan.FromMinutes(30));
+        Harness(clock, settlePoll: TimeSpan.FromMilliseconds(1));
+    AgentRecord child = Child(T0 - TimeSpan.FromMinutes(30));
     store.Records[root.Id.Value] = root;
     store.Records[child.Id.Value] = child;
     heartbeat.Beats[child.Id.Value] = T0 - TimeSpan.FromMinutes(20);
@@ -231,8 +231,8 @@ public class AgentWatchdogTests
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, FakeHeartbeat heartbeat, FakeEvents events, _) =
-        Harness(root.Id, clock, settlePoll: TimeSpan.FromMilliseconds(1));
-    AgentRecord child = Child(root.Id, T0 - TimeSpan.FromMinutes(30));
+        Harness(clock, settlePoll: TimeSpan.FromMilliseconds(1));
+    AgentRecord child = Child(T0 - TimeSpan.FromMinutes(30));
     store.Records[root.Id.Value] = root;
     store.Records[child.Id.Value] = child;
     SettleOnInterrupt(runtime, store, heartbeat, child.Id, T0 - TimeSpan.FromMinutes(20));
@@ -256,7 +256,7 @@ public class AgentWatchdogTests
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, _, FakeEvents events, _) =
-        Harness(root.Id, clock);
+        Harness(clock);
     store.Records[root.Id.Value] = root; // Running root, no heartbeat entry
 
     await watchdog.TickAsync();
@@ -271,8 +271,8 @@ public class AgentWatchdogTests
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, _, FakeEvents events, _) =
-        Harness(root.Id, clock);
-    AgentRecord child = Child(root.Id, T0 - TimeSpan.FromHours(2));
+        Harness(clock);
+    AgentRecord child = Child(T0 - TimeSpan.FromHours(2));
     store.Records[root.Id.Value] = root;
     store.Records[child.Id.Value] = child; // stale CreatedAt, NO beat entry
 
@@ -289,9 +289,9 @@ public class AgentWatchdogTests
     AgentRecord root = Root();
     StubClock clock = new(T0);
     (AgentWatchdog watchdog, FakeStore store, FakeRuntime runtime, FakeHeartbeat heartbeat, _, _) =
-        Harness(root.Id, clock);
+        Harness(clock);
     AgentRecord otherRoot = Root();
-    AgentRecord otherChild = Child(otherRoot.Id, T0 - TimeSpan.FromMinutes(30));
+    AgentRecord otherChild = Child(T0 - TimeSpan.FromMinutes(30));
     store.Records[root.Id.Value] = root;
     store.Records[otherRoot.Id.Value] = otherRoot;
     store.Records[otherChild.Id.Value] = otherChild;
@@ -327,9 +327,9 @@ public class AgentWatchdogTests
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentWatchdog watchdog = new(root.Id, services);
+    AgentWatchdog watchdog = new(services);
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentRecord child = Child(root.Id, T0);
+    AgentRecord child = Child(T0);
     store.Records[root.Id.Value] = root;
     store.Records[agentId.Value] = child;
 
@@ -363,10 +363,10 @@ public class AgentWatchdogTests
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
-    AgentWatchdog watchdog = new(root.Id, services);
+    AgentWatchdog watchdog = new(services);
 #pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
     store.Records[root.Id.Value] = root;
-    store.Records[agentId.Value] = Child(root.Id, T0);
+    store.Records[agentId.Value] = Child(T0);
     runtime.OnInterrupt = id => store.Records[id] = store.Records[id] with { Status = AgentStatus.Failed, FailureReason = AgentFailureReason.Interrupted };
 
     clock.Now = T0.AddMinutes(20); // no beats ever: idle past the threshold

@@ -75,41 +75,9 @@ internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
             ? transcript.ToList()
             : []));
 
-  public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
-          [.. _records.Values.Where(r => r.ParentId == parentId)]));
-
   public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
       => Task.FromResult(ListAllFailure is { } failure
           ? Result.Failure<IReadOnlyList<AgentRecord>>(failure)
           : Result.Success<IReadOnlyList<AgentRecord>>(
               [.. _records.Values.OrderBy(r => r.CreatedAt)]));
-}
-
-/// <summary>Fake IAgentRuntime capturing started records; returns a scripted outcome when set.</summary>
-internal sealed class FakeAgentRuntime(List<string>? callLog = null) : IAgentRuntime
-{
-  public List<AgentRecord> Started { get; } = [];
-
-  /// <summary>When set, Start returns this outcome instead of success.</summary>
-  public Result<AgentId>? StartOutcome { get; set; }
-
-  public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
-  {
-    Started.Add(record);
-    callLog?.Add($"start:{record.Id}");
-    return Task.FromResult(StartOutcome ?? Result.Success(record.Id));
-  }
-
-  public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
-    => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", $"agent '{id}' has no live or settled run owned by this runtime.")));
-
-  public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
-    => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
-
-  public void InterruptSubtree(AgentId rootOfSubtree) { }
-
-  public void Interrupt(AgentId? agentId = null) => Interrupted.Add(agentId);
-
-  public List<AgentId?> Interrupted { get; } = [];
 }

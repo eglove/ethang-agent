@@ -983,7 +983,7 @@ public class ChildHostRootTurnTests
       // A child run started BEFORE the failure: its settle must never hang.
       AgentId child = new(Guid.NewGuid());
       Result<AgentId> started = await runtime.Start(
-          AgentRecord.Spawned(child, null, 1, "m/sub", "hung", "task", DateTimeOffset.UtcNow),
+          AgentRecord.Started(child, "m/sub", "hung", "task", DateTimeOffset.UtcNow),
           TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken)
           .ConfigureAwait(true);
       Assert.True(started.IsSuccess, started.Error?.Message);

@@ -69,7 +69,7 @@ public class ConversationHostSupervisionTests
       {
         AgentSettings settings = new AgentSettings(
             new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-            new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
+            new AgentRunOptions(null, 2)).WithWorkspaceRoot(workspace);
         RemoteHostSupervisor supervisor = new("conversation-a", scratch,
             settings, Path.Combine(scratch, "app.db"), _ => { });
         try
@@ -108,7 +108,7 @@ public class ConversationHostSupervisionTests
       {
         AgentSettings settings = new AgentSettings(
             new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-            new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
+            new AgentRunOptions(null, 2)).WithWorkspaceRoot(workspace);
         RemoteHostSupervisor supervisor = new("conversation-a", scratch,
             settings, Path.Combine(scratch, "app.db"), _ => { });
         try
@@ -147,7 +147,7 @@ public class ConversationHostSupervisionTests
         .AddEThangAgentCore(
             new AgentSettings(
                 new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-                new SubAgentOptions(null, 2)),
+                new AgentRunOptions(null, 2)),
             Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()),
@@ -166,7 +166,7 @@ public class ConversationHostSupervisionTests
         .AddEThangAgentCore(
             new AgentSettings(
                 new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-                new SubAgentOptions(null, 2)),
+                new AgentRunOptions(null, 2)),
             Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()),
@@ -200,7 +200,7 @@ public class ConversationHostSupervisionTests
     {
       AgentSettings settings = new(
           new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-          new SubAgentOptions(null, 2));
+          new AgentRunOptions(null, 2));
 
       InvalidOperationException error = Assert.Throws<InvalidOperationException>(
           () => new RemoteHostSupervisor("conversation-a", scratch,
@@ -361,7 +361,7 @@ public class ConversationHostSupervisionTests
       {
         AgentSettings settings = new AgentSettings(
             new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-            new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
+            new AgentRunOptions(null, 2)).WithWorkspaceRoot(workspace);
         RemoteHostSupervisor supervisor = new("conversation-connect", scratch,
             settings, Path.Combine(scratch, "app.db"), _ => { });
 
@@ -411,7 +411,7 @@ public class ConversationHostSupervisionTests
       {
         AgentSettings settings = new AgentSettings(
             new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-            new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
+            new AgentRunOptions(null, 2)).WithWorkspaceRoot(workspace);
         RemoteHostSupervisor supervisor = new("conversation-cancel", scratch,
             settings, Path.Combine(scratch, "app.db"), _ => { });
 

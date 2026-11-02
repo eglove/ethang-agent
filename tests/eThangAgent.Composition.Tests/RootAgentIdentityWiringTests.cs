@@ -21,7 +21,7 @@ public class RootAgentIdentityWiringTests
     TestAppDatabase db = TestAppDatabase.Create();
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-        new SubAgentOptions(null, 2));
+        new AgentRunOptions(null, 2));
     return (new AgentSessionFactory(settings, db.Database), db);
   }
 

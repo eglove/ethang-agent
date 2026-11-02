@@ -20,7 +20,7 @@ public class SessionOpenOrphanRepairTests : SessionOwningTest
 {
   private static AgentSettings Settings() => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   [Fact]
   public async Task SessionOpen_MarksUnownedRunningRows_Interrupted()
@@ -46,13 +46,13 @@ public class SessionOpenOrphanRepairTests : SessionOwningTest
     // Seed an orphaned Running child row IN THE OPENING WORKSPACE (a record the new
     // container cannot own). Same-workspace orphans are still repaired.
     SqliteAgentStore seedStore = new(seedDatabase);
-    AgentRecord orphan = AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", "orphan",
+    AgentRecord orphan = AgentRecord.Started(AgentId.NewId(), "m/sub", "orphan",
         "task", DateTimeOffset.UtcNow) with
     { WorkspaceId = identity.Value.Id };
     _ = await seedStore.SaveAsync(orphan, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     // A foreign-workspace Running row (another session's live agent) must survive.
-    AgentRecord foreign = AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", "live-elsewhere",
+    AgentRecord foreign = AgentRecord.Started(AgentId.NewId(), "m/sub", "live-elsewhere",
         "task", DateTimeOffset.UtcNow) with
     { WorkspaceId = "C:\\other-workspace" };
     _ = await seedStore.SaveAsync(foreign, TestContext.Current.CancellationToken).ConfigureAwait(true);

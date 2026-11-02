@@ -39,7 +39,7 @@ public class OrphanRepairWorkspaceStampTests
   [Fact]
   public void Spawned_WithWorkspace_StampsIt()
   {
-    AgentRecord child = AgentRecord.Spawned(AgentId.NewId(), AgentId.NewId(), depth: 1,
+    AgentRecord child = AgentRecord.Started(AgentId.NewId(),
         modelUsed: "m/sub", label: "child", taskPrompt: "task", DateTimeOffset.UtcNow,
         workspaceId: Workspace);
 
@@ -51,7 +51,7 @@ public class OrphanRepairWorkspaceStampTests
   {
     // Legacy wiring and tests spawn with no workspace: the column stays null rather than
     // being fabricated, so the pre-fix shape is still expressible.
-    AgentRecord child = AgentRecord.Spawned(AgentId.NewId(), AgentId.NewId(), depth: 1,
+    AgentRecord child = AgentRecord.Started(AgentId.NewId(),
         modelUsed: "m/sub", label: "child", taskPrompt: "task", DateTimeOffset.UtcNow);
 
     Assert.Null(child.WorkspaceId);
@@ -64,7 +64,7 @@ public class OrphanRepairWorkspaceStampTests
     // repaired to Failed(Interrupted) on the next session open. Before the stamp it was
     // skipped, which is why 131 rows have been stranded since 2026-10-14.
     FakeAgentStore store = new();
-    AgentRecord stranded = AgentRecord.Spawned(AgentId.NewId(), AgentId.NewId(), depth: 1,
+    AgentRecord stranded = AgentRecord.Started(AgentId.NewId(),
         modelUsed: "m/sub", label: "stranded", taskPrompt: "task", DateTimeOffset.UtcNow,
         workspaceId: Workspace) with
     { Status = AgentStatus.Running };
@@ -92,7 +92,7 @@ public class OrphanRepairWorkspaceStampTests
     // The counter-proof, pinned so the mechanism stays visible: an UNSTAMPED child is
     // skipped by a workspace-scoped repair pass. This is the 131-row failure mode.
     FakeAgentStore store = new();
-    AgentRecord unstamped = AgentRecord.Spawned(AgentId.NewId(), AgentId.NewId(), depth: 1,
+    AgentRecord unstamped = AgentRecord.Started(AgentId.NewId(),
         modelUsed: "m/sub", label: "unstamped", taskPrompt: "task", DateTimeOffset.UtcNow) with
     { Status = AgentStatus.Running };
     _ = await store.SaveAsync(unstamped, TestContext.Current.CancellationToken).ConfigureAwait(true);

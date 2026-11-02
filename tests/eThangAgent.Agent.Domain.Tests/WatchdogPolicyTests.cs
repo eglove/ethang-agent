@@ -12,28 +12,28 @@ public class WatchdogPolicyTests
   public void Decide_RootAgent_AlwaysWatches()
   {
     Assert.Equal(WatchdogPolicyDecision.Watch,
-        Policy().Decide(isChild: false, idleAge: TimeSpan.FromHours(9), wrapUpAttempts: 0));
+        Policy().Decide(supervised: false, idleAge: TimeSpan.FromHours(9), wrapUpAttempts: 0));
   }
 
   [Fact]
   public void Decide_ChildUnderThreshold_Watches()
   {
     Assert.Equal(WatchdogPolicyDecision.Watch,
-        Policy().Decide(isChild: true, idleAge: TimeSpan.FromMinutes(14), wrapUpAttempts: 0));
+        Policy().Decide(supervised: true, idleAge: TimeSpan.FromMinutes(14), wrapUpAttempts: 0));
   }
 
   [Fact]
   public void Decide_ChildAtThresholdNoAttempts_RetriesWrapUp()
   {
     Assert.Equal(WatchdogPolicyDecision.RetryWrapUp,
-        Policy().Decide(isChild: true, idleAge: TimeSpan.FromMinutes(15), wrapUpAttempts: 0));
+        Policy().Decide(supervised: true, idleAge: TimeSpan.FromMinutes(15), wrapUpAttempts: 0));
   }
 
   [Fact]
   public void Decide_ChildAtThresholdWithMaxAttempts_TerminalReport()
   {
     Assert.Equal(WatchdogPolicyDecision.TerminalReport,
-        Policy().Decide(isChild: true, idleAge: TimeSpan.FromMinutes(15), wrapUpAttempts: 1));
+        Policy().Decide(supervised: true, idleAge: TimeSpan.FromMinutes(15), wrapUpAttempts: 1));
   }
 
   [Fact]
@@ -42,7 +42,7 @@ public class WatchdogPolicyTests
     // null idle age = no heartbeat entry: the store fallback (CreatedAt) is applied by the
     // caller; the policy treats unknown as Watch so a fresh spawn is never instantly flagged.
     Assert.Equal(WatchdogPolicyDecision.Watch,
-        Policy().Decide(isChild: true, idleAge: null, wrapUpAttempts: 0));
+        Policy().Decide(supervised: true, idleAge: null, wrapUpAttempts: 0));
   }
 
   [Fact]

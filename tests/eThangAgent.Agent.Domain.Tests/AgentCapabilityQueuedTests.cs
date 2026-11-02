@@ -10,25 +10,10 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     NotComplete rather than pretending the child is unknown.</summary>
 public class AgentCapabilityQueuedTests
 {
-  private static AgentRecord Parent()
-      => AgentRecord.Spawned(AgentId.NewId(), null, 0, "prov/parent", null, "root task", DateTimeOffset.UtcNow);
-
-  private static AgentRecord QueuedChild(AgentId parentId)
-      => AgentRecord.Spawned(AgentId.NewId(), parentId, 1, "prov/child", "queued", "child task",
+  private static AgentRecord QueuedChild()
+      => AgentRecord.Started(AgentId.NewId(), "prov/child", "queued", "child task",
           DateTimeOffset.UtcNow) with
       { Status = AgentStatus.Queued };
-
-  private sealed class NoSpawn : IAgentSpawnCommand
-  {
-    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(AgentId.NewId()));
-  }
-
-  private sealed class SpawnReturning(AgentId id) : IAgentSpawnCommand
-  {
-    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(id));
-  }
 
   private sealed class FixedQueries(AgentRecord? child) : IAgentQueries
   {
@@ -42,9 +27,6 @@ public class AgentCapabilityQueuedTests
             ? Result.Failure<string>(new DomainError("NotComplete", $"Agent '{id}' has not finished running."))
             : Result.Failure<string>(new DomainError("NotFound", $"No agent exists with id '{id}'.")));
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
-        CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
   }
 
   private sealed class RecordingRuntime : IAgentRuntime
@@ -71,42 +53,16 @@ public class AgentCapabilityQueuedTests
   private static (AgentCapabilityProvider Provider, RecordingRuntime Runtime, AgentRecord Child)
       BuildProvider()
   {
-    AgentRecord parent = Parent();
-    AgentRecord child = QueuedChild(parent.Id);
+    AgentRecord child = QueuedChild();
     RecordingRuntime runtime = new();
-    AgentCapabilityProvider provider = new(new AgentProviderServices(
-        new NoSpawn(), new FixedQueries(child), () => parent, runtime));
+    AgentCapabilityProvider provider = new(new AgentProviderServices(new FixedQueries(child), runtime));
     return (provider, runtime, child);
-  }
-
-  private static string TaskPromptJson(string prompt)
-  {
-    const string quote = "\"";
-    return "{" + quote + "taskPrompt" + quote + ":" + quote + prompt + quote + "}";
   }
 
   private static string IdJson(AgentId id)
   {
     const string quote = "\"";
     return "{" + quote + "id" + quote + ":" + quote + id.Value.ToString("D") + quote + "}";
-  }
-
-  [Fact]
-  public async Task Spawn_WhenTheChildWasQueued_RendersQueuedNotRunning()
-  {
-    // Issue #238 honesty rule: the spawn receipt must state the state the child is
-    // actually in. A parked spawn reported as running is the same class of lie as
-    // agent.wait handing a failure sentence back as a deliverable.
-    AgentRecord parent = Parent();
-    AgentRecord queued = QueuedChild(parent.Id);
-    AgentCapabilityProvider provider = new(new AgentProviderServices(
-        new SpawnReturning(queued.Id), new FixedQueries(queued), () => parent, new RecordingRuntime()));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn",
-        TaskPromptJson("queued task"), TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError, result.Content);
-    Assert.Equal($"id={queued.Id} status=queued", result.Content);
   }
 
   [Fact]

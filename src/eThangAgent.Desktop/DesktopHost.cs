@@ -263,7 +263,7 @@ internal static class DesktopHost
           WatchdogLoop = watchdogLoop,
           WatchdogPolicy = policy,
           SessionOpened = session => watchdogLoop.Attach(session.RootId,
-              new AgentWatchdog(session.RootId, ServicesFor(session))),
+              new AgentWatchdog(ServicesFor(session))),
           SessionClosed = rootId => watchdogLoop.Detach(rootId),
         });
     vmRef = vm;

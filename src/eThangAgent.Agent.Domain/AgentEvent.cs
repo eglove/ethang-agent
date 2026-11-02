@@ -7,7 +7,7 @@ namespace eThangAgent.AgentDomain;
 public abstract record AgentEvent(AgentId Id, DateTimeOffset At);
 
 /// <summary>The runtime accepted a Start (initial or watchdog retry).</summary>
-public sealed record AgentStartedEvent(AgentId Id, DateTimeOffset At, AgentId? ParentId, string ModelId, int Attempts)
+public sealed record AgentStartedEvent(AgentId Id, DateTimeOffset At, string ModelId, int Attempts)
     : AgentEvent(Id, At);
 
 /// <summary>Emitted at the loop's existing beat points; label is a short phase tag

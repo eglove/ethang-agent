@@ -3,7 +3,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class RuntimeSeamTests
 {
   // The runtime/runner seams are exercised through the InProcessAgentRuntime and
-  // SubAgentSpawner suites; these tests pin only the canonical error strings.
+  // AgentRunLoop suites; these tests pin only the canonical error strings.
 
   [Fact]
   public void Error_Constants_AreAnnotated_AndDistinct()

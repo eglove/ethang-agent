@@ -9,21 +9,21 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     the child host (remote mode) inherits the same stamping through the same
 ///     spawner. Legacy wiring without an explicit id falls back to the record id,
 ///     which IS the child's persisted id.</summary>
-public class SubAgentSpawnerSessionIdTests
+public class AgentRunLoopSessionIdTests
 {
   private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
-  private static AgentRecord Child(int depth = 0, string model = "default/sub-model")
-      => AgentRecord.Spawned(AgentId.NewId(), null, depth, model, null, "do things", FixedNow);
+  private static AgentRecord Child(string model = "default/sub-model")
+      => AgentRecord.Started(AgentId.NewId(), model, null, "do things", FixedNow);
 
   [Fact]
   public async Task RunAsync_RequestsCarryTheChildsOwnId()
   {
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("report", [])));
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), store, new ToolRegistry([]),
-        new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "default/sub-model")));
+        new StaticPromptProvider("guide text"), new AgentRunOptions(DefaultModel: "default/sub-model")));
 
     AgentRecord child = Child();
     _ = await spawner.RunAsync(child, CancellationToken.None);

@@ -3,14 +3,14 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application;
 
-/// <summary>One watchdog sweep for ONE session root: descendants of the root in the shared
-///     agent store, liveness via this container's heartbeat, decisions via the pure policy,
-///     enactment through the runtime and store seams, audit via event rows. Never throws:
-///     a failing sweep degrades to a rate-limited WatchdogErrored event.
-///     Heartbeat-presence gate: a Running child with NO beat
-///     entry is always Watch - the run belongs to another container or has not beaten yet.
-///     The policy uses one injected TimeProvider for every time read in a tick.</summary>
-public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : IWatchdogTicker, IDisposable
+/// <summary>One watchdog sweep for the runs THIS container supervises (issue #334): the
+///     supervisor registry is the ownership record, so there is no root and no descendant walk.
+///     Liveness comes from this container's heartbeat, decisions from the pure policy, enactment
+///     through the runtime and store seams, audit from event rows. Never throws: a failing sweep
+///     degrades to a rate-limited WatchdogErrored event. Heartbeat-presence gate: a Running agent
+///     with NO beat entry is always Watch - the run belongs to another container or has not beaten
+///     yet. The policy uses one injected TimeProvider for every time read in a tick.</summary>
+public sealed class AgentWatchdog(WatchdogServices services) : IWatchdogTicker, IDisposable
 {
   private readonly IAgentStore _store = services.Store;
 
@@ -43,9 +43,19 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
         return;
       }
 
-      List<Guid> descendants = DescendantsOf(listed.Value);
+      // ONE AGENT, ONE RUN (issue #334): the descendant walk is gone with the parent link. Two
+      // signals replace it and each answers a different question. The HEARTBEAT entry says this
+      // container is stamping the run, so another container's agent is never swept. The SUPERVISOR
+      // REGISTRY says the event-policy path above already owns the run, so sweeping it here too
+      // would act on one breach twice in a single tick.
+      HashSet<Guid> registered = services.Supervisors is null
+          ? []
+          : [.. services.Supervisors.All.Select(supervisor => supervisor.Id.Value)];
+      List<Guid> supervised = [.. listed.Value
+          .Where(r => !registered.Contains(r.Id.Value) && services.Heartbeat.TryGetLastBeat(r.Id, out _))
+          .Select(r => r.Id.Value)];
       Dictionary<Guid, AgentRecord> byId = listed.Value.ToDictionary(r => r.Id.Value);
-      foreach (Guid id in descendants)
+      foreach (Guid id in supervised)
       {
         try
         {
@@ -67,7 +77,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
         }
       }
 
-      foreach (Guid id in descendants.Where(id => byId[id].Status is not AgentStatus.Running))
+      foreach (Guid id in supervised.Where(id => byId[id].Status is not AgentStatus.Running))
       {
         services.Heartbeat.Forget(new AgentId(id));
       }
@@ -83,28 +93,6 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
     {
       await RecordErrorAsync(TickFaultDetail(ex), ct).ConfigureAwait(false);
     }
-  }
-
-  private List<Guid> DescendantsOf(IReadOnlyList<AgentRecord> records)
-  {
-    Dictionary<Guid, Guid?> parents = records.ToDictionary(r => r.Id.Value, r => r.ParentId?.Value);
-    List<Guid> result = [];
-    foreach (AgentRecord record in records)
-    {
-      Guid? cursor = record.ParentId?.Value;
-      while (cursor is { } current)
-      {
-        if (current == rootId.Value)
-        {
-          result.Add(record.Id.Value);
-          break;
-        }
-
-        cursor = parents.GetValueOrDefault(current);
-      }
-    }
-
-    return result;
   }
 
   /// <summary>Event-policy path (T5): iterate THIS session's registered supervisors,
@@ -212,7 +200,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
     if (!loaded.IsSuccess)
     {
       // Unknown id: nothing to observe; the caller's guard treats it as not settled.
-      return new AgentRecord(id, null, 0, AgentStatus.Running, null, "unknown", null, "", services.Clock.GetUtcNow(), null, null);
+      return new AgentRecord(id, AgentStatus.Running, null, "unknown", null, "", services.Clock.GetUtcNow(), null, null);
     }
 
     AgentRecord record = loaded.Value;
@@ -291,7 +279,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
     // NEXT detection takes the terminal path regardless of the RetrySpawned count.
     WatchdogPolicyDecision decision = deferred.Value > 0
         ? WatchdogPolicyDecision.TerminalReport
-        : services.Policy.Decide(record.ParentId is not null, idleAge, attempts.Value);
+        : services.Policy.Decide(supervised: true, idleAge, attempts.Value);
     if (decision == WatchdogPolicyDecision.RetryWrapUp)
     {
       await RetryWrapUpAsync(record, attempts.Value, idleAge, ct).ConfigureAwait(false);

@@ -13,7 +13,7 @@ public class AnchoredCapabilitySurfaceTests
   {
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-        new SubAgentOptions(null, 2));
+        new AgentRunOptions(null, 2));
     using TestAppDatabase db = TestAppDatabase.Create();
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
@@ -23,8 +23,7 @@ public class AnchoredCapabilitySurfaceTests
         .BuildServiceProvider();
   }
 
-  private static AgentRecord AnchoredChild(string anchor) => AgentRecord.Spawned(
-      AgentId.NewId(), new AgentId(Guid.NewGuid()), 1, "test/model", "anchored",
+  private static AgentRecord AnchoredChild(string anchor) => AgentRecord.Started(AgentId.NewId(), "test/model", "anchored",
       "task", DateTimeOffset.UtcNow, new SpawnContract(WorkspaceRoot: anchor));
 
   [Fact]
@@ -40,7 +39,7 @@ public class AnchoredCapabilitySurfaceTests
       using ServiceProvider services = Build(ws.FullName);
       Func<ICapabilityRegistry> factory = services.GetRequiredService<Func<ICapabilityRegistry>>();
 
-      using IDisposable ambient = SubAgentSpawner.PushRunningChildForTests(AnchoredChild(anchor));
+      using IDisposable ambient = AgentRunLoop.PushRunningChildForTests(AnchoredChild(anchor));
       ICapabilityRegistry surface = factory();
 
       Result<ResolvedCapability> read = surface.Resolve("read");
@@ -83,7 +82,8 @@ public class AnchoredCapabilitySurfaceTests
       ICapabilityRegistry surface = factory();
       Assert.True(surface.Resolve("read").IsSuccess);
       Assert.True(surface.Resolve("cycle_check").IsSuccess);
-      Assert.True(surface.Resolve("agent.spawn").IsSuccess);
+      // Issue #334: agent.spawn is retired, so it is absent from every surface.
+      Assert.False(surface.Resolve("agent.spawn").IsSuccess);
     }
     finally
     {
@@ -101,7 +101,7 @@ public class AnchoredCapabilitySurfaceTests
     {
       using ServiceProvider services = Build(ws.FullName);
       Func<ICapabilityRegistry> factory = services.GetRequiredService<Func<ICapabilityRegistry>>();
-      using IDisposable ambient = SubAgentSpawner.PushRunningChildForTests(AnchoredChild(anchor));
+      using IDisposable ambient = AgentRunLoop.PushRunningChildForTests(AnchoredChild(anchor));
       Assert.Same(factory(), factory());
     }
     finally

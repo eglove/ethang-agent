@@ -3,7 +3,7 @@ using eThangAgent.AgentDomain;
 
 namespace eThangAgent.Composition.Tests;
 
-/// <summary>Strict binding of SubAgent configuration into SubAgentOptions at the
+/// <summary>Strict binding of SubAgent configuration into AgentRunOptions at the
 ///     composition root. Absent SubAgent:DefaultModel is legal; present-but-empty is a
 ///     startup error. MaxConcurrentAgents is required; absent, non-integer, or below-1
 ///     values are startup errors. The SubAgent:Watchdog section (W1.2) binds the host
@@ -15,11 +15,10 @@ public class SubAgentConfigurationTests
   [Fact]
   public void Bind_MissingSection_UsesDefaults()
   {
-    SubAgentOptions options = SubAgentConfiguration.Bind(defaultModel: null, maxConcurrentAgents: "2");
+    AgentRunOptions options = AgentRunConfiguration.Bind(defaultModel: null, maxConcurrentAgents: "2");
 
     Assert.Equal(2, options.MaxConcurrentAgents);
     Assert.Null(options.DefaultModel);
-    Assert.Equal(3, options.MaxDepth);
   }
 
   [Fact]
@@ -27,8 +26,8 @@ public class SubAgentConfigurationTests
   {
     // Finding 3: the plumbing existed but NOTHING populated it, so production always got
     // the default — configurable in appearance only. This pins the whole chain: stored
-    // preference text -> loader key -> binder -> SubAgentOptions.
-    SubAgentOptions options = SubAgentConfiguration.Bind(
+    // preference text -> loader key -> binder -> AgentRunOptions.
+    AgentRunOptions options = AgentRunConfiguration.Bind(
         defaultModel: null, maxConcurrentAgents: "2",
         rootTurnIdle: "00:00:45");
 
@@ -42,7 +41,7 @@ public class SubAgentConfigurationTests
   [Fact]
   public void Bind_RootTurnBudget_AbsentKeys_LeaveTheDefault()
   {
-    SubAgentOptions options = SubAgentConfiguration.Bind(
+    AgentRunOptions options = AgentRunConfiguration.Bind(
         defaultModel: null, maxConcurrentAgents: "2");
 
     Assert.Null(options.RootTurnBudget);
@@ -60,7 +59,7 @@ public class SubAgentConfigurationTests
     // non-positive, a bare integer that would bind as days, and a window too short for the
     // host's heartbeat — is a startup error naming the key, never a silent clamp.
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, "2", rootTurnIdle: idle));
+        () => AgentRunConfiguration.Bind(null, "2", rootTurnIdle: idle));
 
     Assert.Contains("SubAgent:RootTurn:Idle", error.Message, StringComparison.Ordinal);
   }
@@ -73,7 +72,7 @@ public class SubAgentConfigurationTests
     // HEALTHY host would be read as silent. A configuration that guarantees a false
     // failure is refused at startup, never clamped into something else.
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, "2", rootTurnIdle: "00:00:02"));
+        () => AgentRunConfiguration.Bind(null, "2", rootTurnIdle: "00:00:02"));
 
     Assert.Contains("SubAgent:RootTurn:Idle", error.Message, StringComparison.Ordinal);
     Assert.Contains("heartbeat", error.Message, StringComparison.OrdinalIgnoreCase);
@@ -94,7 +93,7 @@ public class SubAgentConfigurationTests
   [Fact]
   public void Bind_ExplicitValues_Bind()
   {
-    SubAgentOptions options = SubAgentConfiguration.Bind("provider/model", "2");
+    AgentRunOptions options = AgentRunConfiguration.Bind("provider/model", "2");
 
     Assert.Equal("provider/model", options.DefaultModel);
     Assert.Equal(2, options.MaxConcurrentAgents);
@@ -106,7 +105,7 @@ public class SubAgentConfigurationTests
   public void Bind_EmptyModelString_IsStartupError(string model)
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(model, "2"));
+        () => AgentRunConfiguration.Bind(model, "2"));
 
     Assert.Contains("SubAgent:DefaultModel", error.Message, StringComparison.Ordinal);
   }
@@ -115,7 +114,7 @@ public class SubAgentConfigurationTests
   public void Bind_MissingMaxConcurrentAgents_IsStartupError()
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, null));
+        () => AgentRunConfiguration.Bind(null, null));
 
     Assert.Equal("SubAgent:MaxConcurrentAgents is required. Set it to a positive integer.",
         error.Message);
@@ -125,7 +124,7 @@ public class SubAgentConfigurationTests
   public void Bind_UnparseableMaxConcurrentAgents_IsStartupError()
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, "abc"));
+        () => AgentRunConfiguration.Bind(null, "abc"));
 
     Assert.Contains("must be a positive integer of at least 1, got 'abc'.",
         error.Message, StringComparison.Ordinal);
@@ -137,7 +136,7 @@ public class SubAgentConfigurationTests
   public void Bind_MaxConcurrentAgentsBelowOne_IsStartupError(string maxConcurrentAgents)
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, maxConcurrentAgents));
+        () => AgentRunConfiguration.Bind(null, maxConcurrentAgents));
 
     Assert.Contains("must be a positive integer of at least 1, got '" + maxConcurrentAgents + "'.",
         error.Message, StringComparison.Ordinal);
@@ -146,7 +145,7 @@ public class SubAgentConfigurationTests
   [Fact]
   public void Bind_ExplicitMaxConcurrentAgents_FlowsIntoOptions()
   {
-    SubAgentOptions options = SubAgentConfiguration.Bind("provider/model", "4");
+    AgentRunOptions options = AgentRunConfiguration.Bind("provider/model", "4");
 
     Assert.Equal(4, options.MaxConcurrentAgents);
   }
@@ -155,12 +154,12 @@ public class SubAgentConfigurationTests
 
   [Fact]
   public void BindWatchdog_AllKeysAbsent_ReturnsNull()
-    => Assert.Null(SubAgentConfiguration.BindWatchdog(null, null, null));
+    => Assert.Null(AgentRunConfiguration.BindWatchdog(null, null, null));
 
   [Fact]
   public void BindWatchdog_ValidDurations_Bind()
   {
-    WatchdogSettings? watchdog = SubAgentConfiguration.BindWatchdog("00:00:02", "00:15:00", null);
+    WatchdogSettings? watchdog = AgentRunConfiguration.BindWatchdog("00:00:02", "00:15:00", null);
     Assert.NotNull(watchdog);
 
     WatchdogOptions options = watchdog.ToOptions();
@@ -172,7 +171,7 @@ public class SubAgentConfigurationTests
   [Fact]
   public void BindWatchdog_AttemptsOnly_BindsWithDefaultDurations()
   {
-    WatchdogSettings? watchdog = SubAgentConfiguration.BindWatchdog(null, null, "3");
+    WatchdogSettings? watchdog = AgentRunConfiguration.BindWatchdog(null, null, "3");
     Assert.NotNull(watchdog);
 
     WatchdogOptions options = watchdog.ToOptions();
@@ -184,7 +183,7 @@ public class SubAgentConfigurationTests
   [Fact]
   public void BindWatchdog_AllKeysPresent_Govern()
   {
-    WatchdogOptions options = SubAgentConfiguration.BindWatchdog("00:00:10", "00:01:00", "2")!.ToOptions();
+    WatchdogOptions options = AgentRunConfiguration.BindWatchdog("00:00:10", "00:01:00", "2")!.ToOptions();
 
     Assert.Equal(TimeSpan.FromSeconds(10), options.TickInterval);
     Assert.Equal(TimeSpan.FromMinutes(1), options.IdleThreshold);
@@ -195,7 +194,7 @@ public class SubAgentConfigurationTests
   public void BindWatchdog_ZeroAttempts_Binds()
   {
     // 0 is legal: the wrap-up retry is disabled, never a startup error.
-    WatchdogSettings? settings = SubAgentConfiguration.BindWatchdog(null, null, "0");
+    WatchdogSettings? settings = AgentRunConfiguration.BindWatchdog(null, null, "0");
     Assert.NotNull(settings);
 
     Assert.Equal(0, settings.ToOptions().MaxWrapUpAttempts);
@@ -207,7 +206,7 @@ public class SubAgentConfigurationTests
   public void BindWatchdog_NonPositiveDuration_IsStartupError(string value)
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.BindWatchdog(value, null, null));
+        () => AgentRunConfiguration.BindWatchdog(value, null, null));
 
     Assert.Contains("SubAgent:Watchdog:TickInterval", error.Message, StringComparison.Ordinal);
   }
@@ -219,7 +218,7 @@ public class SubAgentConfigurationTests
   public void BindWatchdog_UnparseableDuration_IsStartupError(string value)
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.BindWatchdog(null, value, null));
+        () => AgentRunConfiguration.BindWatchdog(null, value, null));
 
     Assert.Contains("SubAgent:Watchdog:IdleThreshold", error.Message, StringComparison.Ordinal);
   }
@@ -231,7 +230,7 @@ public class SubAgentConfigurationTests
   {
     // TimeSpan would silently read a bare integer as DAYS — rejected, never coerced.
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.BindWatchdog(value, null, null));
+        () => AgentRunConfiguration.BindWatchdog(value, null, null));
 
     Assert.Contains("would bind as days", error.Message, StringComparison.Ordinal);
   }
@@ -243,7 +242,7 @@ public class SubAgentConfigurationTests
   public void BindWatchdog_InvalidAttempts_IsStartupError(string value)
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.BindWatchdog(null, null, value));
+        () => AgentRunConfiguration.BindWatchdog(null, null, value));
 
     Assert.Contains("SubAgent:Watchdog:MaxWrapUpAttempts", error.Message, StringComparison.Ordinal);
   }

@@ -21,7 +21,7 @@ public class WaitWakeWiringTests
       .AddEThangAgentCore(
           new AgentSettings(
               new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-              new SubAgentOptions(null, 2)),
+              new AgentRunOptions(null, 2)),
           Providers.OpenRouter,
           ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
           new AgentHostOptions(
@@ -155,7 +155,7 @@ public class WaitWakeWiringTests
   public void SubAgentServices_SupervisorFor_ResolvesRegisteredChild()
   {
     using ServiceProvider services = Build();
-    SubAgentServices svc = services.GetRequiredService<SubAgentServices>();
+    AgentRunServices svc = services.GetRequiredService<AgentRunServices>();
     Assert.NotNull(svc.SupervisorFor);
 
     AgentSupervisorRegistry registry = services.GetRequiredService<AgentSupervisorRegistry>();

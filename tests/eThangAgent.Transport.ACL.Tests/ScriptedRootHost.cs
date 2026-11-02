@@ -343,10 +343,6 @@ internal sealed class ScriptedRootHost : IDisposable
     public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
         => throw new NotSupportedException("GetAsync is outside the root turn path.");
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
-        CancellationToken ct = default)
-        => throw new NotSupportedException("ListChildrenAsync is outside the root turn path.");
-
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => throw new NotSupportedException("ListAllAsync is outside the root turn path.");
   }

@@ -17,7 +17,7 @@ public class RemoteHostSupervisorSettingsTests
       string root = Directory.CreateTempSubdirectory("ethang-sup-root").FullName;
       AgentSettings settings = new AgentSettings(
           new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-          new SubAgentOptions(null, 2)).WithWorkspaceRoot(root);
+          new AgentRunOptions(null, 2)).WithWorkspaceRoot(root);
       RemoteHostSupervisor supervisor = new("ws-id", scratch,
           settings, Path.Combine(scratch, "app.db"), _ => { });
       try

@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace eThangAgent.Composition.Tests;
 
 /// <summary>Watchdog seams must exist per container: a singleton heartbeat, the shared
-///     SQLite event store, and the heartbeat passed into SubAgentServices so child runs
+///     SQLite event store, and the heartbeat passed into AgentRunServices so child runs
 ///     actually beat. Two containers never share a heartbeat (per-session isolation).</summary>
 public class WatchdogWiringTests
 {
@@ -18,7 +18,7 @@ public class WatchdogWiringTests
       .AddEThangAgentCore(
           new AgentSettings(
               new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-              new SubAgentOptions(null, 2)),
+              new AgentRunOptions(null, 2)),
           Providers.OpenRouter,
           ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
           new AgentHostOptions(
@@ -39,7 +39,7 @@ public class WatchdogWiringTests
   public void Container_SubAgentServices_CarriesTheContainerHeartbeat()
   {
     using ServiceProvider services = Build();
-    SubAgentServices svc = services.GetRequiredService<SubAgentServices>();
+    AgentRunServices svc = services.GetRequiredService<AgentRunServices>();
     IAgentHeartbeat heartbeat = services.GetRequiredService<IAgentHeartbeat>();
     Assert.Same(heartbeat, svc.Heartbeat);
   }

@@ -10,7 +10,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     tool re-checks resolved ids against it. The scope flows down the child's async
 ///     flow (its nested dispatches see it) and is restored after the run; a contract
 ///     without a resolved set leaves the ambient untouched (full-reach default).</summary>
-public class SubAgentSpawnerMcpGrantScopeTests
+public class AgentRunLoopMcpGrantScopeTests
 {
   private sealed class ScopeProbeTool : ITool
   {
@@ -27,15 +27,15 @@ public class SubAgentSpawnerMcpGrantScopeTests
   }
 
   private static AgentRecord Child(string? effectiveTools)
-      => AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", null, "do things",
+      => AgentRecord.Started(AgentId.NewId(), "m/sub", null, "do things",
           new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc),
           effectiveTools is null ? null : new SpawnContract(EffectiveTools: effectiveTools));
 
-  private static (SubAgentSpawner Spawner, FakeAgentStore Store) MakeRunner(
+  private static (AgentRunLoop Spawner, FakeAgentStore Store) MakeRunner(
       FakeProvider provider, FakeAgentStore store, IToolRegistry tools)
-      => (new SubAgentSpawner(new SubAgentServices(
+      => (new AgentRunLoop(new AgentRunServices(
           new FakeModelProviderFactory(provider), store, tools,
-          new StaticPromptProvider("guide"), new SubAgentOptions(DefaultModel: "m/sub"))),
+          new StaticPromptProvider("guide"), new AgentRunOptions(DefaultModel: "m/sub"))),
       store);
 
   [Fact]
@@ -43,7 +43,7 @@ public class SubAgentSpawnerMcpGrantScopeTests
   {
     FakeAgentStore store = new();
     ScopeProbeTool probe = new();
-    (SubAgentSpawner spawner, FakeAgentStore _) = MakeRunner(
+    (AgentRunLoop spawner, FakeAgentStore _) = MakeRunner(
         new FakeProvider(
             Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "probe", "")])),
             Result.Success(new ModelResponse("done", []))), store,
@@ -61,7 +61,7 @@ public class SubAgentSpawnerMcpGrantScopeTests
   {
     FakeAgentStore store = new();
     ScopeProbeTool probe = new();
-    (SubAgentSpawner spawner, FakeAgentStore _) = MakeRunner(
+    (AgentRunLoop spawner, FakeAgentStore _) = MakeRunner(
         new FakeProvider(Result.Success(new ModelResponse("done", []))), store,
         new ToolRegistry([probe]));
 
@@ -74,7 +74,7 @@ public class SubAgentSpawnerMcpGrantScopeTests
   public async Task RunAsync_ScopeRestoredAfterRun()
   {
     FakeAgentStore store = new();
-    (SubAgentSpawner spawner, FakeAgentStore _) = MakeRunner(
+    (AgentRunLoop spawner, FakeAgentStore _) = MakeRunner(
         new FakeProvider(Result.Success(new ModelResponse("done", []))), store,
         new ToolRegistry([]));
 

@@ -8,16 +8,18 @@ namespace eThangAgent.Storage.ACL;
 
 /// <summary>The usage ledger's read model (issue #24) over the append-only
 ///     <c>agent_events</c> rows the loop already writes — no new table, no migration.
-///     <para>SESSION ATTRIBUTION IS A RECURSIVE WALK (B11): the CTE starts at the root
-///     session id and follows <c>agents.parent_id</c> down, then joins the usage rows onto
-///     that subtree. A child stamps its OWN id as its session id, so a
-///     <c>session_id = root</c> filter would omit every subagent's spend — the walk is
-///     what makes a child's rows count toward the session that caused them, and it works
-///     retroactively for rows already written.</para>
-///     <para>The root id seeds the CTE DIRECTLY rather than by selecting it from
-///     <c>agents</c>: a session whose own row is missing (an interrupted first write) must
-///     still report the rows it did record, and <c>UNION</c> (not <c>UNION ALL</c>) keeps a
-///     corrupt parent cycle from looping forever.</para>
+///     <para>SESSION ATTRIBUTION IS THE SESSION'S OWN ROWS (issue #334). It used to be a
+///     recursive walk down <c>agents.parent_id</c>, which existed so a child's spend counted
+///     toward the session that caused it. There are no children: an agent is a session, and a
+///     session stamps its OWN id on every usage row it writes, so its spend is exactly the rows
+///     carrying its id. Cross-session attribution now belongs to the CHAIN, which owns a step's
+///     session (<c>chain_steps.session_id</c>) and is priced by <c>SqliteChainSessionCostSource</c>.
+///     </para>
+///     <para>THE CONSEQUENCE FOR HISTORY IS STATED RATHER THAN HIDDEN: rows written by a
+///     pre-#334 child agent are attributed to that child's own id, so a historical root
+///     session's summary no longer includes its old children's spend. The rows are still there
+///     and still priced by the era baseline (<c>SqliteChainBaselineSource</c>), which reads the
+///     columns V32 keeps for exactly that measurement.</para>
 ///     <para>Reads run on the READ-ONLY connection: a rollup can never mutate the ledger it
 ///     measures. A busy timeout is raised first, because the app writes while this reads
 ///     and an instant "database is locked" would surface as a status-bar error.</para>
@@ -35,17 +37,11 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
   private const string BusyTimeoutCommand = "PRAGMA busy_timeout = 2000;";
   private const string QueryFailedCode = "UsageQueryFailed";
 
-  /// <summary>The subtree walk plus the usage join. Parameterized on the root id only.</summary>
-  private const string SubtreeUsageSql =
-      @"WITH RECURSIVE subtree(id) AS (
-            SELECT @root
-            UNION
-            SELECT a.id FROM agents a JOIN subtree s ON a.parent_id = s.id
-        )
-        SELECT e.payload_json
+  /// <summary>One session's usage rows. Parameterized on the session id only.</summary>
+  private const string SessionUsageSql =
+      @"SELECT e.payload_json
         FROM agent_events e
-        JOIN subtree s ON e.agent_id = s.id
-        WHERE e.type = 'usage'
+        WHERE e.type = 'usage' AND e.agent_id = @root
         ORDER BY e.id;";
 
   /// <summary>The most rows one performance read will scan (issue #295). A cap exists
@@ -83,18 +79,11 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
         ORDER BY id DESC
         LIMIT @cap;";
 
-  /// <summary>The subtree walk, newest first, capped — the session rung of the fallback chain.
-  ///     </summary>
-  private const string SubtreeUsageCappedSql =
-      @"WITH RECURSIVE subtree(id) AS (
-            SELECT @scope
-            UNION
-            SELECT a.id FROM agents a JOIN subtree s ON a.parent_id = s.id
-        )
-        SELECT e.payload_json
+  /// <summary>The session rung of the fallback chain, newest first, capped.</summary>
+  private const string SessionUsageCappedSql =
+      @"SELECT e.payload_json
         FROM agent_events e
-        JOIN subtree s ON e.agent_id = s.id
-        WHERE e.type = 'usage'
+        WHERE e.type = 'usage' AND e.agent_id = @scope
         ORDER BY e.id DESC
         LIMIT @cap;";
 
@@ -193,7 +182,7 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
   {
     string sql = scope switch
     {
-      UsageScope.Session => SubtreeUsageCappedSql,
+      UsageScope.Session => SessionUsageCappedSql,
       UsageScope.Workspace => WorkspaceUsageSql,
       UsageScope.Global => GlobalUsageSql,
       _ => throw new ArgumentOutOfRangeException(nameof(scope), scope,
@@ -315,7 +304,7 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
 #pragma warning disable CA2007
     await using SqliteCommand command = connection.CreateCommand();
 #pragma warning restore CA2007
-    command.CommandText = SubtreeUsageSql;
+    command.CommandText = SessionUsageSql;
     _ = command.Parameters.AddWithValue("@root", rootId);
     List<UsageRow> rows = [];
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);

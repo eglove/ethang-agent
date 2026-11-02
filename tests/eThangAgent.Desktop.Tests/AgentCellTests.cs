@@ -88,11 +88,6 @@ public class AgentCellTests
         => Task.FromResult(Result.Success<IReadOnlyList<Message>>(
             Transcripts.TryGetValue(id.Value, out List<Message>? messages) ? messages : []));
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
-        CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
-            [.. Records.Values.Where(r => r.ParentId == parentId)]));
-
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));
   }
@@ -194,8 +189,7 @@ public class AgentCellTests
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "reviewer", @"C:\work\alpha");
 
-    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
-        tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
 
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
     Assert.True(cell.RunsInOwnHost);
@@ -220,8 +214,7 @@ public class AgentCellTests
     shell.Store.Records[agent.Value] = Record(agent, "tester", @"C:\work\beta");
 
     // Published on ALPHA's stream, while the agent belongs to BETA.
-    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
-        alpha.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
 
     _ = await AwaitCellAsync(beta, agent);
     Assert.Null(alpha.FindCell(agent));
@@ -236,7 +229,7 @@ public class AgentCellTests
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "reviewer", @"C:\work\alpha");
-    AgentStartedEvent started = new(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1);
+    AgentStartedEvent started = new(agent, DateTimeOffset.UtcNow, "test/model", 1);
 
     shell.Events.Publish(started);
     _ = await AwaitCellAsync(tab, agent);
@@ -263,9 +256,9 @@ public class AgentCellTests
     shell.Store.Records[first.Value] = Record(first, "one", @"C:\work\alpha");
     shell.Store.Records[second.Value] = Record(second, "two", @"C:\work\alpha");
 
-    shell.Events.Publish(new AgentStartedEvent(first, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(first, DateTimeOffset.UtcNow, "test/model", 1));
     _ = await AwaitCellAsync(tab, first);
-    shell.Events.Publish(new AgentStartedEvent(second, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(second, DateTimeOffset.UtcNow, "test/model", 1));
     _ = await AwaitCellAsync(tab, second);
 
     Assert.Equal(3, tab.Cells.Count);
@@ -284,7 +277,7 @@ public class AgentCellTests
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "reviewer", @"C:\work\alpha");
-    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
     Assert.False(cell.IsFinished);
     Assert.True(cell.IsStreaming, "a running agent in its own host streams until it settles");
@@ -318,7 +311,7 @@ public class AgentCellTests
     shell.Store.Transcripts[agent.Value] =
         [new Message(Role.User, "review the diff", at), new Message(Role.Assistant, "the diff is correct", at)];
 
-    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
 
     DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
@@ -347,7 +340,7 @@ public class AgentCellTests
     shell.Store.Records[agent.Value] = Record(agent, "orphan", @"C:\work\elsewhere");
 
     shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
-        AgentId.NewId(), "test/model", 1));
+        "test/model", 1));
     await Task.Delay(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
 
     _ = Assert.Single(tab.Cells);
@@ -367,8 +360,7 @@ public class AgentCellTests
     shell.Store.Records[agent.Value] = Record(agent, "step two", @"C:\work\alpha");
     shell.Chains.Chain = ChainWith(agent, position: 2, steps: 5);
 
-    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
-        tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
 
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
     Assert.Equal("the chain", cell.Title);
@@ -386,8 +378,7 @@ public class AgentCellTests
     AgentId agent = AgentId.NewId();
     shell.Store.Records[agent.Value] = Record(agent, "by hand", @"C:\work\alpha");
 
-    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow,
-        tab.Container.RootId, "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
 
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
     Assert.Null(cell.PlacementLine);
@@ -402,7 +393,7 @@ public class AgentCellTests
   ///     that nothing in the DESKTOP reads its parent link to decide where a cell belongs.
   ///     </para></summary>
   private static AgentRecord Record(AgentId agent, string label, string workspaceRoot)
-      => AgentRecord.Spawned(agent, parentId: null, depth: 1, "test/model", label, "p",
+      => AgentRecord.Started(agent, "test/model", label, "p",
           DateTimeOffset.UtcNow, workspaceId: Shell.WorkspaceId(workspaceRoot));
 
   /// <summary>A chain whose step at <paramref name="position"/> is owned by

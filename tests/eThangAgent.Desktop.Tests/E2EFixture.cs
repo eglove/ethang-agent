@@ -154,7 +154,7 @@ internal static class E2E
     ///     runs in its own host process).</summary>
     internal AgentSettings BuildSettings(bool computerUse = false) => new(
         new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
-        new SubAgentOptions(null, 2),
+        new AgentRunOptions(null, 2),
         ComputerUse: computerUse);
 
     /// <summary>A factory over the SAME temp database and mock server the harness runs

@@ -214,7 +214,7 @@ public sealed class TrustedDirectoryCompositionTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   /// <summary>Best-effort removal of the temp trees this test created.</summary>
   private static void Cleanup(params string[] directories)

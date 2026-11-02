@@ -63,8 +63,11 @@ public sealed record WatchdogPolicy
   {
   }
 
-  public WatchdogPolicyDecision Decide(bool isChild, TimeSpan? idleAge, int wrapUpAttempts)
-      => !isChild || idleAge is not { } age || age < IdleThreshold
+  /// <summary>The decision for one supervised run. <paramref name="supervised"/> is false for a
+  ///     caller that holds no run of its own to guard; a supervised run with no beat yet, or one
+  ///     inside the idle threshold, is merely watched.</summary>
+  public WatchdogPolicyDecision Decide(bool supervised, TimeSpan? idleAge, int wrapUpAttempts)
+      => !supervised || idleAge is not { } age || age < IdleThreshold
           ? WatchdogPolicyDecision.Watch
           : AttemptDecision(wrapUpAttempts);
 

@@ -152,38 +152,30 @@ public sealed class SqliteUsageQueriesTests : IDisposable
     Assert.Empty(summary.Value.ByModel);
   }
 
+  /// <summary>Issue #334: a session's spend is its OWN rows. The recursive walk down
+  ///     <c>agents.parent_id</c> is gone with the parent link, so another agent's usage never
+  ///     counts toward this session - cross-session attribution belongs to the chain.</summary>
   [Fact]
-  public async Task SessionSummary_IncludesEveryDescendantAgent_ByWalkingParentLinks()
+  public async Task SessionSummary_CountsOnlyTheSessionsOwnRows()
   {
-    // B11, the reason the walk exists: a child stamps its OWN id as its session id, so a
-    // session_id = root filter would omit every subagent's spend.
     CancellationToken ct = TestContext.Current.CancellationToken;
-    AgentId root = AgentId.NewId();
-    AgentId child = AgentId.NewId();
-    AgentId grandchild = AgentId.NewId();
-    AgentId otherSession = AgentId.NewId();
-    await InsertAgentAsync(root, null, ct).ConfigureAwait(true);
-    await InsertAgentAsync(child, root, ct).ConfigureAwait(true);
-    await InsertAgentAsync(grandchild, child, ct).ConfigureAwait(true);
-    await InsertAgentAsync(otherSession, null, ct).ConfigureAwait(true);
+    AgentId session = AgentId.NewId();
+    AgentId otherAgent = AgentId.NewId();
+    await InsertAgentAsync(session, null, ct).ConfigureAwait(true);
+    await InsertAgentAsync(otherAgent, session, ct).ConfigureAwait(true);
 
-    await RecordAsync(root, new Tokens(1000, 100, 800), UsageCallClass.MainLoop, "test/model", Prices.Known, ct)
+    await RecordAsync(session, new Tokens(1000, 100, 800), UsageCallClass.MainLoop, "test/model", Prices.Known, ct)
         .ConfigureAwait(true);
-    await RecordAsync(child, new Tokens(500, 50, 400), UsageCallClass.MainLoop, "test/model", Prices.Known, ct)
-        .ConfigureAwait(true);
-    await RecordAsync(grandchild, new Tokens(250, 25, 200), UsageCallClass.Compaction, "test/model", Prices.Known, ct)
-        .ConfigureAwait(true);
-    await RecordAsync(otherSession, new Tokens(9999, 999, 0), UsageCallClass.MainLoop, "test/model", Prices.Known, ct)
+    await RecordAsync(otherAgent, new Tokens(500, 50, 400), UsageCallClass.MainLoop, "test/model", Prices.Known, ct)
         .ConfigureAwait(true);
 
-    UsageSummary summary = await SummarizeAsync(root, ct).ConfigureAwait(true);
+    UsageSummary summary = await SummarizeAsync(session, ct).ConfigureAwait(true);
 
-    Assert.Equal(3, summary.Totals.Calls);
-    Assert.Equal(1750, summary.Totals.InputTokens);
-    Assert.Equal(175, summary.Totals.OutputTokens);
-    Assert.Equal(1400, summary.Totals.CachedInputTokens);
-    // The other session's rows are NOT in this session's spend.
-    Assert.DoesNotContain(summary.ByClass, c => c.Totals.InputTokens == 9999);
+    Assert.Equal(1, summary.Totals.Calls);
+    Assert.Equal(1000, summary.Totals.InputTokens);
+    Assert.Equal(100, summary.Totals.OutputTokens);
+    // The other agent's row carries its own id, so it is that agent's spend, not this session's.
+    Assert.DoesNotContain(summary.ByClass, c => c.Totals.InputTokens == 500);
   }
 
   [Fact]

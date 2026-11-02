@@ -128,7 +128,7 @@ public partial class SupervisorFeedContractTests
     // the timings below distinguish beat from no-beat (at T0 they would not — the
     // window already starts at T0 via OnStart).
     clock.Now = T0.AddMinutes(10);
-    stream.Publish(new AgentStartedEvent(child, clock.Now, null, "m/sub", 2));
+    stream.Publish(new AgentStartedEvent(child, clock.Now, "m/sub", 2));
 
     clock.Now = T0.AddMinutes(20);
     Assert.Null(supervisor.CheckIdle(TimeSpan.FromMinutes(15))); // beat: only 10 min silent
@@ -150,7 +150,7 @@ public partial class SupervisorFeedContractTests
 
     Exception? ex = Record.Exception(() =>
     {
-      stream.Publish(new AgentStartedEvent(stranger, T0, null, "m/sub", 1));
+      stream.Publish(new AgentStartedEvent(stranger, T0, "m/sub", 1));
       stream.Publish(new AgentProgressEvent(stranger, T0, AgentPhase.ModelCall, "iteration"));
       stream.Publish(new AgentBudgetAlertEvent(stranger, T0, "tokens", 1, 10, 0));
       stream.Publish(new MessageDeliveredEvent(stranger, T0, "root-steer", 8));

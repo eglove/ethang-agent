@@ -187,7 +187,7 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
 
   private static string RenderSummaries(IReadOnlyList<SessionSummary> summaries)
       => string.Join("\n", summaries.Select(summary =>
-          $"session={summary.Id} label={summary.Label} depth={summary.Depth} " +
+          $"session={summary.Id} label={summary.Label} " +
           $"entries={summary.EntryCount} status={summary.Status} tier={summary.Tier}"));
 
   private static CapabilityInvocationResult Fail(DomainError error)

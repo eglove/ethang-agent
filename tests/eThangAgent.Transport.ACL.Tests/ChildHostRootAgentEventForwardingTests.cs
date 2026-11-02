@@ -41,9 +41,8 @@ public class ChildHostRootChildEventForwardingTests
       IAgentEvents rootEvents = (IAgentEvents)runner.Services.GetRequiredService(typeof(IAgentEvents));
 
       AgentId agentId = AgentId.NewId();
-      // Exactly what SubAgentSpawner publishes when agent.spawn starts a run.
-      rootEvents.Publish(new AgentStartedEvent(agentId, DateTimeOffset.UtcNow,
-          new AgentId(rig.RootId), "probe/model", 0));
+      // Exactly what AgentRunLoop publishes when agent.spawn starts a run.
+      rootEvents.Publish(new AgentStartedEvent(agentId, DateTimeOffset.UtcNow, "probe/model", 0));
 
       // No steering message is sent at any point in this test - that is the whole point.
       AgentEvent? delivered = await rig.WaitForEventAsync(agentId).ConfigureAwait(true);

@@ -8,11 +8,11 @@ namespace eThangAgent.AgentInfrastructure.Tests;
 public class InProcessAgentRuntimeTests
 {
   private static AgentRecord RunningChild(string prompt = "child task") =>
-      AgentRecord.Spawned(new AgentId(Guid.NewGuid()), parentId: null, depth: 1,
+      AgentRecord.Started(new AgentId(Guid.NewGuid()),
           modelUsed: "mock/model", label: "test", taskPrompt: prompt, createdAt: DateTimeOffset.UtcNow);
 
   private static AgentRunOutcome CompletedOutcome(AgentId agentId, string report) =>
-      new(agentId, AgentStatus.Completed, Reason: null, Report: report, ModelUsed: "mock/model", Depth: 1);
+      new(agentId, AgentStatus.Completed, Reason: null, Report: report, ModelUsed: "mock/model");
 
   /// <summary>Runner whose shared gate holds children in-flight until the test releases them.
   ///     Dispatch observation counts: FirstCall resolves once one child entered RunAsync, and
@@ -118,9 +118,6 @@ public class InProcessAgentRuntimeTests
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(
       AgentId id, CancellationToken ct = default) => throw new NotSupportedException("not exercised by runtime tests");
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
-        CancellationToken ct = default) => throw new NotSupportedException("not exercised by runtime tests");
-
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => throw new NotSupportedException("not exercised by runtime tests");
   }
@@ -152,7 +149,7 @@ public class InProcessAgentRuntimeTests
   }
 
   /// <summary>Runner that parks until its token fires, then reports Failed(Interrupted) —
-  /// the same shape SubAgentSpawner produces when the runtime cancels a live child.</summary>
+  /// the same shape AgentRunLoop produces when the runtime cancels a live child.</summary>
   private sealed class CancellingRunner : IAgentRunner
   {
     private readonly TaskCompletionSource<AgentRecord> _firstCall =
@@ -174,7 +171,7 @@ public class InProcessAgentRuntimeTests
         // bounded: the token is the only thing that settles this await
       }
       return new AgentRunOutcome(child.Id, AgentStatus.Failed,
-          AgentFailureReason.Interrupted, "child agent was interrupted.", child.ModelUsed, child.Depth);
+          AgentFailureReason.Interrupted, "child agent was interrupted.", child.ModelUsed);
     }
   }
 
@@ -242,37 +239,37 @@ public class InProcessAgentRuntimeTests
       }
 
       return new AgentRunOutcome(child.Id, AgentStatus.Failed,
-          AgentFailureReason.Interrupted, "child agent was interrupted.", child.ModelUsed, child.Depth);
+          AgentFailureReason.Interrupted, "child agent was interrupted.", child.ModelUsed);
     }
   }
 
   [Fact]
-  public async Task InterruptSubtree_CancelsOnlyTheRootsDescendants_NotForeignChildren()
+  public async Task InterruptSubtree_StopsExactlyTheNamedAgent_AndLeavesEveryOtherRunAlone()
   {
+    // Issue #334: an agent has no descendants, so the scoped stop is the agent itself. This
+    // test used to assert a subtree teardown; it now asserts the honest scope - the named
+    // agent settles Interrupted and a second, unrelated run is untouched.
     ScopedRunner runner = new();
     FakeStore store = new();
     InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 4);
-    AgentId sessionRoot = AgentId.NewId();
-    AgentRecord ownChild = RunningChild() with { Id = AgentId.NewId(), ParentId = sessionRoot };
-    AgentRecord foreignChild = RunningChild(prompt: "another session's child");
-    store.Records[ownChild.Id.Value] = ownChild;
-    store.Records[foreignChild.Id.Value] = foreignChild;
+    AgentRecord named = RunningChild();
+    AgentRecord other = RunningChild(prompt: "another agent's work");
+    store.Records[named.Id.Value] = named;
+    store.Records[other.Id.Value] = other;
 
-    _ = await runtime.Start(ownChild, ct: TestContext.Current.CancellationToken);
-    _ = await runtime.Start(foreignChild, ct: TestContext.Current.CancellationToken);
+    _ = await runtime.Start(named, ct: TestContext.Current.CancellationToken);
+    _ = await runtime.Start(other, ct: TestContext.Current.CancellationToken);
     await runner.WaitForDispatchAsync(2).ConfigureAwait(true);
 
-    runtime.InterruptSubtree(sessionRoot);
+    runtime.InterruptSubtree(named.Id);
 
-    // The session's own child is cancelled (Interrupted terminal outcome); the foreign
-    // child keeps running and completes normally when released.
     AgentRecord interrupted = await store.FirstUpdate.ConfigureAwait(true);
-    Assert.Equal(ownChild.Id, interrupted.Id);
+    Assert.Equal(named.Id, interrupted.Id);
     Assert.Equal(AgentFailureReason.Interrupted, interrupted.FailureReason);
-    runner.Release(CompletedOutcome(foreignChild.Id, "foreign child finished fine"));
-    bool foreignSettled = await SpinUntilAsync(() => store.Updates.Any(
-        u => u.Id == foreignChild.Id && u.Status == AgentStatus.Completed)).ConfigureAwait(true);
-    Assert.True(foreignSettled);
+    runner.Release(CompletedOutcome(other.Id, "the other agent finished fine"));
+    bool otherSettled = await SpinUntilAsync(() => store.Updates.Any(
+        u => u.Id == other.Id && u.Status == AgentStatus.Completed)).ConfigureAwait(true);
+    Assert.True(otherSettled);
   }
 
   /// <summary>Bounded poll for a store update matching the predicate — the runtime's
@@ -490,7 +487,7 @@ public class InProcessAgentRuntimeTests
     Assert.Equal(AgentStatus.Running, secondRun.Status);
     SpawnContract contract = SpawnContract.Decode(secondRun.Contract!);
     Assert.Equal("fix the failing tests", contract.ResumeMessage);
-    runner.Complete(new AgentRunOutcome(child.Id, AgentStatus.Completed, null, "second report", child.ModelUsed, child.Depth));
+    runner.Complete(new AgentRunOutcome(child.Id, AgentStatus.Completed, null, "second report", child.ModelUsed));
   }
 
   [Fact]
@@ -517,7 +514,7 @@ public class InProcessAgentRuntimeTests
 
     _ = await runtime.Resume(child.Id, "round two", TestContext.Current.CancellationToken).ConfigureAwait(true);
     await runner.WaitForDispatchAsync(2).ConfigureAwait(true); // the resumed run's dispatch observed
-    runner.Complete(new AgentRunOutcome(child.Id, AgentStatus.Completed, null, "second", child.ModelUsed, child.Depth));
+    runner.Complete(new AgentRunOutcome(child.Id, AgentStatus.Completed, null, "second", child.ModelUsed));
     _ = await store.FirstUpdate.ConfigureAwait(true);
     await WaitForRetirementAsync(runtime, child.Id).ConfigureAwait(true); // the resumed run retired: terminal persist is final
 

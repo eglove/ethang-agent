@@ -9,7 +9,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     way it resolves the context window; a missing catalog keeps the legacy false.
 ///     The provider's ConfigsSeen is the observation seam — it sees exactly the config
 ///     the spawner built.</summary>
-public class SubAgentSpawnerVisionFlagTests
+public class AgentRunLoopVisionFlagTests
 {
   private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
@@ -24,7 +24,7 @@ public class SubAgentSpawnerVisionFlagTests
   }
 
   private static AgentRecord Child(string model = "vision/model")
-      => AgentRecord.Spawned(AgentId.NewId(), null, 0, model, null, "do things", FixedNow);
+      => AgentRecord.Started(AgentId.NewId(), model, null, "do things", FixedNow);
 
   private sealed class FixedSource : IContextWindowSource
   {
@@ -37,9 +37,9 @@ public class SubAgentSpawnerVisionFlagTests
   {
     FakeProvider provider = new(Result.Success(new ModelResponse("report", [])));
     FakeModelProviderFactory factory = new(provider);
-    SubAgentSpawner spawner = new(new SubAgentServices(factory, new FakeAgentStore(),
+    AgentRunLoop spawner = new(new AgentRunServices(factory, new FakeAgentStore(),
             new ToolRegistry([]), new StaticPromptProvider("guide"),
-            new SubAgentOptions(DefaultModel: "m")),
+            new AgentRunOptions(DefaultModel: "m")),
         windowSource: new FixedSource(), catalog: new VisionCatalog(("vision/model", true)));
 
     _ = await spawner.RunAsync(Child("vision/model"), CancellationToken.None);
@@ -52,9 +52,9 @@ public class SubAgentSpawnerVisionFlagTests
   {
     FakeProvider provider = new(Result.Success(new ModelResponse("report", [])));
     FakeModelProviderFactory factory = new(provider);
-    SubAgentSpawner spawner = new(new SubAgentServices(factory, new FakeAgentStore(),
+    AgentRunLoop spawner = new(new AgentRunServices(factory, new FakeAgentStore(),
             new ToolRegistry([]), new StaticPromptProvider("guide"),
-            new SubAgentOptions(DefaultModel: "m")),
+            new AgentRunOptions(DefaultModel: "m")),
         windowSource: new FixedSource(), catalog: new VisionCatalog(("other/model", true)));
 
     _ = await spawner.RunAsync(Child("vision/model"), CancellationToken.None);
@@ -67,9 +67,9 @@ public class SubAgentSpawnerVisionFlagTests
   {
     FakeProvider provider = new(Result.Success(new ModelResponse("report", [])));
     FakeModelProviderFactory factory = new(provider);
-    SubAgentSpawner spawner = new(new SubAgentServices(factory, new FakeAgentStore(),
+    AgentRunLoop spawner = new(new AgentRunServices(factory, new FakeAgentStore(),
             new ToolRegistry([]), new StaticPromptProvider("guide"),
-            new SubAgentOptions(DefaultModel: "m")),
+            new AgentRunOptions(DefaultModel: "m")),
         windowSource: new FixedSource());
 
     _ = await spawner.RunAsync(Child("vision/model"), CancellationToken.None);

@@ -134,7 +134,7 @@ public class LaunchSkillDirectoriesPersistenceTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings(null, new Uri("https://openrouter.test")),
-      new AgentDomain.SubAgentOptions(null, 2));
+      new AgentDomain.AgentRunOptions(null, 2));
 
   private static async Task<AgentTabViewModel> OpenShellAsync(MainViewModel shell, string root)
   {

@@ -8,6 +8,4 @@ namespace eThangAgent.MemoryDomain;
 /// </summary>
 public sealed record SessionCorpus(
     AgentId Id,
-    AgentId? ParentId,
-    int Depth,
     IReadOnlyList<MemoryEntry> Entries);

@@ -128,20 +128,18 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
     }
 
     List<SessionCorpus> corpora = [];
-    foreach (AgentRecord record in records.Value)
+    foreach (AgentId recordId in records.Value.Select(record => record.Id))
     {
-      Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(record.Id, ct).ConfigureAwait(false);
+      Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(recordId, ct).ConfigureAwait(false);
       if (!transcript.IsSuccess)
       {
         return Result.Failure<List<SessionCorpus>>(transcript.Error);
       }
 
       corpora.Add(new SessionCorpus(
-          record.Id,
-          record.ParentId,
-          record.Depth,
+          recordId,
           [.. transcript.Value.Select((message, index) => new MemoryEntry(
-                    record.Id, index, message.Role.ToString(), message.Content, message.Timestamp))]));
+                    recordId, index, message.Role.ToString(), message.Content, message.Timestamp))]));
     }
 
     return Result.Success(corpora);

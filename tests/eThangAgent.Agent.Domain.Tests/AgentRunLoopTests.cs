@@ -5,25 +5,25 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
-public class SubAgentSpawnerTests
+public class AgentRunLoopTests
 {
   private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
-  private static AgentRecord Child(int depth = 0, string model = "default/sub-model",
+  private static AgentRecord Child(string model = "default/sub-model",
       string taskPrompt = "do things", string? label = null)
-      => AgentRecord.Spawned(AgentId.NewId(), null, depth, model, label, taskPrompt, FixedNow);
+      => AgentRecord.Started(AgentId.NewId(), model, label, taskPrompt, FixedNow);
 
-  private static SubAgentSpawner MakeRunner(
+  private static AgentRunLoop MakeRunner(
       IModelProvider provider,
       FakeAgentStore store,
-      SubAgentOptions? options = null,
+      AgentRunOptions? options = null,
       IToolRegistry? tools = null)
-      => new(new SubAgentServices(
+      => new(new AgentRunServices(
           new FakeModelProviderFactory(provider),
           store,
           tools ?? new ToolRegistry([]),
           new StaticPromptProvider("guide text"),
-              options ?? new SubAgentOptions(DefaultModel: "default/sub-model")));
+              options ?? new AgentRunOptions(DefaultModel: "default/sub-model")));
 
   // --- depth passes through (the guard itself is covered by StartSpawnHandlerTests) ---
 
@@ -33,13 +33,12 @@ public class SubAgentSpawnerTests
     FakeAgentStore store = new();
     FakeProvider provider = new(
         Result.Success(new ModelResponse("deep report", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store,
-        options: new SubAgentOptions(DefaultModel: "m/sub", MaxDepth: 3));
+    AgentRunLoop spawner = MakeRunner(provider, store,
+        options: new AgentRunOptions(DefaultModel: "m/sub"));
 
-    AgentRunOutcome outcome = await spawner.RunAsync(Child(depth: 3, model: "m/sub"), CancellationToken.None);
+    AgentRunOutcome outcome = await spawner.RunAsync(Child(model: "m/sub"), CancellationToken.None);
 
     Assert.Equal(AgentStatus.Completed, outcome.Status);
-    Assert.Equal(3, outcome.Depth);
   }
 
   // --- model plumbing (resolution precedence is covered by StartSpawnHandlerTests) ---
@@ -49,10 +48,10 @@ public class SubAgentSpawnerTests
   {
     FakeModelProviderFactory factory = new(new FakeProvider());
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = new(new SubAgentServices(factory, store, new ToolRegistry([]),
-            new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "unused/default")));
+    AgentRunLoop spawner = new(new AgentRunServices(factory, store, new ToolRegistry([]),
+            new StaticPromptProvider("guide text"), new AgentRunOptions(DefaultModel: "unused/default")));
 
-    _ = await spawner.RunAsync(Child(depth: 0, model: "explicit/model"), CancellationToken.None);
+    _ = await spawner.RunAsync(Child(model: "explicit/model"), CancellationToken.None);
 
     Assert.Equal(1, factory.CreateCount);
     Assert.Equal("explicit/model", factory.LastConfig!.ModelId);
@@ -66,9 +65,9 @@ public class SubAgentSpawnerTests
     FakeAgentStore store = new();
     FakeProvider provider = new(
         Result.Success(new ModelResponse("child report", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store);
+    AgentRunLoop spawner = MakeRunner(provider, store);
 
-    AgentRecord child = Child(depth: 2, taskPrompt: "summarize the file", label: "child-a");
+    AgentRecord child = Child(taskPrompt: "summarize the file", label: "child-a");
     AgentRunOutcome outcome = await spawner.RunAsync(child, CancellationToken.None);
 
     // RunAsync never saves the Running row — the spawn command owns that write.
@@ -86,7 +85,6 @@ public class SubAgentSpawnerTests
     Assert.Null(outcome.Reason);
     Assert.Equal("child report", outcome.Report);
     Assert.Equal("default/sub-model", outcome.ModelUsed);
-    Assert.Equal(2, outcome.Depth);
   }
 
   [Fact]
@@ -95,7 +93,7 @@ public class SubAgentSpawnerTests
     FakeAgentStore store = new();
     FakeProvider provider = new(
         Result.Success(new ModelResponse("child report", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store);
+    AgentRunLoop spawner = MakeRunner(provider, store);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "do things"), CancellationToken.None);
 
@@ -118,7 +116,7 @@ public class SubAgentSpawnerTests
         Result.Success(new ModelResponse(null,
             [new ToolCallRequest("call_1", "read_file", "{}")])),
         Result.Success(new ModelResponse("finished", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store,
+    AgentRunLoop spawner = MakeRunner(provider, store,
         tools: new ToolRegistry([fakeTool]));
 
     _ = await spawner.RunAsync(Child(taskPrompt: "read it"), CancellationToken.None);
@@ -145,7 +143,7 @@ public class SubAgentSpawnerTests
   public async Task RunAsync_UserInterruption_RecordsFailedInterrupted_DistinctFromTimeout()
   {
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = MakeRunner(new BlockingProvider(), store);
+    AgentRunLoop spawner = MakeRunner(new BlockingProvider(), store);
     using CancellationTokenSource cts = new();
     await cts.CancelAsync(); // the runtime interrupts by cancelling this token
 
@@ -161,7 +159,7 @@ public class SubAgentSpawnerTests
   public async Task RunAsync_Interrupted_ReturnsFailedOutcome_PersistsInterrupted()
   {
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = MakeRunner(new BlockingProvider(), store);
+    AgentRunLoop spawner = MakeRunner(new BlockingProvider(), store);
     using CancellationTokenSource cts = new();
 
     Task<AgentRunOutcome> run = spawner.RunAsync(Child(), cts.Token);
@@ -180,7 +178,7 @@ public class SubAgentSpawnerTests
   public async Task RunAsync_ProviderThrows_ReturnsFailedOutcome_PersistsProviderError()
   {
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = MakeRunner(new ThrowingProvider(), store);
+    AgentRunLoop spawner = MakeRunner(new ThrowingProvider(), store);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(), CancellationToken.None);
 
@@ -199,8 +197,8 @@ public class SubAgentSpawnerTests
   public async Task RunAsync_LoopingChild_Interrupts_Cleanly()
   {
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = MakeRunner(new LoopingProvider(), store,
-        options: new SubAgentOptions(DefaultModel: "default/sub-model"),
+    AgentRunLoop spawner = MakeRunner(new LoopingProvider(), store,
+        options: new AgentRunOptions(DefaultModel: "default/sub-model"),
         tools: new ToolRegistry([new FakeTool("loop", "again")]));
     // The looping provider + instant tool make the run an endless SYNCHRONOUS loop that
     // never yields, so the cancel must come from a timer thread — an inline CancelAsync
@@ -227,7 +225,7 @@ public class SubAgentSpawnerTests
     FakeAgentStore store = new() { UpdateFailure = Result.Failure<string>(new DomainError("StorageDown", "agent store unavailable.")) };
     FakeProvider provider = new(
         Result.Success(new ModelResponse("report", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store);
+    AgentRunLoop spawner = MakeRunner(provider, store);
 
     _ = await Assert.ThrowsAsync<InvalidOperationException>(
         () => spawner.RunAsync(Child(), CancellationToken.None));
@@ -240,7 +238,7 @@ public class SubAgentSpawnerTests
     FakeAgentStore store = new();
     FakeProvider provider = new(
         Result.Success(new ModelResponse(bigReport, [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store);
+    AgentRunLoop spawner = MakeRunner(provider, store);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "big task"), CancellationToken.None);
 

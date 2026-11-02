@@ -16,27 +16,27 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     a denied call renders the structured GrantViolation contract (the loop resolves
 ///     refusals through the concrete FilteredToolRegistry, so the filter must be the
 ///     registry the Agent carries).</summary>
-public class SubAgentSpawnerAnchorTests
+public class AgentRunLoopAnchorTests
 {
   private const string Anchor = @"C:\anchor\ws";
   private const string ParentRoot = @"C:\parent\ws";
 
   private static AgentRecord Child(string? contractJson, string prompt = "do things",
       string? effectiveTools = null)
-      => AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", null, prompt,
+      => AgentRecord.Started(AgentId.NewId(), "m/sub", null, prompt,
           new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc),
           contractJson is null ? null : new SpawnContract(WorkspaceRoot: contractJson,
               EffectiveTools: effectiveTools));
 
-  private static SubAgentSpawner MakeRunner(
+  private static AgentRunLoop MakeRunner(
       IModelProvider provider, FakeAgentStore store, IToolRegistry tools,
       IWorkspaceAnchorScope? scope)
   {
-    SubAgentServices services = new(
+    AgentRunServices services = new(
         new FakeModelProviderFactory(provider), store, tools,
-        new StaticPromptProvider("guide"), new SubAgentOptions(DefaultModel: "m/sub"),
+        new StaticPromptProvider("guide"), new AgentRunOptions(DefaultModel: "m/sub"),
         AnchorScope: scope);
-    return new SubAgentSpawner(services);
+    return new AgentRunLoop(services);
   }
 
   /// <summary>One scripted tool call against the scoped tool, then the final report:
@@ -58,7 +58,7 @@ public class SubAgentSpawnerAnchorTests
     ExecLog log = new();
     ScopedFakeTool scoped = new("scoped", log);
     RecordingProvider provider = new(scope, DispatchingProvider());
-    SubAgentSpawner spawner = MakeRunner(provider, store, new ToolRegistry([scoped]), scope);
+    AgentRunLoop spawner = MakeRunner(provider, store, new ToolRegistry([scoped]), scope);
 
     AgentRunOutcome outcome = await spawner.RunAsync(
         Child(Anchor), TestContext.Current.CancellationToken);
@@ -87,7 +87,7 @@ public class SubAgentSpawnerAnchorTests
     ExecLog log = new();
     ScopedFakeTool scoped = new("scoped", log);
     RecordingProvider provider = new(scope, DispatchingProvider());
-    SubAgentSpawner spawner = MakeRunner(provider, store, new ToolRegistry([scoped]), scope);
+    AgentRunLoop spawner = MakeRunner(provider, store, new ToolRegistry([scoped]), scope);
 
     AgentRunOutcome outcome = await spawner.RunAsync(
         Child(null), TestContext.Current.CancellationToken);
@@ -112,7 +112,7 @@ public class SubAgentSpawnerAnchorTests
     ExecLog log = new();
     ScopedFakeTool scoped = new("scoped", log);
     FakeProvider provider = new(Result.Success(new ModelResponse("done", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store, new ToolRegistry([scoped]), scope: null);
+    AgentRunLoop spawner = MakeRunner(provider, store, new ToolRegistry([scoped]), scope: null);
 
     // An anchored contract with no scope wired is an infrastructure misconfiguration:
     // the ArgumentNullException at the check site (documented as strictly a wiring
@@ -139,7 +139,7 @@ public class SubAgentSpawnerAnchorTests
     ScopedFakeTool scoped = new("scoped", log);
     RecordingProvider provider = new(scope,
         Result.Success(new ModelResponse("done", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store, new ToolRegistry([scoped]), scope);
+    AgentRunLoop spawner = MakeRunner(provider, store, new ToolRegistry([scoped]), scope);
 
     AgentRunOutcome outcome = await spawner.RunAsync(
         Child(Anchor), TestContext.Current.CancellationToken);
@@ -170,7 +170,7 @@ public class SubAgentSpawnerAnchorTests
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "ungranted", "{}")])),
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c2", "scoped", "{}")])),
         Result.Success(new ModelResponse("done", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store, new ToolRegistry([scoped, ungranted]), scope);
+    AgentRunLoop spawner = MakeRunner(provider, store, new ToolRegistry([scoped, ungranted]), scope);
 
     AgentRunOutcome outcome = await spawner.RunAsync(
         Child(Anchor, effectiveTools: "scoped"), TestContext.Current.CancellationToken);

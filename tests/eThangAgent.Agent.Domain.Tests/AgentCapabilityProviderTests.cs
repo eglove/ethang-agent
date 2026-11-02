@@ -10,12 +10,9 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     unknown actions get typed errors.</summary>
 public class AgentCapabilityProviderTests
 {
-  private static AgentRecord ParentAtDepth(int depth) =>
-      AgentRecord.Spawned(AgentId.NewId(), null, depth, "prov/parent", null, "root task", DateTimeOffset.UtcNow);
-
   private static AgentRecord ChildIn(AgentStatus status, AgentFailureReason? reason = null,
       string? report = null)
-      => AgentRecord.Spawned(AgentId.NewId(), ParentAtDepth(0).Id, 1, "prov/child", null,
+      => AgentRecord.Started(AgentId.NewId(), "prov/child", null,
               "child task", DateTimeOffset.UtcNow) with
       {
         Status = status,
@@ -23,16 +20,6 @@ public class AgentCapabilityProviderTests
         CompletedAt = status is AgentStatus.Running ? null : DateTimeOffset.UtcNow,
         FinalReport = report,
       };
-
-  private sealed class FakeSpawnCommand(Result<AgentId> reply,
-      List<(AgentRecord Parent, SpawnRequest Request)> calls) : IAgentSpawnCommand
-  {
-    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
-    {
-      calls.Add((parent, request));
-      return Task.FromResult(reply);
-    }
-  }
 
   private sealed class FakeQueries : IAgentQueries
   {
@@ -56,22 +43,14 @@ public class AgentCapabilityProviderTests
           ? result
           : Result.Failure<string>(new DomainError("NotFound", $"No agent exists with id '{id}'.")));
     }
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<IReadOnlyList<AgentRecord>>(new DomainError("Unused", "not exercised here")));
   }
 
-  private static (AgentCapabilityProvider Provider, FakeSpawnCommand Command, FakeQueries Queries,
-      List<(AgentRecord Parent, SpawnRequest Request)> Calls)
-      MakeProvider(AgentRecord parent,
-          Result<AgentId>? spawnReply = null,
-          Action<FakeQueries>? seed = null,
-          IAgentRuntime? runtime = null)
+  private static (AgentCapabilityProvider Provider, FakeQueries Queries) MakeProvider(
+      Action<FakeQueries>? seed = null, IAgentRuntime? runtime = null)
   {
-    List<(AgentRecord, SpawnRequest)> calls = [];
-    FakeSpawnCommand command = new(spawnReply ?? Result.Success(AgentId.NewId()), calls);
     FakeQueries queries = new();
     seed?.Invoke(queries);
-    return (new AgentCapabilityProvider(new AgentProviderServices(command, queries, () => parent, runtime)), command, queries, calls);
+    return (new AgentCapabilityProvider(new AgentProviderServices(queries, runtime)), queries);
   }
 
   private sealed class FakeRuntime(AgentRunOutcome? outcome = null, DomainError? error = null, DomainError? resumeError = null) : IAgentRuntime
@@ -81,7 +60,7 @@ public class AgentCapabilityProviderTests
 
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(error is null
-            ? Result.Success(outcome ?? new AgentRunOutcome(id, AgentStatus.Completed, null, "settled report", "prov/child", 1))
+            ? Result.Success(outcome ?? new AgentRunOutcome(id, AgentStatus.Completed, null, "settled report", "prov/child"))
             : Result.Failure<AgentRunOutcome>(error));
 
     public List<(Guid Id, string Message)> Resumed { get; } = [];
@@ -102,169 +81,13 @@ public class AgentCapabilityProviderTests
     public void Interrupt(AgentId? agentId = null) { }
   }
 
-  // --- spawn ---------------------------------------------------------------
-
-  [Fact]
-  public async Task Spawn_Success_RendersRunningLine_WithoutAnyReport()
-  {
-    AgentId id = AgentId.NewId();
-    AgentRecord parent = ParentAtDepth(0);
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(parent, Result.Success(id));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn",
-                             /*lang=json,strict*/
-                             """{"taskPrompt":"summarize","model":"prov/model-x","label":"research"}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    // Non-blocking contract: exactly the running line — no report gutter, no label segment.
-    Assert.Equal($"id={id} status=running", result.Content);
-    Assert.DoesNotContain("--- report ---", result.Content, StringComparison.Ordinal);
-
-    (AgentRecord? Parent, SpawnRequest? Request) = Assert.Single(calls);
-    Assert.Equal(parent, Parent);
-    Assert.Equal("summarize", Request.TaskPrompt);
-    Assert.Equal("prov/model-x", Request.Model);
-    Assert.Equal("research", Request.Label);
-  }
-
-  [Fact]
-  public async Task Spawn_HandlerFailure_PassesCanonicalErrorThroughUntouched()
-  {
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(2),
-        Result.Failure<AgentId>(new DomainError("DepthExceeded",
-            "agent depth 2 is at the limit (3); children cannot spawn further")));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", /*lang=json,strict*/ """{"taskPrompt":"x"}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Equal("Error [DepthExceeded]: agent depth 2 is at the limit (3); children cannot spawn further",
-        result.Content);
-  }
-
-  [Fact]
-  public async Task Spawn_CapReached_CanonicalStringRoundTripsByteForByte()
-  {
-    // The runtime builds its cap Error by parsing RuntimeErrors.CapReached; rendering must
-    // reproduce that canonical string exactly so callers can match on it.
-    string canonical = RuntimeErrors.CapReached;
-    int codeStart = canonical.IndexOf('[', StringComparison.Ordinal) + 1;
-    int codeEnd = canonical.IndexOf(']', codeStart);
-    DomainError error = new(canonical[codeStart..codeEnd], canonical[(codeEnd + 3)..]);
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), Result.Failure<AgentId>(error));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", /*lang=json,strict*/ """{"taskPrompt":"x"}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Equal(canonical, result.Content);
-  }
-
-  [Theory]
-  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","bogus":1}""", "bogus")]
-  [InlineData("""{}""", "taskPrompt")]
-  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"  "}""", "taskPrompt")]
-  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","model":" "}""", "model")]
-  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","workspaceRoot":""}""", "workspaceRoot")]
-  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","workspaceRoot":" "}""", "workspaceRoot")]
-  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","workspaceRoot":7}""", "workspaceRoot")]
-  public async Task Spawn_InvalidInput_TypedErrorNamingField(string json, string expected)
-  {
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(ParentAtDepth(0));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", json, ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Contains(expected, result.Content, StringComparison.Ordinal);
-    Assert.Empty(calls);
-  }
-
-  [Fact]
-  public async Task Spawn_WorkspaceRoot_FlowsIntoRequestForHandlerValidation()
-  {
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(ParentAtDepth(0), Result.Success(AgentId.NewId()));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn",
-                         /*lang=json,strict*/
-                         """{"taskPrompt":"x","workspaceRoot":"C:\\repo\\.worktrees\\agent-fix"}""",
-                         ct: TestContext.Current.CancellationToken);
-
-    // The provider only carries the value: strict anchor validation (AnchorMissing /
-    // AnchorInvalid) is StartSpawnHandler's contract, exercised by the application suite.
-    Assert.False(result.IsError);
-    (AgentRecord? _, SpawnRequest? request) = Assert.Single(calls);
-    Assert.Equal("C:\\repo\\.worktrees\\agent-fix", request.WorkspaceRoot);
-  }
-
-  [Fact]
-  public async Task Spawn_WorkspaceRootAbsent_StaysNull_LegacyPathUnchanged()
-  {
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(ParentAtDepth(0), Result.Success(AgentId.NewId()));
-
-    _ = await provider.InvokeAsync("spawn", /*lang=json,strict*/ """{"taskPrompt":"x"}""", ct: TestContext.Current.CancellationToken);
-
-    (AgentRecord? _, SpawnRequest? request) = Assert.Single(calls);
-    Assert.Null(request.WorkspaceRoot);
-  }
-
-  [Fact]
-  public async Task Fanout_ChildWorkspaceRoot_FlowsIntoEachRequest()
-  {
-    List<SpawnRequest> fanned = [];
-    AgentRecord parent = ParentAtDepth(0);
-    FanoutChildrenCollector collector = new((_, requests, _) =>
-    {
-      fanned.AddRange(requests);
-      return Task.FromResult("done");
-    });
-    AgentCapabilityProvider provider = new(new AgentProviderServices(new NoopSpawn(), new FakeQueries(), () => parent, Fanout: collector.FanoutAsync));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
-                         /*lang=json,strict*/
-                         """{"children":[{"taskPrompt":"a","workspaceRoot":"C:\\repo\\.worktrees\\one"},{"taskPrompt":"b"}]}""",
-                         ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal(2, fanned.Count);
-    Assert.Equal("C:\\repo\\.worktrees\\one", fanned[0].WorkspaceRoot);
-    Assert.Null(fanned[1].WorkspaceRoot);
-  }
-
-  [Fact]
-  public async Task Fanout_EmptyChildWorkspaceRoot_TypedArgumentError()
-  {
-    AgentRecord parent = ParentAtDepth(0);
-    FanoutChildrenCollector collector = new((_, requests, _) => Task.FromResult("unreachable"));
-    AgentCapabilityProvider provider = new(new AgentProviderServices(new NoopSpawn(), new FakeQueries(), () => parent, Fanout: collector.FanoutAsync));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
-                         /*lang=json,strict*/
-                         """{"children":[{"taskPrompt":"a","workspaceRoot":""}]}""",
-                         ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Contains("children[1].workspaceRoot must be a non-empty string.", result.Content, StringComparison.Ordinal);
-  }
-
-  /// <summary>Fanout seam fake: records the requests it receives so tests can assert
-  ///     the exact SpawnRequest list the parser produced.</summary>
-  private sealed class FanoutChildrenCollector(Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>> impl)
-  {
-    public Task<string> FanoutAsync(AgentRecord parent, SpawnRequest[] children, CancellationToken ct) => impl(parent, children, ct);
-  }
-
-  private sealed class NoopSpawn : IAgentSpawnCommand
-  {
-    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(AgentId.NewId()));
-  }
-
   // --- status --------------------------------------------------------------
 
   [Fact]
   public async Task Status_Running_RendersBareRunningLine()
   {
     AgentRecord child = ChildIn(AgentStatus.Running);
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
-        Result.Success(child));
+    (AgentCapabilityProvider provider, FakeQueries queries) = MakeProvider(seed: q => q._statuses[child.Id] = Result.Success(child));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -277,8 +100,7 @@ public class AgentCapabilityProviderTests
   public async Task Status_Completed_RendersCompletedWithoutReasonSuffix()
   {
     AgentRecord child = ChildIn(AgentStatus.Completed, report: "the final report");
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
-        Result.Success(child));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(seed: q => q._statuses[child.Id] = Result.Success(child));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -293,8 +115,7 @@ public class AgentCapabilityProviderTests
   public async Task Status_Failed_RendersStateLineWithReasonSuffix(AgentFailureReason reason, string text)
   {
     AgentRecord child = ChildIn(AgentStatus.Failed, reason);
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
-        Result.Success(child));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(seed: q => q._statuses[child.Id] = Result.Success(child));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -307,7 +128,7 @@ public class AgentCapabilityProviderTests
   {
     AgentId id = AgentId.NewId();
     string notFound = RuntimeErrors.NotFound(id.Value);
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider();
 
     CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -318,7 +139,7 @@ public class AgentCapabilityProviderTests
   [Fact]
   public async Task Status_MissingId_TypedArgumentError()
   {
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
+    (AgentCapabilityProvider provider, FakeQueries queries) = MakeProvider();
 
     CapabilityInvocationResult result = await provider.InvokeAsync("status", "{}", ct: TestContext.Current.CancellationToken);
 
@@ -334,8 +155,7 @@ public class AgentCapabilityProviderTests
   {
     const string report = "line one\n--- not a gutter ---\nline three";
     AgentRecord child = ChildIn(AgentStatus.Completed, report: report);
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._results[child.Id] =
-        Result.Success(report));
+    (AgentCapabilityProvider provider, FakeQueries queries) = MakeProvider(seed: q => q._results[child.Id] = Result.Success(report));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -348,9 +168,7 @@ public class AgentCapabilityProviderTests
   public async Task Result_NotComplete_PassesCanonicalErrorThroughUntouched()
   {
     AgentId id = AgentId.NewId();
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._results[id] =
-        Result.Failure<string>(new DomainError("NotComplete",
-            $"Agent '{id}' has not finished running. Check agent.status later.")));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(seed: q => q._results[id] = Result.Failure<string>(new DomainError("NotComplete", $"Agent '{id}' has not finished running. Check agent.status later.")));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -362,8 +180,7 @@ public class AgentCapabilityProviderTests
   public async Task Result_NotFound_PassesCanonicalErrorThroughUntouched()
   {
     AgentId id = AgentId.NewId();
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._results[id] =
-        Result.Failure<string>(new DomainError("NotFound", $"No agent exists with id '{id}'.")));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(seed: q => q._results[id] = Result.Failure<string>(new DomainError("NotFound", $"No agent exists with id '{id}'.")));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -374,7 +191,7 @@ public class AgentCapabilityProviderTests
   [Fact]
   public async Task Result_MalformedGuid_TypedArgumentError_QueryNeverCalled()
   {
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
+    (AgentCapabilityProvider provider, FakeQueries queries) = MakeProvider();
 
     CapabilityInvocationResult result = await provider.InvokeAsync("result",
                              /*lang=json,strict*/
@@ -391,8 +208,7 @@ public class AgentCapabilityProviderTests
   public async Task Wait_CompletedChild_RendersOutcomeReportVerbatim()
   {
     AgentRecord child = ChildIn(AgentStatus.Completed, report: "the awaited report");
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
-        ParentAtDepth(0), runtime: new FakeRuntime(new AgentRunOutcome(child.Id, AgentStatus.Completed, null, "the awaited report", "prov/child", 1)));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: new FakeRuntime(new AgentRunOutcome(child.Id, AgentStatus.Completed, null, "the awaited report", "prov/child")));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -404,8 +220,7 @@ public class AgentCapabilityProviderTests
   public async Task Wait_NotFound_PassesThroughUntouched()
   {
     AgentId id = AgentId.NewId();
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
-        ParentAtDepth(0), runtime: new FakeRuntime(error: new DomainError("NotFound", "no such agent.")));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: new FakeRuntime(error: new DomainError("NotFound", "no such agent.")));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -417,8 +232,7 @@ public class AgentCapabilityProviderTests
   public async Task Wait_CancelledWait_PassesThroughUntouched()
   {
     AgentId id = AgentId.NewId();
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
-        ParentAtDepth(0), runtime: new FakeRuntime(error: new DomainError("Cancelled", "the wait was cancelled.")));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: new FakeRuntime(error: new DomainError("Cancelled", "the wait was cancelled.")));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -430,8 +244,7 @@ public class AgentCapabilityProviderTests
   public async Task Wait_FailedChild_RendersFailureAnnotation()
   {
     AgentRecord child = ChildIn(AgentStatus.Failed, AgentFailureReason.Hung);
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
-        ParentAtDepth(0), runtime: new FakeRuntime(new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.Hung, "", "prov/child", 1)));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: new FakeRuntime(new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.Hung, "", "prov/child")));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -442,7 +255,7 @@ public class AgentCapabilityProviderTests
   [Fact]
   public async Task Wait_MissingRuntime_TypedNotAvailableError()
   {
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider();
 
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{AgentId.NewId()}}"}""", ct: TestContext.Current.CancellationToken);
 
@@ -455,7 +268,7 @@ public class AgentCapabilityProviderTests
   [Fact]
   public async Task Resume_WithoutRuntime_FailsNotAvailable()
   {
-    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider();
 
     CapabilityInvocationResult result = await provider.InvokeAsync("resume",
         $"{{\"id\":\"{Guid.NewGuid()}\",\"text\":\"go\"}}", TestContext.Current.CancellationToken);
@@ -469,7 +282,7 @@ public class AgentCapabilityProviderTests
   {
     Guid agentId = Guid.NewGuid();
     FakeRuntime runtime = new();
-    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), runtime: runtime);
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: runtime);
 
     CapabilityInvocationResult result = await provider.InvokeAsync("resume",
         $"{{\"id\":\"{agentId}\",\"text\":\"fix the failing tests\"}}", TestContext.Current.CancellationToken);
@@ -483,7 +296,7 @@ public class AgentCapabilityProviderTests
   public async Task Resume_SurfacesTheRuntimeErrorVerbatim()
   {
     FakeRuntime runtime = new(resumeError: new DomainError("NotRunning", "agent 'x' is still running"));
-    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), runtime: runtime);
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: runtime);
 
     CapabilityInvocationResult result = await provider.InvokeAsync("resume",
         $"{{\"id\":\"{Guid.NewGuid()}\",\"text\":\"go\"}}", TestContext.Current.CancellationToken);
@@ -502,7 +315,7 @@ public class AgentCapabilityProviderTests
   public async Task Resume_RejectsMalformedInput(string json, string member)
   {
     FakeRuntime runtime = new();
-    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), runtime: runtime);
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: runtime);
 
     CapabilityInvocationResult result = await provider.InvokeAsync("resume", json, TestContext.Current.CancellationToken);
 
@@ -519,7 +332,7 @@ public class AgentCapabilityProviderTests
   [Fact]
   public async Task InvokeAsync_UnknownAction_TypedError()
   {
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
+    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider();
 
     CapabilityInvocationResult result = await provider.InvokeAsync("nope", "{}", ct: TestContext.Current.CancellationToken);
 

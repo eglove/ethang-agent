@@ -15,7 +15,7 @@ public class InProcessAgentRuntimeQueueTests
   private static AgentRecord QueuedChild(string prompt = "queued child", int priority = 0)
   {
     SpawnContract contract = new() { PreemptGrant = priority > 0 };
-    return AgentRecord.Spawned(AgentId.NewId(), parentId: null, depth: 1,
+    return AgentRecord.Started(AgentId.NewId(),
         modelUsed: "mock/model", label: "test", taskPrompt: prompt, createdAt: DateTimeOffset.UtcNow,
         contract: contract) with
     { Status = AgentStatus.Queued };
@@ -54,7 +54,7 @@ public class InProcessAgentRuntimeQueueTests
 
     public void Complete(AgentId id, string report)
       => _gates.GetOrAdd(id.Value, _ => NewSource<AgentRunOutcome>()).SetResult(
-          new AgentRunOutcome(id, AgentStatus.Completed, null, report, "mock/model", 1));
+          new AgentRunOutcome(id, AgentStatus.Completed, null, report, "mock/model"));
 
     public Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
     {
@@ -109,10 +109,6 @@ public class InProcessAgentRuntimeQueueTests
 
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
-
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
-          [.. Records.Values.Where(r => r.ParentId == parentId)]));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));

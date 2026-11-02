@@ -76,5 +76,5 @@ public sealed class ReadToolPathPolicyCompositionTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 }

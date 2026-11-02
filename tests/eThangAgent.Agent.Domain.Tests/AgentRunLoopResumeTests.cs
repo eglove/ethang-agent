@@ -11,18 +11,17 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     persisted transcript send the agent.resume carrier when the contract stamps one, else
 ///     the watchdog wrap-up nudge, and append back only their delta; failure paths persist the
 ///     partial delta; teardown forgets the heartbeat.</summary>
-public class SubAgentSpawnerResumeTests
+public class AgentRunLoopResumeTests
 {
-  private static AgentRecord Child() => AgentRecord.Spawned(
-      AgentId.NewId(), AgentId.NewId(), 1, "test-model", "test", "do the thing",
+  private static AgentRecord Child() => AgentRecord.Started(AgentId.NewId(), "test-model", "test", "do the thing",
       DateTimeOffset.UtcNow);
 
-  private static SubAgentSpawner Spawner(FakeAgentStore store, IModelProvider provider,
+  private static AgentRunLoop Spawner(FakeAgentStore store, IModelProvider provider,
       IAgentHeartbeat? heartbeat = null) => new(
-      new SubAgentServices(
+      new AgentRunServices(
           new FakeModelProviderFactory(provider), store,
           new ToolRegistry([new FakeTool("t", "ok")]),
-          new StaticTestSystemPrompt(), new SubAgentOptions("test-model"),
+          new StaticTestSystemPrompt(), new AgentRunOptions("test-model"),
           Heartbeat: heartbeat));
 
 
@@ -80,7 +79,7 @@ public class SubAgentSpawnerResumeTests
     ModelRequest request = provider.RequestsSeen[0];
     Assert.Equal(3, request.Messages.Count);
     Message lastUser = request.Messages.Last(m => m.Role is Role.User);
-    Assert.Contains(SubAgentSpawner.WrapUpNudgeSentinel, lastUser.Content, StringComparison.Ordinal);
+    Assert.Contains(AgentRunLoop.WrapUpNudgeSentinel, lastUser.Content, StringComparison.Ordinal);
     Assert.DoesNotContain("do the thing", lastUser.Content, StringComparison.Ordinal);
   }
 
@@ -123,7 +122,7 @@ public class SubAgentSpawnerResumeTests
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("fixed", [])));
     AgentId id = AgentId.NewId();
-    AgentRecord child = AgentRecord.Spawned(id, AgentId.NewId(), 1, "test-model", "test",
+    AgentRecord child = AgentRecord.Started(id, "test-model", "test",
         "original task", DateTimeOffset.UtcNow,
         contract: new SpawnContract().WithResumeMessage("fix the failing tests"));
     _ = await store.SaveAsync(child);
@@ -136,7 +135,7 @@ public class SubAgentSpawnerResumeTests
     Assert.Equal(AgentStatus.Completed, outcome.Status);
     string prompt = Assert.Single(provider.Prompts);
     Assert.Equal("fix the failing tests", prompt);
-    Assert.DoesNotContain(SubAgentSpawner.WrapUpNudgeSentinel, prompt, StringComparison.Ordinal);
+    Assert.DoesNotContain(AgentRunLoop.WrapUpNudgeSentinel, prompt, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -147,7 +146,7 @@ public class SubAgentSpawnerResumeTests
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("done", [])));
     AgentId id = AgentId.NewId();
-    AgentRecord child = AgentRecord.Spawned(id, AgentId.NewId(), 1, "test-model", "test",
+    AgentRecord child = AgentRecord.Started(id, "test-model", "test",
         "original task", DateTimeOffset.UtcNow, contract: new SpawnContract());
     _ = await store.SaveAsync(child);
     _ = await store.AppendMessageAsync(id, new Message(Role.User, "original task", DateTimeOffset.UtcNow), TestContext.Current.CancellationToken);
@@ -155,7 +154,7 @@ public class SubAgentSpawnerResumeTests
     _ = await Spawner(store, provider).RunAsync(child, ct: TestContext.Current.CancellationToken);
 
     string prompt = Assert.Single(provider.Prompts);
-    Assert.StartsWith(SubAgentSpawner.WrapUpNudgeSentinel, prompt, StringComparison.Ordinal);
+    Assert.StartsWith(AgentRunLoop.WrapUpNudgeSentinel, prompt, StringComparison.Ordinal);
   }
 
   [Fact]

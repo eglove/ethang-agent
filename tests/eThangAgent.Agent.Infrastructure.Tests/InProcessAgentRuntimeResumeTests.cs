@@ -12,11 +12,11 @@ namespace eThangAgent.AgentInfrastructure.Tests;
 public class InProcessAgentRuntimeResumeTests
 {
   private static AgentRecord RunningChild(string prompt = "child task") =>
-      AgentRecord.Spawned(new AgentId(Guid.NewGuid()), parentId: null, depth: 1,
+      AgentRecord.Started(new AgentId(Guid.NewGuid()),
           modelUsed: "mock/model", label: "test", taskPrompt: prompt, createdAt: DateTimeOffset.UtcNow);
 
   private static AgentRunOutcome CompletedOutcome(AgentId agentId, string report) =>
-      new(agentId, AgentStatus.Completed, Reason: null, Report: report, ModelUsed: "mock/model", Depth: 1);
+      new(agentId, AgentStatus.Completed, Reason: null, Report: report, ModelUsed: "mock/model");
 
   /// <summary>Runner whose shared gate holds children in-flight until the test releases them.
   ///     Copied from InProcessAgentRuntimeTests: dispatch observation is race-free, and
@@ -146,9 +146,6 @@ public class InProcessAgentRuntimeResumeTests
         return Task.FromResult(Result.Success(snapshot));
       }
     }
-
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
-        CancellationToken ct = default) => throw new NotSupportedException("not exercised by runtime tests");
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => throw new NotSupportedException("not exercised by runtime tests");

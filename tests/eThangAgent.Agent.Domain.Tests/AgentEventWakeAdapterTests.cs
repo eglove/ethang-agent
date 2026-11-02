@@ -110,7 +110,7 @@ public class ChildEventWakeAdapterTests
     AgentId child = new(Guid.NewGuid());
 
     events.Subscriber!.OnEvent(new AgentSettledEvent(child, Now, AgentStatus.Completed, null, 100));
-    events.Subscriber.OnEvent(new AgentStartedEvent(child, Now, null, "model-x", 1));
+    events.Subscriber.OnEvent(new AgentStartedEvent(child, Now, "model-x", 1));
 
     Assert.Empty(seen);
   }

@@ -194,9 +194,6 @@ public sealed class ChildHostRootModelPreferenceTests
     public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
         => Task.FromResult(Result.Success(record.Id.ToString()));
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
-
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
   }

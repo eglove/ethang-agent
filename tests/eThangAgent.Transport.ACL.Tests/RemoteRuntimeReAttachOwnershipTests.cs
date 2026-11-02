@@ -64,7 +64,7 @@ public class RemoteRuntimeReAttachOwnershipTests
     using CancellationTokenSource firstLoop = new();
     _ = firstRuntime.RunReceiveLoopAsync(firstLoop.Token);
     Result<AgentId> started = await firstRuntime.Start(
-        AgentRecord.Spawned(child, null, 1, "m/sub", "reattach", "task", DateTimeOffset.UtcNow),
+        AgentRecord.Started(child, "m/sub", "reattach", "task", DateTimeOffset.UtcNow),
         TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10),
             TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(started.IsSuccess, started.Error?.Message);

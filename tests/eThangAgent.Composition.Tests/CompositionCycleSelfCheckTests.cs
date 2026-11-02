@@ -21,8 +21,8 @@ public class CompositionCycleSelfCheckTests
             E("FuncRegistry", "CapabilityRegistry", deferred: true),      // closure constructs on invoke
             E("CapabilityRegistry", "AgentCapabilityProvider"),
             E("AgentCapabilityProvider", "StartSpawnHandler"),
-            E("StartSpawnHandler", "SubAgentSpawner"),
-            E("SubAgentSpawner", "ToolRegistry"),
+            E("StartSpawnHandler", "AgentRunLoop"),
+            E("AgentRunLoop", "ToolRegistry"),
             E("ToolRegistry", "ExecTool"),
             E("ExecTool", "IExecEngine"),
             E("IExecEngine", "FuncRegistry", deferred: true),             // resolved per execution

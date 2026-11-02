@@ -33,7 +33,7 @@ public class RemoteRuntimeSettleRetentionTests
     using CancellationTokenSource loop = new();
     _ = runtime.RunReceiveLoopAsync(loop.Token);
     Result<AgentId> started = await runtime.Start(
-        AgentRecord.Spawned(child, null, 1, "m/sub", "hung", "task", DateTimeOffset.UtcNow),
+        AgentRecord.Started(child, "m/sub", "hung", "task", DateTimeOffset.UtcNow),
         TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(started.IsSuccess, started.Error?.Message);
     return runtime;

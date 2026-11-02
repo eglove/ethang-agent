@@ -114,7 +114,7 @@ public sealed partial class DoctrineTests
     string[] files =
     [
         "src/eThangAgent.Agent.Infrastructure/InProcessAgentRuntime.cs",
-        "src/eThangAgent.Agent.Domain/SubAgentSpawner.cs",
+        "src/eThangAgent.Agent.Domain/AgentRunLoop.cs",
         "src/eThangAgent.Agent.Application/OrphanRepairHandler.cs",
         "src/eThangAgent.Agent.Domain/FilteredToolRegistry.cs",
     ];

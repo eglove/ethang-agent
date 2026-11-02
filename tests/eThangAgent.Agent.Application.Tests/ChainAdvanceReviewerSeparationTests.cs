@@ -87,7 +87,7 @@ public class ChainAdvanceReviewerSeparationTests
 
     public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Served.TryGetValue(id.ToString(), out string? model)
-            ? Result.Success(AgentRecord.Spawned(id, null, 0, model, null, "s", T0))
+            ? Result.Success(AgentRecord.Started(id, model, null, "s", T0))
             : Result.Failure<AgentRecord>(new DomainError("NotFound", "no such agent")));
 
     public Task<Result<string>> AppendMessageAsync(AgentId id,
@@ -101,10 +101,6 @@ public class ChainAdvanceReviewerSeparationTests
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(
         AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
-
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
-        CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));

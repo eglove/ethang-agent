@@ -16,7 +16,7 @@ public class DocxCompositionTests
   {
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-        new SubAgentOptions(null, 2));
+        new AgentRunOptions(null, 2));
     AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-docx-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,

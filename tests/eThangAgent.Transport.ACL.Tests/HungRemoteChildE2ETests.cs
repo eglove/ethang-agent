@@ -234,7 +234,7 @@ public class HungRemoteChildE2ETests
       // A real spawn stamps the session's provider onto the record (issue #124); the
       // host's spawn invariant refuses an unbound begin-run, so the fixture simulates
       // the spawn-path record faithfully.
-      _ = await bootstrap.SaveAsync(AgentRecord.Spawned(child, null, 1, "m/sub", "hung-e2e",
+      _ = await bootstrap.SaveAsync(AgentRecord.Started(child, "m/sub", "hung-e2e",
           "you will hang", DateTimeOffset.UtcNow, provider: "openrouter"), TestContext.Current.CancellationToken).ConfigureAwait(true);
       Result<AgentRecord> loadedChild = await bootstrap.GetAsync(child, TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(loadedChild.IsSuccess, loadedChild.Error?.Message);

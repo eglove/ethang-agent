@@ -35,7 +35,7 @@ public class CatalogRefreshE2ETests
     SqliteModelCatalogCache store = new(database.Database);
     string key = $"openrouter|{server.BaseUrl}api/v1/models";
     _ = await store.WriteAsync(key, new ModelCatalogSnapshot([Cached("old/model")], DateTimeOffset.UtcNow), TestContext.Current.CancellationToken);
-    AgentSettings settings = new(new OpenRouterSettings("test-key", server.BaseUrl), new SubAgentOptions(null, 1));
+    AgentSettings settings = new(new OpenRouterSettings("test-key", server.BaseUrl), new AgentRunOptions(null, 1));
     using ServiceProvider services = new ServiceCollection().AddEThangAgentCore(settings, Providers.OpenRouter,
         ModelConfig.Create("openrouter/auto", 256, 0.2f, 200_000).Value!,
         new AgentHostOptions(FixedWorkspaceContext.ForPath("test"), new UnrootedPathResolver()), database.Database).BuildServiceProvider();

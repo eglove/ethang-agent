@@ -1,4 +1,3 @@
-using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.MemoryDomain;
@@ -84,48 +83,12 @@ public static class SearchService
       };
 
   /// <summary>
-  /// Active path: a session qualifies only when its ParentId chain walk terminates at a
-  /// root (ParentId null) within the given set. Chains whose ancestor row is absent are
-  /// orphans and excluded — that is the observable branch difference. A lineage cycle
-  /// never reaches a root, so it is excluded rather than walked forever.
+  /// Active path: every session in the set qualifies, because there is no lineage to walk
+  /// (issue #334). This used to follow each corpus's ParentId chain and keep only those that
+  /// terminated at a root, which existed to exclude orphaned and cyclic CHILD rows. An agent is
+  /// a session and a session has no parent, so the active set and the corpus are the same set.
   /// </summary>
-  private static List<SessionCorpus> KeepActivePaths(List<SessionCorpus> scoped)
-  {
-    Dictionary<AgentId, SessionCorpus> byId = new(scoped.Count);
-    foreach (SessionCorpus corpus in scoped)
-    {
-      byId[corpus.Id] = corpus;
-    }
-
-    List<SessionCorpus> active = [];
-    foreach (SessionCorpus corpus in scoped)
-    {
-      SessionCorpus current = corpus;
-      HashSet<AgentId> visited = [corpus.Id];
-      bool reachesRoot = true;
-      while (current.ParentId is { } parentId)
-      {
-        if (!byId.TryGetValue(parentId, out SessionCorpus? parent))
-        {
-          reachesRoot = false; // ancestor row absent — orphan chain
-          break;
-        }
-        if (!visited.Add(parent.Id))
-        {
-          reachesRoot = false; // cycle — no root reachable
-          break;
-        }
-        current = parent;
-      }
-
-      if (reachesRoot)
-      {
-        active.Add(corpus);
-      }
-    }
-
-    return active;
-  }
+  private static List<SessionCorpus> KeepActivePaths(List<SessionCorpus> scoped) => [.. scoped];
 
   /// <summary>AND semantics: an entry matches only when every planned token is in its canonical token set.</summary>
   private static List<MemoryEntry> FilterByTerms(List<MemoryEntry> ordered, IReadOnlyList<string> tokens)

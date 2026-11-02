@@ -46,22 +46,11 @@ public class AgentWaitWakeTests
 
   private static AgentCapabilityProvider MakeProvider(IAgentRuntime runtime, IWaitWakeSource? source = null)
   {
-    FakeSpawnCommand command = new(Result.Success(AgentId.NewId()), []);
-    return new AgentCapabilityProvider(new AgentProviderServices(command, new FakeQueries(),
-        () => AgentRecord.Spawned(AgentId.NewId(), null, 0, "prov", null, "root", DateTimeOffset.UtcNow),
+    return new AgentCapabilityProvider(new AgentProviderServices(new FakeQueries(),
         runtime, WakeSource: source));
   }
 
   // Minimal fakes (the provider tests' own fakes are nested in that class):
-  private sealed class FakeSpawnCommand(Result<AgentId> reply, List<(AgentRecord Parent, SpawnRequest Request)> calls) : IAgentSpawnCommand
-  {
-    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
-    {
-      calls.Add((parent, request));
-      return Task.FromResult(reply);
-    }
-  }
-
   private sealed class FakeQueries : IAgentQueries
   {
     public Task<Result<AgentRecord>> GetStatus(AgentId id, CancellationToken ct = default)
@@ -70,8 +59,6 @@ public class AgentWaitWakeTests
     public Task<Result<string>> GetResult(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<string>(new DomainError("NotFound", "no agent.")));
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
   }
 
   [Fact]
@@ -136,7 +123,7 @@ public class AgentWaitWakeTests
   public async Task Wait_Settled_RendersOutcomeUnchanged()
   {
     AgentId child = AgentId.NewId();
-    SettleOnDemandRuntime runtime = new(new AgentRunOutcome(child, AgentStatus.Completed, null, "the awaited report", "prov", 1));
+    SettleOnDemandRuntime runtime = new(new AgentRunOutcome(child, AgentStatus.Completed, null, "the awaited report", "prov"));
     AgentCapabilityProvider provider = MakeProvider(runtime, new FakeWakeSource());
 
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", $"{{\"id\":\"{child}\"}}", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -160,7 +147,7 @@ public class AgentWaitWakeTests
   public async Task Wait_NoSourceWired_BehavesAsToday()
   {
     AgentId child = AgentId.NewId();
-    SettleOnDemandRuntime runtime = new(new AgentRunOutcome(child, AgentStatus.Completed, null, "legacy report", "prov", 1));
+    SettleOnDemandRuntime runtime = new(new AgentRunOutcome(child, AgentStatus.Completed, null, "legacy report", "prov"));
     AgentCapabilityProvider provider = MakeProvider(runtime, source: null);
 
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", $"{{\"id\":\"{child}\"}}", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);

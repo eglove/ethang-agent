@@ -133,7 +133,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
   {
     return (handoffEnabled is null ? Result.Success(false) : handoffEnabled())
         .Match(
-            success => success && SubAgentSpawner.RunningChild is null
+            success => success && AgentRunLoop.RunningChild is null
                 ? Result.Success(CompactionOutcome.Handoff(summary.Text, summary.Usage,
                     summary.ModelId, summary.Provider, summary.ServedModelId, summary.Timing,
                     summary.ServedProvider))

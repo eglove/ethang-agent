@@ -951,16 +951,16 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     the persisted text either way.</summary>
   private static AgentSettings BindFromUpdate(SettingsUpdate update)
   {
-    SubAgentOptions subAgents;
+    AgentRunOptions subAgents;
     WatchdogSettings? watchdog;
     try
     {
-      subAgents = SubAgentConfiguration.Bind(
+      subAgents = AgentRunConfiguration.Bind(
           Normalize(update.DefaultModelText),
           Normalize(update.MaxConcurrentAgentsText)
               ?? AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture),
           Normalize(update.RootTurnIdleText));
-      watchdog = SubAgentConfiguration.BindWatchdog(
+      watchdog = AgentRunConfiguration.BindWatchdog(
           Normalize(update.WatchdogTickText), Normalize(update.WatchdogIdleText),
           Normalize(update.WatchdogWrapUpText));
     }

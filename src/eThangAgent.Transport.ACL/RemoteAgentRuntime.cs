@@ -621,7 +621,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     foreach (KeyValuePair<Guid, TaskCompletionSource<AgentRunOutcome>> entry in _settling)
     {
       _ = entry.Value.TrySetResult(new AgentRunOutcome(new AgentId(entry.Key), AgentStatus.Failed,
-          AgentFailureReason.ProviderError, "Error [ProviderError]: " + reason, "remote", 0));
+          AgentFailureReason.ProviderError, "Error [ProviderError]: " + reason, "remote"));
     }
 
     // Drop the transport: a write blocked on the dead connection faults out, releasing the
@@ -749,7 +749,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     {
       _ = faulted.TrySetResult(new AgentRunOutcome(new AgentId(fault.RecordId),
           AgentStatus.Failed, AgentFailureReason.ProviderError,
-          "Error [HostFault]: " + fault.Message, "remote", 0));
+          "Error [HostFault]: " + fault.Message, "remote"));
     }
   }
 
@@ -763,7 +763,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       AgentFailureReason? reason = Enum.TryParse(notice.Reason, out AgentFailureReason reasonParsed)
           ? reasonParsed : null;
       Settle(new AgentId(notice.RecordId), new AgentRunOutcome(new AgentId(notice.RecordId),
-          status, reason, notice.Report, "remote", 0));
+          status, reason, notice.Report, "remote"));
     }
   }
 

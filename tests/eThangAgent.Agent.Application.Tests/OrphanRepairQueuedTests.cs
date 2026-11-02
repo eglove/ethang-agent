@@ -10,7 +10,7 @@ namespace eThangAgent.Agent.Application.Tests;
 public class OrphanRepairQueuedTests
 {
   private static AgentRecord Queued(string label)
-      => AgentRecord.Spawned(new AgentId(Guid.NewGuid()), parentId: null, depth: 1,
+      => AgentRecord.Started(new AgentId(Guid.NewGuid()),
           modelUsed: "m/sub", label: label, taskPrompt: "task", createdAt: DateTimeOffset.UtcNow)
           with
       { Status = AgentStatus.Queued };

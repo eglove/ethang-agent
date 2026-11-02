@@ -88,11 +88,11 @@ public class FilteredToolRegistryTests
     FakeProvider provider = new(
         Result.Success(new ModelResponse(null, [new ToolCallRequest("call_1", "exec", "{}")])),
         Result.Success(new ModelResponse("done", [])));
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), store,
         Inner(), // plain shared registry — the CONTRACT drives the filter
-        new StaticPromptProvider("guide"), new SubAgentOptions(DefaultModel: "m/sub")));
-    AgentRecord child = AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", null,
+        new StaticPromptProvider("guide"), new AgentRunOptions(DefaultModel: "m/sub")));
+    AgentRecord child = AgentRecord.Started(AgentId.NewId(), "m/sub", null,
         "use exec", DateTimeOffset.UtcNow,
         new SpawnContract(EffectiveTools: "read"));
 

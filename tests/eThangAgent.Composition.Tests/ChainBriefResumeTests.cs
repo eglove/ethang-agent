@@ -23,7 +23,7 @@ public sealed class ChainBriefResumeTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings("sk-or-test", BaseUrl),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   [Fact]
   public async Task AChainBriefSeed_SurvivesAResume()

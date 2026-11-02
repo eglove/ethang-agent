@@ -354,7 +354,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>Returns the validation problem with the max-concurrent-agents text, or
   ///     null when it is a legal entry: blank (the shipped default of 4 applies), or a
   ///     positive integer — the same rule
-  ///     <see cref="SubAgentConfiguration.Bind"/> enforces at load time.</summary>
+  ///     <see cref="AgentRunConfiguration.Bind"/> enforces at load time.</summary>
   private static string? ValidateMaxConcurrent(string text)
   {
     string trimmed = text.Trim();
@@ -373,7 +373,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
   ///     when it is a legal entry: blank (the watchdog default applies), or a positive
   ///     constant-format duration. A bare integer is rejected by name — TimeSpan would
   ///     silently read it as DAYS — the same named decision
-  ///     <see cref="SubAgentConfiguration.BindWatchdog"/> makes at load time.</summary>
+  ///     <see cref="AgentRunConfiguration.BindWatchdog"/> makes at load time.</summary>
   private static string? ValidateDuration(string text, string label)
   {
     string trimmed = text.Trim();
@@ -398,7 +398,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>Returns the validation problem with the wrap-up-attempts text, or null
   ///     when it is a legal entry: blank (the watchdog default applies), or a
   ///     non-negative integer — the same rule
-  ///     <see cref="SubAgentConfiguration.BindWatchdog"/> enforces at load time.</summary>
+  ///     <see cref="AgentRunConfiguration.BindWatchdog"/> enforces at load time.</summary>
   private static string? ValidateWrapUp(string text)
   {
     string trimmed = text.Trim();

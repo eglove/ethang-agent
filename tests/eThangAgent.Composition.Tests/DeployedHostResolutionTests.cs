@@ -118,7 +118,7 @@ public class DeployedHostResolutionTests
       AgentSessionFactory factory = new(
           new AgentSettings(
               new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-              new SubAgentOptions(null, 2)),
+              new AgentRunOptions(null, 2)),
           hostExePath: () => missingHost);
 
       Result<AgentSession> result = await factory

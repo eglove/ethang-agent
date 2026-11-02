@@ -782,7 +782,7 @@ public sealed class ScriptTools
     // whose SynchronizationContext must pump (e.g. Avalonia's UI thread). The caller's
     // SynchronizationContext is shed INSIDE the delegate — continuations resume on the
     // pool, never on a blocked pump — while ExecutionContext (AsyncLocal ambient state
-    // such as SubAgentSpawner.RunningChild) still FLOWS: suppressing it broke
+    // such as AgentRunLoop.RunningChild) still FLOWS: suppressing it broke
     // agent.spawn parent resolution from inside exec scripts (2026-10-04 incident).
     Task<CapabilityInvocationResult> scheduled = Task.Run(async () =>
     {

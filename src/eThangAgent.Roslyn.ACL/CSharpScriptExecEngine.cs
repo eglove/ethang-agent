@@ -269,7 +269,7 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     // internal await post back to a pump that synchronous script code may be
     // blocking. Shedding inside keeps every continuation on pool threads, never on
     // a UI pump — while ExecutionContext (AsyncLocal ambient state such as
-    // SubAgentSpawner.RunningChild) still flows: suppressing it broke
+    // AgentRunLoop.RunningChild) still flows: suppressing it broke
     // agent.spawn parent resolution from inside exec scripts (2026-10-04 incident).
     Task<object?> scheduled = Task.Run(async () =>
     {

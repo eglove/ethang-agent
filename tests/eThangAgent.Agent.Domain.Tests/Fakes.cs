@@ -157,10 +157,6 @@ internal sealed class FakeAgentStore : IAgentStore
     => Task.FromResult(Result.Success<IReadOnlyList<Message>>(
         [.. AppendedMessages.Where(a => a.AgentId == id).Select(a => a.Message)]));
 
-  public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
-          [.. _records.Values.Where(r => r.ParentId == parentId)]));
-
   public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
           [.. _records.Values.OrderBy(r => r.CreatedAt)]));

@@ -21,7 +21,7 @@ public class InProcessAgentEventsTests
   }
 
   private static AgentStartedEvent Started(int attempts) => new(
-      new AgentId(Guid.NewGuid()), DateTimeOffset.UtcNow, null, "provider/model-x", attempts);
+      new AgentId(Guid.NewGuid()), DateTimeOffset.UtcNow, "provider/model-x", attempts);
 
   [Fact]
   public void Publish_FansOutInSubscriptionOrder_AndIsEphemeral()

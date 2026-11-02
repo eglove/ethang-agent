@@ -50,7 +50,7 @@ public class ManagementKeyLivePushTests
             // production shell always satisfies.
             Settings = new AgentSettings(
                 new OpenRouterSettings("sk-or-v1-abc", new Uri("https://openrouter.test")),
-                new AgentDomain.SubAgentOptions(null, 2)),
+                new AgentDomain.AgentRunOptions(null, 2)),
           });
 
   private static AgentSession BuildSession(string root, string provider)

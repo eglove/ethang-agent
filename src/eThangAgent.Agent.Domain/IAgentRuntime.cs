@@ -25,9 +25,9 @@ public interface IAgentRuntime
   Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default);
 #pragma warning restore CA1716
 
-  /// <summary>Interrupts an agent and ALL its running descendants (FR-C6): deepest-first
-  ///     cancellation so parents observe children settling before their own repair.
-  ///     Unknown ids are a no-op. The parent-control path for tree teardown.</summary>
+  /// <summary>Interrupts one agent's run (FR-C6). The name is kept so every caller of the
+  ///     scoped stop keeps one spelling; there is no subtree to walk, because an agent has no
+  ///     descendants (issue #334). Unknown ids are a no-op.</summary>
   void InterruptSubtree(AgentId rootOfSubtree);
 
   /// <summary>Delivers one steering message to a LIVE run this runtime owns (issue #330),

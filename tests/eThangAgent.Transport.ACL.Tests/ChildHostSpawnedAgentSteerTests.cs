@@ -223,7 +223,7 @@ public class ChildHostSpawnedAgentSteerTests
       mock.Start();
       AgentSettings settings = new AgentSettings(
           new OpenRouterSettings("sk-test", mock.BaseUrl),
-          new SubAgentOptions(null, 4),
+          new AgentRunOptions(null, 4),
           WorkspaceRoot: workspace,
           SessionId: Guid.NewGuid().ToString("D"))
           .WithWorkspaceId(workspace);
@@ -253,7 +253,7 @@ public class ChildHostSpawnedAgentSteerTests
     public async Task<AgentRecord> PersistAgentAsync()
     {
       AgentId id = AgentId.NewId();
-      AgentRecord record = AgentRecord.Spawned(id, parentId: null, depth: 0, ChildModel,
+      AgentRecord record = AgentRecord.Started(id, ChildModel,
           label: "spawned", taskPrompt: "do the work", DateTimeOffset.UtcNow,
           provider: Providers.OpenRouter, workspaceId: WorkspaceId);
       Result<string> saved = await Host.Store.SaveAsync(record, TestContext.Current.CancellationToken)

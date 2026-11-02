@@ -229,7 +229,7 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
       {
         _ = orphan.TrySetResult(new AgentRunOutcome(new AgentId(recordId), AgentStatus.Failed,
             AgentFailureReason.Interrupted, "Error [NotFound]: the parked agent's record no longer exists.",
-            AgentRecord.UnassignedModel, 0));
+            AgentRecord.UnassignedModel));
       }
 
       await RetireAsync(new AgentId(recordId)).ConfigureAwait(false);
@@ -308,7 +308,7 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
       {
         _ = parked.TrySetResult(new AgentRunOutcome(one, AgentStatus.Failed, AgentFailureReason.Interrupted,
             "Error [Interrupted]: the parked agent was cancelled before it started.",
-            AgentRecord.UnassignedModel, 0));
+            AgentRecord.UnassignedModel));
       }
 
       return;

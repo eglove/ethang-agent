@@ -33,15 +33,13 @@ public sealed class SqliteAgentStoreConcurrencyTests : IDisposable
   public async Task ConcurrentSavesAndAppends_AllSucceedAndPersist()
   {
     AgentRecord[] records = [.. Enumerable.Range(0, 20)
-        .Select(i => AgentRecord.Spawned(
-            AgentId.NewId(), AgentId.NewId(), 1, "provider/model", $"agent-{i}",
+        .Select(i => AgentRecord.Started(AgentId.NewId(), "provider/model", $"agent-{i}",
             $"task {i}", new DateTimeOffset(2026, 8, 21, 10, 0, i, TimeSpan.Zero)))];
 
     Result<string>[] saves = await Task.WhenAll(records.Select(
         r => Task.Run(() => _store.SaveAsync(r))));
 
-    AgentRecord shared = AgentRecord.Spawned(
-        AgentId.NewId(), null, 1, "provider/model", "shared", "shared task",
+    AgentRecord shared = AgentRecord.Started(AgentId.NewId(), "provider/model", "shared", "shared task",
         new DateTimeOffset(2026, 8, 21, 9, 0, 0, TimeSpan.Zero));
     Assert.True((await _store.SaveAsync(shared, ct: TestContext.Current.CancellationToken)).IsSuccess);
 

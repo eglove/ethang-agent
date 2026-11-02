@@ -22,7 +22,7 @@ namespace eThangAgent.Composition;
 ///     exactly the defect this class exists to close.</para>
 ///     <para>The authoring agent is resolved through the constructor's author delegate,
 ///     lazily at
-///     publish time: a child run is ambient (<c>SubAgentSpawner.RunningChild</c>) while a
+///     publish time: a child run is ambient (<c>AgentRunLoop.RunningChild</c>) while a
 ///     root write is not, and the resolution must reflect whichever run is writing rather
 ///     than whichever container happened to build first.</para></summary>
 public sealed class PlanChangePublisher : IDisposable

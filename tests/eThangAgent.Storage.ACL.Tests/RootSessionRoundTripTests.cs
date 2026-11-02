@@ -42,8 +42,6 @@ public sealed class RootSessionRoundTripTests : IDisposable
     AgentRecord record = (await _store.GetAsync(rootId, ct: TestContext.Current.CancellationToken)).Value!;
 
     Assert.Equal(rootId, record.Id);
-    Assert.Null(record.ParentId);
-    Assert.Equal(0, record.Depth);
     Assert.Equal(AgentStatus.Running, record.Status);
     Assert.Equal("unassigned", record.ModelUsed);
     Assert.Equal("root", record.Label);
@@ -108,7 +106,6 @@ public sealed class RootSessionRoundTripTests : IDisposable
     Assert.Equal(completedAt, record.CompletedAt);
 
     Assert.Equal("unassigned", record.ModelUsed);
-    Assert.Equal(0, record.Depth);
     Assert.Equal("root", record.Label);
   }
 }

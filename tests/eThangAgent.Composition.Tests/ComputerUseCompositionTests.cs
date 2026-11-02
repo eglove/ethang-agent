@@ -15,7 +15,7 @@ public class ComputerUseCompositionTests
 {
   private static AgentSettings Settings(bool computerUse) => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2),
+      new AgentRunOptions(null, 2),
       ComputerUse: computerUse);
 
   private static ServiceProvider Build(bool computerUse, string providerName = Providers.OpenRouter)

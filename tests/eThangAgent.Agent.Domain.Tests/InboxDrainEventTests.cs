@@ -11,7 +11,7 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     Nothing publishes when the box was empty (no phantom clears).</summary>
 public class InboxDrainEventTests
 {
-  private static AgentRecord Child() => AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub",
+  private static AgentRecord Child() => AgentRecord.Started(AgentId.NewId(), "m/sub",
       "drain", "start", new DateTime(2026, 9, 3, 12, 0, 0, DateTimeKind.Utc));
 
   /// <summary>One child record minted once per test so the drained id matches the
@@ -32,11 +32,11 @@ public class InboxDrainEventTests
     FakeProvider provider = new(
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "read", "{}")])),
         Result.Success(new ModelResponse("done", [])));
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), new FakeAgentStore(),
         new ToolRegistry([new FakeTool("read", "ok")]),
         new StaticPromptProvider("guide"),
-        new SubAgentOptions(DefaultModel: "m/sub"),
+        new AgentRunOptions(DefaultModel: "m/sub"),
         Events: capture,
         InboxFor: _ => mailbox));
 
@@ -54,11 +54,11 @@ public class InboxDrainEventTests
   {
     EventCapture capture = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("done", [])));
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), new FakeAgentStore(),
         new ToolRegistry([]),
         new StaticPromptProvider("guide"),
-        new SubAgentOptions(DefaultModel: "m/sub"),
+        new AgentRunOptions(DefaultModel: "m/sub"),
         Events: capture,
         InboxFor: _ => new BoundedAgentMailbox()));
 

@@ -7,17 +7,17 @@ namespace eThangAgent.AgentDomain.Tests;
 /// <summary>FR-C2 bridge (the gap the R5 review found): agent.send delivers into the
 ///     runtime's mailbox AND the running child actually drains it at its next safe
 ///     point — the steered text reaches the child's provider request as a User message.
-///     This pins the SubAgentServices.InboxFor wiring the composition installs.</summary>
+///     This pins the AgentRunServices.InboxFor wiring the composition installs.</summary>
 public class InProcessSteeringBridgeTests
 {
-  private static AgentRecord Child() => AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub",
+  private static AgentRecord Child() => AgentRecord.Started(AgentId.NewId(), "m/sub",
       "steered", "start", new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc));
 
   [Fact]
   public async Task InboxFromServices_DrainsIntoTheChildsNextRequest()
   {
     // The runtime's mailbox for the child; the spawner resolves the SAME instance
-    // through SubAgentServices.InboxFor — exactly what the composition wires.
+    // through AgentRunServices.InboxFor — exactly what the composition wires.
     BoundedAgentMailbox mailbox = new();
     _ = mailbox.Deliver(PendingMessage.New("steer: check the file", "parent"));
 
@@ -25,11 +25,11 @@ public class InProcessSteeringBridgeTests
     FakeProvider provider = new(
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "read", "{}")])),
         Result.Success(new ModelResponse("done", [])));
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), store,
         new ToolRegistry([new FakeTool("read", "ok")]),
         new StaticPromptProvider("guide"),
-        new SubAgentOptions(DefaultModel: "m/sub"),
+        new AgentRunOptions(DefaultModel: "m/sub"),
         InboxFor: _ => mailbox));
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(), TestContext.Current.CancellationToken);
@@ -46,11 +46,11 @@ public class InProcessSteeringBridgeTests
   {
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("done", [])));
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), store,
         new ToolRegistry([]),
         new StaticPromptProvider("guide"),
-        new SubAgentOptions(DefaultModel: "m/sub")));
+        new AgentRunOptions(DefaultModel: "m/sub")));
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(), TestContext.Current.CancellationToken);
 

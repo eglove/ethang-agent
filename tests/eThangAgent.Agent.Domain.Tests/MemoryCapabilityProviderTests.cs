@@ -117,16 +117,16 @@ public class MemoryCapabilityProviderTests
     AgentId second = new(Guid.Parse("55555555-5555-5555-5555-555555555555"));
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery? sessions) = MakeProvider(sessionsReply: Result.Success<IReadOnlyList<SessionSummary>>(
     [
-        new SessionSummary(first, "fix login loop", 1, 4, "Completed", "hot"),
-            new SessionSummary(second, "", 0, 0, "Running", "hot"),
+        new SessionSummary(first, "fix login loop", 4, "Completed", "hot"),
+            new SessionSummary(second, "", 0, "Running", "hot"),
         ]));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("sessions", "{}", AnyToken);
 
     Assert.False(result.IsError);
     Assert.Equal(
-        $"session={first} label=fix login loop depth=1 entries=4 status=Completed tier=hot\n" +
-        $"session={second} label= depth=0 entries=0 status=Running tier=hot",
+        $"session={first} label=fix login loop entries=4 status=Completed tier=hot\n" +
+        $"session={second} label= entries=0 status=Running tier=hot",
         result.Content);
     Assert.Equal(("global", "active", 50), sessions._lastArgs);
     Assert.Equal(AnyToken, sessions._lastCt);

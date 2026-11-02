@@ -47,7 +47,7 @@ public class SettingsManagementKeyPersistenceTests
   {
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-v1-abc", new Uri("https://openrouter.test")),
-        new AgentDomain.SubAgentOptions(null, 2));
+        new AgentDomain.AgentRunOptions(null, 2));
     return new(null,
         new MainViewModelOptions
         {

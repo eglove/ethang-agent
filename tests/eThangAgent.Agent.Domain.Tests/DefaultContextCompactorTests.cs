@@ -338,10 +338,9 @@ public class DefaultContextCompactorTests
 
     RecordingFactory factory = new(null);
     DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
-    AgentRecord child = AgentRecord.Spawned(
-        AgentId.NewId(), new AgentId(Guid.NewGuid()), 1, "m/sub", "child", "task",
+    AgentRecord child = AgentRecord.Started(AgentId.NewId(), "m/sub", "child", "task",
         DateTimeOffset.UtcNow);
-    using IDisposable ambient = SubAgentSpawner.PushRunningChildForTests(child);
+    using IDisposable ambient = AgentRunLoop.PushRunningChildForTests(child);
 
     Result<CompactionOutcome> outcome = await compactor.CompactAsync(
         conversation, Serving, TestContext.Current.CancellationToken);

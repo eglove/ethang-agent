@@ -28,7 +28,7 @@ public class RemoteHostSupervisorDisposalTests : SessionOwningTest
 {
   private static AgentSettings Settings() => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   private static RemoteHostSupervisor SupervisorOf(AgentSession session) =>
       session.Services.GetRequiredService<RemoteHostSupervisor>();

@@ -43,10 +43,10 @@ public class SessionCatalogQueryHandlerTests
   public async Task List_Skips_Children_And_Unbound_Rows()
   {
     _ = await _store.SaveAsync(AgentRecord.Root(AgentId.NewId(), At(0), "C:/ws/a", "openrouter"), ct: TestContext.Current.CancellationToken);
-    _ = await _store.SaveAsync(AgentRecord.Spawned(AgentId.NewId(), AgentId.NewId(), depth: 1,
+    _ = await _store.SaveAsync(AgentRecord.Started(AgentId.NewId(),
         modelUsed: "m", label: "child", taskPrompt: "task", createdAt: At(1)), ct: TestContext.Current.CancellationToken);
     // A root persisted before the workspace-binding migration carries no binding.
-    _ = await _store.SaveAsync(new AgentRecord(AgentId.NewId(), null, 0, AgentStatus.Completed,
+    _ = await _store.SaveAsync(new AgentRecord(AgentId.NewId(), AgentStatus.Completed,
         null, "unassigned", "root", "conversation root", At(2), At(3), null), ct: TestContext.Current.CancellationToken);
 
     Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync(TestContext.Current.CancellationToken);

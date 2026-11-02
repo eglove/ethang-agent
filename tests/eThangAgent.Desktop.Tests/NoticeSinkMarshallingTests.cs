@@ -54,8 +54,7 @@ public class NoticeSinkMarshallingTests
     session.PostNotice("host restarted");
   }
 
-  private static AgentRecord Record(AgentId id) => AgentRecord.Spawned(
-      id, null, 0, "test/model", null, "prompt",
+  private static AgentRecord Record(AgentId id) => AgentRecord.Started(id, "test/model", null, "prompt",
       new DateTimeOffset(2026, 8, 21, 12, 0, 0, TimeSpan.Zero));
 
   private static AgentSession Session(AgentId rootId, IAgentStore store)

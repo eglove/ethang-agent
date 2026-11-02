@@ -1,14 +1,15 @@
 namespace eThangAgent.AgentDomain;
 
-/// <summary>Budgets and defaults governing child agent runs. Absent DefaultModel means
-///     spawns must supply their own model. There is NO wall-clock child timeout (FR-L4):
-///     cancellation sources are exactly user/parent interrupt, watchdog terminal decision,
-///     and budget hard ceiling — never duration (A4).</summary>
-public sealed class SubAgentOptions
+/// <summary>Budgets and defaults governing an agent run. Absent DefaultModel means a run
+///     must supply its own model. There is NO wall-clock timeout (FR-L4): cancellation
+///     sources are exactly the user's interrupt, the watchdog's terminal decision, and the
+///     budget hard ceiling — never duration (A4). There is no depth bound either: concurrency
+///     is bounded by host capacity, which is a measurement of the machine rather than a
+///     setting (issue #334).</summary>
+public sealed class AgentRunOptions
 {
   public string? DefaultModel { get; }
   public int MaxConcurrentAgents { get; }
-  public int MaxDepth { get; }
 
   /// <summary>The root-turn budget the app-side runtime enforces (finding 3: a bound only
   ///     a test constructor could set was not configurable in production). Null means the
@@ -16,8 +17,8 @@ public sealed class SubAgentOptions
   ///     watchdog knobs do.</summary>
   public RootTurnBudget? RootTurnBudget { get; }
 
-  public SubAgentOptions(string? DefaultModel,
-      int MaxConcurrentAgents = 1, int MaxDepth = 3, RootTurnBudget? RootTurnBudget = null)
+  public AgentRunOptions(string? DefaultModel,
+      int MaxConcurrentAgents = 1, RootTurnBudget? RootTurnBudget = null)
   {
     this.RootTurnBudget = RootTurnBudget;
     this.DefaultModel = DefaultModel;
@@ -29,12 +30,5 @@ public sealed class SubAgentOptions
     }
 
     this.MaxConcurrentAgents = MaxConcurrentAgents;
-
-    if (MaxDepth < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxDepth), "MaxDepth must be at least 1.");
-    }
-
-    this.MaxDepth = MaxDepth;
   }
 }

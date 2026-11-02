@@ -10,23 +10,23 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     token, threw, and the runtime catch-all mislabeled the death ProviderError
 ///     'A task was canceled.'). The contract now: the transcript survives an interrupt
 ///     up to the last safe point, and a persistence fault is reported honestly.</summary>
-public class SubAgentSpawnerInterruptPersistenceTests
+public class AgentRunLoopInterruptPersistenceTests
 {
   private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
   private static AgentRecord Child(string taskPrompt = "do things")
-      => AgentRecord.Spawned(AgentId.NewId(), null, 1, "default/sub-model", null, taskPrompt, FixedNow);
+      => AgentRecord.Started(AgentId.NewId(), "default/sub-model", null, taskPrompt, FixedNow);
 
-  private static SubAgentSpawner MakeRunner(IModelProvider provider, IAgentStore store, IToolRegistry? tools = null)
-      => new(new SubAgentServices(
+  private static AgentRunLoop MakeRunner(IModelProvider provider, IAgentStore store, IToolRegistry? tools = null)
+      => new(new AgentRunServices(
           new FakeModelProviderFactory(provider), store, tools ?? new ToolRegistry([]),
-          new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "default/sub-model")));
+          new StaticPromptProvider("guide text"), new AgentRunOptions(DefaultModel: "default/sub-model")));
 
   [Fact]
   public async Task RunAsync_InterruptedMidLoop_TranscriptSurvives()
   {
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = MakeRunner(new LoopingProvider(), store,
+    AgentRunLoop spawner = MakeRunner(new LoopingProvider(), store,
         tools: new ToolRegistry([new FakeTool("loop", "again")]));
     using CancellationTokenSource cts = new();
     cts.CancelAfter(TimeSpan.FromMilliseconds(200));
@@ -47,7 +47,7 @@ public class SubAgentSpawnerInterruptPersistenceTests
   public async Task RunAsync_Completed_TranscriptPersistedIncrementallyDuringRun()
   {
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = MakeRunner(new LoopingProvider(), store,
+    AgentRunLoop spawner = MakeRunner(new LoopingProvider(), store,
         tools: new ToolRegistry([new FakeTool("loop", "again")]));
     using CancellationTokenSource cts = new();
     cts.CancelAfter(TimeSpan.FromMilliseconds(300));

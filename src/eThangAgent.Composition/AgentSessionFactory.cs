@@ -216,13 +216,9 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       return Result.Failure<AgentSession>(loaded.Error);
     }
 
+    // Every record is a session (issue #334): the depth test that refused to resume a child
+    // is gone with the parent-child link, so the binding below is the whole resumability rule.
     AgentRecord record = loaded.Value;
-    if (record.Depth != 0)
-    {
-      return Result.Failure<AgentSession>(new DomainError("NotResumable",
-          $"agent {sessionId} is a spawned child (depth {record.Depth}); only root sessions can be resumed."));
-    }
-
     if (record.WorkspaceId is null || record.Provider is null)
     {
       return Result.Failure<AgentSession>(new DomainError("NotResumable",

@@ -16,14 +16,15 @@ public sealed record SessionCatalogEntry(
     DateTimeOffset CreatedAt,
     DateTimeOffset? CompletedAt);
 
-/// <summary>Read-side query listing every resumable root session, newest first. Only
-///     depth-0 records WITH a workspace + provider binding are listed — spawned children
-///     are not sessions, and rows persisted before workspace binding cannot be resumed
-///     (their workspace is unknown). A row bound to a provider this build no longer knows
-///     is likewise not resumable (resume would fail UnknownProvider), so the optional
-///     <c>isResumableProvider</c> gate omits it — wired at the composition root, since
-///     provider identity is a Composition concern the domain must not know. Deliberately
-///     transcript-free: listing loads record rows only, never conversation content.</summary>
+/// <summary>Read-side query listing every resumable session, newest first. A record WITH a
+///     workspace + provider binding is a session: an agent is a session, so there is no other
+///     kind of row to exclude (issue #334 removed the depth test that used to separate a root
+///     from its children). Rows persisted before workspace binding cannot be resumed (their
+///     workspace is unknown). A row bound to a provider this build no longer knows is likewise
+///     not resumable (resume would fail UnknownProvider), so the optional
+///     <c>isResumableProvider</c> gate omits it — wired at the composition root, since provider
+///     identity is a Composition concern the domain must not know. Deliberately transcript-free:
+///     listing loads record rows only, never conversation content.</summary>
 public sealed class SessionCatalogQueryHandler(IAgentStore store, Func<string, bool>? isResumableProvider = null)
 {
   private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -39,8 +40,7 @@ public sealed class SessionCatalogQueryHandler(IAgentStore store, Func<string, b
 
     // ListAllAsync returns rows in creation order; the catalog is newest first.
     List<SessionCatalogEntry> entries = [.. records.Value
-        .Where(record => record.Depth == 0
-            && record.WorkspaceId is not null
+        .Where(record => record.WorkspaceId is not null
             && record.Provider is not null
             && _isResumableProvider(record.Provider))
         .OrderByDescending(record => record.CreatedAt)

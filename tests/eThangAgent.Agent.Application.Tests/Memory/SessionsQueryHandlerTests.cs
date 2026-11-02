@@ -32,10 +32,10 @@ public class SessionsQueryHandlerTests
     _ = await _store.SaveAsync(root).ConfigureAwait(false);
     _ = await _store.UpdateAsync(root with { Status = AgentStatus.Completed }).ConfigureAwait(false);
 
-    _ = await _store.SaveAsync(AgentRecord.Spawned(agentId, rootId, depth: 1,
+    _ = await _store.SaveAsync(AgentRecord.Started(agentId,
         modelUsed: "mock/model", label: "worker", taskPrompt: "do work", createdAt: At(1))).ConfigureAwait(false);
 
-    _ = await _store.SaveAsync(new AgentRecord(orphanId, AgentId.NewId(), 1,
+    _ = await _store.SaveAsync(new AgentRecord(orphanId,
         AgentStatus.Failed, AgentFailureReason.Timeout, "mock/model", "orphan",
         "lost lineage", At(2), At(3), null)).ConfigureAwait(false);
 
@@ -118,14 +118,12 @@ public class SessionsQueryHandlerTests
 
     SessionSummary root = summaries[2];
     Assert.Equal("root", root.Label);
-    Assert.Equal(0, root.Depth);
     Assert.Equal(2, root.EntryCount);          // two appended turns
     Assert.Equal(nameof(AgentStatus.Completed), root.Status);
     Assert.Equal("hot", root.Tier);
 
     SessionSummary child = summaries[1];
     Assert.Equal("worker", child.Label);
-    Assert.Equal(1, child.Depth);
     Assert.Equal(1, child.EntryCount);
     Assert.Equal(nameof(AgentStatus.Running), child.Status);
     Assert.Equal("hot", child.Tier);

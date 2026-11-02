@@ -51,7 +51,7 @@ public sealed class SqliteAgentStoreReasoningTests : IDisposable
   {
     AgentId id = AgentId.NewId();
     DateTimeOffset at = new(2026, 10, 24, 9, 0, 0, TimeSpan.Zero);
-    AgentSpawned spawned = new(id, at, 1, "provider/model", "child");
+    AgentSpawned spawned = new(id, at, "provider/model", "child");
     AgentReasoningRecorded first = new(id, at.AddSeconds(1), Guid.NewGuid(), 0, "one");
     AgentReasoningRecorded second = new(id, at.AddSeconds(2), Guid.NewGuid(), 0, "two");
     AgentCompleted completed = new(id, at.AddSeconds(3), AgentStatus.Completed, null);

@@ -46,9 +46,6 @@ internal sealed class FakeAgentStore : IAgentStore
   public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
       => throw new NotSupportedException("Not exercised by RootSessionLifecycle tests.");
 
-  public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-      => throw new NotSupportedException("Not exercised by RootSessionLifecycle tests.");
-
   public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
       => throw new NotSupportedException("Not exercised by RootSessionLifecycle tests.");
 }
@@ -172,8 +169,6 @@ public class RootSessionLifecycleTests
     _ = Assert.NotNull(persisted.CompletedAt);
     // Preservation-by-reconstruction: every other field survives the transition.
     Assert.Equal(root.Id, persisted.Id);
-    Assert.Equal(root.ParentId, persisted.ParentId);
-    Assert.Equal(root.Depth, persisted.Depth);
     Assert.Equal(root.FailureReason, persisted.FailureReason);
     Assert.Equal(root.ModelUsed, persisted.ModelUsed);
     Assert.Equal(root.Label, persisted.Label);

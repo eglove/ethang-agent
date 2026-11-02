@@ -36,7 +36,7 @@ public class WakeAwareWaitTests
   }
 
   private static AgentRunOutcome Settled(AgentId id) =>
-      new(id, AgentStatus.Completed, null, "the report", "prov/child", 1);
+      new(id, AgentStatus.Completed, null, "the report", "prov/child");
 
   [Fact]
   public async Task SettlesNormally_WhenNothingWakes()

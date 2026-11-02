@@ -43,8 +43,6 @@ public class HostChildWatchdogTests
         => Task.FromResult(Result.Success(id.ToString()));
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));
   }
@@ -134,7 +132,7 @@ public class HostChildWatchdogTests
     TestStream stream = new();
     AgentSupervisorRegistry supervisors = new();
     AgentId child = new(Guid.NewGuid());
-    _ = await store.SaveAsync(AgentRecord.Spawned(child, null, 1, "m/sub", "hung", "task", DateTimeOffset.UtcNow));
+    _ = await store.SaveAsync(AgentRecord.Started(child, "m/sub", "hung", "task", DateTimeOffset.UtcNow));
     // The runtime registers the child's supervisor at Start; a never-beating run is
     // idle from OnStart onward (its clock = the watchdog's clock in production).
     AgentSupervisor supervisor = new(child, stream, clock, ceilings: null);
@@ -161,7 +159,7 @@ public class HostChildWatchdogTests
     TestStream stream = new();
     AgentSupervisorRegistry supervisors = new();
     AgentId child = new(Guid.NewGuid());
-    _ = await store.SaveAsync(AgentRecord.Spawned(child, null, 1, "m/sub", "worker", "task", DateTimeOffset.UtcNow));
+    _ = await store.SaveAsync(AgentRecord.Started(child, "m/sub", "worker", "task", DateTimeOffset.UtcNow));
     AgentSupervisor supervisor = new(child, stream, clock, ceilings: null);
     supervisor.OnStart(0);
     supervisors.Register(child, supervisor);

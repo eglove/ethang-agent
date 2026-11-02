@@ -20,7 +20,7 @@ public class AgentSessionFactoryResumeTests
 
   private static AgentSettings Settings(string? openRouterKey = "sk-or-test") => new(
       new OpenRouterSettings(openRouterKey, BaseUrl),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings? settings = null)
   {
@@ -150,7 +150,7 @@ public class AgentSessionFactoryResumeTests
     {
       SqliteAgentStore store = new(new AppDatabase(db));
       AgentId agentId = AgentId.NewId();
-      _ = await store.SaveAsync(AgentRecord.Spawned(agentId, AgentId.NewId(), depth: 1,
+      _ = await store.SaveAsync(AgentRecord.Started(agentId,
           modelUsed: "mock/model", label: "child", taskPrompt: "task", createdAt: DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken);
 
       Result<AgentSession> resumed = await factory.ResumeAsync(agentId, ct: TestContext.Current.CancellationToken);
@@ -172,7 +172,7 @@ public class AgentSessionFactoryResumeTests
       // A root persisted before the binding migration: depth 0, no workspace/provider.
       SqliteAgentStore store = new(new AppDatabase(db));
       AgentId legacyId = AgentId.NewId();
-      _ = await store.SaveAsync(new AgentRecord(legacyId, null, 0, AgentStatus.Completed,
+      _ = await store.SaveAsync(new AgentRecord(legacyId, AgentStatus.Completed,
           null, "unassigned", "root", "conversation root", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null), ct: TestContext.Current.CancellationToken);
 
       Result<AgentSession> resumed = await factory.ResumeAsync(legacyId, ct: TestContext.Current.CancellationToken);

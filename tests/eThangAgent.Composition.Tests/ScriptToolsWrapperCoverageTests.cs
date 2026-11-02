@@ -46,7 +46,7 @@ public class ScriptToolsWrapperCoverageTests
     // under test: a gated-off tool would silently exempt its wrapper from the guard.
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-        new SubAgentOptions(null, 2),
+        new AgentRunOptions(null, 2),
         ComputerUse: true);
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,

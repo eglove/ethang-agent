@@ -21,7 +21,7 @@ public sealed class ChainContractSessionTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings("sk-or-test", BaseUrl),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   private static ChainContract Contract() =>
       new(7, 104, 2, "sci.dashboard-truth/ledger", ["dotnet build"]);

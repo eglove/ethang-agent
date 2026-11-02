@@ -7,20 +7,20 @@ namespace eThangAgent.AgentDomain.Tests;
 /// <summary>R1 spawner integration: the resolved effective set on the contract selects
 ///     the filtered registry; grants absent keeps the shared registry instance (zero
 ///     default-path delta); refusals land in the audit trail (R1.4).</summary>
-public class SubAgentSpawnerGrantTests
+public class AgentRunLoopGrantTests
 {
   private static AgentRecord Child(string? contractJson, string prompt = "do things")
-      => AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", null, prompt,
+      => AgentRecord.Started(AgentId.NewId(), "m/sub", null, prompt,
           new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc),
           contractJson is null ? null : new SpawnContract(EffectiveTools: contractJson));
 
-  private static (SubAgentSpawner Spawner, FakeAuditStore Audit) MakeRunner(
+  private static (AgentRunLoop Spawner, FakeAuditStore Audit) MakeRunner(
       FakeProvider provider, FakeAgentStore store, IToolRegistry tools)
   {
     FakeAuditStore audit = new();
-    SubAgentSpawner spawner = new(new SubAgentServices(
+    AgentRunLoop spawner = new(new AgentRunServices(
         new FakeModelProviderFactory(provider), store, tools,
-        new StaticPromptProvider("guide"), new SubAgentOptions(DefaultModel: "m/sub"),
+        new StaticPromptProvider("guide"), new AgentRunOptions(DefaultModel: "m/sub"),
         Audit: audit));
     return (spawner, audit);
   }
@@ -30,7 +30,7 @@ public class SubAgentSpawnerGrantTests
   {
     FakeAgentStore store = new();
     ToolRegistry shared = new([new FakeTool("read", "ok")]);
-    (SubAgentSpawner spawner, FakeAuditStore _) = MakeRunner(
+    (AgentRunLoop spawner, FakeAuditStore _) = MakeRunner(
         new FakeProvider(Result.Success(new ModelResponse("done", []))), store, shared);
 
     _ = await spawner.RunAsync(Child(null), TestContext.Current.CancellationToken);
@@ -40,7 +40,7 @@ public class SubAgentSpawnerGrantTests
     FakeProvider probing = new(Result.Success(new ModelResponse(null,
         [new ToolCallRequest("c1", "read", "{}")])),
         Result.Success(new ModelResponse("ok", [])));
-    (SubAgentSpawner prober, _) = MakeRunner(probing, store, shared);
+    (AgentRunLoop prober, _) = MakeRunner(probing, store, shared);
     _ = await prober.RunAsync(Child(null, "call read"), TestContext.Current.CancellationToken);
     Assert.Contains(probing.RequestsSeen[1].Messages, m => m.Content == "ok");
   }
@@ -50,7 +50,7 @@ public class SubAgentSpawnerGrantTests
   {
     FakeAgentStore store = new();
     ToolRegistry shared = new([new FakeTool("web_fetch", "page"), new FakeTool("read", "file"), new FakeTool("exec", "ran")]);
-    (SubAgentSpawner spawner, FakeAuditStore audit) = MakeRunner(
+    (AgentRunLoop spawner, FakeAuditStore audit) = MakeRunner(
         new FakeProvider(
             Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "web_fetch", "{}")])),
             Result.Success(new ModelResponse("done", []))),
@@ -69,7 +69,7 @@ public class SubAgentSpawnerGrantTests
   {
     FakeAgentStore store = new();
     ToolRegistry shared = new([new FakeTool("web_fetch", "page"), new FakeTool("read", "file"), new FakeTool("exec", "ran")]);
-    (SubAgentSpawner spawner, FakeAuditStore audit) = MakeRunner(
+    (AgentRunLoop spawner, FakeAuditStore audit) = MakeRunner(
         new FakeProvider(
             Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "exec", "{}")])),
             Result.Success(new ModelResponse("done", []))),
@@ -90,7 +90,7 @@ public class SubAgentSpawnerGrantTests
   {
     FakeAgentStore store = new();
     ToolRegistry shared = new([new FakeTool("exec", "ran")]);
-    (SubAgentSpawner spawner, FakeAuditStore _) = MakeRunner(
+    (AgentRunLoop spawner, FakeAuditStore _) = MakeRunner(
         new FakeProvider(
             Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "exec", "{}")])),
             Result.Success(new ModelResponse("done", []))),

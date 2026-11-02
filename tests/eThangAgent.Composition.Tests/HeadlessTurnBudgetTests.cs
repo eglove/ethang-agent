@@ -105,7 +105,7 @@ public class HeadlessTurnBudgetTests : SessionOwningTest
     server.Start();
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),
-        new SubAgentOptions(null, 2));
+        new AgentRunOptions(null, 2));
 
     // The session owns a real ChildHost; disposal rides IAsyncLifetime so a failing
     // assertion cannot strand it (issue #284 item 3).

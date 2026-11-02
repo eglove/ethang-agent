@@ -12,7 +12,7 @@ namespace eThangAgent.ChildHost;
 ///     ships idle facts for remote children (R3 doctrine).</summary>
 public sealed class HostAgentWatchdog(AgentId agentId, WatchdogServices services, TimeSpan? tickInterval = null) : IAsyncDisposable
 {
-  private readonly AgentWatchdog _watchdog = new(agentId, services);
+  private readonly AgentWatchdog _watchdog = new(services);
   private readonly WatchdogLoop _loop = new(tickInterval ?? services.Options.TickInterval, services.Clock);
   private readonly CancellationTokenSource _cts = new();
 

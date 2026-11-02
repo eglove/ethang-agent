@@ -136,8 +136,7 @@ public class CellPhaseChipTests
     AgentId agent = shell.RegisterAgent(tab, "reviewer");
     shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
 
-    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
-        "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
     shell.Progress(agent, "turn-start");
     shell.Progress(agent, "tool:exec");
 
@@ -160,8 +159,7 @@ public class CellPhaseChipTests
     shell.Store.SetReport(agent, "too short a run to see.");
     shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
 
-    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
-        "test/model", 1));
+    shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
     shell.Settle(agent);
 
     AgentCellViewModel cell = await Shell.WaitForCellAsync(tab, agent);
@@ -276,8 +274,7 @@ public class CellPhaseChipTests
     Assert.True(cell.HasReport);
 
     // The started fact for an agent this tab already shows is a RESTART of the same agent.
-    shell.Events.Publish(new AgentStartedEvent(cell.RootId, DateTimeOffset.UtcNow,
-        tab.Container.RootId, "test/model", 2));
+    shell.Events.Publish(new AgentStartedEvent(cell.RootId, DateTimeOffset.UtcNow, "test/model", 2));
 
     await WaitUntilAsync(() => !cell.IsFinished);
     Assert.Equal(CellPhaseChip.Starting, cell.PhaseChip);
@@ -308,8 +305,7 @@ public class CellPhaseChipTests
     // to back, while the started fact's own record read is still outstanding.
     shell.Store.SetReport(cell.RootId, "the resumed run concluded Y.");
     shell.Store.RecordReadDelay = TimeSpan.FromMilliseconds(60);
-    shell.Events.Publish(new AgentStartedEvent(cell.RootId, DateTimeOffset.UtcNow,
-        tab.Container.RootId, "test/model", 2));
+    shell.Events.Publish(new AgentStartedEvent(cell.RootId, DateTimeOffset.UtcNow, "test/model", 2));
     shell.Settle(cell.RootId);
 
     // ONE CONDITION FOR THE WHOLE END STATE: the card is finished, its chip has stopped settling,
@@ -373,8 +369,7 @@ public class CellPhaseChipTests
     public async Task<AgentCellViewModel> StartAgentAsync(AgentTabViewModel tab, string label)
     {
       AgentId agent = RegisterAgent(tab, label);
-      Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, tab.Container.RootId,
-          "test/model", 1));
+      Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
       return await WaitForCellAsync(tab, agent).ConfigureAwait(true);
     }
 
@@ -389,8 +384,7 @@ public class CellPhaseChipTests
     {
       ArgumentNullException.ThrowIfNull(tab);
       AgentId agent = AgentId.NewId();
-      Store.Records[agent.Value] = AgentRecord.Spawned(agent, parentId: null, depth: 1,
-          "test/model", label, "p", DateTimeOffset.UtcNow,
+      Store.Records[agent.Value] = AgentRecord.Started(agent, "test/model", label, "p", DateTimeOffset.UtcNow,
           workspaceId: WorkspaceId(tab.Container.WorkspaceRoot));
       return agent;
     }
@@ -505,10 +499,6 @@ public class CellPhaseChipTests
 
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
-
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
-        CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));

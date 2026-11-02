@@ -80,9 +80,6 @@ public class ShellViewModelTests
         CancellationToken ct = default)
         => throw new NotSupportedException("GetTranscriptAsync is outside the restore path.");
 
-    public Task<Result<IReadOnlyList<AgentDomain.AgentRecord>>> ListChildrenAsync(AgentDomain.AgentId parentId,
-        CancellationToken ct = default)
-        => throw new NotSupportedException("ListChildrenAsync is outside the restore path.");
 
     public Task<Result<IReadOnlyList<AgentDomain.AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => throw new NotSupportedException("ListAllAsync is outside the restore path.");
@@ -130,7 +127,7 @@ public class ShellViewModelTests
 
   private static AgentSettings Settings(string? openRouter = null) => new(
       new OpenRouterSettings(openRouter, new Uri("https://openrouter.test")),
-      new AgentDomain.SubAgentOptions(null, 2));
+      new AgentDomain.AgentRunOptions(null, 2));
 
   private static MainViewModel CreateSettingsShell(
       AgentSettings settings,

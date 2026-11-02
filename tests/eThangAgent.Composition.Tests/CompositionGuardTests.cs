@@ -15,7 +15,7 @@ public class CompositionGuardTests
 {
   private static AgentSettings Settings(string? openRouterKey = "sk-or-test") => new(
       new OpenRouterSettings(openRouterKey, new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   [Fact]
   public void SubAgentDefaultModel_FallsBackToRootModel_WhenConfigOmitsIt()
@@ -29,7 +29,7 @@ public class CompositionGuardTests
             FixedWorkspaceContext.ForPath("app"), new UnrootedPathResolver()), db.Database)
     .BuildServiceProvider();
 
-    SubAgentOptions options = services.GetRequiredService<SubAgentOptions>();
+    AgentRunOptions options = services.GetRequiredService<AgentRunOptions>();
     Assert.Equal("root/model", options.DefaultModel);
     Assert.Equal(2, options.MaxConcurrentAgents); // preserved
   }
@@ -84,10 +84,9 @@ public class CompositionGuardTests
             services.GetRequiredService<IModelProvider>(),
             services.GetRequiredService<IModelProviderFactory>(),
             services.GetRequiredService<IAgentRuntime>(),
-            services.GetRequiredService<IAgentSpawnCommand>(),
             services.GetRequiredService<IMemoryRecallQuery>(),
             services.GetRequiredService<ISystemPromptProvider>(),
-            services.GetRequiredService<SubAgentSpawner>(),
+            services.GetRequiredService<AgentRunLoop>(),
             services.GetRequiredService<RootSessionLifecycle>(),
             services.GetRequiredService<ModelConfig>(),
         ];

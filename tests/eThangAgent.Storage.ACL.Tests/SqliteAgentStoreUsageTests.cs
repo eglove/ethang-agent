@@ -70,7 +70,7 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
   {
     AgentId id = AgentId.NewId();
     DateTimeOffset at = new(2026, 10, 24, 9, 0, 0, TimeSpan.Zero);
-    AgentSpawned spawned = new(id, at, 1, "provider/model", "child");
+    AgentSpawned spawned = new(id, at, "provider/model", "child");
     AgentUsageRecorded first = new(id, at.AddSeconds(1), Guid.NewGuid(), 0, 10, 2, 4, 1);
     AgentUsageRecorded second = new(id, at.AddSeconds(2), Guid.NewGuid(), 1, 11, 3, 5, 2);
     AgentCompleted completed = new(id, at.AddSeconds(3), AgentStatus.Completed, null);

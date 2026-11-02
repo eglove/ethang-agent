@@ -24,7 +24,7 @@ public class AgentSessionFactoryTests
 
   private static AgentSettings Settings(string? openRouterKey = "sk-or-test") => new(
       new OpenRouterSettings(openRouterKey, BaseUrl),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings? settings = null)
   {
@@ -292,28 +292,10 @@ public class AgentSessionFactoryTests
         string anchorPath = Path.GetFullPath(Path.Combine(workspaceRoot, "anchored"));
         _ = Directory.CreateDirectory(anchorPath);
 
-        // The spawn-side seam over the real container: an anchored request that
-        // resolves OUTSIDE the session workspace fails AnchorInvalid before any model
-        // resolution runs (the anchor rule sits ahead of it in the handler).
-        string outsidePath = Directory.CreateTempSubdirectory("ethang-anchor-out").FullName;
-        try
-        {
-          Result<AgentId> refused = await services.GetRequiredService<IAgentSpawnCommand>().Execute(
-              RootRecord(workspaceRoot),
-              new SpawnRequest("nope", WorkspaceRoot: outsidePath),
-              ct: TestContext.Current.CancellationToken);
-          Assert.False(refused.IsSuccess, $"expected AnchorInvalid, got success");
-          Assert.Equal("AnchorInvalid", refused.Error.Code);
-        }
-        finally
-        {
-          Directory.Delete(outsidePath, true);
-        }
-
         // The run-side seam: a persisted anchored child (exactly what the start command
         // writes when its anchor rule passes) runs through the container's REAL spawner.
         ModelConfig childModel = ModelConfig.Create("test/model", 4096, 0.7f, 32 * 1024).Value!;
-        AgentRecord child = AgentRecord.Spawned(AgentId.NewId(), RootRecord(workspaceRoot).Id, 1,
+        AgentRecord child = AgentRecord.Started(AgentId.NewId(),
             childModel.ModelId, "anchored", "resolve the anchor", DateTimeOffset.UtcNow,
             new SpawnContract(WorkspaceRoot: anchorPath));
         _ = await services.GetRequiredService<IAgentStore>().SaveAsync(child, TestContext.Current.CancellationToken);
@@ -375,13 +357,6 @@ public class AgentSessionFactoryTests
       catch { }
     }
   }
-
-  /// <summary>A depth-0 root record for driving the spawn handler directly: bound to the
-  ///     workspace so the anchor rule measures the request against it.</summary>
-  private static AgentRecord RootRecord(string workspaceRoot) => new(
-      new AgentId(Guid.NewGuid()), null, 0, AgentStatus.Running, null,
-      "test/model", "root", "root task", DateTimeOffset.UtcNow, null, null,
-      workspaceRoot, Providers.OpenRouter);
 
   [Fact]
   public async Task CreateAsync_RootRow_StampedWithTheResolvedBootstrapModel()

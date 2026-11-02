@@ -67,7 +67,7 @@ public class StorelessRebindErrorNamingTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings(null, new Uri("https://openrouter.test")),
-      new SubAgentOptions(null, 2));
+      new AgentRunOptions(null, 2));
 
   private sealed class FakePreferenceStore : IAppPreferenceStore
   {

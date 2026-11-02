@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 31;
+  public const int LatestSchemaVersion = 32;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -139,6 +139,7 @@ public sealed class AppDatabase
     (29, ApplyV29),
     (30, ApplyV30),
     (31, ApplyV31),
+    (32, ApplyV32),
   ];
 
   private void Migrate()
@@ -1382,6 +1383,74 @@ public sealed class AppDatabase
                   NULL FROM chain_steps;
           DROP TABLE chain_steps;
           ALTER TABLE chain_steps_v31 RENAME TO chain_steps;
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
+  }
+
+  /// <summary>V32 retires the parent-child link from the agents table (issue #334):
+  ///     <c>parent_id</c> and <c>depth</c> stop being written, read, or declared NOT NULL.
+  ///     <para>THE COLUMNS ARE KEPT, AND THAT IS A NAMED DECISION. Dropping them would destroy
+  ///     the only record of which historical rows a delegated run produced, and #309's era
+  ///     baseline (<c>SqliteChainBaselineSource</c>) reads exactly that set to measure the
+  ///     chain era against the subagent era. A rebuild that NULLs them would destroy the same
+  ///     history more quietly. So the columns stay as HISTORICAL COLUMNS: existing values are
+  ///     copied verbatim, and every row this build writes leaves them NULL because nothing
+  ///     supplies a parent any more.</para>
+  ///     <para>WHY THE TABLE IS REBUILT AT ALL: <c>depth</c> was declared NOT NULL, so a row
+  ///     written without one fails. SQLite cannot drop a NOT NULL constraint in place, so the
+  ///     rebuild is the only way to make the column optional - the V20/V31 idiom, with every
+  ///     other column and constraint carried forward verbatim.</para>
+  ///     <para>CONDITIONAL ON <c>agents</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database (the V26/V28/V31 precedent).</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV32(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "agents"))
+    {
+      return;
+    }
+
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE agents_v32 (
+              id             TEXT PRIMARY KEY,
+              parent_id      TEXT NULL,
+              depth          INTEGER NULL,
+              status         INTEGER NOT NULL,
+              failure_reason INTEGER NULL,
+              model_used     TEXT NOT NULL,
+              label          TEXT NULL,
+              task_prompt    TEXT NOT NULL,
+              created_at     TEXT NOT NULL,
+              completed_at   TEXT NULL,
+              final_report   TEXT NULL,
+              workspace_id   TEXT NULL,
+              provider       TEXT NULL,
+              attempts       INTEGER NOT NULL DEFAULT 0,
+              phase          INTEGER NULL,
+              contract       TEXT NULL
+          );
+          INSERT INTO agents_v32 (id, parent_id, depth, status, failure_reason, model_used, label,
+              task_prompt, created_at, completed_at, final_report, workspace_id, provider, attempts,
+              phase, contract)
+              SELECT id, parent_id, depth, status, failure_reason, model_used, label, task_prompt,
+                  created_at, completed_at, final_report, workspace_id, provider, attempts, phase,
+                  contract FROM agents;
+          DROP TABLE agents;
+          ALTER TABLE agents_v32 RENAME TO agents;
+          CREATE INDEX IF NOT EXISTS ix_agents_ws_created ON agents (workspace_id, created_at);
           """;
       using SqliteTransaction transaction = connection.BeginTransaction();
       using SqliteCommand command = connection.CreateCommand();

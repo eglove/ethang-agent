@@ -35,7 +35,7 @@ public sealed class SqliteAgentStorePartsTests : IDisposable
   private async Task<AgentId> SavedAgentAsync()
   {
     AgentId id = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Spawned(id, null, 1, "provider/model", null, "task",
+    _ = await _store.SaveAsync(AgentRecord.Started(id, "provider/model", null, "task",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)), ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
     return id;
   }

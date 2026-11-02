@@ -13,9 +13,10 @@ namespace eThangAgent.Storage.ACL;
 ///     D1: a cost number computed twice would eventually disagree with the ledger, and the ledger
 ///     is the one that is reconciled.</para>
 ///     <para>ONE QUERY FOR THE WHOLE SET, not one per session: a chain with twenty steps would
-///     otherwise run twenty recursive CTEs, and the report is a batch question. The subtree walk
-///     is kept per session id (a session's children's spend counts toward it, the #24 B11 rule),
-///     so this is a recursive CTE seeded with a list rather than a single id.</para>
+///     otherwise run twenty reads, and the report is a batch question. Each row is attributed to
+///     the session whose id it carries (issue #334: an agent IS a session, so its own id is the
+///     whole of its attribution), and the query is seeded with the list of session ids the
+///     chain's steps recorded.</para>
 ///     <para>READ-ONLY: it opens the read-only connection, so a report can never mutate the
 ///     ledger it measures.</para></summary>
 public sealed class SqliteChainSessionCostSource(AppDatabase database) : IChainSessionCostSource
@@ -24,19 +25,12 @@ public sealed class SqliteChainSessionCostSource(AppDatabase database) : IChainS
 
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
 
-  /// <summary>The subtree walk seeded with a LIST of session ids, so a chain's whole session set
-  ///     is priced in one pass.
-  ///     <para><c>UNION</c> (not <c>UNION ALL</c>) keeps a corrupt parent cycle from looping
-  ///     forever — the <c>SqliteUsageQueries</c> rule, for the same reason.</para></summary>
+  /// <summary>The session set seeded from a JSON array, so a chain's whole set is priced in
+  ///     one pass. The join is on the row's OWN agent id — the session it belongs to.</summary>
   private const string Sql =
-      @"WITH RECURSIVE subtree(session_id, id) AS (
-            SELECT value, value FROM json_each(@sessions)
-            UNION
-            SELECT s.session_id, a.id FROM agents a JOIN subtree s ON a.parent_id = s.id
-        )
-        SELECT s.session_id, e.payload_json
+      @"SELECT e.agent_id, e.payload_json
         FROM agent_events e
-        JOIN subtree s ON e.agent_id = s.id
+        JOIN json_each(@sessions) s ON e.agent_id = s.value
         WHERE e.type = 'usage' AND json_valid(e.payload_json)
         ORDER BY e.id;";
 

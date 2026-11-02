@@ -18,8 +18,6 @@ public class RootSessionBootstrapperTests
     Assert.True(result.IsSuccess);
     AgentRecord record = Assert.Single(store.Saved);
     Assert.Equal(result.Value, record.Id);
-    Assert.Null(record.ParentId);
-    Assert.Equal(0, record.Depth);
     Assert.Equal(AgentStatus.Running, record.Status);
     // The binding is discovery metadata for the Sessions catalog and resume.
     Assert.Equal(@"C:\workspaces\demo", record.WorkspaceId);
@@ -115,9 +113,6 @@ public class RootSessionBootstrapperTests
 
     public Task<Result<IReadOnlyList<ConversationDomain.Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default) =>
       Task.FromResult(Result.Success<IReadOnlyList<ConversationDomain.Message>>([]));
-
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default) =>
         Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));

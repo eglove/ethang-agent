@@ -8,7 +8,7 @@ namespace eThangAgent.Agent.Application.Tests;
 public class OrphanRepairHandlerTests
 {
   private static AgentRecord Running(string label)
-      => AgentRecord.Spawned(new AgentId(Guid.NewGuid()), parentId: null, depth: 1,
+      => AgentRecord.Started(new AgentId(Guid.NewGuid()),
           modelUsed: "m/sub", label: label, taskPrompt: "task", createdAt: DateTimeOffset.UtcNow);
 
   private sealed class FakeEvents : IWatchdogEventStore
@@ -84,7 +84,7 @@ public class OrphanRepairHandlerTests
   public async Task NonRunningRecords_NeverTouched()
   {
     FakeAgentStore store = new();
-    AgentRecord completed = AgentRecord.Spawned(new AgentId(Guid.NewGuid()), null, 1, "m", null,
+    AgentRecord completed = AgentRecord.Started(new AgentId(Guid.NewGuid()), "m", null,
         "t", DateTimeOffset.UtcNow);
     completed = completed with { Status = AgentStatus.Completed, CompletedAt = DateTimeOffset.UtcNow, FinalReport = "done" };
     _ = await store.SaveAsync(completed, TestContext.Current.CancellationToken);

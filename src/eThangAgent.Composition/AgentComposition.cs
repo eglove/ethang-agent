@@ -87,7 +87,7 @@ public static class AgentComposition
     wired = AddSkillServices(wired, settings);
     wired = AddWakeAndMailboxServices(wired);
     wired = AddModelServices(wired, providerName);
-    wired = AddSubAgentServices(wired, providerName);
+    wired = AddAgentRunServices(wired);
     wired = AddCapabilityServices(wired);
     wired = AddCapabilityRegistry(wired);
     wired = AddExecAndLoopRegistry(wired);
@@ -383,7 +383,7 @@ public static class AgentComposition
           // strict parser throws on a stored value it cannot bind (nothing coerced).
           return new DefaultContextCompactor(
               sp.GetRequiredService<IModelProviderFactory>(),
-              () => summarizer.ResolveAsync(SubAgentSpawner.ChildMaxTokens, SubAgentSpawner.ChildTemperature).GetAwaiter().GetResult(),
+              () => summarizer.ResolveAsync(AgentRunLoop.ChildMaxTokens, AgentRunLoop.ChildTemperature).GetAwaiter().GetResult(),
               handoffEnabled: () => SessionHandoffPreferences.TryParse(
                   sp.GetRequiredService<IAppPreferenceStore>()
                       .GetAsync(SessionHandoffPreferences.Key, ct: default).GetAwaiter().GetResult()));
@@ -457,7 +457,7 @@ public static class AgentComposition
         {
           PlanService service = new(sp.GetRequiredService<IPlanStore>());
           _ = new PlanChangePublisher(service, sp.GetRequiredService<IAgentEvents>(),
-              () => SubAgentSpawner.RunningChild?.Id
+              () => AgentRunLoop.RunningChild?.Id
                   ?? sp.GetRequiredService<RootSessionIdentity>().Id
                   ?? AgentId.NewId());
           return service;
@@ -559,7 +559,7 @@ public static class AgentComposition
         {
           ChainService service = new(sp.GetRequiredService<IChainStore>());
           _ = new ChainChangePublisher(service, sp.GetRequiredService<IAgentEvents>(),
-              () => SubAgentSpawner.RunningChild?.Id
+              () => AgentRunLoop.RunningChild?.Id
                   ?? sp.GetRequiredService<RootSessionIdentity>().Id
                   ?? AgentId.NewId());
           return service;
@@ -858,12 +858,12 @@ public static class AgentComposition
         .AddSingleton<AgentMailboxRegistry>();
   }
 
-  /// <summary>The sub-agent stack: the workspace anchor scope, the spawner and its services, and
-  ///     the spawn command. The runtime itself is registered elsewhere: the wire runtime by the
-  ///     core (every conversation runs in its own host), the in-process one only by hosts that
-  ///     opt in through <see cref="AddInProcessAgentRuntime"/>.
+  /// <summary>The agent-run stack: the workspace anchor scope, the run services, and the run loop
+  ///     that executes an agent's conversation. The runtime itself is registered elsewhere: the wire
+  ///     runtime by the core (every conversation runs in its own host), the in-process one only by
+  ///     hosts that opt in through <see cref="AddInProcessAgentRuntime"/>.
   /// </summary>
-  private static IServiceCollection AddSubAgentServices(IServiceCollection wired, string providerName)
+  private static IServiceCollection AddAgentRunServices(IServiceCollection wired)
   {
     return wired
         // The workspace anchor scope (worktree ladder, T7): one instance per session
@@ -871,12 +871,12 @@ public static class AgentComposition
         // by the exec engine's workspace resolver. AsyncLocal-backed, so the anchor
         // flows down a child's async flow and never leaks into concurrent runs.
         .AddSingleton<IWorkspaceAnchorScope, SessionWorkspaceAnchorScope>()
-        .AddSingleton(sp => new SubAgentServices(
+        .AddSingleton(sp => new AgentRunServices(
             sp.GetRequiredService<IModelProviderFactory>(),
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<IToolRegistry>(),
             sp.GetRequiredService<ISystemPromptProvider>(),
-            sp.GetRequiredService<SubAgentOptions>(),
+            sp.GetRequiredService<AgentRunOptions>(),
             sp.GetRequiredService<IAgentHeartbeat>(),
             sp.GetRequiredService<IAgentEvents>(),
             sp.GetRequiredService<IWatchdogEventStore>(),
@@ -902,24 +902,11 @@ public static class AgentComposition
             // attribution to the session happens by walking agents.parent_id (#24).
             UsagePrices: sp.GetRequiredService<IUsagePriceSource>(),
             WorkspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
-        .AddSingleton(sp => new SubAgentSpawner(
-            sp.GetRequiredService<SubAgentServices>(),
+        .AddSingleton(sp => new AgentRunLoop(
+            sp.GetRequiredService<AgentRunServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<DefaultContextCompactor>(),
-            sp.GetRequiredService<IModelCatalog>()))
-        .AddSingleton<IAgentSpawnCommand>(sp => new StartSpawnHandler(
-            sp.GetRequiredService<IAgentStore>(),
-            sp.GetRequiredService<IAgentRuntime>(),
-            sp.GetRequiredService<SubAgentOptions>(),
-            new SpawnOptions(
-                Providers.FallbackModelId(providerName),
-                sp.GetRequiredService<SessionModelPreferences>(),
-                ChildToolSurface: ChildToolSurface(sp),
-                WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
-                ProviderName: providerName),
-            sp.GetRequiredService<IContextWindowSource>(),
-            sp.GetRequiredService<IWorktreeProvisioner>(),
             sp.GetRequiredService<IModelCatalog>()));
   }
 
@@ -932,37 +919,12 @@ public static class AgentComposition
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
-        .AddSingleton<SpawnGraphHandler>()
-        .AddSingleton(sp =>
-        {
-          SpawnGraphHandler graph = sp.GetRequiredService<SpawnGraphHandler>();
-          return new AgentCapabilityProvider(new AgentProviderServices(
-                  sp.GetRequiredService<IAgentSpawnCommand>(),
-                  sp.GetRequiredService<IAgentQueries>(),
-                  // The parent-context fallback (root spawning a child: RunningChild is
-                  // null there) must carry the PERSISTED root session id — a fresh random
-                  // id here phantom-parents every root-spawned child to a row that has
-                  // none (2026-10-08 Resumes session: 43 children pointed at an id no row
-                  // ever held; grandchildren parented correctly because RunningChild
-                  // carries the real child id). Resolved lazily per dispatch, exactly as
-                  // RootAgentHolder resolves the agent's request identity.
-                  () => SubAgentSpawner.RunningChild ?? RootParentRecord(sp),
-                  sp.GetRequiredService<IAgentRuntime>(),
-                  WakeSource: sp.GetRequiredService<WaitWakeHub>(),
-                  Clock: TimeProvider.System,
-                  Progress: sp.GetRequiredService<AgentProgressLedger>(),
-                  // Fail-fast join: agent.fanout's advertised contract - failed STARTS
-                  // (DepthExceeded, InvalidSpawnRequest, ...) fail the join immediately
-                  // and surface under their own error code.
-                  Fanout: async (parent, children, ct) =>
-                  {
-                    Result<SpawnGraphOutcome> joined = await graph.ExecuteAsync(parent,
-                        new SpawnGraphRequest(Label: "", Children: children, Join: new JoinPolicy(true)), ct).ConfigureAwait(false);
-                    return joined.IsSuccess
-                        ? joined.Value.Render()
-                        : "Error [" + joined.Error.Code + "]: " + joined.Error.Message;
-                  }));
-        })
+         .AddSingleton(sp => new AgentCapabilityProvider(new AgentProviderServices(
+                 sp.GetRequiredService<IAgentQueries>(),
+                 sp.GetRequiredService<IAgentRuntime>(),
+                 WakeSource: sp.GetRequiredService<WaitWakeHub>(),
+                 Clock: TimeProvider.System,
+                 Progress: sp.GetRequiredService<AgentProgressLedger>())))
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
         // StateService's goal runner and snapshot seam are what make checkgoal run the
@@ -993,7 +955,7 @@ public static class AgentComposition
               sp.GetRequiredService<IWorkspaceSnapshotAccess>());
           _ = new StateChangePublisher(sp.GetRequiredService<IStateChangeBus>(),
               sp.GetRequiredService<IAgentEvents>(),
-              () => SubAgentSpawner.RunningChild?.Id
+              () => AgentRunLoop.RunningChild?.Id
                   ?? sp.GetRequiredService<RootSessionIdentity>().Id
                   ?? AgentId.NewId());
           return service;
@@ -1045,7 +1007,7 @@ public static class AgentComposition
           // Filtered(Anchored(session)), the loop registry's documented order.
           ICapabilityRegistry ResolveSurface()
           {
-            AgentRecord? running = SubAgentSpawner.RunningChild;
+            AgentRecord? running = AgentRunLoop.RunningChild;
             if (running is null)
             {
               return root.Value;
@@ -1313,7 +1275,7 @@ public static class AgentComposition
     _ = services.RemoveAll<IRootTurnChannel>();
     IServiceCollection wired = services
           .AddSingleton(sp => new InProcessAgentRuntime(
-              sp.GetRequiredService<SubAgentSpawner>(),
+              sp.GetRequiredService<AgentRunLoop>(),
               sp.GetRequiredService<IAgentStore>(),
               settings.SubAgents.MaxConcurrentAgents,
               sp.GetRequiredService<IAgentEvents>(),
@@ -1569,27 +1531,6 @@ public static class AgentComposition
     };
   }
 
-  /// <summary>The parent record the spawn path serves when no child is running (the
-  ///     ROOT spawning a child): a depth-0 stand-in whose Id is the PERSISTED root
-  ///     session id, resolved at dispatch — never a fresh random id, which
-  ///     phantom-parents every root-spawned child to a row that has none
-  ///     (2026-10-08 regression). Null identity (legacy wiring, headless stubs)
-  ///     keeps the generated-id behavior: the record is then a throwaway stand-in
-  ///     and children phantom-parent exactly as before the persisted-root fix.
-  ///     ModelUsed stamps the container's bootstrap model for parity with the
-  ///     persisted root row.</summary>
-  private static AgentRecord RootParentRecord(IServiceProvider sp)
-  {
-    AgentId? persisted = sp.GetRequiredService<RootSessionIdentity>().Id;
-    // The stand-in carries the session workspace for the same reason a real root row does
-    // (issue #305 D5): a child spawned from it INHERITS the stamp, and a child with no
-    // workspace is invisible to orphan repair.
-    return AgentRecord.Spawned(
-        persisted ?? AgentId.NewId(), null, 0,
-        sp.GetRequiredService<ModelConfig>().ModelId, null,
-        "root session", DateTimeOffset.UtcNow,
-        workspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId);
-  }
   /// <summary>Best-effort exec-path grant audit (R1.4): a denied dispatch lands as a
   ///     GrantViolation watchdog row; a failing write never blocks the denial.</summary>
   private static void AuditGrantDenial(IServiceProvider sp, AgentId agentId, string actionName)
@@ -1704,10 +1645,10 @@ public static class AgentComposition
   ///     configuration omits the SubAgent DefaultModel key, children inherit the host's
   ///     root model rather than failing every spawn with MissingModel. A configured
   ///     value always wins; empty config values are still rejected upstream at bind time.</summary>
-  private static SubAgentOptions subAgents(AgentSettings settings, string rootModelId)
+  private static AgentRunOptions subAgents(AgentSettings settings, string rootModelId)
       => string.IsNullOrWhiteSpace(settings.SubAgents.DefaultModel)
-          ? new SubAgentOptions(rootModelId,
-              settings.SubAgents.MaxConcurrentAgents, settings.SubAgents.MaxDepth)
+          ? new AgentRunOptions(rootModelId,
+              settings.SubAgents.MaxConcurrentAgents)
           : settings.SubAgents;
   /// <summary>Skill registry (plan #29): one service per container; the resolvers
   ///     read the same settings and resolved-directories the watcher uses.</summary>

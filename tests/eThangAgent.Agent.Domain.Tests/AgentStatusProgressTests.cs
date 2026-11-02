@@ -26,26 +26,17 @@ public class AgentStatusProgressTests
     public Task<Result<string>> GetResult(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<string>(new DomainError("NotComplete", "running")));
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
-  }
-
-  private sealed class NoopSpawnCommand : IAgentSpawnCommand
-  {
-    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(AgentId.NewId()));
   }
 
   private static AgentRecord Child(AgentStatus status) =>
-      AgentRecord.Spawned(AgentId.NewId(), null, 1, "prov/child", null, "child task", T0) with
+      AgentRecord.Started(AgentId.NewId(), "prov/child", null, "child task", T0) with
       {
         Status = status,
         CompletedAt = status is AgentStatus.Running ? null : T0,
       };
 
   private static AgentCapabilityProvider Provider(AgentRecord record, AgentProgressLedger? ledger, TimeProvider? clock = null)
-      => new(new AgentProviderServices(new NoopSpawnCommand(), new FakeQueries(record),
-          () => record, Progress: ledger, Clock: clock));
+      => new(new AgentProviderServices(new FakeQueries(record), Progress: ledger, Clock: clock));
 
   [Fact]
   public async Task Running_WithABeat_RendersPhaseLabelAndAge()

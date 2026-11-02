@@ -28,11 +28,10 @@ public class RecallQueryHandlerTests
   {
     AgentId rootId = AgentId.NewId();
     AgentId orphanId = AgentId.NewId();
-    AgentId missingAncestor = AgentId.NewId();
 
     _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0), "C:/workspaces/demo", "openrouter")).ConfigureAwait(false);
     // Orphan child: references an absent parent row.
-    _ = await _store.SaveAsync(AgentRecord.Spawned(orphanId, missingAncestor, depth: 1,
+    _ = await _store.SaveAsync(AgentRecord.Started(orphanId,
         modelUsed: "mock/model", label: "orphan", taskPrompt: "lost lineage", createdAt: At(1))).ConfigureAwait(false);
 
     _ = await _store.AppendMessageAsync(rootId,
@@ -275,8 +274,10 @@ public class RecallQueryHandlerTests
 
   // ---- Branch resolution through the orphan fixture ----
 
+  /// <summary>Issue #334: with no parent link there is no lineage to walk, so 'active' and
+  ///     'all' return the same set - the orphan fixture is now an ordinary session.</summary>
   [Fact]
-  public async Task Execute_ActivePath_ExcludesOrphanChain_AllBranches_IncludesIt()
+  public async Task Execute_ActivePath_KeepsEverySession_BecauseNoSessionHasALineage()
   {
     _ = await SeedBranchedCorpusAsync();
 
@@ -285,10 +286,10 @@ public class RecallQueryHandlerTests
 
     Assert.True(active.IsSuccess);
     Assert.True(all.IsSuccess);
-    Assert.Equal(2, active.Value.TotalMatched);   // root's two turns only
-    Assert.Equal(3, all.Value.TotalMatched);      // plus the orphan's turn
+    Assert.Equal(3, active.Value.TotalMatched);   // every session qualifies: no lineage to walk
+    Assert.Equal(3, all.Value.TotalMatched);
     Assert.Contains(all.Value.Hits, h => h.Content == "orphan alpha line");
-    Assert.All(active.Value.Hits, h => Assert.NotEqual("orphan alpha line", h.Content));
+    Assert.Contains(active.Value.Hits, h => h.Content == "orphan alpha line");
   }
 
   // ---- Session scope ----

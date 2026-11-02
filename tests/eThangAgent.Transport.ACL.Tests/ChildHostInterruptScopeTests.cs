@@ -6,46 +6,39 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Transport.ACL.Tests;
 
-/// <summary>Task 1 (scoped stop): a subtree-root interrupt over the wire cancels ONLY
-///     the ids in the root's subtree among the host's active children — another
-///     session's child (a sibling root's descendant) is never touched, and a NULL-id
-///     interrupt remains the legacy blanket cancel. The rig registers active children
-///     with parent edges the way RunChildAsync does (AttachActiveChild), no real child
-///     runs; the serve loop stays alive throughout.</summary>
+/// <summary>Scoped stop (issue #334): a record-id interrupt cancels EXACTLY the named agent
+///     among the host's active children - there is no subtree, because an agent has no
+///     descendants. Another session's agent is never touched, and a NULL-id interrupt remains
+///     the legacy blanket cancel. The rig registers active children the way RunChildAsync does
+///     (AttachActiveChild), no real child runs; the serve loop stays alive throughout.</summary>
 public class ChildHostInterruptScopeTests
 {
   [Fact]
-  public async Task SubtreeRootInterrupt_CancelsOnlyThatSubtreesActiveChildren()
+  public async Task RecordIdInterrupt_CancelsExactlyTheNamedAgent_NotAnyOtherRun()
   {
     (ChildHostServer server, NamedPipeChildTransport appSide, Func<Task> _) = await StartRigAsync().ConfigureAwait(true);
     try
     {
-      Guid sessionRoot = Guid.NewGuid();
-      Guid ownChild = Guid.NewGuid();
-      Guid ownGrandchild = Guid.NewGuid();
-      (Guid otherId, CancellationTokenSource otherCts) = NewActive();
+      Guid named = Guid.NewGuid();
+      Guid other = Guid.NewGuid();
       // Named decision (CA2000): the CTSs' ownership transfers to the server's active
       // set — the run's finally (or the test's observation) owns their lifetime.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
       RecordingRuntime runtime = new();
-      server.AttachActiveChild(sessionRoot, parentId: null, NewCts(), runtime);
-      server.AttachActiveChild(ownChild, sessionRoot, NewCts(), runtime);
-      server.AttachActiveChild(ownGrandchild, ownChild, NewCts(), runtime);
-      server.AttachActiveChild(otherId, parentId: null, otherCts, runtime);
+      RecordingRuntime otherRuntime = new();
+      server.AttachActiveChild(named, NewCts(), runtime);
+      server.AttachActiveChild(other, NewCts(), otherRuntime);
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
 
       await appSide.SendAsync(new TransportEnvelope("interrupt",
-          System.Text.Json.JsonSerializer.Serialize(new InterruptCommand(sessionRoot)), NextSeq()),
+          System.Text.Json.JsonSerializer.Serialize(new InterruptCommand(named)), NextSeq()),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-      // Every member of the session's subtree is interrupted through the child
-      // containers' runtimes — root, child, grandchild, deepest-first.
-      await WaitUntil(() => runtime.Interrupts.Count == 3, TimeSpan.FromSeconds(10)).ConfigureAwait(true);
-      Assert.Contains(new AgentId(sessionRoot), runtime.Interrupts);
-      Assert.Contains(new AgentId(ownChild), runtime.Interrupts);
-      Assert.Contains(new AgentId(ownGrandchild), runtime.Interrupts);
-      // The OTHER session's child (outside the subtree) is never interrupted.
-      Assert.DoesNotContain(runtime.Interrupts, i => i.Value == otherId);
+      // Exactly one interrupt, through the NAMED agent's own runtime.
+      await WaitUntil(() => runtime.Interrupts.Count == 1, TimeSpan.FromSeconds(10)).ConfigureAwait(true);
+      Assert.Contains(new AgentId(named), runtime.Interrupts);
+      // The other agent's run is untouched: it is another agent, not a descendant.
+      Assert.Empty(otherRuntime.Interrupts);
     }
     finally
     {
@@ -59,12 +52,12 @@ public class ChildHostInterruptScopeTests
     (ChildHostServer server, NamedPipeChildTransport appSide, Func<Task> _) = await StartRigAsync().ConfigureAwait(true);
     try
     {
-      (Guid idA, CancellationTokenSource ctsA) = NewActive();
-      (Guid idB, CancellationTokenSource ctsB) = NewActive();
+      Guid idA = Guid.NewGuid();
+      Guid idB = Guid.NewGuid();
       // Named decision (CA2000): ownership transfers to the server's active set.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
-      server.AttachActiveChild(idA, parentId: null, ctsA, new RecordingRuntime());
-      server.AttachActiveChild(idB, parentId: null, ctsB, new RecordingRuntime());
+      server.AttachActiveChild(idA, NewCts(), new RecordingRuntime());
+      server.AttachActiveChild(idB, NewCts(), new RecordingRuntime());
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
 
       await appSide.SendAsync(new TransportEnvelope("interrupt",
@@ -87,9 +80,8 @@ public class ChildHostInterruptScopeTests
     (ChildHostServer server, NamedPipeChildTransport appSide, Func<Task> _) = await StartRigAsync().ConfigureAwait(true);
     try
     {
-      Guid sessionRoot = Guid.NewGuid();
       Guid agentId = Guid.NewGuid();
-      AgentRecord record = AgentRecord.Spawned(new AgentId(agentId), new AgentId(sessionRoot), 1,
+      AgentRecord record = AgentRecord.Started(new AgentId(agentId),
           "mock/model", "scoped-stop", "park until interrupted", DateTimeOffset.UtcNow);
       ParkingRunRunner runner = new();
       InProcessAgentRuntime runtime = new(runner, new SilentStore(), maxConcurrentAgents: 1);
@@ -99,11 +91,11 @@ public class ChildHostInterruptScopeTests
       CancellationTokenSource bookkeeping = new();
       // Named decision (CA2000): ownership transfers to the server's active set.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
-      server.AttachActiveChild(agentId, sessionRoot, bookkeeping, runtime);
+      server.AttachActiveChild(agentId, bookkeeping, runtime);
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
 
       await appSide.SendAsync(new TransportEnvelope("interrupt",
-          System.Text.Json.JsonSerializer.Serialize(new InterruptCommand(sessionRoot)), NextSeq()),
+          System.Text.Json.JsonSerializer.Serialize(new InterruptCommand(agentId)), NextSeq()),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
 
       // The REAL run token — the one the child's loop executes under — is cancelled.
@@ -132,7 +124,7 @@ public class ChildHostInterruptScopeTests
       RecordingRuntime otherRuntime = new();
       // Named decision (CA2000): ownership transfers to the server's active set.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
-      server.AttachActiveChild(otherId, parentId: null, otherCts, otherRuntime);
+      server.AttachActiveChild(otherId, NewCts(), otherRuntime);
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
 
       // A root-turn stop: TurnId present, RecordId NULL — the exact shape the Desktop's
@@ -226,7 +218,7 @@ public class ChildHostInterruptScopeTests
       }
 
       return new AgentRunOutcome(child.Id, AgentStatus.Failed,
-          AgentFailureReason.Interrupted, "child agent was interrupted.", child.ModelUsed, child.Depth);
+          AgentFailureReason.Interrupted, "child agent was interrupted.", child.ModelUsed);
     }
   }
 
@@ -246,8 +238,6 @@ public class ChildHostInterruptScopeTests
         => Task.FromResult(Result.Success(id.ToString()));
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
   }

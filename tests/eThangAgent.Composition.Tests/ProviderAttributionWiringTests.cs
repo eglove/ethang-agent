@@ -108,7 +108,7 @@ public class ProviderAttributionWiringTests
     string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-attrib-{Guid.NewGuid():N}.db");
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),
-        new SubAgentOptions(null, 2));
+        new AgentRunOptions(null, 2));
     try
     {
       using TestAppDatabase db = TestAppDatabase.Create();

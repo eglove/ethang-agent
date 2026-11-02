@@ -7,7 +7,7 @@ public class AgentQueriesTests
 {
   private static AgentRecord MakeRecord(AgentId id, AgentStatus status,
       AgentFailureReason? reason = null, string? finalReport = null) => new(
-      id, null, 0, status, reason, "mock/model", null, "task",
+      id, status, reason, "mock/model", null, "task",
       DateTimeOffset.UtcNow, status is AgentStatus.Running ? null : DateTimeOffset.UtcNow, finalReport);
 
   [Fact]

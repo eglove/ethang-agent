@@ -9,22 +9,22 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     left behind in the child's anchored workspace. Best effort: a failing check,
 ///     no check wired, no anchor, or an empty untracked list leaves the report
 ///     verbatim — the run still completes.</summary>
-public class SubAgentSpawnerCleanlinessTests
+public class AgentRunLoopCleanlinessTests
 {
   private static AgentRecord Child(string? anchor)
-      => AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", null, "do things",
+      => AgentRecord.Started(AgentId.NewId(), "m/sub", null, "do things",
           new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc),
           anchor is null ? null : new SpawnContract(WorkspaceRoot: anchor));
 
-  private static SubAgentSpawner MakeRunner(IModelProvider provider, FakeAgentStore store,
+  private static AgentRunLoop MakeRunner(IModelProvider provider, FakeAgentStore store,
       IWorkspaceCleanlinessCheck? cleanliness)
   {
-    SubAgentServices services = new(
+    AgentRunServices services = new(
         new FakeModelProviderFactory(provider), store, new ToolRegistry([]),
-        new StaticPromptProvider("guide"), new SubAgentOptions(DefaultModel: "m/sub"),
+        new StaticPromptProvider("guide"), new AgentRunOptions(DefaultModel: "m/sub"),
         AnchorScope: new RecordingScope(),
         Cleanliness: cleanliness);
-    return new SubAgentSpawner(services);
+    return new AgentRunLoop(services);
   }
 
   /// <summary>The anchored contract requires a wired anchor scope (an infrastructure
@@ -56,7 +56,7 @@ public class SubAgentSpawnerCleanlinessTests
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("child report", [])));
     FakeCleanliness check = new(["stage_1.txt", "notes.md"]);
-    SubAgentSpawner spawner = MakeRunner(provider, store, check);
+    AgentRunLoop spawner = MakeRunner(provider, store, check);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(@"C:\ws"), CancellationToken.None);
 
@@ -75,7 +75,7 @@ public class SubAgentSpawnerCleanlinessTests
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("child report", [])));
     FakeCleanliness check = new([]);
-    SubAgentSpawner spawner = MakeRunner(provider, store, check);
+    AgentRunLoop spawner = MakeRunner(provider, store, check);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(@"C:\ws"), CancellationToken.None);
 
@@ -88,7 +88,7 @@ public class SubAgentSpawnerCleanlinessTests
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("child report", [])));
     FakeCleanliness check = new([], fail: true);
-    SubAgentSpawner spawner = MakeRunner(provider, store, check);
+    AgentRunLoop spawner = MakeRunner(provider, store, check);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(@"C:\ws"), CancellationToken.None);
 
@@ -101,7 +101,7 @@ public class SubAgentSpawnerCleanlinessTests
   {
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("child report", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store, null);
+    AgentRunLoop spawner = MakeRunner(provider, store, null);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(@"C:\ws"), CancellationToken.None);
 
@@ -114,7 +114,7 @@ public class SubAgentSpawnerCleanlinessTests
     FakeAgentStore store = new();
     FakeProvider provider = new(Result.Success(new ModelResponse("child report", [])));
     FakeCleanliness check = new(["stage_1.txt"]);
-    SubAgentSpawner spawner = MakeRunner(provider, store, check);
+    AgentRunLoop spawner = MakeRunner(provider, store, check);
 
     _ = await spawner.RunAsync(Child(null), CancellationToken.None);
 
@@ -128,7 +128,7 @@ public class SubAgentSpawnerCleanlinessTests
     FakeProvider provider = new(Result.Success(new ModelResponse("child report", [])));
     List<string> files = [.. Enumerable.Range(1, 13).Select(i => $"scratch_{i}.txt")];
     FakeCleanliness check = new(files);
-    SubAgentSpawner spawner = MakeRunner(provider, store, check);
+    AgentRunLoop spawner = MakeRunner(provider, store, check);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(@"C:\ws"), CancellationToken.None);
 

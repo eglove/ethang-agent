@@ -179,7 +179,7 @@ public class SpawnedAgentEventForwardingTests
 
       AgentSettings settings = new AgentSettings(
           new OpenRouterSettings("sk-test", mock.BaseUrl),
-          new SubAgentOptions(null, 2))
+          new AgentRunOptions(null, 2))
           .WithWorkspaceRoot(workspace)
           .WithWorkspaceId(workspace);
 
@@ -221,7 +221,7 @@ public class SpawnedAgentEventForwardingTests
     public async Task<AgentRecord> PersistChildAsync(string prompt)
     {
       AgentId id = AgentId.NewId();
-      AgentRecord record = AgentRecord.Spawned(id, parentId: null, depth: 0, ChildModel,
+      AgentRecord record = AgentRecord.Started(id, ChildModel,
           label: "child", taskPrompt: prompt, DateTimeOffset.UtcNow,
           contract: null, provider: Providers.OpenRouter, workspaceId: WorkspaceRoot);
       Result<string> saved = await Store.SaveAsync(record, CancellationToken.None).ConfigureAwait(false);

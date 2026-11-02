@@ -12,8 +12,6 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     outcome renders its failure annotation regardless of any report text.</summary>
 public class AgentWaitHonestOutcomeTests
 {
-  private static AgentRecord Parent() => AgentRecord.Spawned(AgentId.NewId(), null, 0, "prov/parent", null, "root task", DateTimeOffset.UtcNow);
-
   private sealed class RuntimeOutcome(AgentRunOutcome outcome) : IAgentRuntime
   {
     public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
@@ -37,9 +35,8 @@ public class AgentWaitHonestOutcomeTests
     // The exact incident shape: Failed(Interrupted) whose report field carries the
     // failure detail - the parent must read the failure annotation, not the text.
     AgentRunOutcome failed = new(id, AgentStatus.Failed, AgentFailureReason.Interrupted,
-        "Now writing the failing tests...", "prov/child", 1);
-    AgentCapabilityProvider provider = new(new AgentProviderServices(
-        new NoopSpawn(), new QueriesStub(), Parent, new RuntimeOutcome(failed)));
+        "Now writing the failing tests...", "prov/child");
+    AgentCapabilityProvider provider = new(new AgentProviderServices(new QueriesStub(), new RuntimeOutcome(failed)));
 
     string json = System.Text.Json.JsonSerializer.Serialize(new { id = id.ToString() });
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", json,
@@ -55,9 +52,8 @@ public class AgentWaitHonestOutcomeTests
   {
     AgentId id = AgentId.NewId();
     AgentRunOutcome completed = new(id, AgentStatus.Completed, null,
-        "the real report", "prov/child", 1);
-    AgentCapabilityProvider provider = new(new AgentProviderServices(
-        new NoopSpawn(), new QueriesStub(), Parent, new RuntimeOutcome(completed)));
+        "the real report", "prov/child");
+    AgentCapabilityProvider provider = new(new AgentProviderServices(new QueriesStub(), new RuntimeOutcome(completed)));
 
     string json = System.Text.Json.JsonSerializer.Serialize(new { id = id.ToString() });
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", json,
@@ -65,12 +61,6 @@ public class AgentWaitHonestOutcomeTests
 
     Assert.False(result.IsError);
     Assert.Equal("the real report", result.Content);
-  }
-
-  private sealed class NoopSpawn : IAgentSpawnCommand
-  {
-    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(AgentId.NewId()));
   }
 
   private sealed class QueriesStub : IAgentQueries
@@ -81,7 +71,5 @@ public class AgentWaitHonestOutcomeTests
     public Task<Result<string>> GetResult(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<string>(new DomainError("NotFound", "unused")));
 
-    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<IReadOnlyList<AgentRecord>>(new DomainError("NotFound", "unused")));
   }
 }

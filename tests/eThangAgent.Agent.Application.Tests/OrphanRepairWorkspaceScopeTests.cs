@@ -12,7 +12,7 @@ namespace eThangAgent.Agent.Application.Tests;
 public class OrphanRepairWorkspaceScopeTests
 {
   private static AgentRecord Running(string label, string? workspaceId)
-      => AgentRecord.Spawned(new AgentId(Guid.NewGuid()), parentId: null, depth: 1,
+      => AgentRecord.Started(new AgentId(Guid.NewGuid()),
           modelUsed: "m/sub", label: label, taskPrompt: "task", createdAt: DateTimeOffset.UtcNow)
       with
       { WorkspaceId = workspaceId };

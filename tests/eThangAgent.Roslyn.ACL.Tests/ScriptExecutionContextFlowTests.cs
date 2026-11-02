@@ -5,7 +5,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 
 /// <summary>Exec flow regression (2026-10-04): the engine ran scripts under
 ///     ExecutionContext.SuppressFlow(), which also suppressed AsyncLocal flow —
-///     SubAgentSpawner.RunningChild never reached the script, so a child's own
+///     AgentRunLoop.RunningChild never reached the script, so a child's own
 ///     agent.spawn resolved the phantom-root fallback and every grandchild row carried
 ///     a broken parent id. The engine must suppress the caller's SynchronizationContext
 ///     (the deadlock it exists to prevent) while KEEPING ExecutionContext flow.

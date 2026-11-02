@@ -6,18 +6,18 @@ namespace eThangAgent.AgentDomain.Tests;
 
 /// <summary>A child inherits the session's committed provider (issue #297, D4/B4).
 ///     <para>WHY THIS IS PINNED AT THE RUN, NOT AT THE SPAWN: the child's ModelConfig is built
-///     by <c>SubAgentSpawner.ChildConfigAsync</c> from the session preferences, so the provider
+///     by <c>AgentRunLoop.ChildConfigAsync</c> from the session preferences, so the provider
 ///     that actually rides the child's request is decided here. The spawn command's resolved
 ///     config only contributes the persisted model id — a test asserting the provider at the
 ///     spawn would pass while every child request went out unpinned.</para>
 ///     <para>The observation seam is the fake factory's LastConfig: it sees exactly the config
 ///     the child loop sends.</para></summary>
-public class SubAgentSpawnerProviderInheritanceTests
+public class AgentRunLoopProviderInheritanceTests
 {
   private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
   private static AgentRecord Child(string model = "alpha/model")
-      => AgentRecord.Spawned(AgentId.NewId(), null, 0, model, null, "do things", FixedNow);
+      => AgentRecord.Started(AgentId.NewId(), model, null, "do things", FixedNow);
 
   private sealed class FixedSource : IContextWindowSource
   {
@@ -25,9 +25,9 @@ public class SubAgentSpawnerProviderInheritanceTests
         => Task.FromResult<int?>(128_000);
   }
 
-  private static SubAgentSpawner Spawner(FakeModelProviderFactory factory, SessionModelPreferences preferences)
-      => new(new SubAgentServices(factory, new FakeAgentStore(), new ToolRegistry([]),
-              new StaticPromptProvider("guide"), new SubAgentOptions(DefaultModel: "m")),
+  private static AgentRunLoop Spawner(FakeModelProviderFactory factory, SessionModelPreferences preferences)
+      => new(new AgentRunServices(factory, new FakeAgentStore(), new ToolRegistry([]),
+              new StaticPromptProvider("guide"), new AgentRunOptions(DefaultModel: "m")),
           preferences, windowSource: new FixedSource());
 
   [Fact]
@@ -39,7 +39,7 @@ public class SubAgentSpawnerProviderInheritanceTests
     // whatever model the child config names, which is why the assertion names 'alpha/model'
     // rather than the session's model.
     FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
-    SubAgentSpawner spawner = Spawner(factory, new SessionModelPreferences
+    AgentRunLoop spawner = Spawner(factory, new SessionModelPreferences
     {
       ModelId = "alpha/model",
       ModelVariant = ModelVariant.Nitro,
@@ -56,7 +56,7 @@ public class SubAgentSpawnerProviderInheritanceTests
     // Null means UNSET, never 'standard was chosen': a session that committed no variant keeps
     // the provider's own routing, exactly as every pre-existing session does.
     FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
-    SubAgentSpawner spawner = Spawner(factory, new SessionModelPreferences { ModelId = "alpha/model" });
+    AgentRunLoop spawner = Spawner(factory, new SessionModelPreferences { ModelId = "alpha/model" });
 
     _ = await spawner.RunAsync(Child(), CancellationToken.None);
 
@@ -70,7 +70,7 @@ public class SubAgentSpawnerProviderInheritanceTests
     // suffixed id would find no window and fail every child of a nitro session - the regression
     // this pins, since the failure would read as a broken model rather than a broken key.
     FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
-    SubAgentSpawner spawner = Spawner(factory, new SessionModelPreferences
+    AgentRunLoop spawner = Spawner(factory, new SessionModelPreferences
     {
       ModelId = "alpha/model",
       ModelVariant = ModelVariant.Floor,
