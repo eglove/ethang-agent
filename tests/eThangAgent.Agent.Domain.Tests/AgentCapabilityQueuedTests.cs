@@ -5,9 +5,8 @@ namespace eThangAgent.AgentDomain.Tests;
 
 /// <summary>Issue #238's read-model half: the queued state is first-class everywhere a
 ///     caller looks. agent.status renders status=queued (never a bare running lie),
-///     agent.cancel accepts a queued child (nothing else could stop a parked spawn),
-///     agent.send reaches it through the ordinary delivery path, and agent.result reports
-///     NotComplete rather than pretending the child is unknown.</summary>
+///     agent.cancel accepts a queued child (nothing else could stop a parked run), and
+///     agent.result reports NotComplete rather than pretending the child is unknown.</summary>
 public class AgentCapabilityQueuedTests
 {
   private static AgentRecord QueuedChild()
@@ -32,8 +31,6 @@ public class AgentCapabilityQueuedTests
   private sealed class RecordingRuntime : IAgentRuntime
   {
     public List<AgentId?> Interrupted { get; } = [];
-
-    public List<(Guid Id, string Text)> Delivered { get; } = [];
 
     public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
         => Task.FromResult(Result.Success(record.Id));

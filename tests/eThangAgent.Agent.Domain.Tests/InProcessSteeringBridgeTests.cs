@@ -4,9 +4,9 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
-/// <summary>FR-C2 bridge (the gap the R5 review found): agent.send delivers into the
-///     runtime's mailbox AND the running child actually drains it at its next safe
-///     point — the steered text reaches the child's provider request as a User message.
+/// <summary>FR-C2 bridge (the gap the R5 review found): a steering message delivered into
+///     the runtime's mailbox is actually drained by the running agent at its next safe
+///     point — the steered text reaches the agent's provider request as a User message.
 ///     This pins the AgentRunServices.InboxFor wiring the composition installs.</summary>
 public class InProcessSteeringBridgeTests
 {
