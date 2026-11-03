@@ -77,7 +77,11 @@ public class SplitterDragCostTests
           $"the drag must actually resize the chat (was {before:F0}, now {after:F0}) - otherwise this measures nothing");
     }
 
-    File.WriteAllText(Path.Combine("C:\\Users\\glove\\projects\\ethang-agent\\.work", "dragcost.txt"), report.ToString());
-    Assert.True(true);
+    // THE REPORT GOES TO THE TEST'S OWN OUTPUT, NEVER INTO THE WORKSPACE. It used to be
+    // written to a hardcoded path under the repository's .work directory, which dirtied the
+    // tree on every run: the completion gate compares the newest passing verification against
+    // the workspace's write times, so a test that writes a file AFTER the run makes every
+    // green run read as stale and no completion claim can ever be made.
+    TestContext.Current.SendDiagnosticMessage(report.ToString());
   }
 }
