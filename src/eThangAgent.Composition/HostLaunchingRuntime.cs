@@ -32,8 +32,8 @@ namespace eThangAgent.Composition;
 ///     siblings untouched — criterion 9 — because each sibling has its own job.</para>
 ///     <para>ADMISSION IS THE HOST CAP (criterion 3/4). A start asks <see cref="HostAdmissionGate"/>
 ///     for a host slot; past the cap it PARKS rather than dropping, and the parked start keeps
-///     its settle source so `agent.wait` blocks on it instead of failing NotFound — the same
-///     contract the in-process runtime gave a queued spawn (#238), now at the host boundary. A
+///     its settle source so a settle observer finds it instead of failing NotFound — the same
+///     contract the in-process runtime gave a queued start (#238), now at the host boundary. A
 ///     released slot is handed directly to the park head.</para></summary>
 public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
 {
@@ -96,9 +96,9 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
     HostAdmission decision = _admission.Request(record.Id.Value);
     if (!decision.IsAdmitted)
     {
-      // PARKED, never dropped: the row stays as the caller persisted it (Queued), the settle
-      // source stays alive, and agent.wait blocks. A drop would leave a Running row with no run
-      // behind it — the stranded-row defect this same issue fixes.
+      // PARKED, never dropped: the row stays as the caller persisted it (Queued) and the
+      // settle source stays alive. A drop would leave a Running row with no run behind it —
+      // the stranded-row defect this same issue fixes.
       return Result.Success(record.Id);
     }
 

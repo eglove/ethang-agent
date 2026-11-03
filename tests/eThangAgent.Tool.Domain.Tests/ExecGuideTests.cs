@@ -134,7 +134,7 @@ public partial class ExecGuideTests
     // It returns an id and returns: reading the outcome is the caller's own later act.
     Assert.Contains("RETURNS the new agent's id and returns", section, StringComparison.Ordinal);
     Assert.Contains("not a join the launch performs", section, StringComparison.Ordinal);
-    // Issue #338 F5: agent.wait and agent.resume cannot address a launched id yet, so the
+    // Issue #338 F5: agent.resume cannot address a launched id, so the
     // section must not advertise them — a documented continuation the runtime refuses is the
     // #288 defect, and this is where it would be taught.
     Assert.Contains("use agent.result and agent.status", Collapse(section), StringComparison.Ordinal);
@@ -161,8 +161,9 @@ public partial class ExecGuideTests
     // The actions the agent provider exposes. Pinned here because the Tool Domain may not
     // reference the Agent Domain; ActionNames_ExposeNoSpawnAndNoFanout pins the other side.
     // agent.launch joined them in issue #338 - starting a SIBLING, which records no parent.
+    // agent.wait left them in issue #335 - blocking on a peer's outcome is supervision.
     string[] exposed =
-        ["agent.status", "agent.result", "agent.wait", "agent.resume", "agent.cancel", "agent.launch"];
+        ["agent.status", "agent.result", "agent.resume", "agent.cancel", "agent.launch"];
 
     string[] named =
     [
@@ -187,7 +188,7 @@ public partial class ExecGuideTests
   {
     foreach (string retired in new[]
     {
-      "agent.spawn", "agent.fanout", "depth limit", "spawn a child", "subagent",
+      "agent.spawn", "agent.fanout", "agent.wait", "depth limit", "spawn a child", "subagent",
       "children may spawn", "grandchild", "child agent", "spawns",
     })
     {

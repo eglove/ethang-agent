@@ -85,7 +85,7 @@ public static class AgentComposition
     wired = AddAgentTools(wired, settings);
     wired = AddPersistenceServices(wired, host, database, providerName);
     wired = AddSkillServices(wired, settings);
-    wired = AddWakeAndMailboxServices(wired);
+    wired = AddMailboxServices(wired);
     wired = AddModelServices(wired, providerName);
     wired = AddAgentRunServices(wired);
     wired = AddCapabilityServices(wired);
@@ -813,34 +813,15 @@ public static class AgentComposition
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow);
   }
 
-  /// <summary>The wait wake bus and its adapters, the root inbox, the mailbox stores, and the
-  ///     supervisor and mailbox registries.
+  /// <summary>The root inbox, the mailbox stores, and the supervisor and mailbox registries.
   /// </summary>
-  private static IServiceCollection AddWakeAndMailboxServices(IServiceCollection wired)
+  private static IServiceCollection AddMailboxServices(IServiceCollection wired)
   {
     return wired
-        // The wait wake bus (spec #62): one hub per session; the agent-event adapter and
-        // the state-change adapter feed it; the root inbox decorator fires the
-        // unconditional user wake. Ephemeral, in-process — remote waits keep today's
-        // behavior (documented at RemoteAgentRuntime).
-        // The adapters are constructed here explicitly: DI constructs lazily, and NOTHING
-        // else resolves the adapters — a plain registration would never subscribe. The hub
-        // factory builds the hub FIRST, then the adapters over it (no re-entrance). The
-        // adapters' leases live in the streams' subscription closures and die with the
-        // session-scoped streams; the adapters are never disposed individually (benign:
-        // InProcessAgentEvents and InProcessStateChangeBus are session-scoped).
-        .AddSingleton(sp =>
-        {
-          WaitWakeHub hub = new();
-          _ = new AgentEventWakeAdapter(sp.GetRequiredService<IAgentEvents>(), hub);
-          _ = new StateChangeWakeAdapter(sp.GetRequiredService<IStateChangeBus>(), hub);
-          return hub;
-        })
         // The progress ledger (issue #93): the model-facing read surface for a running
-        // child's mid-run activity. Constructed eagerly here for the same reason the
-        // adapters are - DI is lazy and NOTHING else resolves it, so a plain registration
-        // would never subscribe. It feeds agent.status only; it is deliberately NOT
-        // attached to the wake hub (progress must never wake a wait).
+        // child's mid-run activity. Constructed eagerly here: DI is lazy and NOTHING else
+        // resolves it, so a plain registration would never subscribe. It feeds agent.status
+        // only.
         .AddSingleton(sp =>
         {
           AgentProgressLedger ledger = new();
@@ -848,10 +829,7 @@ public static class AgentComposition
           return ledger;
         })
         .AddSingleton<IStateChangeBus, InProcessStateChangeBus>()
-        .AddSingleton<IAgentInbox>(sp => new SignalingInbox(
-            new BoundedAgentMailbox(),
-            sp.GetRequiredService<WaitWakeHub>(),
-            ownerId: sp.GetRequiredService<RootSessionIdentity>().Id ?? AgentId.NewId()))
+        .AddSingleton<IAgentInbox>(_ => new BoundedAgentMailbox())
         .AddSingleton<IAgentEvents, InProcessAgentEvents>()
 
         .AddSingleton<AgentSupervisorRegistry>()
@@ -930,7 +908,7 @@ public static class AgentComposition
          .AddSingleton(sp => new AgentCapabilityProvider(new AgentProviderServices(
                  sp.GetRequiredService<IAgentQueries>(),
                  sp.GetRequiredService<IAgentRuntime>(),
-                 WakeSource: sp.GetRequiredService<WaitWakeHub>(),
+
                  Clock: TimeProvider.System,
                  Progress: sp.GetRequiredService<AgentProgressLedger>(),
                  Launcher: sp.GetRequiredService<IAgentLaunchCommand>())))

@@ -59,9 +59,8 @@ internal sealed record PlanStepRowViewModel(int Position, string Marker, string 
 ///     <see cref="RefreshAsync"/>, so there is exactly one renderer and no chance of two
 ///     disagreeing.</para>
 ///     <para>The event stream is the primary mechanism and the poll is the safety net:
-///     the same <see cref="PlanChangedEvent"/> a parent agent watches with
-///     <c>wakeOn=plan</c> is what refreshes this view, so a subagent marking a step done
-///     is visible here without a polling interval.</para>
+///     a <see cref="PlanChangedEvent"/> refreshes this view, so a step marked done is
+///     visible here without a polling interval.</para>
 ///     <para>Read-only by design (D4): the view never mutates a plan. A corrupt plan row
 ///     renders as a named marker instead of blanking the list (#279).</para>
 ///     <para>The todo list this view used to render beside the plans is gone (issue #310):
@@ -136,8 +135,8 @@ internal sealed partial class PlansViewViewModel(
     // Source B: the session's agent event stream (the INSTANT path). A plan written by
     // the model is written by the ChildHost, so this process's PlanService events can
     // never fire for it - the host forwards a PlanChangedEvent over the wire instead,
-    // and the runtime republishes it onto this stream. This is the same fact a parent
-    // agent wakes on with wakeOn=plan, so one subscribable serves both readers.
+    // and the runtime republishes it onto this stream, so one subscribable serves every
+    // reader of plan work.
     _eventsSubscription = _events?.Subscribe(new PlanChangeSubscriber(
         () => _ = RefreshAsync(CancellationToken.None)));
 

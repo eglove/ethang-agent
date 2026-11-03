@@ -23,7 +23,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   ///     grant-surface computation needs the names at composition time, where
   ///     resolving the provider itself would re-enter its singleton (R1).</summary>
   public static readonly string[] ActionNames =
-      ["status", "result", "wait", "resume", "cancel", "launch"];
+      ["status", "result", "resume", "cancel", "launch"];
 
   /// <summary>Builds the dispatch map eagerly: every handler closes over this
   ///     provider's collaborators, so the map is per provider (one per session).</summary>
@@ -32,7 +32,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     ArgumentNullException.ThrowIfNull(services);
     _queries = services.Queries ?? throw new ArgumentNullException(nameof(services), "Queries must not be null.");
     _runtime = services.Runtime;
-    _wakeSource = services.WakeSource;
     _clock = services.Clock;
     _progress = services.Progress;
     _launcher = services.Launcher;
@@ -41,7 +40,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
 
   private readonly IAgentQueries _queries;
   private readonly IAgentRuntime? _runtime;
-  private readonly IWaitWakeSource? _wakeSource;
   private readonly TimeProvider? _clock;
   private readonly AgentProgressLedger? _progress;
   private readonly IAgentLaunchCommand? _launcher;
@@ -53,7 +51,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   [
       new("status", "Projection of an agent's current state, for humans and debugging.",
             """
-            Returns the agent's current state as one annotation line. This is a projection, not a mechanism: when you need the outcome, use agent.wait (one await) instead of polling status.
+            Returns the agent's current state as one annotation line. This is a projection, not a mechanism: the outcome of work is read from the record once it is terminal — agent.result for an agent's report, and the chain record for whether a step was done.
             Output contract:
             id=<id> status=running
             id=<id> status=queued
@@ -70,29 +68,17 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             ]),
       new("result", "Fetch the final report of an agent.",
             """
-            Returns the agent's final report verbatim once it has finished. While it is still running you receive 'Error [NotComplete]' — use agent.wait to await the outcome instead of re-polling. Unknown ids yield 'Error [NotFound]'. A failed agent yields its partial report, or an Error [MaxIterations|Timeout|ProviderError] annotation when no report landed.
+            Returns the agent's final report verbatim once it has finished. While it is still running you receive 'Error [NotComplete]' — read it again once the record is terminal. Unknown ids yield 'Error [NotFound]'. A failed agent yields its partial report, or an Error [MaxIterations|Timeout|ProviderError] annotation when no report landed.
             """,
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the agent."),
-            ]),
-      new("wait", "Wait for an agent to settle and return its outcome as one result.",
-            """
-            Blocks until the agent settles and returns the outcome contract of agent.result (the report, or the failure annotation). Unbounded by design: the watchdog guards the run, and your own stop cancels the wait with 'Error [Cancelled]'. Unknown ids yield 'Error [NotFound]'. Prefer one wait over repeated status polls when you need the outcome.
-            Optional wakeOn (default "message"): "all" or a comma list of message|idle|settled|state|stream|budget|mailbox — the wait returns EARLY when a matching event arrives, WITHOUT the agent settling. There is deliberately NO progress reason: an agent's progress beats fire on every tool call, so a wait that woke on them would never rest. Optional timeoutSeconds (positive integer; must fit inside your exec call's own timeoutSeconds budget): a soft cap — expiry returns a wake annotation, never an error.
-            USER STEERING ALWAYS WAKES: if the user sends a message while you wait, the wait returns immediately with reason=user-message, regardless of wakeOn. Read it and act (re-wait or intervene; steering a running agent is the human's own cell input).
-            Woken return contract (agent still running): [wait: woken reason=<user-message|idle|stream-stall|state|budget|mailbox|timeout>] then id=<id> status=running, then one digest line per event. On a wake you hold the turn again: re-wait, or do other work; the agent's eventual outcome is still retrievable with a later wait or agent.result.
-            """,
-            [
-                new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the agent."),
-                new ActionParameter("wakeOn", ActionParameterTypes.StringType, "Optional: 'all' or comma list of message|idle|settled|state|stream|budget|mailbox (default 'message'). Matching events wake the wait early with the agent still running. There is no progress reason — an agent's progress beats fire on every tool call, so waking on them would never let the wait rest."),
-                new ActionParameter("timeoutSeconds", ActionParameterTypes.IntegerType, "Optional soft cap in seconds; expiry returns a [wait: woken reason=timeout] annotation with the agent still running — never an error. Must fit inside the exec call's own timeoutSeconds budget."),
             ]),
       new("resume", "Resume a settled agent with a new message (same id, same context).",
             """
             Continues a SETTLED agent (completed or failed) on the SAME id: its persisted transcript,
             workspace anchor, and grants carry over; 'text' becomes the agent's next instruction.
-            Returns id=<id> status=running — await the fresh outcome with agent.wait, read it with
-            agent.result. Fails: NotRunning (unknown id, or the agent is still running — a running
+            Returns id=<id> status=running — read the fresh outcome with agent.result once it
+            settles. Fails: NotRunning (unknown id, or the agent is still running — a running
             agent is steered by the human in its own cell, never by a tool call), InvalidMessage (empty text).
             Every fix round on a settled agent beats starting a new one from scratch.
             """,
@@ -114,7 +100,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
              Starts one agent: a session of its own, in YOUR workspace, seeded with 'prompt' as its first turn, and shown as a cell beside yours. Returns its id at once and returns - this is not a delegation and not a join.
              The agent it starts is a SIBLING, not a subordinate. Nothing records it as yours: it carries no owner, no ancestor reference, and no nesting fact of any kind, and it is indistinguishable from an agent the user opened by hand apart from its creation time, its label, and its prompt. There is no fan-out, and nothing caps an agent by nesting.
              Optional 'label' is the caption its cell shows (default: the workspace name). Optional 'model' serves that agent; omit it to inherit this workspace's own choice.
-             HOW TO FOLLOW IT: agent.status projects its current state and agent.result returns its report once it settles. agent.wait and agent.resume address a run inside THIS host and cannot address the host a launched agent runs in, so neither is available on the id this action returns; a launch that waited would also be supervision, which is what a sibling is not.
+             HOW TO FOLLOW IT: agent.status projects its current state and agent.result returns its report once it settles. Both are your own later acts; nothing joins on the agent you started. agent.resume addresses a run inside THIS host and cannot address the host a launched agent runs in, so it is not available on the id this action returns.
              Output contract:
              id=<id> status=running
              Fails: InvalidActionInput (empty 'prompt'), LaunchUnavailable (this host wired no session-start seam), and the app's own typed refusal verbatim (SessionRequestUnreachable when no live turn can carry the request - never a hang).
@@ -135,7 +121,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     {
       ["status"] = Status,
       ["result"] = GetResult,
-      ["wait"] = Wait,
       ["resume"] = (json, _) => Resume(json),
       ["cancel"] = Cancel,
       ["launch"] = Launch,
@@ -150,152 +135,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
         : Task.FromResult(CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."));
   }
 
-  /// <summary>Await the child's terminal transition and render the outcome contract of
-  ///     agent.result: the report verbatim on success, the partial report (or the failure
-  ///     annotation) on failure. NotFound/Cancelled pass through untouched.</summary>
-  private async Task<CapabilityInvocationResult> Wait(string json, CancellationToken ct)
-  {
-    if (_runtime is null)
-    {
-      return CapabilityInvocationResult.Fail(
-          "Error [NotAvailable]: agent.wait needs a runtime wired into this session's capability provider.");
-    }
-
-    Result<AgentId> id = ParseIdArgument(json);
-    if (!id.IsSuccess)
-    {
-      return CapabilityInvocationResult.Fail($"Error [{id.Error.Code}]: {id.Error.Message}");
-    }
-
-    string? parseError = WaitArgs(json, out WakeFilter filter, out TimeSpan? timeout);
-    if (parseError is not null)
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
-    }
-
-    // Legacy path: no wake source AND no timeout — the pure WhenSettledAsync await,
-    // byte-identical output (the default wakeOn filter accepts only the user wake,
-    // which cannot fire without a source).
-    if (_wakeSource is null && timeout is null)
-    {
-      return await LegacyWait(_runtime, id.Value, ct).ConfigureAwait(false);
-    }
-
-    WakeAwareWait wait = new(_wakeSource ?? NullWaitWakeSource.Instance,
-        token => _runtime.WhenSettledAsync(id.Value, token), _clock ?? TimeProvider.System);
-    WaitResult result = await wait.RunAsync(new WaitSpec(id.Value, filter, timeout), ct).ConfigureAwait(false);
-
-    return result.Error is { } error
-        ? CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}")
-        : RenderWaitOutcome(id.Value, result);
-  }
-
-  /// <summary>Renders a wake-aware wait's non-error result: the settled outcome
-  ///     contract, or the woken/expired rendering with the child still running.</summary>
-  private static CapabilityInvocationResult RenderWaitOutcome(AgentId id, WaitResult result)
-    => result.Settled ? RenderOutcome(result.Outcome!) : RenderWake(id, result);
-
-  /// <summary>Renders a woken/expired wait: the wake annotation naming the first
-  ///     reason (timeout expiry renders as reason=timeout), the still-running line,
-  ///     then the accumulated digest lines oldest first.</summary>
-  private static CapabilityInvocationResult RenderWake(AgentId id, WaitResult result)
-  {
-    string reasonText = result.Reason is { } reason ? ReasonWord(reason) : "timeout";
-    List<string> lines =
-    [
-      $"[wait: woken reason={reasonText}]",
-      $"id={id} status=running",
-    ];
-    lines.AddRange(result.DigestLines);
-    return CapabilityInvocationResult.Ok(string.Join("\n", lines));
-  }
-
-  /// <summary>The legacy wait path: pure settlement await, today's rendering verbatim.</summary>
-  private static async Task<CapabilityInvocationResult> LegacyWait(IAgentRuntime runtime, AgentId id, CancellationToken ct)
-  {
-    Result<AgentRunOutcome> outcome = await runtime.WhenSettledAsync(id, ct).ConfigureAwait(false);
-    return outcome.IsSuccess
-        ? RenderOutcome(outcome.Value)
-        : CapabilityInvocationResult.Fail($"Error [{outcome.Error.Code}]: {outcome.Error.Message}");
-  }
-
-  /// <summary>Renders a settled outcome. Honesty rule (issue #124): only a COMPLETED
-  ///     settlement renders its report as success — a failed outcome's report field can
-  ///     carry the failure detail (or any partial text), and rendering it as the child's
-  ///     deliverable is exactly how agent.wait once handed the parent a failure sentence
-  ///     as if it were the task's result. Failure annotations pass through untouched.</summary>
-  private static CapabilityInvocationResult RenderOutcome(AgentRunOutcome settled)
-  {
-    return settled.Status is AgentStatus.Completed
-        ? CapabilityInvocationResult.Ok(settled.Report)
-        : CapabilityInvocationResult.Fail("Error [" + ReasonText(settled.Reason) + "]: the child settled without a usable report.");
-  }
-
-  /// <summary>Strict wait-argument parsing beyond the id: wakeOn (default "message") and
-  ///     timeoutSeconds (positive integer). Unknown tokens and non-positive timeouts are
-  ///     InvalidActionInput naming the offending member.</summary>
-  private static string? WaitArgs(string json, out WakeFilter filter, out TimeSpan? timeout)
-  {
-    filter = WakeFilter.Parse(null).Value!;
-    timeout = null;
-    JsonDocument doc;
-    try
-    {
-      doc = JsonDocument.Parse(json);
-    }
-    catch (JsonException ex)
-    {
-      return $"arguments must be a JSON object ({ex.Message}).";
-    }
-
-    using (doc)
-    {
-      if (doc.RootElement.TryGetProperty("wakeOn", out JsonElement wakeElement))
-      {
-        if (wakeElement.ValueKind is not JsonValueKind.String)
-        {
-          return "'wakeOn' must be a string.";
-        }
-
-        Result<WakeFilter> parsed = WakeFilter.Parse(wakeElement.GetString());
-        if (!parsed.IsSuccess)
-        {
-          return parsed.Error.Message;
-        }
-
-        filter = parsed.Value;
-      }
-
-      if (doc.RootElement.TryGetProperty("timeoutSeconds", out JsonElement timeoutElement))
-      {
-        if (timeoutElement.ValueKind is not JsonValueKind.Number || !timeoutElement.TryGetInt32(out int seconds))
-        {
-          return "'timeoutSeconds' must be an integer.";
-        }
-
-        if (seconds <= 0)
-        {
-          return "'timeoutSeconds' must be a positive integer.";
-        }
-
-        timeout = TimeSpan.FromSeconds(seconds);
-      }
-
-      return null;
-    }
-  }
-
-  private static string ReasonWord(WakeReason reason) => reason switch
-  {
-    WakeReason.UserMessage => "user-message",
-    WakeReason.Idle => "idle",
-    WakeReason.StreamStall => "stream-stall",
-    WakeReason.StateWrite => "state",
-    WakeReason.Budget => "budget",
-    WakeReason.Mailbox => "mailbox",
-    WakeReason.Plan => "plan",
-    _ => "unknown",
-  };
   /// <summary>agent.resume: same-id fix-round continuation of a SETTLED child. Reuses
   ///     resume-argument parsing (id + text; no urgency). Every failure has a recipient:
   ///     NotRunning (unknown/still-running/foreign), InvalidMessage, and ResumeUnsupported
@@ -531,8 +370,8 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   /// <summary>agent.launch (issue #338): start a SIBLING agent and return its id.
   ///     <para>IT RETURNS AND STOPS THERE. Nothing here awaits the new agent, holds a
   ///     reference to its outcome, or records who asked: the caller reads the outcome with
-  ///     agent.result or agent.wait, which are its own later acts. A launch that joined
-  ///     would be supervision by another name.</para>
+  ///     agent.result, which is its own later act. A launch that joined would be
+  ///     supervision by another name.</para>
   ///     <para>EVERY FAILURE HAS A RECIPIENT: InvalidActionInput for an argument the caller
   ///     can correct, LaunchUnavailable when this host wired no launch seam (a test rig, a
   ///     headless container), and the port's own typed code verbatim - including
@@ -645,7 +484,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             "arguments must be a JSON object."));
       }
 
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "id", "wakeOn", "timeoutSeconds" };
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "id" };
       string[] unknown = [.. doc.RootElement.EnumerateObject()
           .Where(p => !allowed.Contains(p.Name))
           .Select(p => p.Name)];

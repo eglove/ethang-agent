@@ -202,67 +202,6 @@ public class AgentCapabilityProviderTests
     Assert.Empty(queries._resultCalls);
   }
 
-  // --- wait ----------------------------------------------------------------
-
-  [Fact]
-  public async Task Wait_CompletedChild_RendersOutcomeReportVerbatim()
-  {
-    AgentRecord child = ChildIn(AgentStatus.Completed, report: "the awaited report");
-    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: new FakeRuntime(new AgentRunOutcome(child.Id, AgentStatus.Completed, null, "the awaited report", "prov/child")));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal("the awaited report", result.Content);
-  }
-
-  [Fact]
-  public async Task Wait_NotFound_PassesThroughUntouched()
-  {
-    AgentId id = AgentId.NewId();
-    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: new FakeRuntime(error: new DomainError("NotFound", "no such agent.")));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Equal("Error [NotFound]: no such agent.", result.Content);
-  }
-
-  [Fact]
-  public async Task Wait_CancelledWait_PassesThroughUntouched()
-  {
-    AgentId id = AgentId.NewId();
-    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: new FakeRuntime(error: new DomainError("Cancelled", "the wait was cancelled.")));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Equal("Error [Cancelled]: the wait was cancelled.", result.Content);
-  }
-
-  [Fact]
-  public async Task Wait_FailedChild_RendersFailureAnnotation()
-  {
-    AgentRecord child = ChildIn(AgentStatus.Failed, AgentFailureReason.Hung);
-    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider(runtime: new FakeRuntime(new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.Hung, "", "prov/child")));
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Contains("hung", result.Content, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public async Task Wait_MissingRuntime_TypedNotAvailableError()
-  {
-    (AgentCapabilityProvider provider, FakeQueries _) = MakeProvider();
-
-    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{AgentId.NewId()}}"}""", ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsError);
-    Assert.Contains("NotAvailable", result.Content, StringComparison.Ordinal);
-  }
-
   // --- resume ---------------------------------------------------------------
 
   [Fact]

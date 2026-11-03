@@ -272,7 +272,7 @@ public sealed class ThinClientTurnTests
   /// <summary>Issue #253 B1, app side: a message typed while a HOST turn runs must travel to
   ///     the host, not into this container's inbox. The app runs no agent work (spec D6), so
   ///     a local post lands in a mailbox nothing drains - the message never reaches the model
-  ///     and no <c>agent.wait</c> ever wakes. The echo still renders (the user's text is
+  ///     and nothing in the host ever drains it. The echo still renders (the user's text is
   ///     accepted), and the local inbox stays EMPTY, which is the assertion that pins the
   ///     routing rather than merely the echo.</summary>
   [Fact]

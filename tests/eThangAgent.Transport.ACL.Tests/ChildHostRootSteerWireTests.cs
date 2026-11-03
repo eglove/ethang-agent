@@ -6,26 +6,20 @@ namespace eThangAgent.Transport.ACL.Tests;
 /// <summary>Issue #253 B1: user steering must reach the ROOT conversation, which lives in
 ///     the host process. The app posts into its own container's inbox, and that container
 ///     runs no agent work at all (spec D6) - so before this, a message typed while a turn
-///     ran landed in a mailbox nothing drains, and the root's wait never woke.
+///     ran landed in a mailbox nothing drains.
 ///     <para>The wire carries the steer addressed to the LIVE ROOT TURN (a root turn has no
-///     record id, exactly like the interrupt path), the host delivers it into the ROOT
-///     container's inbox, and the sticky user wake arms on the hub that container's waits
-///     subscribe to. Both halves are asserted: the message is queued AND the wake fired.</para></summary>
+///     record id, exactly like the interrupt path), and the host delivers it into the ROOT
+///     container's inbox with the sender's message identity intact.</para></summary>
 public class ChildHostRootSteerWireTests
 {
   private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
 
   [Fact]
-  public async Task DeliverToLiveRootTurn_ReachesTheRootInbox_AndArmsTheUserWake()
+  public async Task DeliverToLiveRootTurn_ReachesTheRootInbox()
   {
     BoundedAgentMailbox mailbox = new();
-    WaitWakeHub hub = new();
-    SignalingInbox rootInbox = new(mailbox, hub, AgentId.NewId());
     using ScriptedRootHost host = ScriptedRootHost.Start(
-        "answer", ["a"], options: new ScriptedOptions(Inbox: rootInbox));
-
-    List<WakeSignal> wakes = [];
-    using IDisposable lease = hub.Subscribe(wakes.Add);
+        "answer", ["a"], options: new ScriptedOptions(Inbox: mailbox));
 
     // Register the turn as LIVE the way the server's own root-turn dispatch does
     // (HandleRootTurnAsync): the delivery path refuses a turn id it does not hold, so a
@@ -46,10 +40,6 @@ public class ChildHostRootSteerWireTests
     Assert.True(mailbox.TryTake(out string text, out _));
     Assert.Equal("the child is spinning - take over", text);
 
-    // The wake is the half that makes agent.wait return: the sticky user wake.
-    WakeSignal signal = Assert.Single(wakes);
-    Assert.Equal(WakeReason.UserMessage, signal.Reason);
-
     await turnCts.CancelAsync().ConfigureAwait(true);
     _ = await turn.ConfigureAwait(true);
   }
@@ -58,22 +48,19 @@ public class ChildHostRootSteerWireTests
   ///     pinned echo hangs on, the wire carries it, and the loop's drain fact must name
   ///     THAT id back — a drain naming anything else releases nothing.
   ///     <para>The pre-existing test above calls <c>DeliverToRootTurn</c> with NO id, so it
-  ///     proved delivery and the wake while the identity handshake was never exercised.
-  ///     That is exactly why the drop shipped: the root inbox was a <c>SignalingInbox</c>
-  ///     that did not implement <c>IAgentMailbox</c>, so the host's addressability test
-  ///     failed and every steer fell through to the minting <c>TryPost</c> path.</para>
-  ///     <para>Anti-tautology: the inbox is the REAL <c>SignalingInbox</c> over a real
-  ///     <c>BoundedAgentMailbox</c>, the delivery goes through the server's own public
-  ///     seam, and the drain is the same <c>TryTake</c> the loop performs. Only the model
-  ///     provider is scripted.</para></summary>
+  ///     proved delivery while the identity handshake was never exercised. That is exactly
+  ///     why the drop shipped: the root inbox did not implement <c>IAgentMailbox</c>, so the
+  ///     host's addressability test failed and every steer fell through to the minting
+  ///     <c>TryPost</c> path.</para>
+  ///     <para>Anti-tautology: the inbox is the REAL <c>BoundedAgentMailbox</c>, the delivery
+  ///     goes through the server's own public seam, and the drain is the same
+  ///     <c>TryTake</c> the loop performs. Only the model provider is scripted.</para></summary>
   [Fact]
   public async Task DeliverToLiveRootTurn_PreservesTheMessageId_SoTheDrainFactNamesIt()
   {
     BoundedAgentMailbox mailbox = new();
-    WaitWakeHub hub = new();
-    SignalingInbox rootInbox = new(mailbox, hub, AgentId.NewId());
     using ScriptedRootHost host = ScriptedRootHost.Start(
-        "answer", ["a"], options: new ScriptedOptions(Inbox: rootInbox));
+        "answer", ["a"], options: new ScriptedOptions(Inbox: mailbox));
 
     using CancellationTokenSource turnCts = new();
     host.Server.RegisterRootTurn("turn-identity", turnCts);
@@ -102,9 +89,8 @@ public class ChildHostRootSteerWireTests
   public async Task DeliverToAnUnknownRootTurn_IsDroppedSilently()
   {
     BoundedAgentMailbox mailbox = new();
-    SignalingInbox rootInbox = new(mailbox, new WaitWakeHub(), AgentId.NewId());
     using ScriptedRootHost host = ScriptedRootHost.Start(
-        "answer", ["a"], options: new ScriptedOptions(Inbox: rootInbox));
+        "answer", ["a"], options: new ScriptedOptions(Inbox: mailbox));
 
     host.Server.DeliverToRootTurn("no-such-turn", "ghost", "human");
 

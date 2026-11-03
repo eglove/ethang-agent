@@ -651,9 +651,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     <para>WHY THIS EXISTS: every conversation runs its turn in a host process (spec
   ///     D6), so the app's own container runs no agent work. The app's steering inbox was
   ///     therefore a mailbox nothing drains — a message typed during a turn was queued in
-  ///     the wrong process, never reached the model, and never woke an <c>agent.wait</c>
-  ///     (whose sticky user wake arms on the HOST container's hub). This is the root
-  ///     counterpart of the child deliver path.</para>
+  ///     the wrong process and never reached the model. This is the root counterpart of the
+  ///     agent deliver path.</para>
   ///     <para>An unknown turn id is a silent drop, matching the child path's pinned
   ///     contract: the wire is the at-least-once replay, and a message addressed to a turn
   ///     that already ended is stale by definition. A refused post (full or closed
@@ -704,8 +703,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     // The inbox is not addressable, so this path CANNOT carry the sender's identity: the
     // legacy post mints its own, the drain fact names that one, and the app's pinned echo
     // is never released. Reached only by a container that wired a non-addressable
-    // decorator; the production root inbox is a SignalingInbox, which forwards Deliver
-    // (issue #319 D2).
+    // decorator; the production root inbox is a BoundedAgentMailbox, which implements
+    // IAgentMailbox (issue #319 D2).
     Result<bool> legacy = inbox.TryPost(text);
     PublishRootSteerDelivered(legacy, Guid.Empty);
   }

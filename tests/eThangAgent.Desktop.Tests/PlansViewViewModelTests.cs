@@ -190,7 +190,7 @@ public sealed class PlansViewViewModelTests : IDisposable
     // The INSTANT path (issue #8 follow-up). A plan write in production is dispatched by
     // the model in the ChildHost process, so the app container's PlanService events never
     // fire - the write reaches this process as a PlanChangedEvent on the session's event
-    // stream (the same stream a parent agent watches with wakeOn=plan). The view must
+    // stream (the same stream every plan reader follows). The view must
     // re-read on that fact alone: no poll interval, no manual refresh.
     FakePlanStore store = new();
     FakeEvents events = new();

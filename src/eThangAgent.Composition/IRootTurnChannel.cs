@@ -39,9 +39,8 @@ public interface IRootTurnChannel
   /// <summary>Delivers one steering message to the LIVE root turn IN THE HOST (issue #253).
   ///     <para>WHY THE WIRE: the app's own container runs no agent work (spec D6), so its
   ///     steering inbox is a mailbox nothing drains — a message typed mid-turn was queued in
-  ///     the wrong process, never reached the model, and never woke an <c>agent.wait</c>.
-  ///     The host delivers into the ROOT container's inbox, which is the box the root loop
-  ///     drains and the hub its waits subscribe to.</para>
+  ///     the wrong process and never reached the model. The host delivers into the ROOT
+  ///     container's inbox, which is the box the root loop drains.</para>
   ///     <para>Best-effort by contract, like the session answer above: a lost steer surfaces
   ///     as the model simply not seeing it, never as a fault on the UI thread.</para></summary>
   void SteerRootTurn(string turnId, string text, Guid messageId);

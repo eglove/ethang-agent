@@ -41,9 +41,10 @@ peer - it records no owner and no nesting, runs in the caller's own workspace, a
 cell beside the caller's. There is no spawn, no fan-out, and no delegation. Each launch is a
 session and its own host process, and nothing gates that — start the ones you need. `agent.launch`
 returns an id and returns: reading the outcome is `agent.result` or `agent.status`, the caller's
-own later act, never a join. `agent.wait` and `agent.resume` address a run inside the calling
-host and cannot address a launched agent's own host, so neither works on a launch's id. `status`,
-`result`, `wait`, `resume`, and `cancel` read and stop a run of your own. The messaging actions that used to
+own later act, never a join. Nothing blocks on another agent — there is no wait, and a chain's
+record is how you know what happened. `agent.resume` addresses a run inside the calling host and
+cannot address a launched agent's own host, so it does not work on a launch's id. `status`,
+`result`, `resume`, and `cancel` read and stop a run of your own. The messaging actions that used to
 let agents talk to each other are retired; agents communicate by STATUS through the database, and
 human steering of a running session is the one message channel that survives. `Tools.List()` is
 the authority on what exists: run it rather than trusting any list, including this one.

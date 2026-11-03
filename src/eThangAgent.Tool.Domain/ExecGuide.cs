@@ -196,9 +196,10 @@ public static class ExecGuide
     agent.launch RETURNS the new agent's id and returns. Reading what it produced is your OWN
     later act - agent.status projects its current state, agent.result returns its report once it
     settles - and those are acts you choose to take, not a join the launch performs. You are never
-    made a supervisor by having started something. agent.wait and agent.resume address a run in
-    THIS host and cannot address the host a launched agent runs in yet, so use agent.result and
-    agent.status on the id a launch returns.
+    made a supervisor by having started something. There is no wait on a launched agent: it runs
+    in a host of its own, and nothing you call can block on it. agent.resume cannot address the
+    host a launched agent runs in yet, so use agent.result and agent.status on the id a launch
+    returns.
 
     Optional 'label' names the cell it gets, which is how a caller that starts several agents
     keeps them apart; optional 'model' serves that agent, and omitting it inherits this
@@ -237,17 +238,9 @@ public static class ExecGuide
 
         Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "<guid>" })
 
-    agent.wait blocks until an agent settles, and returns early on a matching event:
-
-        Tools.Invoke("agent.wait", new { timeoutSeconds = 300, id = "<guid>" })   → the agent's outcome (unbounded by design; your stop cancels it)
-        Tools.Invoke("agent.wait", new { timeoutSeconds = 120, id = "<guid>", wakeOn = "all" })   → wakes early on idles/stream stalls/state writes/budget/mail; returns [wait: woken ...] with the agent still running — then re-wait, or intervene
-
-    USER STEERING ALWAYS WAKES a wait: if the user sends a message while you wait, the wait returns
-    immediately with reason=user-message — read it and act. Optional wakeOn (default "message"):
-    "all" or a comma list of message|idle|settled|state|stream|budget|mailbox. There is deliberately
-    NO progress reason: an agent's progress beats fire on every tool call, so a wait that woke on
-    them would never rest. Optional timeoutSeconds is a soft cap (expiry is an annotation, never an
-    error) that must fit inside this exec call's own timeoutSeconds budget.
+    THERE IS NO WAIT. No tool blocks on another agent's outcome, and none schedules one either:
+    starting N agents and waiting for all of them is a scheduler, and scheduling belongs to the
+    harness. You do not supervise a peer, and nothing you call makes you its supervisor.
 
     Resume a settled agent for a fix round (same id, same transcript, same anchor/grants):
 
@@ -255,15 +248,15 @@ public static class ExecGuide
         → id=<guid> status=running
 
     - Only SETTLED agents (completed or failed) take agent.resume; a RUNNING agent is not
-      resumable — await it with agent.wait, or let the human steer it in its own cell.
+      resumable — let the human steer it in its own cell, or agent.cancel it and resume.
     - Every fix round on a settled agent beats starting a new one from scratch.
-    - `Error [NotComplete]` means the agent is still running — try again later
-      (one agent.wait beats repeated polling).
+    - `Error [NotComplete]` means the agent is still running — read agent.status for where it is
+      and come back, rather than polling in a loop.
     - `Error [NotFound]` means the id is wrong.
     - An agent past the concurrency limit does NOT fail its start: it returns status=queued and
-      starts on its own when a slot frees. agent.wait on a queued id blocks normally,
-      agent.status reports status=queued, agent.cancel stops it. `Error [ConcurrencyCapReached]`
-      means the child host refused the start outright (a remote-host ceiling).
+      starts on its own when a slot frees. agent.status reports status=queued, agent.cancel stops
+      it. `Error [ConcurrencyCapReached]` means the child host refused the start outright (a
+      remote-host ceiling).
 
     AGENTS DO NOT MESSAGE EACH OTHER. There is no send, route, escalate, notify, or receipt
     surface: agents communicate by STATUS only, through the database (a plan step, a chain

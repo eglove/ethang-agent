@@ -74,16 +74,23 @@ public class AgentCapabilityProviderSurfaceTests
   /// <summary>Issue #334: the spawn and fanout actions are gone, and putting either back fails
   ///     here. <para>ISSUE #338 ADDS agent.launch, AND THIS TEST STILL HOLDS: what #334 retired
   ///     was the LINK, not the ability to start an agent. launch records no parent and no depth,
-  ///     so neither retired verb returns - only the act does, under its own name.</para></summary>
+  ///     so neither retired verb returns - only the act does, under its own name.</para>
+  ///     <para>ISSUE #335 RETIRES agent.wait, AND THIS TEST NOW PINS IT TOO. Blocking on a
+  ///     peer's outcome is supervision by another name: a chain advances because a step
+  ///     reported done, and the record is how anything learns what happened. Putting a wait
+  ///     back - under any name - fails here.</para></summary>
   [Fact]
-  public void ActionNames_ExposeNoSpawnAndNoFanout()
+  public void ActionNames_ExposeNoSpawnNoFanoutAndNoWait()
   {
     AgentCapabilityProvider provider = MakeBare();
     Assert.DoesNotContain("spawn", provider.Actions.Select(a => a.Name));
     Assert.DoesNotContain("fanout", provider.Actions.Select(a => a.Name));
+    Assert.DoesNotContain(provider.Actions, a => a.Name is "wait");
     Assert.DoesNotContain("spawn", AgentCapabilityProvider.ActionNames);
     Assert.DoesNotContain("fanout", AgentCapabilityProvider.ActionNames);
+    Assert.DoesNotContain("wait", AgentCapabilityProvider.ActionNames);
     Assert.DoesNotContain(provider.Actions, a => a.Description.Contains("agent.spawn", StringComparison.Ordinal));
+    Assert.DoesNotContain(provider.Actions, a => a.Description.Contains("agent.wait", StringComparison.Ordinal));
   }
 
   /// <summary>The provider with every collaborator faked: only the Actions surface matters.</summary>

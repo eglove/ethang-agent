@@ -208,15 +208,15 @@ public class AgentSteeringDesktopTests
   ///     the id the sender minted, and <c>MarkDrained</c> clears the pending flag.
   ///     <para>Why this shape and not a hand-published fact: the defect was that the id the
   ///     app minted never survived the trip. Here the session steers into a REAL
-  ///     <c>SignalingInbox</c> over a real <c>BoundedAgentMailbox</c>, the drain is the same
-  ///     <c>TryTake</c> the loop performs, and the fact is built from what that drain
-  ///     returned — so an identity dropped anywhere along the path fails this test.</para></summary>
+  ///     <c>BoundedAgentMailbox</c>, the drain is the same <c>TryTake</c> the loop performs,
+  ///     and the fact is built from what that drain returned — so an identity dropped
+  ///     anywhere along the path fails this test.</para></summary>
   [Fact]
   public async Task SteeredEcho_IsReleasedByTheDrainFactNamingTheIdTheInboxActuallyHeld()
   {
     BoundedAgentMailbox mailbox = new();
-    // The production root inbox shape: the decorator over an addressable box.
-    SignalingInbox inbox = new(mailbox, new WaitWakeHub(), AgentId.NewId());
+    // The production root inbox shape.
+    BoundedAgentMailbox inbox = mailbox;
     TestFixtures.ParkingRunner park = new();
     RecordingLifecycle lifecycle = new(new StubStore());
     AgentId rootId = AgentId.NewId();

@@ -58,8 +58,7 @@ public sealed record MailboxDrainedEvent(AgentId Id, DateTimeOffset At, IReadOnl
 
 /// <summary>A durable PLAN record changed (issue #8 follow-up): created, a step added/
 ///     updated/removed, or a status moved. This is what makes the workbench's Plans view
-///     INSTANT and what lets a watcher follow plan work with <c>wakeOn=plan</c> - one
-///     subscribable for both readers.
+///     INSTANT - one subscribable for every reader of plan work.
 ///     <para><paramref name="Id"/> is the AUTHORING agent: the agent whose run wrote
 ///     the plan. A watcher filtering on plan work therefore sees which agent did it.
 ///     <paramref name="Change"/> is a short tag (created | steps | status) and

@@ -213,9 +213,8 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   /// <summary>Delivers one steering message to a LIVE root turn IN THE HOST (issue #253).
   ///     <para>WHY IT RIDES THE WIRE: the app's container runs no agent work (spec D6), so
   ///     its steering inbox is a mailbox nothing drains. A message typed during a turn was
-  ///     queued there, never reached the model, and never woke an <c>agent.wait</c> — the
-  ///     three symptoms in one cause. The host delivers into the ROOT container's inbox,
-  ///     which is the box the root loop drains and the hub its waits subscribe to.</para>
+  ///     queued there and never reached the model. The host delivers into the ROOT
+  ///     container's inbox, which is the box the root loop drains.</para>
   ///     <para>Fire-and-forget by contract, exactly like the interrupt path: the caller is
   ///     the UI thread, and a steer that cannot be sent leaves the turn running rather than
   ///     faulting the surface. The host drops an unknown turn id (a stale replay).</para></summary>

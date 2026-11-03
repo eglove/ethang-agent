@@ -129,7 +129,7 @@ public sealed class ChildHostRootRunFixTests
 
   /// <summary>A mailbox that only records delivery, so a test can observe the host's
   ///     steering path without a running child. It implements BOTH halves because the
-  ///     production root inbox does (<c>SignalingInbox</c> forwards the whole contract): the
+  ///     production root inbox does (<c>BoundedAgentMailbox</c> implements the whole contract): the
   ///     container registers it as <see cref="IAgentInbox"/> while the host delivers through
   ///     <see cref="IAgentMailbox"/>, and a double exposing only one would not model the shape
   ///     the identity handshake depends on (issue #319).</summary>

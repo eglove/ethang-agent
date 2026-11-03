@@ -8,11 +8,8 @@ namespace eThangAgent.Composition;
 ///     subscribable serves every reader that needs to know a state key moved (issue #318):
 ///     <list type="bullet">
 ///     <item>the workbench's ledger view, which must re-render instantly rather than poll</item>
-///     <item>a parent agent waiting with <c>wakeOn=state</c> (that path already exists and is
-///     untouched - the wake adapter subscribes the bus directly, in-process)</item>
 ///     </list>
-///     <para>WHY THIS EXISTS AT ALL, when the wake adapter already subscribes the bus:
-///     <see cref="IStateChangeBus"/> is IN-PROCESS and session-scoped, while every production
+///     <para>WHY THIS EXISTS AT ALL: <see cref="IStateChangeBus"/> is IN-PROCESS and session-scoped, while every production
 ///     turn runs in the ChildHost process. A rail view subscribes the APP container's stream,
 ///     so a bus-only subscription would listen to a bus that nothing publishes on and stay
 ///     silently stale forever - the exact defect <see cref="PlanChangePublisher"/> and

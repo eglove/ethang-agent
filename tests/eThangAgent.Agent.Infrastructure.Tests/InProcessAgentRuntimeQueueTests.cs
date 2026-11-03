@@ -6,7 +6,7 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.AgentInfrastructure.Tests;
 
 /// <summary>Issue #238: the concurrency-boundary queue is first-class. A spawn past
-///     MaxConcurrentAgents is persisted Queued, observable through agent.wait (which
+///     MaxConcurrentAgents is persisted Queued, observable through WhenSettledAsync (which
 ///     blocks instead of failing NotFound), reachable by agent.send, terminalized by
 ///     agent.cancel, and never lost — an admission fault settles it with a well-formed
 ///     failure instead of leaving a Running row with no run behind it.</summary>

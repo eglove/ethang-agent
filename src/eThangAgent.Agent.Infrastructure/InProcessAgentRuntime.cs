@@ -72,9 +72,9 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   {
     ArgumentNullException.ThrowIfNull(record);
     // Every accepted start owns its settle source and mailbox BEFORE admission, so a
-    // parked spawn is awaitable and steerable from the moment the caller is told it
+    // parked start is awaitable and steerable from the moment the caller is told it
     // started (issue #238). Ownership is what makes the queued state observable instead
-    // of a NotFound from agent.wait.
+    // of a NotFound from WhenSettledAsync.
     CancellationTokenSource cts = new();
     _active[record.Id] = cts;
     BoundedAgentMailbox mailbox = new();

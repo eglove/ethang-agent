@@ -19,7 +19,7 @@ namespace eThangAgent.Composition.Tests;
 ///     so its in-process events can never fire.</item>
 ///     </list>
 ///     <para>Together these make one subscribable: the same stream a parent agent
-///     watches with <c>wakeOn</c> for its subagents, so a child marking a plan step
+///     follows plan work, so an agent marking a plan step
 ///     done is visible to the parent AND to the view.</para></summary>
 public class PlanRealtimeWiringTests
 {

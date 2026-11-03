@@ -22,8 +22,8 @@ public interface IStateChangeBus
 }
 
 /// <summary>Fan-out implementation: subscription order, at-most-once, ephemeral,
-///     subscriber faults contained and logged (the WaitWakeHub/InProcessAgentEvents
-///     doctrine). Thread-safe.</summary>
+///     subscriber faults contained and logged (the InProcessAgentEvents doctrine).
+///     Thread-safe.</summary>
 public sealed class InProcessStateChangeBus(Action<string>? faultLog = null) : IStateChangeBus
 {
   private readonly Lock _gate = new();

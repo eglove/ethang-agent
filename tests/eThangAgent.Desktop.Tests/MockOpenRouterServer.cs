@@ -55,7 +55,7 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   ///     serves an empty data array.</summary>
 
   /// <summary>Delays EVERY response for a model by the given span — how a test stalls
-  ///     a child mid-provider-call so the parent sits inside agent.wait while steering
+  ///     an agent mid-provider-call so the session sits inside a turn while steering
   ///     arrives. Applied before the scripted body is served.</summary>
   public MockOpenRouterServer DelayResponsesForModel(string model, TimeSpan delay)
   {

@@ -8,8 +8,7 @@ namespace eThangAgent.Composition;
 ///     that needs to know a plan moved:
 ///     <list type="bullet">
 ///     <item>the workbench's Plans view, which must re-render instantly rather than poll</item>
-///     <item>a parent agent waiting on a child with <c>wakeOn=plan</c>, which must see a
-///     subagent mark a step done</item>
+///     <item>the chain and plan readers, which must see a step marked done without polling</item>
 ///     </list>
 ///     <para>WHY A TRANSLATION AND NOT A DIRECT PUBLISH: the Plan Domain references only
 ///     Capability and SharedKernel, so it cannot reference the Agent Domain's event family.

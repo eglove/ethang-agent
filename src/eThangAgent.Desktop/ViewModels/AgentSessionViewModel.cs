@@ -1617,9 +1617,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// queued - no user entry, no unread bump.
   ///     <para>WHERE IT GOES (issue #253): the running turn belongs to this conversation's
   ///     HOST process (spec D6), so a live host turn routes the message over the channel to
-  ///     the ROOT container's inbox - the box the root loop drains and the hub its
-  ///     <c>agent.wait</c> subscribes to. Posting to this container's own inbox queued it in
-  ///     a process that runs no agent work: the model never saw it and no wait ever woke.
+  ///     the ROOT container's inbox - the box the root loop drains. Posting to this
+  ///     container's own inbox queued it in a process that runs no agent work: the model
+  ///     never saw it.
   ///     The local inbox remains the path for a session with NO host channel (the
   ///     headless/test shape), which is the only case where this container runs the turn.</para>
   ///     <para>The model sees the message at the loop's next safe point: an iteration
