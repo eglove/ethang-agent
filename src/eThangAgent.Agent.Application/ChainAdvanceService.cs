@@ -519,12 +519,25 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
   private async Task<ChainAdvance> CompleteAsync(Chain chain, string sessionId, DateTimeOffset now,
       CancellationToken ct)
   {
-    await _host.CloseSessionAsync(sessionId, ct).ConfigureAwait(false);
+    // THE CHAIN WRITE COMES FIRST, THE CLOSE LAST (issue #340). The chain store, the plan
+    // store, and the event stream this service holds all belong to the COMPLETING SESSION's
+    // own container, and closing that session disposes the container. Closing first therefore
+    // tore down the very machinery the completion still had to write through, and the write
+    // faulted with 'Cannot access a disposed object. Object name: IServiceProvider' - leaving
+    // the chain Running with every step Done and nothing able to move it.
+    //
+    // THE ORDER IS ALSO THE HONEST ONE: the record is the durable answer, and the session is a
+    // surface over it. A close that fails must not cost the completion, and a completion that
+    // fails must not leave a session closed over a chain nobody marked finished.
     Result<Chain> completed = await _chains
         .SetStatusAsync(chain.Id, ChainStatus.Completed, ChainActor.Harness, now, ct)
         .ConfigureAwait(false);
-    return completed.IsSuccess
-        ? new ChainAdvance(ChainAdvanceKind.CompleteChain, null, null, null)
-        : ChainAdvance.Refused(completed.Error.Code, completed.Error.Message);
+    if (!completed.IsSuccess)
+    {
+      return ChainAdvance.Refused(completed.Error.Code, completed.Error.Message);
+    }
+
+    await _host.CloseSessionAsync(sessionId, ct).ConfigureAwait(false);
+    return new ChainAdvance(ChainAdvanceKind.CompleteChain, null, null, null);
   }
 }

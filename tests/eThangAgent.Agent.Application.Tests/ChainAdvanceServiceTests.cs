@@ -53,6 +53,51 @@ public class ChainAdvanceServiceTests
             .Any(step => string.Equals(step.SessionId, sessionId, StringComparison.Ordinal)))));
   }
 
+  /// <summary>A store that belongs to the session's container and dies with it (issue #340):
+  ///     once the host closes the session, every later call faults exactly as a disposed
+  ///     provider does. This is the shape the app has - the chain store is resolved from the
+  ///     session's own container - so a service that writes after closing cannot be correct.
+  ///     </summary>
+  private sealed class ContainerOwnedStore : IChainStore
+  {
+    private readonly FakeStore _inner = new();
+
+    /// <summary>Set by the host's close, which is what disposes the container.</summary>
+    public bool Disposed { get; set; }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Disposed, "IServiceProvider");
+
+    public Task<Result<Chain>> CreateAsync(Chain draft, CancellationToken ct = default)
+    {
+      ThrowIfDisposed();
+      return _inner.CreateAsync(draft, ct);
+    }
+
+    public Task<Result<Chain>> GetAsync(int id, CancellationToken ct = default)
+    {
+      ThrowIfDisposed();
+      return _inner.GetAsync(id, ct);
+    }
+
+    public Task<Result<ChainCatalog>> ListAsync(ChainStatus? status, CancellationToken ct = default)
+    {
+      ThrowIfDisposed();
+      return _inner.ListAsync(status, ct);
+    }
+
+    public Task<Result<Chain>> SaveAsync(Chain chain, int expectedVersion, CancellationToken ct = default)
+    {
+      ThrowIfDisposed();
+      return _inner.SaveAsync(chain, expectedVersion, ct);
+    }
+
+    public Task<Result<Chain?>> FindBySessionAsync(string sessionId, CancellationToken ct = default)
+    {
+      ThrowIfDisposed();
+      return _inner.FindBySessionAsync(sessionId, ct);
+    }
+  }
+
   private sealed class FakeHost : IChainAdvanceHost
   {
     public List<string> Closed { get; } = [];
@@ -61,9 +106,14 @@ public class ChainAdvanceServiceTests
 
     public Result<string>? StartResult { get; set; }
 
+    /// <summary>Runs when the host closes a session - the moment a real container is disposed.
+    ///     </summary>
+    public Action? OnClose { get; set; }
+
     public Task CloseSessionAsync(string sessionId, CancellationToken ct = default)
     {
       Closed.Add(sessionId);
+      OnClose?.Invoke();
       return Task.CompletedTask;
     }
 
@@ -124,6 +174,39 @@ public class ChainAdvanceServiceTests
     Assert.Equal(ChainAdvanceKind.CompleteChain, decision.Kind);
     Assert.Contains("session-a", host.Closed);
     Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken));
+    Assert.Equal(ChainStatus.Completed, stored.Status);
+  }
+
+  /// <summary>THE CLOSE MUST NOT PRECEDE THE CHAIN WRITE (issue #340). The chain store is
+  ///     resolved from the completing session's own container, so closing that session disposes
+  ///     the store the advance still has to write through. Before this test the close ran first
+  ///     and the completion then faulted with 'Cannot access a disposed object. Object name:
+  ///     IServiceProvider' - the chain was left Running with every step Done and nothing able to
+  ///     move it.
+  ///     <para>THE PREDICTION: with the close ordering fixed, the store is still alive for the
+  ///     status write and the chain reaches Completed.</para></summary>
+  [Fact]
+  public async Task OnCompletionAsync_OfTheLastStep_WritesTheChainBeforeItClosesTheSession()
+  {
+    ContainerOwnedStore store = new();
+    FakeHost host = new();
+    ChainService chains = new(store);
+    Chain chain = Must(await chains.CreateAsync(ChainCreation.Implementing("C:\\ws", 3, 1, "t",
+        "session-root", [1]), T0, TestContext.Current.CancellationToken).ConfigureAwait(true));
+    _ = Must(await chains.ClaimStepAsync(chain.Id, 1, "session-a", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    // Closing the session is what disposes the container the store lives in.
+    host.OnClose = () => store.Disposed = true;
+    ChainAdvanceService service = new(chains, host);
+
+    ChainAdvance decision = Must(await service.OnCompletionAsync("session-a", planId: 3, T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Assert.Equal(ChainAdvanceKind.CompleteChain, decision.Kind);
+    Assert.Contains("session-a", host.Closed);
+    store.Disposed = false; // read the record through a live store, as the app would
+    Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken).ConfigureAwait(true));
     Assert.Equal(ChainStatus.Completed, stored.Status);
   }
 
