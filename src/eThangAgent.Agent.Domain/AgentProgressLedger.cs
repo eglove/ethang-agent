@@ -1,24 +1,24 @@
 namespace eThangAgent.AgentDomain;
 
-/// <summary>One running child's latest progress fact: the phase the loop last
+/// <summary>One running agent's latest progress fact: the phase the loop last
 ///     announced, the short label it announced with, and when. Metadata only (D5) —
 ///     the label is a phase tag ("iteration", "tool:read"), never content.</summary>
 public sealed record AgentProgressSnapshot(AgentPhase Phase, string Label, DateTimeOffset At);
 
 /// <summary>The session's progress ledger (issue #93): the model-facing read surface
-///     for a RUNNING child's mid-run activity.
+///     for a RUNNING agent's mid-run activity.
 ///
-///     <para>The emission side already existed — a child publishes
+///     <para>The emission side already existed — an agent publishes
 ///     <see cref="AgentProgressEvent"/> at every loop safe point, the stream crosses the
-///     wire for remote children (issue #245), and it feeds the watchdog's idle clock and
-///     the Desktop's subagent panel. What was missing was a way for the PARENT to read
-///     it: without one, a parent learned nothing about a long run until the child
+///     wire for remote agents (issue #245), and it feeds the watchdog's idle clock and
+///     the Desktop's cell view. What was missing was a way for another agent to read
+///     it: without one, an observer learned nothing about a long run until the agent
 ///     settled, and its only observation window (agent.status) reported a bare
 ///     status=running.</para>
 ///
 ///     <para>The ledger is a subscriber, not a store: it keeps ONE latest snapshot per
-///     live child in memory (O(running children), no disk writes per tool call) and
-///     drops a child's entry when its settle event arrives, so a terminal record never
+///     live agent in memory (O(running agents), no disk writes per tool call) and
+///     drops an agent's entry when its settle event arrives, so a terminal record never
 ///     reports stale activity. It deliberately does NOT feed the wait-wake bus: progress
 ///     beats fire on every tool call, so a wait that woke on them would never rest
 ///     (pinned by WaitProgressRemovalTests). Reading is pull-only — agent.status asks,

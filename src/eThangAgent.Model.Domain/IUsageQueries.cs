@@ -6,20 +6,17 @@ namespace eThangAgent.ModelDomain;
 ///     usage rows. A domain-owned seam implemented by the Storage ACL over
 ///     <c>agent_events</c> — the read path is CQRS, so no domain logic runs here and the
 ///     implementation is free to use SQL.
-///     <para>SESSION ATTRIBUTION IS A WALK, NOT A STAMP (B11): a child agent stamps its
-///     OWN id as its session id, so filtering <c>session_id = root</c> would omit every
-///     subagent's spend. The implementation collects the subtree by walking
-///     <c>agents.parent_id</c> from the root and joins the usage rows onto it, which is
-///     what makes a child's spend count toward the session that caused it — and what
-///     makes the rollup work retroactively for rows written before it existed.</para>
+///     <para>SESSION ATTRIBUTION IS THE SESSION'S OWN ROWS: an agent is a session, and a
+///     session stamps its OWN id on every usage row it writes, so its spend is exactly the
+///     rows carrying its id. Cross-session attribution belongs to the CHAIN, which owns a
+///     step's session (<c>chain_steps.session_id</c>).</para>
 ///     <para>Every member is a QUERY: no side effects, no writes, and reads run on the
 ///     read-only connection so a rollup can never mutate the ledger it measures.</para></summary>
 public interface IUsageQueries
 {
-  /// <summary>The rolled-up spend of one session and every agent it spawned. An unknown
-  ///     session id is an EMPTY summary, not a failure: a session that has not run a turn
-  ///     yet has no rows, and the status bar must render that state rather than an
-  ///     error.</summary>
+  /// <summary>The rolled-up spend of one session's own usage rows. An unknown session id
+  ///     is an EMPTY summary, not a failure: a session that has not run a turn yet has no
+  ///     rows, and the status bar must render that state rather than an error.</summary>
   Task<Result<UsageSummary>> SessionSummaryAsync(string sessionId, CancellationToken ct = default);
 
   /// <summary>Observed per-provider performance from the ledger (issue #295): median call

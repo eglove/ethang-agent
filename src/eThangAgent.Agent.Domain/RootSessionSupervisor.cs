@@ -1,15 +1,14 @@
 namespace eThangAgent.AgentDomain;
 
 /// <summary>Liveness and idle tracking for ONE ROOT session (issue #301 D5).
-///     <para>WHY THIS IS NEW MACHINERY AND NOT A REUSE. Nothing today mints a supervisor for a
-///     root: <c>AgentSupervisor</c>s are created per CHILD RUN inside the runtime's
-///     <c>BeginRun</c>, the watchdog sweeps <c>DescendantsOf(rootId)</c> whose walk starts from
-///     a record's <c>ParentId</c> so the root is never in the set, and orphan repair exempts the
-///     root explicitly because it is Running by design between turns. The policy is reused;
-///     the supervision is built.</para>
+///     <para>WHY THIS IS NEW MACHINERY AND NOT A REUSE. Nothing else mints a supervisor for a
+///     root: <c>AgentSupervisor</c>s are created per run inside the runtime's <c>BeginRun</c>,
+///     and the watchdog sweeps only the runs this container stamped a heartbeat for, so the
+///     root is never in the set. Orphan repair exempts the root explicitly because it is
+///     Running by design between turns. The policy is reused; the supervision is built.</para>
 ///     <para>THE CLOCK IS RE-SOURCED. Its input is <see cref="RootTurnActivity"/> - facts the
 ///     ROOT loop produces (turn started, tool started, streamed, turn settled) - and NOT
-///     <see cref="AgentProgressEvent"/>, which describes a child run and is retired by #305/#316.
+///     <see cref="AgentProgressEvent"/>, which describes a run's progress.
 ///     A clock fed by a retired event would stop ticking silently: the root would never read as
 ///     idle and would never be nudged.</para>
 ///     <para>THREAD-SAFE. Facts arrive from the host's event pump while the tick reads them, and

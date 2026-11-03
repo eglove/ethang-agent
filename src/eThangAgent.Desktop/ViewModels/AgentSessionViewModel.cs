@@ -513,7 +513,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Subscribes the root loop's drain fact, which releases a pinned steering echo
   ///     (issue #253 B3). The drain happens in the HOST process, so the fact arrives over the
   ///     agent-event stream the session already subscribes to; the marshal keeps the transcript
-  ///     mutation on the UI thread, exactly like the subagent panel's.
+  ///     mutation on the UI thread, exactly like the cell view's.
   ///     <para>Null stream (headless hosts) subscribes nothing.</para></summary>
   private void AttachDrainLease(IAgentEvents? events, AgentId rootId)
   {

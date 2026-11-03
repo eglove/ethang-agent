@@ -4,9 +4,9 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application.Tests.Sessions;
 
-/// <summary>Sessions catalog over the in-memory fake store: root-only, bound-only,
-///     newest-first listing. The catalog is deliberately transcript-free — a listing
-///     must never load conversation content.</summary>
+/// <summary>Sessions catalog over the in-memory fake store: bound-only, newest-first
+///     listing. The catalog is deliberately transcript-free — a listing must never load
+///     conversation content.</summary>
 public class SessionCatalogQueryHandlerTests
 {
   private static readonly DateTimeOffset Base =
@@ -71,6 +71,29 @@ public class SessionCatalogQueryHandlerTests
     Assert.True(listed.IsSuccess);
     SessionCatalogEntry only = Assert.Single(listed.Value);
     Assert.Equal("openrouter", only.Provider);
+  }
+
+  /// <summary>A chain step runs as its OWN SESSION: it is a bound record like any other
+  ///     conversation, so the catalog must list it — a completed step that the catalog omitted
+  ///     would be exactly the session a user cannot resume. The step's link to its chain lives
+  ///     in <c>chain_steps.session_id</c>, not in the agent record, so nothing about the record
+  ///     distinguishes it from a hand-started session.</summary>
+  [Fact]
+  public async Task List_Lists_AChainStepSession_LikeAnyOtherBoundSession()
+  {
+    AgentRecord stepSession = AgentRecord.Root(AgentId.NewId(), At(0), "C:/ws/a", "openrouter") with
+    {
+      Status = AgentStatus.Completed,
+      CompletedAt = At(30),
+    };
+    _ = await _store.SaveAsync(stepSession, ct: TestContext.Current.CancellationToken);
+
+    Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(listed.IsSuccess);
+    SessionCatalogEntry entry = Assert.Single(listed.Value);
+    Assert.Equal(stepSession.Id, entry.Id);
+    Assert.Equal(AgentStatus.Completed, entry.Status);
   }
 
   [Fact]

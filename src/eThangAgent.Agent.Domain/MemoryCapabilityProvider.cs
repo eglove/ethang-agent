@@ -46,9 +46,9 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
             ]),
         new("sessions", "List persisted conversation sessions.",
             """
-            One line per session, newest first: session=<id> label=<label> depth=<d> entries=<n> status=<s> tier=hot. tier is always hot — every persisted session is fully indexed.
+            One line per session, newest first: session=<id> label=<label> entries=<n> status=<s> tier=hot. tier is always hot — every persisted session is fully indexed.
             Output contract:
-            session=<id> label=<label> depth=<d> entries=<n> status=<s> tier=hot
+            session=<id> label=<label> entries=<n> status=<s> tier=hot
             Unknown arguments, wrong-typed arguments, and invalid scope/branches/limit values return typed 'Error [Code]: message' lines naming the valid spellings.
             """,
             [

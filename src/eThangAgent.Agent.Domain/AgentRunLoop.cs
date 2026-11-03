@@ -15,10 +15,10 @@ public sealed record AgentRunOutcome(
     string Report,
     string ModelUsed);
 
-/// <summary>Child-loop runner implementing <see cref="IAgentRunner"/>: executes a persisted child
+/// <summary>Run-loop runner implementing <see cref="IAgentRunner"/>: executes a persisted
 ///     agent's conversation loop to completion and persists its terminal state and transcript.
-///     Validation, depth enforcement, model resolution, and the initial Running save belong to the
-///     spawn command (<c>StartSpawnHandler</c>), which hands the persisted record here.</summary>
+///     Model resolution and the initial Running save happen before the persisted record is
+///     handed here.</summary>
 public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferences? preferences = null,
     IContextWindowSource? windowSource = null, IContextCompactor? contextCompactor = null,
     IModelCatalog? catalog = null)
@@ -72,10 +72,10 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
 
-  /// <summary>The child whose loop is currently executing on this async flow, if any.
-  ///     Nested agent.spawn calls must resolve their parent from here rather than
-  ///     from the composition root's static root record; compositions wire the
-  ///     parent context as <c>() => AgentRunLoop.RunningChild ?? rootRecord</c>.</summary>
+  /// <summary>The record whose loop is currently executing on this async flow, if any.
+  ///     Ambient scopes resolve from here rather than from the composition root's static
+  ///     root record; compositions wire the ambient context as
+  ///     <c>() => AgentRunLoop.RunningChild ?? rootRecord</c>.</summary>
   public static AgentRecord? RunningChild => RunningChildCurrent.Value;
 
   /// <summary>Test seam: lifts the running-child ambient for the scope of the returned
@@ -275,26 +275,26 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
             // generated image belongs beside the work that produced it, and an anchored
             // child's workspace is the anchor (issue #230).
             ServerToolImages = _serverToolImagesFor?.Invoke(anchor),
-            // The reasoning trace is recorded under the CHILD's own id (issue #263): a
-            // child's thinking is evidence about that child's run, never the parent's.
+            // The reasoning trace is recorded under the RUN's own id (issue #263): an
+            // agent's thinking is evidence about that agent's run, never another's.
             EventLog = _eventLog,
-            // Usage rows carry the child's own agent id (already the loop's identity) and
-            // the session's prices + workspace (issue #23): a child's spend is attributed
-            // by walking agents.parent_id from the root, so no root id is stamped here.
+            // Usage rows carry the run's own agent id (already the loop's identity) and the
+            // session's prices + workspace (issue #23): an agent is a session, so its spend
+            // is the rows carrying its own id.
             UsagePrices = _usagePrices,
             WorkspaceId = _workspaceId,
           });
 
-  /// <summary>Runs the agent under the child's ambient scopes — the running-child slot,
-  ///     the anchor scope, and the MCP grant scope — each saved/restored exactly as
-  ///     the previous run left them, so a nested grandchild run chains correctly.
+  /// <summary>Runs the agent under its ambient scopes — the running-agent slot, the
+  ///     anchor scope, and the MCP grant scope — each saved/restored exactly as the
+  ///     previous run left them, so a nested run chains correctly.
   ///     The ambient SETS sit inside the try on purpose: an anchored contract with NO
   ///     scope wired is strictly a composition wiring fault — the ArgumentNullException
   ///     thrown there maps through the catch(Exception) boundary to
   ///     Failed(ProviderError), a well-formed terminal outcome, never a crash of the
-  ///     spawning agent. Named decision (CA1031): a child run is an isolation
-  ///     boundary — ANY fault here must become a well-formed terminal outcome, not a
-  ///     crash of the spawning agent.</summary>
+  ///     calling agent. Named decision (CA1031): a run is an isolation boundary — ANY
+  ///     fault here must become a well-formed terminal outcome, not a crash of the
+  ///     calling agent.</summary>
   private async Task<(string? Report, AgentFailureReason? Failure)> RunScopedAsync(
       AgentRecord child, Agent agent, string prompt, string? anchor, CancellationToken ct)
   {

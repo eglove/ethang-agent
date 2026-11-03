@@ -46,10 +46,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     the root-runner latch uses: both answer 'is the root runner up yet'.</summary>
   private bool _rootInboxResolved;
 
-  // Child-event forwarding (issue #245): one subscription lease per running child, over
-  // the CHILD CONTAINER's own event stream. The child's events publish into that
+  // Agent-event forwarding (issue #245): one subscription lease per running agent, over
+  // the AGENT CONTAINER's own event stream. The agent's events publish into that
   // container's stream; without a forwarder they never leave the host process and the
-  // app's subagent panel sees nothing. The lease dies with the child's finally block.
+  // app's cell view sees nothing. The lease dies with the run's finally block.
   private readonly ConcurrentDictionary<Guid, IDisposable> _eventLeases = [];
 
   // The ROOT runner (spec D6): the conversation's own agent runs in this process. Built
@@ -242,11 +242,11 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // is dispatched, for the same reason the event forwarder is.
       AttachAgentContainer(command.RecordId, host);
 
-      // Child-event forwarding (issue #245): the app's subagent panel subscribes the
-      // APP container's event stream, and this child publishes into ITS OWN container's
+      // Agent-event forwarding (issue #245): the app's cell view subscribes the
+      // APP container's event stream, and this agent publishes into ITS OWN container's
       // stream — a different object in a different process. The forwarder republishes
-      // every event as a agent-event envelope, so the panel, badge, and wake adapters
-      // observe remote children exactly like in-process ones. SUBSCRIBED BEFORE THE RUN
+      // every event as an agent-event envelope, so the cell view, badge, and wake adapters
+      // observe remote agents exactly like in-process ones. SUBSCRIBED BEFORE THE RUN
       // IS DISPATCHED: the run's first act is to publish its started event, and a
       // forwarder attached after the dispatch races it and loses.
       AttachEventForwarder(host, loaded.Value.Id.Value);

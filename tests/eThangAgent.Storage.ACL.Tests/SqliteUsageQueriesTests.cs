@@ -7,10 +7,9 @@ using Microsoft.Data.Sqlite;
 namespace eThangAgent.Storage.ACL.Tests;
 
 /// <summary>The usage ledger's READ model (issue #24): rollups over the append-only
-///     <c>agent_events</c> rows, with session attribution by WALKING
-///     <c>agents.parent_id</c> from the root (B11), null prices contributing tokens but no
-///     cost (B12), the legacy null class reading as <c>main_loop</c>, and reads running on
-///     the read-only connection.
+///     <c>agent_events</c> rows, with session attribution to the session's OWN rows (an
+///     agent is a session), null prices contributing tokens but no cost (B12), the legacy
+///     null class reading as <c>main_loop</c>, and reads running on the read-only connection.
 ///
 ///     Anti-tautology: rows are written through the PRODUCTION store
 ///     (<see cref="SqliteAgentStore.AppendEventAsync"/>) and read through the PRODUCTION

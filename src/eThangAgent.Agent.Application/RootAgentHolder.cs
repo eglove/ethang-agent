@@ -106,10 +106,10 @@ public sealed class RootAgentHolder(
     (IUsagePriceSource? prices, string? workspace) = UsageAttributionDependencies();
     return new AgentOptions
     {
-      // The root agent's in-memory identity IS the persisted root row id: children spawned
-      // by the root record this id as their ParentId, so a fresh random id here would
-      // phantom-parent every child (2026-10-04: all children pointed at a parent id that
-      // had no row). Legacy wiring without a session id keeps the generated-id behavior.
+      // The root agent's in-memory identity IS the persisted root row id: usage rows and
+      // transcript deltas are written under it, so a fresh random id here would attribute
+      // a session's own work to an id that has no row. Legacy wiring without a session id
+      // keeps the generated-id behavior.
       Id = ResolveRootId(),
       SystemPrompt = _dependencies?.SystemPrompt,
       MaxAutoContinuations = _dependencies?.MaxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,

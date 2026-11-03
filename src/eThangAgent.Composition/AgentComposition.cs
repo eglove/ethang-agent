@@ -367,8 +367,8 @@ public static class AgentComposition
         // whose catalog cannot answer stamps nulls rather than failing.
         .AddSingleton<IUsagePriceSource, CatalogUsagePriceSource>()
         // The usage ledger's READ model (issue #24): rollups over the usage rows the loop
-        // writes, on the read-only connection. Session attribution walks agents.parent_id
-        // from the root, so subagent spend counts toward the session that caused it.
+        // writes, on the read-only connection. A session's spend is the rows carrying its
+        // own agent id; cross-session attribution belongs to the chain's step session.
         .AddSingleton<IUsageQueries, SqliteUsageQueries>()
         .AddSingleton(sp =>
         {
@@ -898,8 +898,8 @@ public static class AgentComposition
             // Children record their reasoning traces to the same append-only log
             // (issue #263), keyed by their own agent id.
             EventLog: sp.GetRequiredService<IAgentEventLog>(),
-            // Children stamp the same prices and workspace as the root (issue #23);
-            // attribution to the session happens by walking agents.parent_id (#24).
+            // Every run stamps the same prices and workspace as the root (issue #23);
+            // a run's usage rows carry its own agent id, which is its session (#24).
             UsagePrices: sp.GetRequiredService<IUsagePriceSource>(),
             WorkspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddSingleton(sp => new AgentRunLoop(
@@ -1388,10 +1388,10 @@ public static class AgentComposition
           .AddSingleton(sp => new RemoteAgentRuntime(
                transport: null,
                settings.SubAgents.RootTurnBudget ?? RootTurnBudget.Default,
-               // Child-event forwarding (issue #245): the runtime republishes the host's
+               // Agent-event forwarding (issue #245): the runtime republishes the host's
                // forwarded agent-event envelopes onto THIS session's stream, so the
-               // Desktop's subagent panel, unread badge, and wake adapters observe remote
-               // children exactly like in-process ones.
+               // Desktop's cell view, unread badge, and wake adapters observe remote
+               // agents exactly like in-process ones.
                sp.GetRequiredService<IAgentEvents>()))
           .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<RemoteAgentRuntime>())
           // Spec D6: the app-facing root-turn port. It rides the SAME runtime the

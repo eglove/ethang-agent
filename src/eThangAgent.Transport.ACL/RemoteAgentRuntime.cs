@@ -767,16 +767,16 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     }
   }
 
-  /// <summary>Republishes one forwarded child event onto the session's event stream
-  ///     (issue #245): the host serializes the child container's own AgentEvent and this
-  ///     side re-publishes it verbatim, so the Desktop's subagent panel, unread badge, and
-  ///     wait-wake adapters observe REMOTE children exactly like in-process ones. An
+  /// <summary>Republishes one forwarded agent event onto the session's event stream
+  ///     (issue #245): the host serializes the agent container's own AgentEvent and this
+  ///     side re-publishes it verbatim, so the Desktop's cell view, unread badge, and
+  ///     wait-wake adapters observe REMOTE agents exactly like in-process ones. An
   ///     undecodable payload is dropped (a peer's forward-compatible event kind) - never
   ///     a pump fault. No stream wired: a no-op, byte-identical to the legacy shape.
-  ///     <para>The app-side supervisor feed is unaffected: remote children are never
+  ///     <para>The app-side supervisor feed is unaffected: remote agents are never
   ///     registered in the app's AgentSupervisorRegistry, so a forwarded progress or
   ///     settled event finds no supervisor and feeds nothing - supervision of remote
-  ///     children stays host-side (R3 doctrine).</para></summary>
+  ///     agents stays host-side (R3 doctrine).</para></summary>
   private void HandleAgentEvent(string json)
   {
     if (_events is null)

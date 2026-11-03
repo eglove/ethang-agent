@@ -9,7 +9,7 @@ namespace eThangAgent.Composition;
 ///     session — so the id must come from a single source.</summary>
 public static class RootSessionBootstrapper
 {
-  /// <summary>Persists a fresh root record (depth 0, no parent, Running) bound to its
+  /// <summary>Persists a fresh root record (Running) bound to its
   ///     workspace and provider, and returns its id. The binding is discovery metadata:
   ///     it lets the Sessions catalog list the session and resume rehydrate its workspace,
   ///     never a context scope. The SAME id must be handed to the view-model/handler that

@@ -5,7 +5,7 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.Storage.ACL.Tests;
 
 /// <summary>Round-trip of the persisted root session against the real SQLite store: the
-///     Root factory's depth-0 sentinels, transcript appends in order, and the Completed
+///     Root factory's default facts, transcript appends in order, and the Completed
 ///     transition — the exact lifecycle the CLI REPL drives.</summary>
 public sealed class RootSessionRoundTripTests : IDisposable
 {
@@ -30,7 +30,7 @@ public sealed class RootSessionRoundTripTests : IDisposable
   }
 
   [Fact]
-  public async Task RootRecord_PersistsDepthZeroSentinels()
+  public async Task RootRecord_PersistsItsDefaultFacts()
   {
     AgentId rootId = AgentId.NewId();
     DateTimeOffset createdAt = new(2026, 8, 21, 9, 0, 0, TimeSpan.Zero);

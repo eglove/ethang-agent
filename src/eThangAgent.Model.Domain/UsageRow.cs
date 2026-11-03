@@ -110,13 +110,11 @@ public sealed record UsageClassTotal(string CallClass, UsageTotal Totals);
 ///     not be named (an orphaned agent row, a legacy payload).</summary>
 public sealed record UsageModelTotal(string? ModelId, UsageTotal Totals);
 
-/// <summary>The rolled-up spend of one session and every agent it spawned (issue #24,
-///     B11): token totals, per-call-class totals, per-model totals, and cost.
-///     <para>ATTRIBUTION IS A WALK, NOT A STAMP: children stamp their OWN id as their
-///     session id, so a naive <c>session_id = root</c> filter would omit every subagent's
-///     spend. The Storage ACL collects the subtree by walking <c>agents.parent_id</c> from
-///     the root, which is what makes a child's rows count toward the session that caused
-///     them — and what makes the rollup work retroactively for rows already written.</para>
+/// <summary>The rolled-up spend of one session's own usage rows (issue #24): token totals,
+///     per-call-class totals, per-model totals, and cost.
+///     <para>ATTRIBUTION IS THE SESSION'S OWN ROWS: an agent is a session and stamps its
+///     OWN id on every usage row it writes, so the rollup reads exactly the rows carrying
+///     that id. Cross-session attribution belongs to the chain, which owns a step's session.</para>
 ///     <para><c>Totals.Cost</c> is the sum over PRICED rows only and is null when nothing
 ///     in scope could be priced. <c>Totals.UnpricedCalls</c> states how much of the spend
 ///     the number does not cover, so a partial cost is never silently presented as the

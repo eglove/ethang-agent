@@ -191,11 +191,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     return lease;
   }
 
-  /// <summary>Identity of this agent. Roots generate one on construction; spawned children carry their persisted id.</summary>
+  /// <summary>Identity of this agent: the persisted id when the options carry one, otherwise a fresh one.</summary>
   public AgentId Id { get; } = options?.Id ?? AgentId.NewId();
-
-  /// <summary>Depth in the spawn tree. Root agents are depth 0; children run at parent depth + 1.</summary>
-  public int Depth { get; } = options?.Depth ?? 0;
 
   /// <summary>Tool calls executed during the most recent SendMessage; 0 when the turn ended without any.</summary>
   public int LastTurnToolCalls { get; private set; }

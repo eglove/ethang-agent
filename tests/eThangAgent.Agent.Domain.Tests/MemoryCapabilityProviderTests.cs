@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 
@@ -8,9 +9,12 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     collapse and 120-char snippet truncation, session summary lines with the hot tier,
 ///     strict JSON argument parsing (unknown keys, wrong types, non-object roots), pass-
 ///     through of query failures untouched, and the standard unknown-action error.</summary>
-public class MemoryCapabilityProviderTests
+public partial class MemoryCapabilityProviderTests
 {
   private static readonly CancellationToken AnyToken = new CancellationTokenSource().Token;
+
+  [GeneratedRegex(@"([A-Za-z_][A-Za-z0-9_]*)=")]
+  private static partial Regex FieldNamePattern();
 
   private sealed class FakeRecallQuery(Result<RecallPage>? reply = null) : IMemoryRecallQuery
   {
@@ -131,6 +135,37 @@ public class MemoryCapabilityProviderTests
     Assert.Equal(("global", "active", 50), sessions._lastArgs);
     Assert.Equal(AnyToken, sessions._lastCt);
   }
+
+  /// <summary>The documented output contract and the rendered line are the SAME shape: the
+  ///     contract's own field list is what the renderer emits. A contract naming a field the
+  ///     renderer stopped emitting teaches the model a line it will never see (issue #334
+  ///     review, FAIL 2), so both are read from one place here.</summary>
+  [Fact]
+  public async Task Sessions_DocumentedContract_MatchesTheRenderedLine()
+  {
+    AgentId session = new(Guid.Parse("66666666-6666-6666-6666-666666666666"));
+    (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider(
+        sessionsReply: Result.Success<IReadOnlyList<SessionSummary>>(
+            [new SessionSummary(session, "fix login loop", 4, "Completed", "hot")]));
+
+    ActionDescriptor action = Assert.Single(provider.Actions, a => a.Name == "sessions");
+    CapabilityInvocationResult result = await provider.InvokeAsync("sessions", "{}", AnyToken);
+
+    const string marker = "Output contract:";
+    int at = action.Description.IndexOf(marker, StringComparison.Ordinal);
+    Assert.True(at >= 0, "the sessions action must document an output contract");
+    string documented = action.Description[(at + marker.Length)..].Trim().Split('\n')[0].Trim();
+
+    // The contract states field NAMES with placeholder values; the rendered line carries the
+    // same names with real ones. Comparing the name sequences pins both directions: a field the
+    // contract advertises but the renderer dropped fails, and a field the renderer emits without
+    // documenting it fails too.
+    Assert.Equal(FieldNames(documented), FieldNames(result.Content));
+  }
+
+  /// <summary>The field names a rendered line carries, in the order it carries them.</summary>
+  private static string[] FieldNames(string line)
+      => [.. FieldNamePattern().Matches(line).Select(m => m.Groups[1].Value)];
 
   [Fact]
   public async Task Recall_ForwardsDocumentedDefaults_ForEmptyArguments()

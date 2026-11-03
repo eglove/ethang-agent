@@ -4,19 +4,19 @@ using eThangAgent.AgentDomain;
 namespace eThangAgent.Transport.ACL;
 
 /// <summary>One agent-event envelope forwarded from the conversation host to the app
-///     (issue #245): the host subscribes a forwarder to every child container's event
+///     (issue #245): the host subscribes a forwarder to every agent container's event
 ///     stream and republishes what it sees as <c>agent-event</c> envelopes; the app-side
 ///     runtime re-publishes them onto the session's own <see cref="IAgentEvents"/> stream,
-///     so the Desktop's subagent panel, unread badge, and wait-wake adapters observe
-///     REMOTE children exactly like in-process ones.
+///     so the Desktop's cell view, unread badge, and wait-wake adapters observe
+///     REMOTE agents exactly like in-process ones.
 /// <para>The payload is the serialized <see cref="AgentEvent"/> itself - the event family
 ///     is metadata-only by design (D5: ids, timestamps, counts, enums, short labels; never
 ///     message or report content), so the wire carries no transcript content. The envelope
-///     carries the child's id beside the payload so a receiver can route without parsing
+///     carries the agent's id beside the payload so a receiver can route without parsing
 ///     the event JSON.</para></summary>
 public sealed record AgentEventEnvelope(Guid AgentId, string EventKind, string EventJson)
 {
-  /// <summary>Serializes one child event into its wire envelope. The event's own JSON
+  /// <summary>Serializes one agent event into its wire envelope. The event's own JSON
   ///     is the carrier: <see cref="AgentEvent"/> records are plain serializable shapes
   ///     (ids, enums, timestamps), and the envelope's AgentId duplicates the event's
   ///     AgentId so the receiver's routing never depends on the payload decoding.</summary>
@@ -26,7 +26,7 @@ public sealed record AgentEventEnvelope(Guid AgentId, string EventKind, string E
     return new AgentEventEnvelope(evt.Id.Value, evt.GetType().Name, JsonSerializer.Serialize(evt, evt.GetType()));
   }
 
-  /// <summary>Decodes the payload back into a typed child event, or null when the
+  /// <summary>Decodes the payload back into a typed agent event, or null when the
   ///     payload names a type this build does not know - a forward-compatible peer's
   ///     new event kind is dropped here rather than crashing the pump (the same
   ///     forward-compatibility rule the envelope kinds follow).</summary>

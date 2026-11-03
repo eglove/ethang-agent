@@ -20,19 +20,16 @@ public class AgentTests
 
     Assert.NotEqual(default, first.Id);
     Assert.NotEqual(first.Id, second.Id);
-    Assert.Equal(0, first.Depth);
-    Assert.Equal(0, second.Depth);
   }
 
   [Fact]
-  public void Agent_ExplicitIdAndDepth_ExposedOnAggregate()
+  public void Agent_ExplicitId_ExposedOnAggregate()
   {
     AgentId id = AgentId.NewId();
     Agent agent = new(new ScriptedModelProvider(), new Conversation(), DefaultConfig,
-        new ToolRegistry([]), new AgentOptions { Id = id, Depth = 2 });
+        new ToolRegistry([]), new AgentOptions { Id = id });
 
     Assert.Equal(id, agent.Id);
-    Assert.Equal(2, agent.Depth);
   }
 
   [Fact]

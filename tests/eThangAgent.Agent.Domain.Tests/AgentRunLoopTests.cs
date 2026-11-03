@@ -25,10 +25,8 @@ public class AgentRunLoopTests
           new StaticPromptProvider("guide text"),
               options ?? new AgentRunOptions(DefaultModel: "default/sub-model")));
 
-  // --- depth passes through (the guard itself is covered by StartSpawnHandlerTests) ---
-
   [Fact]
-  public async Task RunAsync_ChildAtDepthBoundary_Completes_OutcomeCarriesChildsDepth()
+  public async Task RunAsync_AStartedRecord_Completes_AndReportsItsStatus()
   {
     FakeAgentStore store = new();
     FakeProvider provider = new(
@@ -41,7 +39,7 @@ public class AgentRunLoopTests
     Assert.Equal(AgentStatus.Completed, outcome.Status);
   }
 
-  // --- model plumbing (resolution precedence is covered by StartSpawnHandlerTests) ---
+  // --- model plumbing ---
 
   [Fact]
   public async Task RunAsync_CreatesProvider_FromTheChildRecordsModel()
