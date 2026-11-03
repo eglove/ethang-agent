@@ -448,7 +448,7 @@ public class InProcessAgentRuntimeTests
   }
 
   [Fact]
-  public async Task Resume_LiveChild_FailsNotRunning_PointsToDeliver()
+  public async Task Resume_LiveChild_FailsNotRunning_AndNamesTheOnlySteeringThatExists()
   {
     InProcessAgentRuntime runtime = MakeRuntime(out FakeStore store, out GateRunner runner);
     AgentRecord child = RunningChild();
@@ -462,7 +462,11 @@ public class InProcessAgentRuntimeTests
 
     Assert.False(resumed.IsSuccess);
     Assert.Equal("NotRunning", resumed.Error.Code);
-    Assert.Contains("agent.send", resumed.Error.Message, StringComparison.Ordinal);
+    // The message is model-facing, so it must name the steering that actually exists - the
+    // human's own cell input - and never a retired tool (issue #336).
+    Assert.Contains("still running", resumed.Error.Message, StringComparison.Ordinal);
+    Assert.Contains("human", resumed.Error.Message, StringComparison.Ordinal);
+    Assert.DoesNotContain("agent.send", resumed.Error.Message, StringComparison.Ordinal);
     runner.Complete(CompletedOutcome(child.Id, "done")); // release the gate: no hanging test
   }
 

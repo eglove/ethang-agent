@@ -7,8 +7,8 @@ namespace eThangAgent.AgentInfrastructure;
 /// <summary>In-process actor runtime: every accepted child runs to completion on one background task
 /// while the caller continues. A strict concurrency cap is enforced with a zero-timeout slot wait;
 /// an at-capacity start is QUEUED, never rejected and never silently dropped (issue #238): the
-/// queued child owns a settle source and a mailbox from the moment it is parked, so agent.wait
-/// blocks on it instead of failing NotFound, agent.send reaches it, and agent.cancel removes it
+/// queued child owns a settle source and a mailbox from the moment it is parked, so a status
+/// read finds it instead of failing NotFound, and agent.cancel removes it
 /// with a well-formed Failed(Interrupted) outcome. A settled run hands its slot DIRECTLY to the
 /// queue head under the admission gate — never releasing it to a fresh Start first — so the queue
 /// drains in priority-then-FIFO order with no starvation and no over-capacity race. An admission
@@ -432,7 +432,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     if (_active.ContainsKey(id))
     {
       return Result.Failure<AgentId>(new DomainError("NotRunning",
-          $"agent '{id}' is still running — steer it with agent.send, not agent.resume."));
+          $"agent '{id}' is still running — a running agent is steered by the human in its own cell, never by a tool call, so there is nothing to resume."));
     }
 
     Result<AgentRecord> loaded = await _store.GetAsync(id, ct).ConfigureAwait(false);
@@ -446,7 +446,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     if (record.Status is AgentStatus.Running)
     {
       return Result.Failure<AgentId>(new DomainError("NotRunning",
-          $"agent '{id}' is still running — steer it with agent.send, not agent.resume."));
+          $"agent '{id}' is still running — a running agent is steered by the human in its own cell, never by a tool call, so there is nothing to resume."));
     }
 
     SpawnContract contract = record.Contract is { } json ? SpawnContract.Decode(json) : new SpawnContract();

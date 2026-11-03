@@ -495,9 +495,8 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   }
 
   /// <summary>Strict resume-argument parsing: 'id' (Guid D) and a non-empty 'text',
-  ///     with no other members accepted. This used to be shared with the retired
-  ///     agent.send; a resume is not a message, so it owns its own gate rather than
-  ///     inheriting a message-shaped one that no longer has a caller.</summary>
+  ///     with no other members accepted. A resume is not a message, so it owns its own
+  ///     gate rather than inheriting a message-shaped one that no longer has a caller.</summary>
   private static string? ResumeArgs(string json, out AgentId? id, out string? text)
   {
     id = null;

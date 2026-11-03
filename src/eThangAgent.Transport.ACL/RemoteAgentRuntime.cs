@@ -176,7 +176,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     if (_settling.TryGetValue(id.Value, out TaskCompletionSource<AgentRunOutcome>? live) && !live.Task.IsCompleted)
     {
       return Result.Failure<AgentId>(new DomainError("NotRunning",
-          $"agent '{id}' is still running — steer it with agent.send, not agent.resume."));
+          $"agent '{id}' is still running — a running agent is steered by the human in its own cell, never by a tool call, so there is nothing to resume."));
     }
 
     // The resumed run settles like any other: a fresh source so an existing waiter never sees a
