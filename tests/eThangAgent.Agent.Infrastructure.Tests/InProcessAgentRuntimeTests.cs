@@ -79,8 +79,17 @@ public class InProcessAgentRuntimeTests
     /// <summary>Completes when the first update lands; times out loudly instead of hanging.</summary>
     public Task<AgentRecord> FirstUpdate => _firstUpdate.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
+    /// <summary>When set, every update fails with this error - the shape a contended or
+    ///     broken store presents to the terminal write.</summary>
+    public DomainError? UpdateFails { get; set; }
+
     public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
     {
+      if (UpdateFails is { } failure)
+      {
+        return Task.FromResult(Result.Failure<string>(failure));
+      }
+
       lock (Updates)
       {
         Updates.Add(record);
@@ -120,6 +129,32 @@ public class InProcessAgentRuntimeTests
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => throw new NotSupportedException("not exercised by runtime tests");
+  }
+
+  /// <summary>A FAILED TERMINAL WRITE IS COUNTED, NOT SWALLOWED (issue #341). The row keeps
+  ///     reading Running while the run is over, so agent.status reports a live run and the cell's
+  ///     chip never leaves Thinking - the defect the two probe agents showed, where both rows sat
+  ///     Running for eleven minutes after their last message. The outcome still settles, because a
+  ///     caller must not hang on a storage fault, but the failure is now observable.
+  ///     <para>THE PREDICTION: with the write failing, the counter reports one failure and the
+  ///     waiter still receives the run's outcome.</para></summary>
+  [Fact]
+  public async Task AFailedTerminalWrite_IsCounted_AndStillSettlesTheWaiter()
+  {
+    GateRunner runner = new();
+    FakeStore store = new() { UpdateFails = new DomainError("StorageError", "database is locked") };
+    InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 2);
+    AgentRecord child = RunningChild();
+    _ = await runtime.Start(child, ct: TestContext.Current.CancellationToken);
+    await runner.FirstCall.ConfigureAwait(true);
+
+    runner.Complete(CompletedOutcome(child.Id, "done"));
+    Result<AgentRunOutcome> settled = await runtime
+        .WhenSettledAsync(child.Id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(settled.IsSuccess, "a storage fault must not strand the waiter");
+    Assert.Equal(AgentStatus.Completed, settled.Value.Status);
+    Assert.Equal(1, runtime.TerminalWriteFailures);
   }
 
   [Fact]

@@ -48,6 +48,15 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   private readonly IAgentEvents? _events;
   private readonly AgentSupervisorRegistry? _supervisors;
 
+  /// <summary>How many terminal writes this runtime has attempted and how many failed
+  ///     (issue #341). An OBSERVATION SEAM: a failed terminal write leaves the row reading
+  ///     Running while the run is over, which is otherwise indistinguishable from a run still
+  ///     in progress - so a test can assert the failure is counted rather than swallowed.
+  ///     </summary>
+  public long TerminalWriteFailures => Interlocked.Read(ref _terminalWriteFailures);
+
+  private long _terminalWriteFailures;
+
   public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents,
       IAgentEvents? events = null,
       AgentSupervisorRegistry? supervisors = null, AgentMailboxRegistry? mailboxes = null)
@@ -480,7 +489,13 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       contractJson = cleared;
     }
 
-    _ = await _store.UpdateAsync(record with
+    // THE WRITE IS NOT DISCARDED (issue #341). This is the one path every settle depends on:
+    // if it fails the row keeps status=Running while the run is over, so agent.status reports a
+    // live run, the cell's chip never leaves Thinking, and nothing ever retries. The failure is
+    // therefore REPORTED rather than swallowed - the outcome still settles the waiters (a
+    // caller must not hang on a storage fault), but the row and the reason are named on stderr
+    // so a stuck Running row has an explanation next to it instead of being a mystery.
+    Result<string> written = await _store.UpdateAsync(record with
     {
       Status = status,
       FailureReason = reason,
@@ -488,6 +503,14 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       FinalReport = report,
       Contract = contractJson,
     }, CancellationToken.None).ConfigureAwait(false);
+    if (!written.IsSuccess)
+    {
+      _ = Interlocked.Increment(ref _terminalWriteFailures);
+      await Console.Error.WriteLineAsync(
+          $"[agent] terminal write failed for {record.Id}: [{written.Error.Code}] {written.Error.Message}"
+          + $" - the row still reads status={record.Status} while the run settled {status}.")
+          .ConfigureAwait(false);
+    }
   }
 
   /// <summary>The cleared contract payload, the original payload when it carries no

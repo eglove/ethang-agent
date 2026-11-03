@@ -623,6 +623,15 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
     Result<string> update = await _store.UpdateAsync(terminal, ct).ConfigureAwait(false);
     if (!update.IsSuccess)
     {
+      // THE FAILURE IS NAMED ON STDERR BEFORE IT THROWS (issue #341). The throw is correct - the
+      // runtime turns it into a well-formed Failed(ProviderError) outcome - but the message it
+      // carries is generic, and this is the write that decides whether a finished run's row ever
+      // stops reading Running. A storage fault here is otherwise indistinguishable from a run
+      // that is still working, so the failing agent id and the store's own code are stated where
+      // a stuck row can be explained.
+      await Console.Error.WriteLineAsync(
+          $"[agent] terminal persist failed for {terminal.Id} (status={terminal.Status}): "
+          + $"[{update.Error.Code}] {update.Error.Message}").ConfigureAwait(false);
       throw new InvalidOperationException(
           $"failed to persist terminal state for agent '{terminal.Id}': " +
           $"[{update.Error.Code}] {update.Error.Message}");
