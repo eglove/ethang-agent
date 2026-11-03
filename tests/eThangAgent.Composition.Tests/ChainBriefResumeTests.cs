@@ -111,8 +111,5 @@ public sealed class ChainBriefResumeTests
             "Make the dashboard tell the truth about what it did.",
             [new ChainBriefPlanStep(1, "Honest status line", null),
              new ChainBriefPlanStep(2, "Real demo broker", "Wire the demo broker.")])));
-
-    public Task<Result<IReadOnlyList<string>>> GetGateCommandsAsync(CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<IReadOnlyList<string>>(["dotnet build"]));
   }
 }

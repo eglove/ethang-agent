@@ -28,6 +28,20 @@ public sealed class VerificationFreshnessSpecification(VerificationCommandSpecif
         && r.StartedUtc > newest
         && _commands.IsSatisfiedBy(r));
   }
+
+  /// <summary>The most recently STARTED verification-class run, whatever its exit code, or
+  ///     null when the ledger holds none. This is the run a completion claim is judged
+  ///     against: its exit code decides pass or fail, and its start time decides freshness.
+  ///     </summary>
+  public ShellExecutionRecord? NewestRun(IReadOnlyList<ShellExecutionRecord> ledger)
+  {
+    ArgumentNullException.ThrowIfNull(ledger);
+    return ledger
+        .Where(_commands.IsSatisfiedByCommand)
+        .OrderByDescending(r => r.StartedUtc)
+        .FirstOrDefault();
+  }
+
   /// <summary>True when the ledger holds ANY verification-class attempt,
   ///     success or failure: the turn gate's escape hatch asks whether a
   ///     verification command is KNOWN here, and a watched failure proves it is

@@ -1,29 +1,15 @@
 using System.Text.Json;
 using eThangAgent.SharedKernel;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.StateDomain;
 
 public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
-    IWorkspaceContext workspace, IStateChangeBus? changes = null,
-    IGoalCommandRunner? goalRunner = null, IWorkspaceSnapshotAccess? snapshots = null) : IStateService
+    IWorkspaceContext workspace, IStateChangeBus? changes = null) : IStateService
 {
   public const string HeadNs = "current";
   public const string HeadName = "head";
   public const string CertificateNs = "current";
   public const string CertificateName = "certificate";
-  public const string GoalNs = "goal";
-  public const string GoalName = "check";
-
-  /// <summary>The key name recording a DECLINED gate (issue #285 D1), under the same
-  ///     <c>goal</c> namespace as the commands themselves. Its presence is the fact.</summary>
-  public const string DeclinedName = "declined";
-
-  /// <summary>Where the last goal/check run leaves its outcome (digest, pass/fail, time).
-  ///     Written here, read by the completion gate - see CompletionGate.LastCheckKey.</summary>
-  public const string LastGoalRunNs = "goal";
-  public const string LastGoalRunName = "lastcheck";
-
   private const string CurrentPrefix = "current";
   private const string VersionConflict = "VersionConflict";
 
@@ -31,8 +17,6 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
   private readonly IEvidenceRunner _evidence = evidence ?? throw new ArgumentNullException(nameof(evidence));
   private readonly IWorkspaceContext _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
   private readonly IStateChangeBus? _changes = changes;
-  private readonly IGoalCommandRunner? _goalRunner = goalRunner;
-  private readonly IWorkspaceSnapshotAccess? _snapshots = snapshots;
 
   public async Task<Result<string>> GetAsync(string key, CancellationToken ct = default)
   {
@@ -312,127 +296,6 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
 
     await _store.AppendEventAsync(workspaceId, "state.violated",
               JsonSerializer.Serialize(new { reasons = blocking }), ct).ConfigureAwait(false);
-  }
-
-  /// <summary>Runs the project's own check commands and reports pass/fail.
-  ///     <para>THESE ARE SHELL COMMAND LINES, not C# expressions (issue #283): a
-  ///     goal/check entry is <c>dotnet build</c> or <c>go test ./...</c>, and running one
-  ///     through the evidence runner compiled it as C# and failed every time. The
-  ///     harness still knows nothing about linters - it runs strings the PROJECT stored.</para>
-  ///     <para>Every run RECORDS its outcome at <c>goal/lastcheck</c>, together with the
-  ///     workspace digest at the moment it ran, which is what makes the completion gate's
-  ///     freshness question answerable. Recording is best-effort: a store fault never
-  ///     turns a passing gate into a failing one.</para></summary>
-  public async Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)
-  {
-    StateKeyValue? goal = await _store.GetKeyAsync(_workspace.WorkspaceId, GoalNs, GoalName, ct).ConfigureAwait(false);
-    if (goal is null)
-    {
-      // AN ABSENT GATE IS NOT A VIOLATION (issue #285). It reported Certified:false,
-      // Violated:true, which contradicts the gating rule's own promise that an unset gate never
-      // blocks - the same error as rendering a cost of zero for spend nobody measured. The
-      // report now says WHICH absence it is, because 'you declined one' and 'nobody asked' are
-      // different facts (D1).
-      return NotGated(await DeclinedAsync(ct).ConfigureAwait(false));
-    }
-
-    List<string> commands;
-    try
-    {
-      commands = JsonSerializer.Deserialize<List<string>>(goal.Value) ?? [];
-    }
-    catch (JsonException)
-    {
-      return new CertificationReport(false, true, [],
-          ["goal/check is not a valid JSON array of commands."]);
-    }
-
-    if (commands.Count == 0)
-    {
-      return new CertificationReport(false, true, [], ["goal/check holds no commands."]);
-    }
-
-    if (_goalRunner is null)
-    {
-      return new CertificationReport(false, true, [],
-          ["No goal command runner is wired; goal/check cannot be executed."]);
-    }
-
-    List<EvidenceResult> results = [];
-    List<string> blocking = [];
-    foreach (string command in commands)
-    {
-      // THE ROOT, NOT THE IDENTITY (issue #317 D5/D6, found by #304). The runner takes a
-      // WORKING DIRECTORY; WorkspaceId is an opaque scope that survives a move and is a minted
-      // token ('ws-bb01...') for every workspace opened after #317. Passing the id spawned the
-      // shell with a non-existent working directory, so the gate could not run AT ALL in this
-      // workspace - the completion gate was unrunnable while reporting 'Violated'. A seam that
-      // takes a path gets WorkspaceRoot; a seam that takes a scope gets WorkspaceId.
-      EvidenceResult result = await _goalRunner.RunAsync(_workspace.WorkspaceRoot, command, ct).ConfigureAwait(false);
-      results.Add(result);
-      if (!result.Confirmed)
-      {
-        blocking.Add($"'{command}' — {result.Detail}");
-      }
-    }
-
-    bool passed = blocking.Count == 0;
-    await RecordGoalRunAsync(passed, ct).ConfigureAwait(false);
-    return new CertificationReport(passed, !passed, results, blocking);
-  }
-
-  /// <summary>True when the user was asked and declined a gate for this workspace (issue #285
-  ///     D1). Read only by the absent-gate report, so a declared gate is never affected.
-  ///     </summary>
-  private async Task<bool> DeclinedAsync(CancellationToken ct) =>
-      await _store.GetKeyAsync(_workspace.WorkspaceId, GoalNs, DeclinedName, ct).ConfigureAwait(false)
-          is not null;
-
-  /// <summary>The report for a workspace with no gate: NOT certified, and NOT violated.
-  ///     <para><c>Violated</c> means 'a check ran and failed'. Nothing ran, so nothing failed -
-  ///     reporting a violation here told the user something broke when nothing was ever
-  ///     configured. The reason string names which absence it is.</para></summary>
-  private static CertificationReport NotGated(bool declined) =>
-      new(false, false, [],
-      [
-          declined
-              ? "No completion gate: one was DECLINED for this workspace, so nothing is required."
-              : "No completion gate is configured for this workspace (nobody has been asked), so "
-                  + "nothing is required. Declare one by storing goal/check, or decline one.",
-      ]);
-
-  /// <summary>Records the run's outcome for the completion gate. Best-effort by design:
-  ///     the gate's own result is already decided, and a store fault must not report a
-  ///     failing gate the project does not have. The digest is null when no snapshot seam
-  ///     is wired, which the gate reads as 'unverifiable' rather than 'fresh'.</summary>
-  private async Task RecordGoalRunAsync(bool passed, CancellationToken ct)
-  {
-    // THE ROOT, for the same reason the runner gets it: a snapshot walks a DIRECTORY, and a
-    // digest taken against a minted identity path is Unavailable, which reads as 'unverifiable'
-    // forever - a gate that could never be fresh.
-    string? digest = _snapshots is null
-        ? null
-        : (await _snapshots.CaptureAsync(_workspace.WorkspaceRoot, ct).ConfigureAwait(false)).Digest;
-
-    string value = JsonSerializer.Serialize(new
-    {
-      digest,
-      passed,
-      ranAt = DateTimeOffset.UtcNow,
-    });
-
-    // Named decision (CA1031): a failed record write is not a failed gate run.
-#pragma warning disable CA1031 // Do not catch general exception types
-    try
-    {
-      _ = await _store.SetKeyCasAsync(_workspace.WorkspaceId, LastGoalRunNs, LastGoalRunName,
-          value, null, ct).ConfigureAwait(false);
-    }
-    catch (Exception)
-    {
-      // Best-effort: the report above already carries the outcome.
-    }
-#pragma warning restore CA1031 // Do not catch general exception types
   }
 
   public async Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default)

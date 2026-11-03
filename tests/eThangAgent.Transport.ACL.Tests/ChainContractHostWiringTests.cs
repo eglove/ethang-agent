@@ -47,7 +47,7 @@ public sealed class ChainContractHostWiringTests
   [Fact]
   public void TheHostPrompt_CarriesTheContractShippedInTheSettings()
   {
-    ChainContract contract = new(7, 104, 2, "sci.dashboard-truth/ledger", ["dotnet build"]);
+    ChainContract contract = new(7, 104, 2, "sci.dashboard-truth/ledger");
     string path = WriteSettings(contract);
     try
     {
@@ -56,7 +56,7 @@ public sealed class ChainContractHostWiringTests
       Assert.Contains(ChainContractRenderer.Prefix, prompt, StringComparison.Ordinal);
       Assert.Contains("You are step 2 of chain #7", prompt, StringComparison.Ordinal);
       Assert.Contains("sci.dashboard-truth/ledger", prompt, StringComparison.Ordinal);
-      Assert.Contains("    dotnet build", prompt, StringComparison.Ordinal);
+      Assert.Contains("## What backs a done-claim", prompt, StringComparison.Ordinal);
     }
     finally
     {
@@ -88,7 +88,7 @@ public sealed class ChainContractHostWiringTests
   {
     // The wire shape, pinned on its own: the host reads the contract back out of the file the
     // supervisor wrote, so a member the serializer dropped would be a fact the host never had.
-    ChainContract contract = new(7, 104, 2, "sci.dashboard-truth/ledger", ["dotnet build"]);
+    ChainContract contract = new(7, 104, 2, "sci.dashboard-truth/ledger");
     AgentSettings settings = new AgentSettings(
         new OpenRouterSettings("sk-test", BaseUrl), new AgentRunOptions(null, 1))
         .WithChainContract(contract);
@@ -101,6 +101,5 @@ public sealed class ChainContractHostWiringTests
     Assert.Equal(contract.PlanId, roundTripped.PlanId);
     Assert.Equal(contract.Position, roundTripped.Position);
     Assert.Equal(contract.LedgerKey, roundTripped.LedgerKey, StringComparer.Ordinal);
-    Assert.Equal(contract.Gates, roundTripped.Gates);
   }
 }

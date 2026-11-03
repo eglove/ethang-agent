@@ -1,171 +1,144 @@
+using eThangAgent.ToolDomain.Verification;
+
 namespace eThangAgent.ToolDomain.Tests;
 
-// Issue #283 Part 2 acceptance. The freshness rule is the whole idea: a green run from
-// an hour ago followed by five edits proves nothing about the code being declared done.
+// The completion gate's rule is freshness: a green run from an hour ago followed by five
+// edits proves nothing about the code being declared done. The ledger is the only input -
+// the harness ships no command set, so whatever the session ran IS its verification.
 public class CompletionGateTests
 {
   private const string Root = "C:\\ws";
 
-  private static CompletionGate Gate(WorkspaceSnapshot current) =>
-      new(new FixedSnapshotAccess(current));
+  private static readonly DateTimeOffset Base = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
-  private static WorkspaceSnapshot Snapshot(params (string Path, ulong Hash)[] files) =>
+  private static CompletionGate Gate(WorkspaceSnapshot current, params ShellExecutionRecord[] runs) =>
+      new(new FakeLedger(runs), Freshness(), new FixedSnapshotAccess(current), () => Root);
+
+  private static VerificationFreshnessSpecification Freshness() =>
+      new(new VerificationCommandSpecification(["dotnet test"]));
+
+  private static WorkspaceSnapshot Tree(DateTimeOffset lastWriteUtc, params (string Path, ulong Hash)[] files) =>
       WorkspaceSnapshot.Create(Root, files.ToDictionary(
           f => f.Path,
-          f => new WorkspaceFileFingerprint(10, DateTime.UtcNow, f.Hash),
+          f => new WorkspaceFileFingerprint(10, lastWriteUtc.UtcDateTime, f.Hash),
           StringComparer.OrdinalIgnoreCase));
 
-  private static string Record(string? digest, bool passed) =>
-      new GoalGateRecord(digest, passed, DateTimeOffset.UtcNow).ToJson();
-
-  // A workspace with no gate must NEVER block: the check is simply unavailable.
-  [Fact]
-  public async Task UnsetGate_NeverBlocks()
-  {
-    CompletionGateVerdict verdict = await Gate(Snapshot(("a.cs", 1)))
-        .EvaluateAsync(Root, gateConfigured: false, lastCheckJson: null,
-            TestContext.Current.CancellationToken);
-
-    Assert.Equal(GoalGateStatus.Unset, verdict.Status);
-    Assert.False(verdict.BlocksCompletion);
-  }
+  private static ShellExecutionRecord Run(int exitCode, DateTimeOffset started) =>
+      new(["dotnet", "test"], exitCode, started, started.AddMinutes(1));
 
   [Fact]
-  public async Task ConfiguredNeverRun_Blocks()
+  public async Task NoRunAtAll_BlocksAndNamesTheRemedy()
   {
-    CompletionGateVerdict verdict = await Gate(Snapshot(("a.cs", 1)))
-        .EvaluateAsync(Root, gateConfigured: true, lastCheckJson: null,
-            TestContext.Current.CancellationToken);
+    CompletionVerdict verdict = await Gate(Tree(Base))
+        .EvaluateAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(GoalGateStatus.NeverRan, verdict.Status);
+    Assert.Equal(VerificationGateStatus.NeverRan, verdict.Status);
     Assert.True(verdict.BlocksCompletion);
-    Assert.Contains("state.checkgoal", verdict.Message, StringComparison.Ordinal);
+    Assert.Contains("exit code 0", verdict.Message, StringComparison.Ordinal);
   }
 
   [Fact]
   public async Task FailedRun_Blocks()
   {
-    WorkspaceSnapshot ws = Snapshot(("a.cs", 1));
-    CompletionGateVerdict verdict = await Gate(ws)
-        .EvaluateAsync(Root, true, Record(ws.Digest, passed: false),
-            TestContext.Current.CancellationToken);
+    CompletionVerdict verdict = await Gate(Tree(Base), Run(1, Base))
+        .EvaluateAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(GoalGateStatus.Failed, verdict.Status);
+    Assert.Equal(VerificationGateStatus.Failed, verdict.Status);
     Assert.True(verdict.BlocksCompletion);
+    Assert.Contains("exited 1", verdict.Message, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task PassedAndUnchanged_IsFresh()
+  public async Task PassingRunAfterTheLastChange_IsFresh()
   {
-    WorkspaceSnapshot ws = Snapshot(("a.cs", 1));
-    CompletionGateVerdict verdict = await Gate(ws)
-        .EvaluateAsync(Root, true, Record(ws.Digest, passed: true),
-            TestContext.Current.CancellationToken);
+    CompletionVerdict verdict = await Gate(Tree(Base.AddMinutes(-5)), Run(0, Base))
+        .EvaluateAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(GoalGateStatus.Fresh, verdict.Status);
+    Assert.Equal(VerificationGateStatus.Fresh, verdict.Status);
     Assert.False(verdict.BlocksCompletion);
   }
 
   // THE POINT OF THE FEATURE: a green run followed by an edit is not evidence.
   [Fact]
-  public async Task PassedThenWorkspaceChanged_IsStaleAndBlocks()
+  public async Task PassingRunThenAnEdit_IsStaleAndBlocks()
   {
-    WorkspaceSnapshot atRunTime = Snapshot(("a.cs", 1));
-    WorkspaceSnapshot now = Snapshot(("a.cs", 2));
-    CompletionGateVerdict verdict = await Gate(now)
-        .EvaluateAsync(Root, true, Record(atRunTime.Digest, passed: true),
-            TestContext.Current.CancellationToken);
+    CompletionVerdict verdict = await Gate(Tree(Base.AddMinutes(5), ("a.cs", 2)), Run(0, Base))
+        .EvaluateAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(GoalGateStatus.Stale, verdict.Status);
+    Assert.Equal(VerificationGateStatus.Stale, verdict.Status);
     Assert.True(verdict.BlocksCompletion);
     Assert.Contains("CHANGED since", verdict.Message, StringComparison.Ordinal);
-    Assert.Contains("state.checkgoal", verdict.Message, StringComparison.Ordinal);
   }
 
   // Every refusal names the honest exit, or the cheapest way past it is a lie.
   [Fact]
   public async Task EveryRefusal_NamesAbandonedAsTheExit()
   {
-    WorkspaceSnapshot atRunTime = Snapshot(("a.cs", 1));
-    CompletionGateVerdict stale = await Gate(Snapshot(("a.cs", 2)))
-        .EvaluateAsync(Root, true, Record(atRunTime.Digest, passed: true),
-            TestContext.Current.CancellationToken);
+    CompletionVerdict stale = await Gate(Tree(Base.AddMinutes(5), ("a.cs", 2)), Run(0, Base))
+        .EvaluateAsync(TestContext.Current.CancellationToken);
 
     Assert.Contains("Abandoned", stale.Message, StringComparison.Ordinal);
   }
 
-  // A rewrite that changed nothing must not invalidate a green gate - the digest is
-  // content-true, so it is not fooled by a moved timestamp.
+  // A passing run that STARTED before the edit but FINISHED after it still cannot cover it:
+  // an edit landing mid-run carries a later write time, so the run predates the code.
   [Fact]
-  public async Task NoOpRewrite_KeepsTheGateFresh()
+  public async Task EditDuringTheRun_IsStale()
   {
-    WorkspaceSnapshot atRunTime = Snapshot(("a.cs", 1));
-    WorkspaceSnapshot afterNoOp = Snapshot(("a.cs", 1));
+    ShellExecutionRecord run = new(["dotnet", "test"], 0, Base, Base.AddMinutes(10));
+    CompletionVerdict verdict = await Gate(Tree(Base.AddMinutes(5), ("a.cs", 2)), run)
+        .EvaluateAsync(TestContext.Current.CancellationToken);
 
-    CompletionGateVerdict verdict = await Gate(afterNoOp)
-        .EvaluateAsync(Root, true, Record(atRunTime.Digest, passed: true),
-            TestContext.Current.CancellationToken);
-
-    Assert.Equal(GoalGateStatus.Fresh, verdict.Status);
+    Assert.Equal(VerificationGateStatus.Stale, verdict.Status);
   }
 
-  // Unverifiable never blocks: refusing here would trap the user with no exit, since
-  // re-running the gate cannot fix a record that carries no digest.
+  // A command the harness does not recognise as verification-class proves nothing.
   [Fact]
-  public async Task RecordWithoutDigest_IsUnverifiableAndDoesNotBlock()
+  public async Task UnrelatedCommand_IsNotAVerificationRun()
   {
-    CompletionGateVerdict verdict = await Gate(Snapshot(("a.cs", 1)))
-        .EvaluateAsync(Root, true, Record(digest: null, passed: true),
-            TestContext.Current.CancellationToken);
+    ShellExecutionRecord git = new(["git", "status"], 0, Base, Base.AddMinutes(1));
+    CompletionVerdict verdict = await Gate(Tree(Base.AddMinutes(-5)), git)
+        .EvaluateAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(GoalGateStatus.Unverifiable, verdict.Status);
-    Assert.False(verdict.BlocksCompletion);
+    Assert.Equal(VerificationGateStatus.NeverRan, verdict.Status);
   }
 
+  // Unverifiable never blocks: refusing here would trap the claimant with no exit, since
+  // re-running verification cannot fix an unreadable tree.
   [Fact]
   public async Task TruncatedWalk_IsUnverifiableAndDoesNotBlock()
   {
     WorkspaceSnapshot truncated = WorkspaceSnapshot.Create(Root,
         new Dictionary<string, WorkspaceFileFingerprint>(StringComparer.OrdinalIgnoreCase)
         {
-          ["a.cs"] = new(10, DateTime.UtcNow, 1),
+          ["a.cs"] = new(10, Base.AddMinutes(5).UtcDateTime, 1),
         }, isComplete: false);
 
-    CompletionGateVerdict verdict = await Gate(truncated)
-        .EvaluateAsync(Root, true, Record("wsanything", passed: true),
-            TestContext.Current.CancellationToken);
+    CompletionVerdict verdict = await Gate(truncated, Run(0, Base))
+        .EvaluateAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(GoalGateStatus.Unverifiable, verdict.Status);
+    Assert.Equal(VerificationGateStatus.Unverifiable, verdict.Status);
     Assert.False(verdict.BlocksCompletion);
   }
 
-  // A corrupt record is not evidence of anything, so it cannot license a claim.
   [Fact]
-  public async Task CorruptRecord_Blocks()
+  public async Task DisabledGate_NeverBlocks()
   {
-    CompletionGateVerdict verdict = await Gate(Snapshot(("a.cs", 1)))
-        .EvaluateAsync(Root, true, "not json at all",
-            TestContext.Current.CancellationToken);
+    CompletionGate gate = new(new FakeLedger(), Freshness(),
+        new FixedSnapshotAccess(Tree(Base)), () => Root, enabled: false);
 
-    Assert.Equal(GoalGateStatus.NeverRan, verdict.Status);
-    Assert.True(verdict.BlocksCompletion);
+    CompletionVerdict verdict = await gate.EvaluateAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(VerificationGateStatus.Fresh, verdict.Status);
+    Assert.False(verdict.BlocksCompletion);
   }
 
-  [Fact]
-  public void ParseRecord_RoundTrips()
+  private sealed class FakeLedger(params ShellExecutionRecord[] runs) : IVerificationLedger
   {
-    GoalGateRecord? parsed = CompletionGate.ParseRecord(
-        Record("wsabc", passed: true));
+    public void Append(ShellExecutionRecord record) => throw new NotSupportedException();
 
-    Assert.NotNull(parsed);
-    Assert.Equal("wsabc", parsed.Digest);
-    Assert.True(parsed.Passed);
+    public IReadOnlyList<ShellExecutionRecord> Snapshot() => runs;
   }
-
-  [Fact]
-  public void ParseRecord_RejectsMissingPassed() =>
-      Assert.Null(CompletionGate.ParseRecord(
-          /*lang=json,strict*/"{\"digest\":\"x\",\"ranAt\":\"2026-01-01T00:00:00Z\"}"));
 
   private sealed class FixedSnapshotAccess(WorkspaceSnapshot snapshot) : IWorkspaceSnapshotAccess
   {

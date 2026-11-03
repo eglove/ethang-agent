@@ -394,7 +394,6 @@ public static class AgentComposition
         // Over the FILESYSTEM, never git - the harness does not assume the workspace is
         // a repository, and build output is gitignored anyway.
         .AddSingleton<IWorkspaceSnapshotAccess, DirectWorkspaceSnapshotAccess>()
-        .AddSingleton<CompletionGate>()
         .AddCompletionGatePorts()
         .AddSingleton<DirectShellAccess>()
         .AddSingleton<IShellCommandAccess>(sp => sp.GetRequiredService<DirectShellAccess>())
@@ -569,11 +568,10 @@ public static class AgentComposition
         .AddSingleton<IPlanStepOwnershipGate>(sp => new ChainStepOwnershipGate(
             sp.GetRequiredService<IChainStore>(), TimeProvider.System))
         // The brief (issue #302): the port is the Agent Domain's, so the renderer never learns
-        // what a plan is; this adapter is the one place that knows all three stores.
+        // what a plan is; this adapter is the one place that knows both stores.
         .AddSingleton<IChainBriefSource>(sp => new CompositionChainBriefSource(
             sp.GetRequiredService<ChainService>(),
             sp.GetRequiredService<PlanService>(),
-            sp.GetRequiredService<IStateService>(),
             // The reviewer's rubric is a SKILL (issue #306/#217), so the brief asks the same
             // catalog this session's skill listing is built from: the two cannot then disagree
             // about whether a rubric exists.
@@ -661,30 +659,31 @@ public static class AgentComposition
   };
 
   /// <summary>The completion gate's two domain ports and the floor's turn ledger (issues
-  ///     #283, #285, #304).
+  ///     #283, #304).
   ///     <para>WHY ITS OWN METHOD: <c>AddPersistenceServices</c> is at the length limit S138
   ///     enforces, and these are one subject - 'who may claim completion, and what may never be
-  ///     claimed at all'. The Plan Domain and the Agent Domain each ask through their OWN port,
-  ///     because neither may reference the other; both are answered by the ONE Tool Domain
-  ///     evaluator over the ONE command set, which is what D1 actually requires.</para>
+  ///     claimed at all'. The Plan Domain asks through its own port, answered by the ONE Tool
+  ///     Domain evaluator over the session's ONE shell ledger; the commit notice asks the same
+  ///     port so the two attach points cannot disagree.</para>
+  ///     <para>THE GATE IS REGISTERED HERE, not beside the verification ledger, because it reads
+  ///     that ledger and the workspace snapshot together: one container is one session, and one
+  ///     session is one ledger.</para>
   ///     <para>THE FLOOR LEDGER IS REGISTERED HERE TOO because it is the other half of the same
   ///     floor: one instance per container, because one container is one session's turn.
   ///     </para></summary>
   private static IServiceCollection AddCompletionGatePorts(this IServiceCollection wired)
   {
     return wired
-        .AddSingleton<IPlanCompletionGate>(sp => new StateServicePlanCompletionGate(
-            sp.GetRequiredService<CompletionGate>(),
-            sp.GetRequiredService<IStateService>(),
+        .AddSingleton(sp => new CompletionGate(
+            sp.GetRequiredService<IVerificationLedger>(),
+            sp.GetRequiredService<VerificationFreshnessSpecification>(),
+            sp.GetRequiredService<IWorkspaceSnapshotAccess>(),
             () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
                 ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
+        .AddSingleton<IPlanCompletionGate>(sp => new StateServicePlanCompletionGate(
+            sp.GetRequiredService<CompletionGate>()))
         .AddSingleton<ICommitCompletionNotice>(sp => new PlanCompletionGateCommitNotice(
             sp.GetRequiredService<IPlanCompletionGate>()))
-        .AddSingleton<IChainCompletionGate>(sp => new StateServiceChainCompletionGate(
-            sp.GetRequiredService<CompletionGate>(),
-            sp.GetRequiredService<IStateService>(),
-            () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
-                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
         .AddSingleton<ChainFloorLedger>()
         // THE FLOOR'S ENACTMENT (issue #304 D4, wired by #323): the reader of the ledger the
         // exec engine trips. Registered HERE rather than constructed only by the Desktop's
@@ -914,12 +913,6 @@ public static class AgentComposition
                  Launcher: sp.GetRequiredService<IAgentLaunchCommand>())))
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
-        // StateService's goal runner and snapshot seam are what make checkgoal run the
-        // project's COMMANDS and record a freshness-bearing outcome (issue #283).
-        .AddSingleton(_ => GoalRunnerOptions.Default)
-        .AddSingleton<IGoalCommandRunner>(sp => new ShellGoalCommandRunner(
-            sp.GetRequiredService<IShellCommandAccess>(),
-            sp.GetRequiredService<GoalRunnerOptions>()))
         // The state-change publisher (issue #318) is WIRED INSIDE THE SERVICE'S OWN FACTORY,
         // for the reason PlanChangePublisher and ChainChangePublisher are: DI is lazy and nothing
         // resolves the publisher by name, so a separate registration would never be constructed -
@@ -937,9 +930,7 @@ public static class AgentComposition
               sp.GetRequiredService<IStateStore>(),
               sp.GetRequiredService<IEvidenceRunner>(),
               sp.GetRequiredService<IWorkspaceContext>(),
-              sp.GetRequiredService<IStateChangeBus>(),
-              sp.GetRequiredService<IGoalCommandRunner>(),
-              sp.GetRequiredService<IWorkspaceSnapshotAccess>());
+              sp.GetRequiredService<IStateChangeBus>());
           _ = new StateChangePublisher(sp.GetRequiredService<IStateChangeBus>(),
               sp.GetRequiredService<IAgentEvents>(),
               () => AgentRunLoop.RunningChild?.Id

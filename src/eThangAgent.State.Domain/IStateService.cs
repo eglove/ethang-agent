@@ -23,6 +23,5 @@ public interface IStateService
   Task<Result<string>> TransitionAsync(string from, string toState, string summary,
       IReadOnlyList<string> evidence, CancellationToken ct = default);
   Task<CertificationReport> VerifyAsync(IReadOnlyList<string>? ids, CancellationToken ct = default);
-  Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default);
   Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default);
 }

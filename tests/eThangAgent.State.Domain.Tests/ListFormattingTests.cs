@@ -62,9 +62,6 @@ public class ListFormattingTests
     public Task<CertificationReport> VerifyAsync(IReadOnlyList<string>? ids, CancellationToken ct = default)
         => Task.FromResult(new CertificationReport(true, false, [], []));
 
-    public Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)
-        => Task.FromResult(new CertificationReport(true, false, [], []));
-
     public Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<string>>([]));
   }

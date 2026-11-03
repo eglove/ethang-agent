@@ -3,8 +3,9 @@ namespace eThangAgent.AgentDomain;
 /// <summary>Renders the chain contract the system prompt carries (issue #311).
 ///     <para>D1 — WHAT IT SAYS: that this session is one step of a chain, which step, that the
 ///     harness starts the next session when this one marks its step done, that the chain's
-///     ledger is shared across every step, and that the gate must be fresh before any
-///     done-claim. Those are the four facts a session cannot infer from its tool list.</para>
+///     ledger is shared across every step, and that a done-claim must be backed by a
+///     verification run newer than the last change. Those are the four facts a session cannot
+///     infer from its tool list.</para>
 ///     <para>D4 — IT DOES NOT RESTATE THE SKILL. The chain skill (#308) carries the PROCEDURE —
 ///     how to plan, how to sequence, how to recover. This carries the IDENTITY, which is what a
 ///     model needs before it decides whether to load a skill at all. Two statements of one rule
@@ -45,7 +46,7 @@ public static class ChainContractRenderer
       "already established has wasted the chain's time.",
       "",
     ];
-    AddGate(lines, contract);
+    AddCompletionEvidence(lines);
     // THE COMPLETION RULE DIFFERS BY ROLE (issue #306), and this is where the STANDING rule
     // lives — the brief states it once and a compaction can evict it, so a reviewer that read
     // the right instruction only in its first message would drift back to finishing the work.
@@ -61,33 +62,18 @@ public static class ChainContractRenderer
     return string.Join('\n', lines);
   }
 
-  /// <summary>The gate, or an explicit statement that this workspace declares none. Saying
-  ///     'no gate applies' is a different fact from saying nothing, and the completion gate
-  ///     treats an unset <c>goal/check</c> as no requirement rather than as a failure.</summary>
-  private static void AddGate(List<string> lines, ChainContract contract)
+  /// <summary>What backs a done-claim: a verification run the session chose itself, started
+  ///     after its last change.</summary>
+  private static void AddCompletionEvidence(List<string> lines)
   {
-    lines.Add("## The gate");
+    lines.Add("## What backs a done-claim");
     lines.Add("");
-    if (contract.Gates.Count == 0)
-    {
-      lines.Add("This workspace declares no goal/check commands, so no gate is required before a");
-      lines.Add("done-claim. That is the workspace's decision, not an omission on your part.");
-      lines.Add("");
-      return;
-    }
-
-    lines.Add("A done-claim is backed by a FRESH passing gate. Run these and confirm they pass after");
-    lines.Add("your last change:");
+    lines.Add("No verification command is configured for this workspace, so you choose it: run whatever");
+    lines.Add("actually verifies this work and confirm it exits 0.");
     lines.Add("");
-    foreach (string command in contract.Gates)
-    {
-      lines.Add($"    {command}");
-    }
-
-    lines.Add("");
-    lines.Add("state.checkgoal runs them and records the result with the workspace's state. A result");
-    lines.Add("from before your last edit does not count: it proves nothing about the code being");
-    lines.Add("declared finished, and the completion gate refuses a claim that predates the change.");
+    lines.Add("The completion gate reads your session's shell ledger. A result from before your last");
+    lines.Add("edit does not count: it proves nothing about the code being declared finished, and the");
+    lines.Add("gate refuses a claim that predates the change.");
     lines.Add("");
   }
 

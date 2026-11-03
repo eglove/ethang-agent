@@ -25,7 +25,7 @@ Discover the surface instead of guessing: `Tools.List()` lists every action, and
 | Track what is being worked on | plan steps — `plan.create` with a `steps` array, then `plan.update-step` (`status`: Pending / InProgress / Done / Skipped). There is no todo list: plan steps, chain records, and the experiment ledger are the units |
 | Execute a plan mechanically | `chain.start` — converts a plan into a chain the HARNESS advances; you do not start the next step |
 | Record what the experiment showed | `experiment` — `record-hypothesis` / `record-prediction` / `record-verdict` / `record-observation` / `record-conclusion` / `record-skip` / `list` / `summary`, appended to `sci.<slug>/ledger` |
-| Store or read durable workspace state | `state` tools — `state.get` / `state.set` / `state.append` (CAS ledger lines) / `state.list` / `state.find` (full-text search) / `state.prune` / `state.checkgoal` (runs the workspace's `goal/check` commands and records the result) |
+| Store or read durable workspace state | `state` tools — `state.get` / `state.set` / `state.append` (CAS ledger lines) / `state.list` / `state.find` (full-text search) / `state.prune` |
 | Inspect the agent's own database (sessions, transcripts, state, skills, preferences) | `db_schema` / `db_query` (read-only SQL; run `db_schema` first) |
 | Inspect any workspace SQLite file | `sqlite_query` (read-only SELECT/WITH, workspace-confined) |
 | Commit work | `git_commit` (never raw shell commits); the style is the user's host setting — follow the commit-style guidance in this bootstrap, not a parameter |

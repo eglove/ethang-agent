@@ -34,7 +34,7 @@ public sealed record ChainBriefPredecessor(int Position, ChainStepStatus Status,
 /// <param name="PlanSteps">Every plan step, so the brief can render the assigned one and
 ///     refuse when it is gone.</param>
 /// <param name="Predecessors">The chain steps that already ran, in position order.</param>
-/// <param name="GateCommands">The workspace's <c>goal/check</c> commands; empty when unset.</param>
+
 /// <param name="LedgerKey">Where the chain's ledger lives, already resolved from the slug.</param>
 /// <param name="Role">The role assigned to this step's session (issue #306): implement or
 ///     review. The brief branches on it, because a reviewer told to mark its step done is a
@@ -51,7 +51,6 @@ public sealed record ChainBriefFacts(
     int AssignedPosition,
     IReadOnlyList<ChainBriefPlanStep> PlanSteps,
     IReadOnlyList<ChainBriefPredecessor> Predecessors,
-    IReadOnlyList<string> GateCommands,
     string LedgerKey,
     ChainStepRole? Role = null,
     bool ReviewRubricAvailable = false)

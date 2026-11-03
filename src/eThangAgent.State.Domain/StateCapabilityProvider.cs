@@ -60,9 +60,6 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
         new("verify", "Run attached evidence fail-closed and certify.",
             "Runs the evidence for the selected transitions (default: all pending) fail-closed. Certifies only when every command confirms; otherwise reports violated with blocking reasons and revokes any head certificate first.",
             [new ActionParameter("ids", "String[]", "Optional transition ids; default all pending.")]),
-        new("checkgoal", "Run the goal/check commands and report.",
-            "Runs the commands stored at goal/check and reports pass/fail. Report-only — no certification.",
-            []),
         new("history", "Replay the state timeline.",
             "Returns the most recent timeline events (transitions, certified, violated).",
             [new ActionParameter(Limit, ActionParameterTypes.IntegerType, "Optional. Default 20.")]),
@@ -108,7 +105,6 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
         "list" => await ListAsync(jsonArguments).ConfigureAwait(false),
         "transition" => await TransitionAsync(jsonArguments).ConfigureAwait(false),
         "verify" => await VerifyAsync(jsonArguments).ConfigureAwait(false),
-        "checkgoal" => await CheckGoalAsync().ConfigureAwait(false),
         "history" => await HistoryAsync(jsonArguments).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
@@ -249,9 +245,6 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
     CertificationReport report = await _service.VerifyAsync(OptStringArray(ParseArgs(json, Allowed("ids")), "ids")).ConfigureAwait(false);
     return Report(report);
   }
-
-  private async Task<CapabilityInvocationResult> CheckGoalAsync()
-      => Report(await _service.CheckGoalAsync().ConfigureAwait(false));
 
   private async Task<CapabilityInvocationResult> HistoryAsync(string json)
       => ToResult(await _service.HistoryAsync(OptInt(ParseArgs(json, Allowed(Limit)), Limit) ?? 20).ConfigureAwait(false));

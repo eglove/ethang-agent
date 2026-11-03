@@ -16,7 +16,7 @@ namespace eThangAgent.Composition.Tests;
 public sealed class ChainContractPromptProviderTests
 {
   private static ChainContract Contract() =>
-      new(7, 104, 2, "sci.dashboard-truth/ledger", ["dotnet build"]);
+      new(7, 104, 2, "sci.dashboard-truth/ledger");
 
   [Fact]
   public void Build_ForAChainStep_RendersTheContract()

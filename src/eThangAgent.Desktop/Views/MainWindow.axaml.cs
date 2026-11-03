@@ -3,7 +3,6 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
-using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain.Mcp;
@@ -94,10 +93,7 @@ internal partial class MainWindow : Window
           loadWorkspaceRows: async root => (
               await _vm.GetWorkspaceSessionFilesAsync(root),
               await _vm.GetWorkspaceSkillDirectoriesAsync(root),
-              await _vm.GetTrustedDirectoriesAsync(root)),
-          // The gate section (issue #285): read from the app-owned database, because the
-          // workspace is not open yet and no session container exists to ask.
-          loadGate: root => _vm.GateStore?.ReadAsync(root) ?? Task.FromResult(WorkspaceGateState.Unknown));
+              await _vm.GetTrustedDirectoriesAsync(root)));
       NewAgentChoice? choice = await dialog.ShowDialog<NewAgentChoice?>(this);
       if (choice is null)
       {
@@ -112,16 +108,6 @@ internal partial class MainWindow : Window
       if (!applied.IsSuccess)
       {
         await ShowOpenFailedAsync(applied.Error.Message);
-        return;
-      }
-
-      // The gate decision is persisted BEFORE the open too (issue #285): the first
-      // completion claim in the new session must already be gated by what the user just
-      // declared. A workspace the user left alone writes nothing.
-      Result<bool> gated = await _vm.ApplyGateDeclarationAsync(choice);
-      if (!gated.IsSuccess)
-      {
-        await ShowOpenFailedAsync(gated.Error.Message);
         return;
       }
 

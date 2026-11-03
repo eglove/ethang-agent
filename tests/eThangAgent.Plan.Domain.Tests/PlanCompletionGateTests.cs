@@ -69,7 +69,7 @@ public class PlanCompletionGateTests
   public async Task Completed_WithStaleGate_FailsWithTypedCode()
   {
     PlanCapabilityProvider provider = await SeededAsync(
-        new FixedGate(false, "[completion gate] the gate is stale; run state.checkgoal"));
+        new FixedGate(false, "[completion gate] the gate is stale; run your verification again"));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("set-status",
         /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }",
@@ -77,7 +77,7 @@ public class PlanCompletionGateTests
 
     Assert.True(result.IsError);
     Assert.Contains("CompletionGateNotFresh", result.Content, StringComparison.Ordinal);
-    Assert.Contains("state.checkgoal", result.Content, StringComparison.Ordinal);
+    Assert.Contains("run your verification again", result.Content, StringComparison.Ordinal);
   }
 
   // The refusal must leave the plan untouched - a gate that half-applied would be worse

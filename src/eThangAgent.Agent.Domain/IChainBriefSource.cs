@@ -3,10 +3,10 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.AgentDomain;
 
 /// <summary>Where a chain brief's facts come from (issue #302).
-///     <para>WHY A PORT: the facts live in three other domains — the plan record, the chain
-///     record, and the workspace's gate commands — and the Agent Domain references none of
-///     them. The composition root implements this over the real stores, so the brief can be
-///     rendered and tested without the Agent Domain learning what a plan is.</para>
+///     <para>WHY A PORT: the facts live in two other domains — the plan record and the chain
+///     record — and the Agent Domain references neither. The composition root implements this
+///     over the real stores, so the brief can be rendered and tested without the Agent Domain
+///     learning what a plan is.</para>
 ///     <para>EVERY METHOD IS A READ. The brief never writes: the seed is persisted by the
 ///     session factory, and a source that also wrote would be a second writer of the
 ///     conversation it is describing.</para></summary>
@@ -34,12 +34,6 @@ public interface IChainBriefSource
   ///     <para>AN IMPLEMENT STEP NEVER ASKS, so a chain with no review step is unaffected.</para></summary>
   /// <param name="ct">Cancellation.</param>
   Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default);
-
-  /// <summary>The workspace's <c>goal/check</c> commands; EMPTY when the workspace declares
-  ///     none. An unset gate is an ordinary answer, never a failure — the completion gate
-  ///     treats it the same way.</summary>
-  /// <param name="ct">Cancellation.</param>
-  Task<Result<IReadOnlyList<string>>> GetGateCommandsAsync(CancellationToken ct = default);
 }
 
 /// <summary>The chain facts a brief needs.</summary>

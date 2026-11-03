@@ -110,8 +110,6 @@ public class ChainStepCellBindingTests
     public Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success(false));
 
-    public Task<Result<IReadOnlyList<string>>> GetGateCommandsAsync(CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<string>>([]));
   }
 
   /// <summary>The audit sink root supervision writes to; nothing here asserts on it.</summary>

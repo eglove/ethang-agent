@@ -74,18 +74,6 @@ public sealed class ChainBriefServiceTests
   }
 
   [Fact]
-  public async Task BuildSeed_WhenTheSourceCannotReadTheGate_StillRefusesRatherThanGuessing()
-  {
-    ChainBriefService service = new(new FakeSource(gate: Result.Failure<IReadOnlyList<string>>(
-        new DomainError("StateUnavailable", "the state store is unreadable."))));
-
-    Result<IReadOnlyList<Message>> seed = await service.BuildSeedAsync(Assignment, TestContext.Current.CancellationToken);
-
-    Assert.False(seed.IsSuccess);
-    Assert.Equal("StateUnavailable", seed.Error.Code);
-  }
-
-  [Fact]
   public async Task BuildSeed_WithANonExecutableAssignment_RefusesBeforeReadingAnything()
   {
     FakeSource source = new();
@@ -103,7 +91,7 @@ public sealed class ChainBriefServiceTests
   public async Task BuildLaunch_CarriesTheContractDerivedFromTheSameFacts()
   {
     // Issue #311: the launch is the seed AND the contract, from ONE gather — so the ledger key
-    // and the gate in the prompt are the values the brief was rendered with.
+    // in the prompt is the value the brief was rendered with.
     ChainBriefService service = new(new FakeSource());
 
     Result<ChainBriefLaunch> launch = await service.BuildLaunchAsync(Assignment, TestContext.Current.CancellationToken);
@@ -214,7 +202,6 @@ public sealed class ChainBriefServiceTests
   private sealed class FakeSource(
       Result<ChainBriefChain>? chain = null,
       Result<ChainBriefPlan>? plan = null,
-      Result<IReadOnlyList<string>>? gate = null,
       bool rubricAvailable = false) : IChainBriefSource
   {
     public int Reads { get; private set; }
@@ -248,12 +235,6 @@ public sealed class ChainBriefServiceTests
           "Make the dashboard tell the truth about what it did.",
           [new ChainBriefPlanStep(1, "Honest status line", null),
            new ChainBriefPlanStep(2, "Real demo broker", null)])));
-    }
-
-    public Task<Result<IReadOnlyList<string>>> GetGateCommandsAsync(CancellationToken ct = default)
-    {
-      Reads++;
-      return Task.FromResult(gate ?? Result.Success<IReadOnlyList<string>>(["dotnet build"]));
     }
   }
 }

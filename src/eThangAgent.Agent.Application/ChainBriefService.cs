@@ -86,19 +86,13 @@ public sealed class ChainBriefService(IChainBriefSource source)
       return Result.Failure<ChainBriefFacts>(plan.Error);
     }
 
-    Result<IReadOnlyList<string>> gate = await _source.GetGateCommandsAsync(ct).ConfigureAwait(false);
-    if (!gate.IsSuccess)
-    {
-      return Result.Failure<ChainBriefFacts>(gate.Error);
-    }
-
     // THE RUBRIC IS ASKED FOR ONLY WHEN SOMETHING USES IT (issue #306): an implement step never
     // reads the skill catalog, so a chain with no review step costs exactly what it did before.
     Result<bool> rubric = RoleOf(chain.Value, assignment).IsReview
       ? await _source.GetReviewRubricAvailableAsync(ct).ConfigureAwait(false)
       : Result.Success(false);
     return rubric.IsSuccess
-      ? Result.Success(Facts(assignment, chain.Value, plan.Value, gate.Value, rubric.Value))
+      ? Result.Success(Facts(assignment, chain.Value, plan.Value, rubric.Value))
       : Result.Failure<ChainBriefFacts>(rubric.Error);
   }
 
@@ -117,7 +111,7 @@ public sealed class ChainBriefService(IChainBriefSource source)
   ///     rather than stored, so the brief and the system prompt (#311) cannot disagree about
   ///     where a chain's ledger lives.</summary>
   private static ChainBriefFacts Facts(ChainStepAssignment assignment, ChainBriefChain chain,
-      ChainBriefPlan plan, IReadOnlyList<string> gate, bool rubricAvailable) =>
+      ChainBriefPlan plan, bool rubricAvailable) =>
       new(chain.ChainId,
           chain.Title,
           plan.PlanId,
@@ -126,7 +120,6 @@ public sealed class ChainBriefService(IChainBriefSource source)
           assignment.Position,
           plan.Steps,
           chain.Predecessors,
-          gate,
           ChainLedgerSlug.KeyFor(chain.Title),
           RoleOf(chain, assignment),
           rubricAvailable);

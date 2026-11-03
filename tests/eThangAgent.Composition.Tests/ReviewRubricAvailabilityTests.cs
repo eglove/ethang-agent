@@ -126,7 +126,6 @@ public class ReviewRubricAvailabilityTests
       PlanSteps: [new ChainBriefPlanStep(1, "Honest status line", null),
           new ChainBriefPlanStep(2, "Judge the plan", "Review it.")],
       Predecessors: [],
-      GateCommands: ["dotnet build"],
       LedgerKey: "sci.dashboard-truth/ledger",
       Role: ChainStepRole.Review("vendor/reviewer"),
       ReviewRubricAvailable: rubricAvailable);

@@ -37,6 +37,15 @@ public sealed class VerificationCommandSpecification
     ArgumentNullException.ThrowIfNull(ledger);
     return ledger.Any(r => _prefixes.Any(p => MatchesPrefix(r.Tokens, p)));
   }
+  /// <summary>True when the record's command tokens start with one of the configured
+  ///     prefixes, whatever the exit code: the class query a caller asks when it wants the
+  ///     run's outcome rather than the class alone.</summary>
+  public bool IsSatisfiedByCommand(ShellExecutionRecord record)
+  {
+    ArgumentNullException.ThrowIfNull(record);
+    return _prefixes.Any(p => MatchesPrefix(record.Tokens, p));
+  }
+
   /// <summary>True when the record's exit code is 0 and its command tokens
   ///     start with one of the configured prefixes.</summary>
   public bool IsSatisfiedBy(ShellExecutionRecord record)

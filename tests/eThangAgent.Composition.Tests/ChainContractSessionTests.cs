@@ -24,7 +24,7 @@ public sealed class ChainContractSessionTests
       new AgentRunOptions(null, 2));
 
   private static ChainContract Contract() =>
-      new(7, 104, 2, "sci.dashboard-truth/ledger", ["dotnet build"]);
+      new(7, 104, 2, "sci.dashboard-truth/ledger");
 
   /// <summary>The prompt the session's own container composes — the same bytes the model
   ///     receives as the leading part of every request.</summary>
@@ -49,7 +49,7 @@ public sealed class ChainContractSessionTests
         Assert.Contains(ChainContractRenderer.Prefix, prompt, StringComparison.Ordinal);
         Assert.Contains("You are step 2 of chain #7", prompt, StringComparison.Ordinal);
         Assert.Contains("sci.dashboard-truth/ledger", prompt, StringComparison.Ordinal);
-        Assert.Contains("    dotnet build", prompt, StringComparison.Ordinal);
+        Assert.Contains("## What backs a done-claim", prompt, StringComparison.Ordinal);
       }
       finally
       {

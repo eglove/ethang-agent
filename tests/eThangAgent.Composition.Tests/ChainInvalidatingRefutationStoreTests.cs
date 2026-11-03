@@ -67,7 +67,7 @@ public sealed class ChainInvalidatingRefutationStoreTests : IDisposable
       string workspace) =>
       new(new StateServiceRefutationStore(new StateService(
           new SqliteStateStore(new AppDatabase(workspace + "-state.db")), new NoEvidence(),
-          FixedWorkspaceContext.ForPath(workspace), new InertChangeBus(), new NoGoalRunner(), null)),
+          FixedWorkspaceContext.ForPath(workspace), new InertChangeBus())),
           () => chains, () => session, TimeProvider.System);
 
   // THE ACCEPTANCE CRITERION: a refutation marks the earlier step it came after.
@@ -151,13 +151,6 @@ public sealed class ChainInvalidatingRefutationStoreTests : IDisposable
   private sealed class NoEvidence : IEvidenceRunner
   {
     public Task<EvidenceResult> RunAsync(string command, CancellationToken ct = default)
-        => Task.FromResult(new EvidenceResult(command, false, "not used here"));
-  }
-
-  private sealed class NoGoalRunner : IGoalCommandRunner
-  {
-    public Task<EvidenceResult> RunAsync(string workingDirectory, string command,
-        CancellationToken ct = default)
         => Task.FromResult(new EvidenceResult(command, false, "not used here"));
   }
 

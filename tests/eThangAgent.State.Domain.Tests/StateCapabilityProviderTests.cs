@@ -10,12 +10,13 @@ public class StateCapabilityProviderTests
       => new(service ?? new FakeStateService());
 
   [Fact]
-  public void Provider_ExposesElevenActions_UnderStateId()
+  public void Provider_ExposesTenActions_UnderStateId()
   {
     StateCapabilityProvider provider = Create();
 
     Assert.Equal("state", provider.Id);
-    Assert.Equal(11, provider.Actions.Count);
+    Assert.Equal(10, provider.Actions.Count);
+    Assert.DoesNotContain(provider.Actions, a => a.Name == "checkgoal");
     Assert.Contains(provider.Actions, a => a.Name == "find" && a.Summary.Contains("Full-text", StringComparison.Ordinal));
     Assert.Contains(provider.Actions, a => a.Name == "transition" && a.Summary.Contains("evidence", StringComparison.Ordinal));
     Assert.Contains(provider.Actions, a => a.Name == "verify" && a.Description.Contains("fail-closed", StringComparison.Ordinal));
@@ -286,8 +287,6 @@ public class StateCapabilityProviderTests
     public Result<string> TransitionResult { get; set; } = Result.Success("tr-1");
     public CertificationReport VerifyResult { get; set; } =
         new(true, false, [], []);
-    public CertificationReport GoalResult { get; set; } =
-        new(true, false, [], []);
     public Result<IReadOnlyList<string>> HistoryResult { get; set; } =
         Result.Success<IReadOnlyList<string>>([]);
 
@@ -345,9 +344,6 @@ public class StateCapabilityProviderTests
 
     public Task<CertificationReport> VerifyAsync(IReadOnlyList<string>? ids, CancellationToken ct = default)
         => Task.FromResult(VerifyResult);
-
-    public Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)
-        => Task.FromResult(GoalResult);
 
     public Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default)
         => Task.FromResult(HistoryResult);

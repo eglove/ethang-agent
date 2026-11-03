@@ -62,7 +62,7 @@ public class PlanStepCompletionGateTests
   private static async Task<(PlanCapabilityProvider Provider, CountingGate Gate)> SeededAsync(
       bool allowed)
   {
-    CountingGate gate = new(allowed, "[completion gate] the gate is stale; run state.checkgoal");
+    CountingGate gate = new(allowed, "[completion gate] the gate is stale; run your verification again");
     PlanCapabilityProvider provider = new(new PlanService(new FakeStore()), () => "s1", gate);
     CapabilityInvocationResult created = await provider.InvokeAsync("create",
         /*lang=json,strict*/"{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\" } ] }",
@@ -83,7 +83,7 @@ public class PlanStepCompletionGateTests
 
     Assert.True(result.IsError);
     Assert.Contains("CompletionGateNotFresh", result.Content, StringComparison.Ordinal);
-    Assert.Contains("state.checkgoal", result.Content, StringComparison.Ordinal);
+    Assert.Contains("run your verification again", result.Content, StringComparison.Ordinal);
   }
 
   // D3: the STEP refusal names the step's own exit, which the gate's plan-level message cannot

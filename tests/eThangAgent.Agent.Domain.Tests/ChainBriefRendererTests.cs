@@ -12,7 +12,6 @@ public sealed class ChainBriefRendererTests
       int assigned = 2,
       IReadOnlyList<ChainBriefPlanStep>? steps = null,
       IReadOnlyList<ChainBriefPredecessor>? predecessors = null,
-      IReadOnlyList<string>? gate = null,
       string goal = "Make the dashboard tell the truth about what it did.",
       ChainStepRole? role = null,
       bool rubric = false) =>
@@ -28,7 +27,6 @@ public sealed class ChainBriefRendererTests
             new ChainBriefPlanStep(3, "Docs", "Update EXECUTION.md."),
           ],
           Predecessors: predecessors ?? [],
-          GateCommands: gate ?? [],
           LedgerKey: "sci.dashboard-truth/ledger",
           Role: role,
           ReviewRubricAvailable: rubric);
@@ -77,24 +75,19 @@ public sealed class ChainBriefRendererTests
     Assert.Contains("starts the next one", brief.Content, StringComparison.Ordinal);
   }
 
+  /// <summary>The workspace declares no command set, so the brief names the DECISION the session
+  ///     must make instead of a command list, and states the freshness rule the gate applies.
+  ///     </summary>
   [Fact]
-  public void Render_WithGateCommands_ListsThemAndDemandsFreshness()
-  {
-    ChainBrief brief = ChainBriefRenderer.Render(
-        Facts(gate: ["dotnet build", "dotnet test"])).Value!;
-
-    Assert.Contains("    dotnet build", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("    dotnet test", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("state.checkgoal", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("FRESH", brief.Content, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void Render_WithNoGate_SaysSoRatherThanStayingSilent()
+  public void Render_NamesWhatBacksADoneClaim_WithoutNamingACommandSet()
   {
     ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
 
-    Assert.Contains("declares no goal/check commands", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("## What backs your done-claim", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("exits 0", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("after your last change", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("goal/check", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("state.checkgoal", brief.Content, StringComparison.Ordinal);
   }
 
   /// <summary>Issue #315: the brief instructs the session to SEARCH for refutations before it

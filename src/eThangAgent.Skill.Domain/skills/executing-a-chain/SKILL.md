@@ -45,16 +45,16 @@ check that makes the chain's record true.
 A step whose work is deliberately not being done is `Skipped`, never `Done`. `Skipped` is the
 honest exit: a `Done` on unfinished work is the false record the gate exists to prevent.
 
-### The gate must be FRESH
+### Verification must be FRESH
 
-A done-claim is backed by a gate that passed **since your last change**. `state.checkgoal` runs
-the workspace's `goal/check` commands and records the result with the workspace's digest. A green
-run from an hour ago followed by five edits proves nothing about the code you are declaring
-finished, and the completion gate refuses a claim that predates the change.
+A done-claim is backed by a verification command that exited 0 **since your last change**. No
+command set is configured for you: choose whatever actually verifies this work — the build, the
+tests, the linter, the script — and run it with `Shell`. The completion gate reads your session's
+shell ledger, so a green run from an hour ago followed by five edits proves nothing about the code
+you are declaring finished, and the gate refuses a claim that predates the change.
 
-Re-run `state.checkgoal` after your final edit — including after a doc edit. If the workspace
-declares no `goal/check` commands, no gate applies; the brief says so, and saying so is different
-from saying nothing.
+Run it again after your final edit — including after a doc edit. The refusal names the command it
+last saw and what it exited, so a stale claim is recoverable without guessing.
 
 ### If you cannot finish
 
@@ -124,7 +124,7 @@ attempt to schedule the review yourself.
 3. Run the loop: observe, hypothesize, predict, experiment, analyze, report — with the ledger
    written as you go.
 4. Verify with `verification-before-completion` before any done-claim.
-5. Run `state.checkgoal` after your last change.
+5. Run your verification command again after your last change.
 6. Mark your one step done.
 7. Stop. The harness takes it from there.
 
@@ -132,7 +132,7 @@ attempt to schedule the review yourself.
 
 | Excuse | Reality |
 | --- | --- |
-| "The work is done, the gate is close enough" | A stale gate proves nothing about the code you are declaring finished. Re-run it. |
+| "The work is done, the verification is close enough" | A stale run proves nothing about the code you are declaring finished. Run it again. |
 | "I'll mark it done and mention the gap in my summary" | The record is what the chain reads. A gap in prose is a gap nobody acts on. |
 | "This step is small, I'll also do the next one" | You may not mark another step done, and the harness will refuse it. One step, one session. |
 | "I need a reviewer, I'll start one" | There is no subagent surface. A review is a chain step assigned at creation. |

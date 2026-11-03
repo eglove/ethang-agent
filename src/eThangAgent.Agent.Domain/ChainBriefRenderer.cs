@@ -110,7 +110,7 @@ public static class ChainBriefRenderer
     ]);
 
     AddPredecessors(lines, facts);
-    AddGate(lines, facts);
+    AddCompletionEvidence(lines);
     // THE ONE BRANCH ON ROLE (issue #306): a reviewer is not asked to finish the work, because
     // a reviewer told to mark the step done would finish it instead of judging it.
     if (facts.IsReview)
@@ -143,30 +143,21 @@ public static class ChainBriefRenderer
     }
   }
 
-  /// <summary>The gate commands, or an explicit statement that this workspace declares none.
-  ///     An unset gate never blocks (the <c>CompletionGate</c> rule), and saying so is
-  ///     different from saying nothing.</summary>
-  private static void AddGate(List<string> lines, ChainBriefFacts facts)
+  /// <summary>What backs a done-claim. The workspace declares no command set, so the session
+  ///     chooses its own verification and the harness only asks whether that answer is current.
+  ///     </summary>
+  private static void AddCompletionEvidence(List<string> lines)
   {
     lines.Add("");
-    lines.Add("## The gate");
+    lines.Add("## What backs your done-claim");
     lines.Add("");
-    if (facts.GateCommands.Count == 0)
-    {
-      lines.Add("This workspace declares no goal/check commands, so no gate is required of you.");
-      return;
-    }
-
-    lines.Add("Run these and confirm they pass before you claim your step done:");
+    lines.Add("No verification command is configured for this workspace, so the choice is yours: run");
+    lines.Add("whatever actually verifies this work — the build, the tests, the linter, the script —");
+    lines.Add("and confirm it exits 0.");
     lines.Add("");
-    foreach (string command in facts.GateCommands)
-    {
-      lines.Add($"    {command}");
-    }
-
-    lines.Add("");
-    lines.Add("state.checkgoal runs them and records the result. The result must be FRESH — run it");
-    lines.Add("again after your last change, or the completion gate refuses the claim.");
+    lines.Add("The completion gate reads your session's shell ledger, so the passing run must START");
+    lines.Add("after your last change. A green run from before your final edit proves nothing about the");
+    lines.Add("code you are declaring finished, and the gate refuses a claim that predates the change.");
   }
 
   /// <summary>How a REVIEW step finishes (issue #306): judge the work and record a verdict,

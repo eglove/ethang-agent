@@ -44,12 +44,7 @@ internal static class ChainAdvanceFactory
           // THE REVIEW CURSOR'S ONE READ (issue #320): the verdict a review step's session
           // recorded. Without it a review step would advance exactly as it did before, which
           // is the silent discard this issue closes.
-          reviews: session.Services.GetService<IChainReviewSource>(),
-          // THE CHAIN-LEVEL COMPLETION GATE (issue #304 D1): the same gate a step's Done claim
-          // asks, asked once more when an UNATTENDED chain claims it is finished - the claim no
-          // human is watching. Null in a container with no gate machinery, which clears the
-          // chain exactly as before.
-          completionGate: session.Services.GetService<IChainCompletionGate>())
+          reviews: session.Services.GetService<IChainReviewSource>())
       : null;
   }
 

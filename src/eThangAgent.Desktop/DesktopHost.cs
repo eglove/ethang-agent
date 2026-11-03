@@ -9,7 +9,6 @@ using eThangAgent.AgentInfrastructure;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
-using eThangAgent.FileSystem.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,8 +33,7 @@ internal sealed record DesktopBootstrap(
     CommitStyle CommitStyle,
     IWatchdogEventStore WatchdogEvents,
     WatchdogOptions WatchdogOptions,
-    bool CompactionHandoff,
-    WorkspaceGateStore GateStore);
+    bool CompactionHandoff);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads settings from app preferences (provider API keys live DPAPI-
@@ -86,13 +84,6 @@ internal static class DesktopHost
     // are not resumable, so the catalog omits them rather than listing a dead entry.
     SessionCatalogQueryHandler catalog = new(new SqliteAgentStore(database), Providers.IsKnown);
 
-    // The gate store (issue #285) reads and writes a workspace's goal/check from the DESKTOP,
-    // for a workspace no session is open on yet. It composes the app's shared database with the
-    // same identity resolver the session factory uses, so a gate written here lands where the
-    // session that opens next will look for it.
-    WorkspaceGateStore gateStore = new(database,
-        new WorkspaceIdentityResolver(new SqliteWorkspaceIdentityStore(database)));
-
     return new DesktopBootstrap(
         new AgentSessionFactory(settings, database),
         settings,
@@ -103,8 +94,7 @@ internal static class DesktopHost
         commitStyle,
         new SqliteWatchdogEventStore(database),
         watchdogOptions,
-        compactionHandoff,
-        gateStore);
+        compactionHandoff);
   }
 
   /// <summary>Issue #298: removes preference rows whose feature was deleted and logs what

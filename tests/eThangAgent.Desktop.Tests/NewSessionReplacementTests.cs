@@ -291,7 +291,7 @@ public class NewSessionReplacementTests
     // idea which step it is, and nothing else would report it.
     Shell shell = new();
     AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha");
-    ChainContract contract = new(7, 104, 2, "sci.dashboard-truth/ledger", ["dotnet build"]);
+    ChainContract contract = new(7, 104, 2, "sci.dashboard-truth/ledger");
 
     Result<AgentTabViewModel> started = await shell.ViewModel.StartNewSessionAsync(
         tab, prompt: null, seed: null, chainContract: contract);

@@ -40,12 +40,11 @@ namespace eThangAgent.Desktop.Tests;
 ///     brief and deciding. A live run is the only thing that settles whether a brief is
 ///     sufficient instruction, and that is stated again at the end of the class.</para>
 ///
-///     <para>THE GATE IS ARRANGED, NOT TRIPPED (issue #304). <c>goal/check</c> is declared in the
-///     test workspace as <c>exit 0</c> - portable across the PowerShell and cmd fallbacks, and
-///     always green - and each step's program runs <c>state.checkgoal</c> IMMEDIATELY before its
-///     <c>Done</c>, which is exactly what the <c>executing-a-chain</c> skill tells a real session
-///     to do. So the gate is genuinely fresh at the step boundary; a chain that could only
-///     progress by bypassing it would fail here rather than quietly pass.</para>
+///     <para>THE GATE IS ARRANGED, NOT TRIPPED (issue #304). Each step's program runs a real
+///     verification command IMMEDIATELY before its <c>Done</c>, which is exactly what the
+///     <c>executing-a-chain</c> skill tells a real session to do, so the gate is genuinely
+///     fresh at the step boundary. A chain that could only progress by bypassing it would fail
+///     here rather than quietly pass.</para>
 ///
 ///     <para>NO HUMAN TYPES ANYTHING (issue #323's kickoff decision). A chain step's session
 ///     is launched with <c>ChainKickoff.Line</c> as its first turn, so a chain runs
@@ -95,7 +94,6 @@ public class ChainExecutionE2ETests
       AgentSession creator = opened.Value.Container;
       AgentId creatorId = creator.RootId;
       string workspaceId = creator.Services.GetRequiredService<IWorkspaceContext>().WorkspaceId;
-      await DeclareGateAsync(creator).ConfigureAwait(true);
 
       // ---- BOUNDARY 1: chain.start, over the wire, from a model-authored exec program ----
       await RunTurnAsync(shell.Tabs[0].ViewModel, "plan the work and start executing it", StepLimit)
@@ -154,10 +152,10 @@ public class ChainExecutionE2ETests
   ///     MACHINERY runs end to end, not that a brief is sufficient instruction. A live run is
   ///     the only thing that settles the second question.</para>
   ///
-  ///     <para>THE GATE IS ARRANGED, NOT TRIPPED (#304): <c>goal/check</c> is <c>exit 0</c>, and
-  ///     each step runs <c>state.checkgoal</c> immediately before its <c>Done</c>, exactly as the
-  ///     <c>executing-a-chain</c> skill instructs. A chain that could only progress by bypassing
-  ///     the gate would fail here rather than quietly pass.</para></summary>
+  ///     <para>THE GATE IS ARRANGED, NOT TRIPPED (#304): each step runs a verification command
+  ///     immediately before its <c>Done</c>, exactly as the <c>executing-a-chain</c> skill
+  ///     instructs. A chain that could only progress by bypassing the gate would fail here
+  ///     rather than quietly pass.</para></summary>
   [AvaloniaFact]
   public async Task Chain_FromStartToCompleted_RunsEveryStepInItsOwnHostedSession()
   {
@@ -167,9 +165,10 @@ public class ChainExecutionE2ETests
     MainViewModel? shell = null;
     try
     {
+      SeedVerifiableProject(workspace);
       shell = await OpenShellAsync(host).ConfigureAwait(true);
-      // THE SCRIPT, IN ORDER: the creator plans and starts; then each step runs its gate and
-      // marks itself Done. The queue is per model and the mock serves it in sequence, so the
+      // THE SCRIPT, IN ORDER: the creator plans and starts; then each step verifies and marks
+      // itself Done. The queue is per model and the mock serves it in sequence, so the
       // two step programs are told apart by the position they complete.
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("creator_1", ExecProgram(CreatorProgram)),
@@ -185,7 +184,6 @@ public class ChainExecutionE2ETests
       AgentSession creator = opened.Value.Container;
       AgentId creatorId = creator.RootId;
       string workspaceId = creator.Services.GetRequiredService<IWorkspaceContext>().WorkspaceId;
-      await DeclareGateAsync(creator).ConfigureAwait(true);
 
       // ---- BOUNDARY 3: chain.start launches step 1, and NOTHING ELSE IS TYPED ----
       await RunTurnAsync(shell.Tabs[0].ViewModel, "plan the work and start executing it", StepLimit)
@@ -270,19 +268,6 @@ public class ChainExecutionE2ETests
     shellRef = shell;
     await Task.CompletedTask.ConfigureAwait(true);
     return shell;
-  }
-
-  /// <summary>Declares the workspace's gate (issue #304). <c>exit 0</c> is portable across the
-  ///     PowerShell and cmd fallbacks and always green, so the gate is genuinely satisfied - the
-  ///     test ARRANGES it rather than tripping it and looking like a chain failure.</summary>
-  private static async Task DeclareGateAsync(AgentSession session)
-  {
-    IStateService state = session.Services.GetRequiredService<IStateService>();
-    Result<StateKeyValue> declared = await state
-        .SetAsync(CompletionGateGoalCheckKey, /*lang=json,strict*/ "[\"exit 0\"]", null,
-            TestContext.Current.CancellationToken)
-        .ConfigureAwait(true);
-    Assert.True(declared.IsSuccess, declared.Error?.Message);
   }
 
   /// <summary>Closes the shell (which reaps every host process) and the temp workspace.</summary>
@@ -385,22 +370,34 @@ public class ChainExecutionE2ETests
     return last;
   }
 
-  /// <summary>One step's scripted turn: run the gate, then claim the step done - the two things
-  ///     the <c>executing-a-chain</c> skill instructs, in the order it instructs them.</summary>
+  /// <summary>One step's scripted turn: verify, then claim the step done - the two things the
+  ///     <c>executing-a-chain</c> skill instructs, in the order it instructs them. The
+  ///     verification is a real build whose exit code the gate reads out of the session's shell
+  ///     ledger, which is the only evidence the harness accepts.</summary>
   private static string StepProgram(int position) => $$"""
-      var gate = Tools.Invoke("state.checkgoal", new { timeoutSeconds = 120 });
+      var verify = Shell("dotnet", "build", "--nologo", "-v", "q");
       var done = Tools.Invoke("plan.update-step", new { timeoutSeconds = 60,
           id = 1, position = {{position}}, status = "Done" });
-      return "gate=" + gate + "|" + done;
+      return "verify=" + verify.ExitCode + "|" + done;
       """;
+
+  /// <summary>A minimal buildable project in the test workspace, so a step's verification is a
+  ///     real <c>dotnet build</c> that exits 0 and the gate is genuinely satisfied rather than
+  ///     bypassed.</summary>
+  private static void SeedVerifiableProject(string workspace)
+  {
+    File.WriteAllText(Path.Combine(workspace, "chain-e2e.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        + "  <PropertyGroup>\n"
+        + "    <TargetFramework>net10.0</TargetFramework>\n"
+        + "  </PropertyGroup>\n"
+        + "</Project>\n");
+    File.WriteAllText(Path.Combine(workspace, "Program.cs"),
+        "internal static class Program\n{\n  private static void Main()\n  {\n  }\n}\n");
+  }
 
   /// <summary>Wraps a program as the OUTER exec call. The budget is generous because
   ///     <c>chain.start</c> blocks on the app launching a host process.</summary>
   private static string ExecProgram(string program) =>
       JsonSerializer.Serialize(new { timeoutSeconds = 300, title = "chain-e2e", program });
-
-  /// <summary>The state key a workspace's gate commands live under (issue #283). Stated here
-  ///     rather than reached for through <c>CompletionGate</c> so the test declares the gate
-  ///     exactly where the production reader looks for it.</summary>
-  private const string CompletionGateGoalCheckKey = "goal/check";
 }

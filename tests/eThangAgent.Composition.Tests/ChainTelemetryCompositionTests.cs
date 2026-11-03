@@ -4,7 +4,6 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -49,8 +48,7 @@ public sealed class ChainTelemetryCompositionTests : IDisposable
   {
     AppDatabase database = new(_dbPath);
     StateService state = new(new SqliteStateStore(database), new NoEvidence(),
-        FixedWorkspaceContext.ForPath(Ws), new InertChangeBus(), new NoGoalRunner(),
-        new NoSnapshot());
+        FixedWorkspaceContext.ForPath(Ws), new InertChangeBus());
     return new ChainTelemetryService(new SqliteChainTelemetrySource(database, Ws),
         new SqliteChainSessionCostSource(database),
         new SqliteChainReviewTelemetrySource(database, Ws),
@@ -208,21 +206,5 @@ public sealed class ChainTelemetryCompositionTests : IDisposable
         // Nothing was subscribed.
       }
     }
-  }
-
-  /// <summary>A goal runner this file never reaches: the thresholds read is the only state
-  ///     access the report performs.</summary>
-  private sealed class NoGoalRunner : IGoalCommandRunner
-  {
-    public Task<EvidenceResult> RunAsync(string workingDirectory, string command,
-        CancellationToken ct = default)
-        => Task.FromResult(new EvidenceResult(command, false, "not used here"));
-  }
-
-  /// <summary>A snapshot source this file never reaches, for the same reason.</summary>
-  private sealed class NoSnapshot : IWorkspaceSnapshotAccess
-  {
-    public Task<WorkspaceSnapshot> CaptureAsync(string workspaceRoot, CancellationToken ct = default)
-        => Task.FromResult(WorkspaceSnapshot.Unavailable(workspaceRoot));
   }
 }
