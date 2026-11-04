@@ -101,6 +101,13 @@ public sealed class LspPipeClient : IDisposable
     }
   }
 
+  /// <summary>Sends one watcher.announce notification over the pipe (issue #362).</summary>
+  public async Task SendWatcherAnnouncementAsync(WatcherAnnouncement announcement, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(announcement);
+    await WriteLineAsync(WatcherAnnouncementCodec.Encode(announcement), ct).ConfigureAwait(false);
+  }
+
   public void Dispose()
   {
     _writeLock.Dispose();
@@ -115,6 +122,7 @@ public sealed class LspDaemonServer : IDisposable
   private readonly Func<Task> _onConnected;
   private readonly string _daemonInstanceId = Guid.NewGuid().ToString("N");
   private NamedPipeServerStream? _server;
+  private LspDocumentSync? _forwarder;
 
   public LspDaemonServer(string pipeName, string workspaceId, Func<Task> onConnected)
   {
@@ -125,7 +133,17 @@ public sealed class LspDaemonServer : IDisposable
 
   public string DaemonInstanceId => _daemonInstanceId;
 
-  public async Task ServeOnceAsync(CancellationToken ct = default)
+  /// <summary>Attaches the document-sync forwarder (issue #362): watcher.announce
+  /// notifications received on the pipe are applied to it after hello.</summary>
+  public void AttachForwarder(LspDocumentSync forwarder) => _forwarder = forwarder ?? throw new ArgumentNullException(nameof(forwarder));
+
+  public async Task ServeOnceAsync(CancellationToken ct = default) => await ServeAsync(ct).ConfigureAwait(false);
+
+  /// <summary>Serves one connection and then keeps reading lines until the client
+  /// closes or the token cancels, forwarding watcher.announce notifications.</summary>
+  public async Task ServeUntilClosedAsync(CancellationToken ct = default) => await ServeAsync(ct).ConfigureAwait(false);
+
+  private async Task ServeAsync(CancellationToken ct)
   {
     _server = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
     await _server.WaitForConnectionAsync(ct).ConfigureAwait(false);
@@ -152,6 +170,42 @@ public sealed class LspDaemonServer : IDisposable
     };
     await WriteLineAsync(_server, ack.ToJsonString(), ct).ConfigureAwait(false);
     await _onConnected().ConfigureAwait(false);
+    if (_forwarder is not null)
+    {
+      await ForwardAnnouncementsAsync(_server, _forwarder, ct).ConfigureAwait(false);
+    }
+  }
+
+  private static async Task ForwardAnnouncementsAsync(NamedPipeServerStream server, LspDocumentSync forwarder, CancellationToken ct)
+  {
+    List<byte> lineBytes = [];
+    byte[] buffer = new byte[8192];
+    while (!ct.IsCancellationRequested)
+    {
+      int read;
+      try { read = await server.ReadAsync(buffer, ct).ConfigureAwait(false); }
+      catch (OperationCanceledException) { return; }
+      catch (IOException) { return; }
+      if (read == 0) return;
+      for (int i = 0; i < read; i++)
+      {
+        if (buffer[i] == (byte)'\n')
+        {
+          string line = Encoding.UTF8.GetString([.. lineBytes]);
+          lineBytes.Clear();
+          WatcherAnnouncement? announcement = WatcherAnnouncementCodec.TryDecode(line);
+          if (announcement is not null)
+          {
+            await forwarder.ApplyAsync(announcement, ct).ConfigureAwait(false);
+          }
+        }
+        else
+        {
+          lineBytes.Add(buffer[i]);
+          if (lineBytes.Count > LspProtocol.MaxFrameBytes) return;
+        }
+      }
+    }
   }
 
   private static async Task<string> ReadLineAsync(NamedPipeServerStream server, CancellationToken ct)
