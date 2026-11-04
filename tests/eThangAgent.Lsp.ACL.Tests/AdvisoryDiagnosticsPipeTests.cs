@@ -75,7 +75,7 @@ public class AdvisoryDiagnosticsPipeTests
   [Fact]
   public async Task AdvisoryAccess_NullClient_ReturnsUnavailable()
   {
-    LspAdvisoryDiagnosticsAccess access = new(() => null, "ws-1", "app-1");
+    LspAdvisoryDiagnosticsAccess access = new(_ => null, "ws-1", "app-1");
     AdvisoryDiagnosticsResult result = await access.GetAsync("C:\\ws\\a.cs", TestContext.Current.CancellationToken);
     Assert.Equal(AdvisoryDiagnosticsState.Unavailable, result.State);
     Assert.Empty(result.Diagnostics);

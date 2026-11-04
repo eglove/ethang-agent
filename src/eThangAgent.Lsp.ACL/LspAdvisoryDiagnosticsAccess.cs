@@ -6,14 +6,16 @@ namespace eThangAgent.Lsp.ACL;
 /// (issue #356): queries the daemon's diagnostics service for one file and maps the
 /// honesty labels back. The pipe client is resolved lazily so edit/write can be
 /// registered before any daemon exists; a null client yields Unavailable, never an
-/// exception, so the edit is never failed by diagnostics.</summary>
+/// exception, so the edit is never failed by diagnostics. The factory receives the
+/// caller's token, which the edit's own budget supplies: connecting to a daemon is
+/// bounded by the SAME budget as the query it serves.</summary>
 public sealed class LspAdvisoryDiagnosticsAccess : IAdvisoryDiagnosticsSource
 {
-  private readonly Func<LspPipeClient?> _clientFactory;
+  private readonly Func<CancellationToken, LspPipeClient?> _clientFactory;
   private readonly string _workspaceId;
   private readonly string _appInstanceId;
 
-  public LspAdvisoryDiagnosticsAccess(Func<LspPipeClient?> clientFactory, string workspaceId, string appInstanceId)
+  public LspAdvisoryDiagnosticsAccess(Func<CancellationToken, LspPipeClient?> clientFactory, string workspaceId, string appInstanceId)
   {
     _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
     _workspaceId = workspaceId ?? throw new ArgumentNullException(nameof(workspaceId));
@@ -23,7 +25,7 @@ public sealed class LspAdvisoryDiagnosticsAccess : IAdvisoryDiagnosticsSource
   public async Task<AdvisoryDiagnosticsResult> GetAsync(string path, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(path);
-    LspPipeClient? client = _clientFactory();
+    LspPipeClient? client = _clientFactory(ct);
     if (client is null)
     {
       return new AdvisoryDiagnosticsResult(AdvisoryDiagnosticsState.Unavailable, []);

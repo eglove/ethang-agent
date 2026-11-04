@@ -6,6 +6,7 @@ using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
@@ -65,7 +66,12 @@ internal static class E2E
     ///     FixedWorkspaceContext, AgentSession.WorkspaceRoot, and the root-session bootstrap all
     ///     carry it, so anchored-spawn E2E can validate anchors against a real directory. When
     ///     null, behavior is unchanged: FixedWorkspaceContext("app") and WorkspaceRoot = cwd.</param>
-    public async Task<HostHarness> StartAsync(string? reuseDatabasePath = null, string? workspaceRoot = null, bool computerUse = false)
+    /// <param name="workspaceId">When set, the harness binds THIS workspace identity instead of the
+    ///     root path — the language-server daemon pipe is keyed on it (issue #361).</param>
+    /// <param name="lspDaemonExePath">When set, overrides where the language-server daemon
+    ///     executable is looked for, so a test can point it at a path that does not exist and
+    ///     pin the LSP-absent behavior.</param>
+    public async Task<HostHarness> StartAsync(string? reuseDatabasePath = null, string? workspaceRoot = null, bool computerUse = false, string? workspaceId = null, string? lspDaemonExePath = null)
     {
       Mock.Start();
       // Catalog the two mock models so the session's window source resolves them;
@@ -83,14 +89,19 @@ internal static class E2E
       // FixedWorkspaceContext("app") while the session binding carried cwd. An EXPLICIT
       // workspaceRoot (anchored-spawn E2E — spawn anchor validation requires an absolute,
       // existing root) replaces all three: the context, the binding, and the bootstrap.
-      string workspaceContextId = workspaceRoot ?? "app";
+      string workspaceContextId = workspaceId ?? workspaceRoot ?? "app";
       string effectiveWorkspaceRoot = workspaceRoot ?? Directory.GetCurrentDirectory();
+      // The identity and the directory are separate facts (#317): an override supplies the
+      // identity while the root stays the directory the session works in.
+      FixedWorkspaceContext workspaceContext = workspaceId is null
+          ? FixedWorkspaceContext.ForPath(workspaceContextId)
+          : new FixedWorkspaceContext(workspaceContextId, effectiveWorkspaceRoot);
 
       _services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.OpenRouter,
               ModelConfig.Create(SessionModel, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
-                  FixedWorkspaceContext.ForPath(workspaceContextId),
+                  workspaceContext,
                   new UnrootedPathResolver()))
           // Computer-use E2E: tests register their fake access provider here before the
           // container seals (the composition resolves the seam lazily at tool-binding time).
@@ -101,6 +112,10 @@ internal static class E2E
           .BuildServiceProvider();
 
       Store = _services.GetRequiredService<IAppPreferenceStore>();
+      if (lspDaemonExePath is not null)
+      {
+        _services.GetRequiredService<LspDaemonExePathOverride>().Path = lspDaemonExePath;
+      }
 
       // Pin the session's model through the same live-preference surface the desktop
       // model picker uses — selection must not run here, or it would consume the

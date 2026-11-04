@@ -22,13 +22,15 @@ using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.FileClaims;
 using eThangAgent.ToolDomain.Mcp;
 using eThangAgent.ToolDomain.Lsp;
-using LspSymbolAccess = eThangAgent.Lsp.ACL.LspSymbolAccess;
-using LspAdvisoryDiagnosticsAccess = eThangAgent.Lsp.ACL.LspAdvisoryDiagnosticsAccess;
 using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using LspAdvisoryDiagnosticsAccess = eThangAgent.Lsp.ACL.LspAdvisoryDiagnosticsAccess;
+using LspDaemonExePathOverride = eThangAgent.Lsp.ACL.LspDaemonExePathOverride;
+using LspDaemonHost = eThangAgent.Lsp.ACL.LspDaemonHost;
+using LspSymbolAccess = eThangAgent.Lsp.ACL.LspSymbolAccess;
 
 namespace eThangAgent.Composition;
 
@@ -242,10 +244,26 @@ public static class AgentComposition
         sp.GetRequiredService<SharedFileClaimStore>(), workspaceId, sessionId, () => DateTimeOffset.UtcNow);
   }
 
+  /// <summary>The language-server daemon this container owns (issue #361): one per
+  ///     workspace, connected lazily on the first advisory query, so a workspace with no
+  ///     code and a session that never edits code start neither a daemon nor a server.</summary>
+  private static LspDaemonHost DaemonHost(IServiceProvider sp)
+  {
+    IWorkspaceContext workspace = sp.GetRequiredService<IWorkspaceContext>();
+    return new LspDaemonHost(
+        workspace.WorkspaceId,
+        workspace.WorkspaceRoot,
+        Guid.NewGuid().ToString("N"),
+        () => sp.GetRequiredService<LspDaemonExePathOverride>().Path);
+  }
+
   private static LspAdvisoryDiagnosticsAccess AdvisoryDiagnosticsSource(IServiceProvider sp)
   {
-    string workspaceId = sp.GetRequiredService<IWorkspaceContext>().WorkspaceId;
-    return new LspAdvisoryDiagnosticsAccess(() => null, workspaceId, Guid.NewGuid().ToString("N"));
+    LspDaemonHost daemon = sp.GetRequiredService<LspDaemonHost>();
+    return new LspAdvisoryDiagnosticsAccess(
+        ct => daemon.EnsureConnectedAsync(ct).GetAwaiter().GetResult(),
+        sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+        Guid.NewGuid().ToString("N"));
   }
 
   /// <summary>The trust-aware resolver every MUTATING file tool receives (issue #96): the
@@ -1235,6 +1253,8 @@ public static class AgentComposition
         // empty directory list, and nothing else changes.
         .AddSingleton<IVerificationLedger, SessionVerificationLedger>()
         .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
+        .AddSingleton<LspDaemonExePathOverride>()
+        .AddSingleton(DaemonHost)
         .AddSingleton<SharedFileClaimStore>()
         .AddSingleton(sp => new VerificationGate(
             sp.GetRequiredService<IVerificationLedger>(),

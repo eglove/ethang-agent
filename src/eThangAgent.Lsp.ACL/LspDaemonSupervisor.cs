@@ -67,17 +67,18 @@ public sealed class LspDaemonSupervisor : IAsyncDisposable
     return Task.CompletedTask;
   }
 
-  public async Task WaitUntilReadyAsync(CancellationToken ct = default)
+  /// <summary>Settles the startup state: a supervisor that reported Starting is Ready
+  /// once the daemon process it started is alive. No timed wait - the readiness fact is
+  /// the process handle, not an elapsed interval.</summary>
+  public Task WaitUntilReadyAsync(CancellationToken ct = default)
   {
-    if (State == LspDaemonState.Starting)
+    ct.ThrowIfCancellationRequested();
+    if (State == LspDaemonState.Starting && _daemon is not null && !_daemon.HasExited)
     {
-      await Task.Delay(10, ct).ConfigureAwait(false);
       State = LspDaemonState.Ready;
     }
-    else if (State == LspDaemonState.Ready)
-    {
-      await Task.CompletedTask.ConfigureAwait(false);
-    }
+
+    return Task.CompletedTask;
   }
 
   public void KillForTest()

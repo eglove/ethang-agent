@@ -284,17 +284,15 @@ public sealed class LspDaemonServer : IDisposable
     {
       await _restartHook(ct).ConfigureAwait(false);
     }
-    if (_forwarder is not null)
-    {
-      await ForwardAnnouncementsAsync(_server, _forwarder, ct).ConfigureAwait(false);
-    }
-    else if (_symbolService is not null || _claimStore is not null || _diagnosticsService is not null)
-    {
-      await ServeSymbolQueriesAsync(_server, ct).ConfigureAwait(false);
-    }
+    await ServeConnectionAsync(_server, ct).ConfigureAwait(false);
   }
 
-  private async Task ServeSymbolQueriesAsync(NamedPipeServerStream server, CancellationToken ct)
+  /// <summary>Serves one connected host for the life of the connection: watcher
+  /// announcements are forwarded to the language server and every other line is a
+  /// request answered from the daemon's own services. ONE loop, because the production
+  /// daemon always attaches a forwarder - an announcement-only loop answers no query at
+  /// all, and an advisory query then waits out its budget and reports stale.</summary>
+  private async Task ServeConnectionAsync(NamedPipeServerStream server, CancellationToken ct)
   {
     List<byte> lineBytes = [];
     byte[] buffer = new byte[8192];
@@ -311,7 +309,7 @@ public sealed class LspDaemonServer : IDisposable
         {
           string line = Encoding.UTF8.GetString([.. lineBytes]);
           lineBytes.Clear();
-          await HandleSymbolQueryAsync(server, line, ct).ConfigureAwait(false);
+          await HandleLineAsync(server, line, ct).ConfigureAwait(false);
         }
         else
         {
@@ -320,6 +318,22 @@ public sealed class LspDaemonServer : IDisposable
         }
       }
     }
+  }
+
+  private async Task HandleLineAsync(NamedPipeServerStream server, string line, CancellationToken ct)
+  {
+    WatcherAnnouncement? announcement = WatcherAnnouncementCodec.TryDecode(line);
+    if (announcement is not null)
+    {
+      if (_forwarder is not null)
+      {
+        await _forwarder.ApplyAsync(announcement, ct).ConfigureAwait(false);
+      }
+
+      return;
+    }
+
+    await HandleSymbolQueryAsync(server, line, ct).ConfigureAwait(false);
   }
 
   private async Task HandleSymbolQueryAsync(NamedPipeServerStream server, string line, CancellationToken ct)
@@ -432,38 +446,6 @@ public sealed class LspDaemonServer : IDisposable
     if (r.HolderSessionId is not null) o["holderSessionId"] = r.HolderSessionId;
     if (r.Expiry is not null) o["expiry"] = r.Expiry.Value.ToString("o", CultureInfo.InvariantCulture);
     return o;
-  }
-
-  private static async Task ForwardAnnouncementsAsync(NamedPipeServerStream server, LspDocumentSync forwarder, CancellationToken ct)
-  {
-    List<byte> lineBytes = [];
-    byte[] buffer = new byte[8192];
-    while (!ct.IsCancellationRequested)
-    {
-      int read;
-      try { read = await server.ReadAsync(buffer, ct).ConfigureAwait(false); }
-      catch (OperationCanceledException) { return; }
-      catch (IOException) { return; }
-      if (read == 0) return;
-      for (int i = 0; i < read; i++)
-      {
-        if (buffer[i] == (byte)'\n')
-        {
-          string line = Encoding.UTF8.GetString([.. lineBytes]);
-          lineBytes.Clear();
-          WatcherAnnouncement? announcement = WatcherAnnouncementCodec.TryDecode(line);
-          if (announcement is not null)
-          {
-            await forwarder.ApplyAsync(announcement, ct).ConfigureAwait(false);
-          }
-        }
-        else
-        {
-          lineBytes.Add(buffer[i]);
-          if (lineBytes.Count > LspProtocol.MaxFrameBytes) return;
-        }
-      }
-    }
   }
 
   private static async Task<string> ReadLineAsync(NamedPipeServerStream server, CancellationToken ct)
