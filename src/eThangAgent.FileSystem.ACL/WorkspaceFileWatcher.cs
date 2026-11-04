@@ -11,15 +11,18 @@ namespace eThangAgent.FileSystem.ACL;
 ///     against the same baseline. A pass emits a raw dirty-path set (added/modified)
 ///     and deleted-path set; renames surface as a delete plus an add. Excluded paths
 ///     (DirectWorkspaceSnapshotAccess.ExcludedDirectories) never produce events.
-///     <para>Polling sweep (#349) catches missed events; generation counter and re-sync are #350.</para></summary>
+///     Polling sweep (#349) catches missed events. Generation counter, pub/sub
+///     announcements, and 30 s re-sync (#350) reuse the same baseline diff.</summary>
 public sealed class WorkspaceFileWatcher(
     string workspaceRoot,
     IWorkspaceSnapshotAccess snapshots,
     Func<WorkspaceChangeSet, Task> onPass,
-    TimeSpan? pollingInterval = null) : IAsyncDisposable
+    TimeSpan? pollingInterval = null,
+    TimeSpan? resyncInterval = null) : IAsyncDisposable, IFileWatcher
 {
   private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(250);
   private static readonly TimeSpan DefaultPollingInterval = TimeSpan.FromSeconds(5);
+  private static readonly TimeSpan DefaultResyncInterval = TimeSpan.FromSeconds(30);
 
   private readonly string _root = workspaceRoot
       ?? throw new ArgumentNullException(nameof(workspaceRoot));
@@ -28,6 +31,11 @@ public sealed class WorkspaceFileWatcher(
   private readonly Func<WorkspaceChangeSet, Task> _onPass = onPass
       ?? throw new ArgumentNullException(nameof(onPass));
   private readonly TimeSpan _pollingInterval = pollingInterval ?? DefaultPollingInterval;
+  private readonly TimeSpan _resyncInterval = resyncInterval ?? DefaultResyncInterval;
+  private readonly List<Func<FileChangeAnnouncement, Task>> _subscribers = [];
+  private readonly Lock _subscribersGate = new();
+  private long _generation;
+  private Task? _resyncLoop;
   private readonly CancellationTokenSource _cts = new();
   private readonly Lock _gate = new();
   private readonly SemaphoreSlim _checkGate = new(1, 1);
@@ -39,6 +47,46 @@ public sealed class WorkspaceFileWatcher(
 
   /// <summary>True once <see cref="Start"/> has run; exposed for wiring tests.</summary>
   public bool IsStarted { get; private set; }
+
+  /// <summary>Current generation: 0 at start, +1 per pass that found changes.</summary>
+  public long Generation => Volatile.Read(ref _generation);
+
+  /// <summary>Subscribes a handler invoked sequentially per changing pass.
+  ///     Disposing the returned subscription stops further announcements to it.</summary>
+  public IDisposable Subscribe(Func<FileChangeAnnouncement, Task> handler)
+  {
+    ArgumentNullException.ThrowIfNull(handler);
+    lock (_subscribersGate)
+    {
+      _subscribers.Add(handler);
+    }
+
+    return new Subscription(this, handler);
+  }
+
+  private void Unsubscribe(Func<FileChangeAnnouncement, Task> handler)
+  {
+    lock (_subscribersGate)
+    {
+      _ = _subscribers.Remove(handler);
+    }
+  }
+
+  private sealed class Subscription(WorkspaceFileWatcher owner, Func<FileChangeAnnouncement, Task> handler)
+      : IDisposable
+  {
+    private bool _disposed;
+
+    public void Dispose()
+    {
+      if (Interlocked.Exchange(ref _disposed, true))
+      {
+        return;
+      }
+
+      owner.Unsubscribe(handler);
+    }
+  }
 
   /// <summary>Captures the baseline snapshot synchronously, then enables FSW events.
   ///     Idempotent: a second Start is a no-op.</summary>
@@ -77,6 +125,7 @@ public sealed class WorkspaceFileWatcher(
     fsw.EnableRaisingEvents = true;
     _watcher = fsw;
     _sweepLoop = Task.Run(() => SweepLoopAsync(), CancellationToken.None);
+    _resyncLoop = Task.Run(() => ResyncLoopAsync(), CancellationToken.None);
   }
 
   private void OnErrored(object sender, ErrorEventArgs e) => ScheduleCheck();
@@ -130,6 +179,55 @@ public sealed class WorkspaceFileWatcher(
   /// <summary>One polling sweep: same diff as CheckOnceAsync against the owned baseline.</summary>
   public Task SweepOnceAsync(CancellationToken ct = default) => CheckOnceAsync(ct);
 
+  /// <summary>One 30 s re-sync pass: the same hash-table diff as a sweep, so a missed
+  ///     event is corrected by the next re-sync. One mechanism, two intervals.</summary>
+  public Task ResyncOnceAsync(CancellationToken ct = default) => CheckOnceAsync(ct);
+
+  private async Task ResyncLoopAsync()
+  {
+    while (!_cts.IsCancellationRequested)
+    {
+      try
+      {
+        await Task.Delay(_resyncInterval, _cts.Token).ConfigureAwait(false);
+        await CheckOnceAsync(_cts.Token).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        break;
+      }
+      catch
+      {
+        // Named decision (#348/#349/#350): transient faults never kill the re-sync.
+      }
+    }
+  }
+
+  private async Task AnnounceAsync(WorkspaceChangeSet changes)
+  {
+    long generation = Interlocked.Increment(ref _generation);
+    List<string> paths = [.. changes.Added, .. changes.Modified];
+    paths.Sort(StringComparer.Ordinal);
+    FileChangeAnnouncement announcement = new(paths, changes.Removed, generation, DateTimeOffset.UtcNow);
+    Func<FileChangeAnnouncement, Task>[] subscribers;
+    lock (_subscribersGate)
+    {
+      subscribers = [.. _subscribers];
+    }
+
+    foreach (Func<FileChangeAnnouncement, Task> subscriber in subscribers)
+    {
+      try
+      {
+        await subscriber(announcement).ConfigureAwait(false);
+      }
+      catch
+      {
+        // Named decision (#350): one bad subscriber never blocks others or the next pass.
+      }
+    }
+  }
+
   /// <summary>Test hook: simulate a buffer overflow by forcing a sweep.</summary>
   public void SimulateBufferOverflow() => ScheduleCheck();
 
@@ -172,6 +270,7 @@ public sealed class WorkspaceFileWatcher(
       _baseline = after;
       if (!changes.IsEmpty)
       {
+        await AnnounceAsync(changes).ConfigureAwait(false);
         await _onPass(changes).ConfigureAwait(false);
       }
     }
@@ -194,6 +293,18 @@ public sealed class WorkspaceFileWatcher(
       try
       {
         await loop.ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        // Expected on dispose.
+      }
+    }
+
+    if (_resyncLoop is { } resync)
+    {
+      try
+      {
+        await resync.ConfigureAwait(false);
       }
       catch (OperationCanceledException)
       {
