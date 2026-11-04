@@ -11,8 +11,8 @@ namespace eThangAgent.Agent.Application.Tests;
 ///     never on fresh ledgers, never on failed turns, and byte-identical legacy
 ///     behavior when the gate or resolver is absent. Issue #256: the nudge is
 ///     ADVISORY - it reads as a note for the model's eventual completion claim,
-///     never as a turn precondition, and a workspace with no known verification
-///     command is told so plainly instead of being demanded one.</summary>
+///     never as a turn precondition. Any command that exits 0 satisfies it: the
+///     harness matches no command set.</summary>
 // Named decision (CA1812): the analyzer cannot see the test-harness instantiations.
 #pragma warning disable CA1812
 public class VerificationTurnGateTests
@@ -56,10 +56,7 @@ public class VerificationTurnGateTests
 
     public SendMessageCommandHandler Handler(bool enabled = true)
     {
-      VerificationGate gate = new(
-          Ledger,
-          new VerificationFreshnessSpecification(new VerificationCommandSpecification(["dotnet test"])),
-          enabled);
+      VerificationGate gate = new(Ledger, enabled);
       Ag agent = new(Model, Conversation,
           ModelConfig.Create("m", 100, 0.5f, 8192).Value!,
           new ToolRegistry([new FillerTool()]));
@@ -97,9 +94,8 @@ public class VerificationTurnGateTests
   [Fact]
   public async Task DirtyTurn_NoVerificationEverSucceeded_NudgeNamesTheFact()
   {
-    // An empty ledger means no verification-class command has EVER succeeded in
-    // this session: the nudge must say so plainly instead of implying a command
-    // exists and must be run (issue #256 acceptance criterion 2).
+    // An empty ledger means no command has EVER exited 0 in this session: the nudge
+    // must say so plainly instead of implying a command exists and must be run.
     Harness h = new();
     SendMessageCommandHandler handler = h.Handler();
     h.Model.Queue(Result.Success(new ModelResponse("done", [])));
@@ -110,7 +106,7 @@ public class VerificationTurnGateTests
     List<Message> systems = [.. h.Conversation.Messages.Where(m => m.Role == Role.System)];
     _ = Assert.Single(systems);
     Assert.StartsWith("[verification gate]", systems[0].Content, StringComparison.Ordinal);
-    Assert.Contains("no verification command is known for this workspace", systems[0].Content, StringComparison.Ordinal);
+    Assert.Contains("no command has exited 0 since the newest change", systems[0].Content, StringComparison.Ordinal);
     // The escape wording must not demand a run: no imperative, no "Last verification:".
     Assert.DoesNotContain("run the verification command", systems[0].Content, StringComparison.Ordinal);
     Assert.DoesNotContain("Last verification:", systems[0].Content, StringComparison.Ordinal);
@@ -119,8 +115,8 @@ public class VerificationTurnGateTests
   [Fact]
   public async Task DirtyTurn_VerificationSucceededBefore_ButStaleNow_NudgeKeepsLastRunSummary()
   {
-    // A ledger WITH a prior successful verification-class run (stale now) takes
-    // the known-command branch: no escape clause, and the note stays advisory.
+    // A ledger WITH a prior successful run (stale now) still takes the advisory
+    // branch: the note never becomes a precondition.
     Harness h = new();
     h.Ledger.Append(new ShellExecutionRecord(["dotnet", "test"], 0, Base.AddMinutes(-30), Base.AddMinutes(-29)));
     SendMessageCommandHandler handler = h.Handler();
@@ -133,8 +129,7 @@ public class VerificationTurnGateTests
     _ = Assert.Single(systems);
     Assert.StartsWith("[verification gate]", systems[0].Content, StringComparison.Ordinal);
     Assert.Contains("Note for your completion claim", systems[0].Content, StringComparison.Ordinal);
-    // A known command exists here, so the escape clause must NOT appear.
-    Assert.DoesNotContain("no verification command is known", systems[0].Content, StringComparison.Ordinal);
+    Assert.Contains("not a stop instruction", systems[0].Content, StringComparison.Ordinal);
   }
 
   [Fact]

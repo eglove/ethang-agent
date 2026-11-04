@@ -40,11 +40,9 @@ public class GitCommitGateTests
     }
   }
 
-  private static VerificationCommandSpecification Classifier() => new(["dotnet test"]);
-
   private static GitCommitTool MakeTool(FakeLedger ledger, FakeCommits commits, bool enabled = true)
   {
-    VerificationGate gate = new(ledger, new VerificationFreshnessSpecification(Classifier()), enabled);
+    VerificationGate gate = new(ledger, enabled);
     return new GitCommitTool(
         new WorkspacePathResolver("C:\\repo"),
         commits,
@@ -71,7 +69,7 @@ public class GitCommitGateTests
     Assert.StartsWith("[git-commit abc1234]", result.Content, StringComparison.Ordinal);
     Assert.Contains("[warning]", result.Content, StringComparison.Ordinal);
     Assert.Contains("1 file(s) changed", result.Content, StringComparison.Ordinal);
-    Assert.Contains("last verification: none", result.Content, StringComparison.Ordinal);
+    Assert.Contains("last successful command: none", result.Content, StringComparison.Ordinal);
     Assert.Equal(1, commits.CommitCalls);
   }
 
@@ -103,7 +101,7 @@ public class GitCommitGateTests
     Assert.False(result.IsError);
     Assert.Equal(1, commits.CommitCalls);
     Assert.Contains("dotnet build", result.Content, StringComparison.Ordinal);
-    Assert.Contains("No successful verification-class command started after the newest change", result.Content, StringComparison.Ordinal);
+    Assert.Contains("No command has exited 0 since the newest change", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -137,7 +135,7 @@ public class GitCommitGateTests
   {
     FakeLedger ledger = new();
     FakeCommits commits = new();
-    VerificationGate gate = new(ledger, new VerificationFreshnessSpecification(Classifier()), enabled: false);
+    VerificationGate gate = new(ledger, enabled: false);
     GitCommitTool tool = new(new WorkspacePathResolver("C:\\repo"), commits, new FixedStyle(), gate);
 
     ToolResult result = await RunCommit(tool);

@@ -2,25 +2,25 @@ using System.Globalization;
 
 namespace eThangAgent.ToolDomain.Verification;
 
-/// <summary>Decides whether a completion claim may proceed, from the session's own shell
-///     ledger: a claim is backed by a verification-class command that exited 0 and started
-///     after the newest workspace change.
-///     <para>THE HARNESS KNOWS NOTHING ABOUT LINTERS. It ships no command set of its own and
-///     never learns a project's tooling; the model runs whatever verifies the work, and this
-///     gate only asks whether the answer is still current. A session whose verification
-///     command nobody has run has verified nothing, and the gate says so.</para>
-///     <para>EVERY REFUSAL NAMES ITS EXIT: run verification, or abandon the work. A claim
-///     that cannot be backed is not a claim.</para></summary>
+/// <summary>Decides whether a completion claim may proceed, from the session's own shell ledger:
+///     a claim is backed by a command that exited 0 and started after the newest workspace change.
+///     <para>THE HARNESS KNOWS NOTHING ABOUT LINTERS. It ships no command set of its own and never
+///     learns a project's tooling; ANY command that exits 0 counts, so a workspace of any shape is
+///     verifiable by whatever its session chose to run. The gate only asks whether that answer is
+///     still current.</para>
+///     <para>A SUCCESSFUL RUN OUTRANKS A FAILED ONE. The newest successful run is the evidence a
+///     claim rests on; a later failure is named only when nothing has succeeded at all, so a
+///     session that fixed a failure and re-ran it is not judged by the run it already repaired.
+///     </para>
+///     <para>EVERY REFUSAL NAMES ITS EXIT: run verification, or abandon the work. A claim that
+///     cannot be backed is not a claim.</para></summary>
 public sealed class CompletionGate(
     IVerificationLedger ledger,
-    VerificationFreshnessSpecification freshness,
     IWorkspaceSnapshotAccess snapshots,
     Func<string> workspaceRoot,
     bool enabled = true)
 {
   private readonly IVerificationLedger _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
-  private readonly VerificationFreshnessSpecification _freshness =
-      freshness ?? throw new ArgumentNullException(nameof(freshness));
   private readonly IWorkspaceSnapshotAccess _snapshots =
       snapshots ?? throw new ArgumentNullException(nameof(snapshots));
   private readonly Func<string> _workspaceRoot =
@@ -63,40 +63,39 @@ public sealed class CompletionGate(
   }
 
   /// <summary>The three facts the ledger and the workspace settle, in the order that names the
-  ///     nearest remedy: nothing ran, the newest run failed, or it passed before a later change.
-  ///     </summary>
-  private CompletionVerdict Classify(IReadOnlyList<ShellExecutionRecord> runs,
+  ///     nearest remedy: nothing ran, nothing succeeded, or the newest success predates a later
+  ///     change.</summary>
+  private static CompletionVerdict Classify(IReadOnlyList<ShellExecutionRecord> runs,
       WorkspaceSnapshot workspace) =>
-      _freshness.NewestRun(runs) is { } newest
-          ? Classify(newest, workspace)
+      VerificationFreshnessSpecification.NewestSuccessfulRun(runs) is { } success
+          ? Freshness(success, workspace)
+          : NoSuccess(runs);
+
+  /// <summary>Nothing has exited 0: either the newest run failed, or nothing ran at all. The two
+  ///     are different remedies, so they are different verdicts.</summary>
+  private static CompletionVerdict NoSuccess(IReadOnlyList<ShellExecutionRecord> runs) =>
+      VerificationFreshnessSpecification.NewestRun(runs) is { } failed
+          ? new CompletionVerdict(VerificationGateStatus.Failed, Refusal(
+              string.Create(CultureInfo.InvariantCulture,
+                  $"the last command ({Describe(failed)}) exited {failed.ExitCode} at {failed.FinishedUtc:u} and nothing has exited 0 since"),
+              "fix the failure, then run it again until it exits 0"))
           : new CompletionVerdict(VerificationGateStatus.NeverRan, Refusal(
-              "no verification command has run in this session",
+              "no command has exited 0 in this session",
               "run whatever verifies this work and confirm exit code 0"));
 
-  /// <summary>One run's own verdict: a nonzero exit is a failure whatever the tree looks like,
-  ///     and a passing run is only good while the tree still matches it.</summary>
-  private static CompletionVerdict Classify(ShellExecutionRecord newest,
-      WorkspaceSnapshot workspace) =>
-      newest.ExitCode == 0
-          ? Freshness(newest, workspace)
-          : new CompletionVerdict(VerificationGateStatus.Failed, Refusal(
-              string.Create(CultureInfo.InvariantCulture,
-                  $"the last verification command ({Describe(newest)}) exited {newest.ExitCode} at {newest.FinishedUtc:u}"),
-              "fix the failure, then run it again until it exits 0"));
-
-  /// <summary>A passing run covers the claim only while no workspace file changed after it
+  /// <summary>A successful run covers the claim only while no workspace file changed after it
   ///     started: an edit landing mid-run carries a later write time, so it invalidates the run.
   ///     </summary>
-  private static CompletionVerdict Freshness(ShellExecutionRecord newest,
+  private static CompletionVerdict Freshness(ShellExecutionRecord success,
       WorkspaceSnapshot workspace) =>
-      ChangedSince(workspace, newest.StartedUtc).Any()
+      ChangedSince(workspace, success.StartedUtc).Any()
           ? new CompletionVerdict(VerificationGateStatus.Stale, Refusal(
               string.Create(CultureInfo.InvariantCulture,
-                  $"the last verification command ({Describe(newest)}) exited 0 at {newest.FinishedUtc:u}, but the workspace has CHANGED since that run"),
+                  $"the last successful command ({Describe(success)}) exited 0 at {success.FinishedUtc:u}, but the workspace has CHANGED since that run"),
               "run it again so the passing result covers the current code"))
           : new CompletionVerdict(VerificationGateStatus.Fresh,
               string.Create(CultureInfo.InvariantCulture,
-                  $"[completion gate] {Describe(newest)} exited 0 at {newest.FinishedUtc:u} and nothing has changed since."));
+                  $"[completion gate] {Describe(success)} exited 0 at {success.FinishedUtc:u} and nothing has changed since."));
 
   /// <summary>Every workspace file written after <paramref name="sinceUtc"/>, by last-write
   ///     time. The write time is what a run can be compared against; content equality would

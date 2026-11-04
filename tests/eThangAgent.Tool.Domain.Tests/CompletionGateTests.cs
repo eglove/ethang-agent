@@ -12,10 +12,7 @@ public class CompletionGateTests
   private static readonly DateTimeOffset Base = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
   private static CompletionGate Gate(WorkspaceSnapshot current, params ShellExecutionRecord[] runs) =>
-      new(new FakeLedger(runs), Freshness(), new FixedSnapshotAccess(current), () => Root);
-
-  private static VerificationFreshnessSpecification Freshness() =>
-      new(new VerificationCommandSpecification(["dotnet test"]));
+      new(new FakeLedger(runs), new FixedSnapshotAccess(current), () => Root);
 
   private static WorkspaceSnapshot Tree(DateTimeOffset lastWriteUtc, params (string Path, ulong Hash)[] files) =>
       WorkspaceSnapshot.Create(Root, files.ToDictionary(
@@ -92,15 +89,29 @@ public class CompletionGateTests
     Assert.Equal(VerificationGateStatus.Stale, verdict.Status);
   }
 
-  // A command the harness does not recognise as verification-class proves nothing.
+  // ANY command that exits 0 is verification: the harness matches no command set, so a
+  // workspace of any shape is covered by whatever its session ran.
   [Fact]
-  public async Task UnrelatedCommand_IsNotAVerificationRun()
+  public async Task AnyCommand_ExitZero_IsFresh()
   {
-    ShellExecutionRecord git = new(["git", "status"], 0, Base, Base.AddMinutes(1));
-    CompletionVerdict verdict = await Gate(Tree(Base.AddMinutes(-5)), git)
+    ShellExecutionRecord script = new(["make", "check"], 0, Base, Base.AddMinutes(1));
+    CompletionVerdict verdict = await Gate(Tree(Base.AddMinutes(-5)), script)
         .EvaluateAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(VerificationGateStatus.NeverRan, verdict.Status);
+    Assert.Equal(VerificationGateStatus.Fresh, verdict.Status);
+    Assert.False(verdict.BlocksCompletion);
+  }
+
+  // A session that watched a command fail and then fixed it is judged by the success, not by
+  // the run it already repaired.
+  [Fact]
+  public async Task FailureThenSuccess_IsFresh()
+  {
+    CompletionVerdict verdict = await Gate(Tree(Base.AddMinutes(-5)),
+            Run(1, Base.AddMinutes(-2)), Run(0, Base))
+        .EvaluateAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(VerificationGateStatus.Fresh, verdict.Status);
   }
 
   // Unverifiable never blocks: refusing here would trap the claimant with no exit, since
@@ -124,8 +135,8 @@ public class CompletionGateTests
   [Fact]
   public async Task DisabledGate_NeverBlocks()
   {
-    CompletionGate gate = new(new FakeLedger(), Freshness(),
-        new FixedSnapshotAccess(Tree(Base)), () => Root, enabled: false);
+    CompletionGate gate = new(new FakeLedger(), new FixedSnapshotAccess(Tree(Base)),
+        () => Root, enabled: false);
 
     CompletionVerdict verdict = await gate.EvaluateAsync(TestContext.Current.CancellationToken);
 

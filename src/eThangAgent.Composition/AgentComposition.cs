@@ -676,7 +676,6 @@ public static class AgentComposition
     return wired
         .AddSingleton(sp => new CompletionGate(
             sp.GetRequiredService<IVerificationLedger>(),
-            sp.GetRequiredService<VerificationFreshnessSpecification>(),
             sp.GetRequiredService<IWorkspaceSnapshotAccess>(),
             () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
                 ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
@@ -1192,12 +1191,8 @@ public static class AgentComposition
         // AgentSettings. Unconditional registration: not remote resolves nulls, the
         // empty directory list, and nothing else changes.
         .AddSingleton<IVerificationLedger, SessionVerificationLedger>()
-        .AddSingleton(sp => new VerificationCommandSpecification(
-            VerificationCommandSpecificationDefaults.Commands))
-        .AddSingleton<VerificationFreshnessSpecification>()
         .AddSingleton(sp => new VerificationGate(
             sp.GetRequiredService<IVerificationLedger>(),
-            sp.GetRequiredService<VerificationFreshnessSpecification>(),
             settings.VerificationGateEnabled))
         .AddSingleton<SkillDirectoriesCarrier>()
         .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))

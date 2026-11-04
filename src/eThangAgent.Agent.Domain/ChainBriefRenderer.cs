@@ -153,7 +153,7 @@ public static class ChainBriefRenderer
     lines.Add("");
     lines.Add("No verification command is configured for this workspace, so the choice is yours: run");
     lines.Add("whatever actually verifies this work — the build, the tests, the linter, the script —");
-    lines.Add("and confirm it exits 0.");
+    lines.Add("and confirm it exits 0. Any command that exits 0 counts, whatever the project type.");
     lines.Add("");
     lines.Add("The completion gate reads your session's shell ledger, so the passing run must START");
     lines.Add("after your last change. A green run from before your final edit proves nothing about the");

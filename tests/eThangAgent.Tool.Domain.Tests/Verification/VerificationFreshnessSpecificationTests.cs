@@ -6,13 +6,8 @@ public class VerificationFreshnessSpecificationTests
 {
   private static readonly DateTimeOffset Base = new(2026, 9, 24, 10, 0, 0, TimeSpan.Zero);
 
-  private static VerificationCommandSpecification Classifier() =>
-      new(["dotnet test"]);
-
   private static ShellExecutionRecord Run(DateTimeOffset start, DateTimeOffset end, int exit = 0) =>
       new(["dotnet", "test"], exit, start, end);
-
-  private static VerificationFreshnessSpecification Fresh() => new(Classifier());
 
   [Fact]
   public void Run_After_LastEdit_Passes()
@@ -20,7 +15,7 @@ public class VerificationFreshnessSpecificationTests
     // edit 10:00, run 10:05-10:10 -> fresh
     (string Path, DateTimeOffset ModifiedUtc)[] changed = [(Path: "a.cs", ModifiedUtc: Base)];
     ShellExecutionRecord[] ledger = [Run(Base.AddMinutes(5), Base.AddMinutes(10))];
-    Assert.True(Fresh().IsSatisfiedBy(ledger, changed));
+    Assert.True(VerificationFreshnessSpecification.IsSatisfiedBy(ledger, changed));
   }
 
   [Fact]
@@ -29,7 +24,7 @@ public class VerificationFreshnessSpecificationTests
     // run 10:00-10:05, edit 10:30 -> stale
     (string Path, DateTimeOffset ModifiedUtc)[] changed = [(Path: "a.cs", ModifiedUtc: Base.AddMinutes(30))];
     ShellExecutionRecord[] ledger = [Run(Base, Base.AddMinutes(5))];
-    Assert.False(Fresh().IsSatisfiedBy(ledger, changed));
+    Assert.False(VerificationFreshnessSpecification.IsSatisfiedBy(ledger, changed));
   }
 
   [Fact]
@@ -38,27 +33,29 @@ public class VerificationFreshnessSpecificationTests
     // started 10:00, edit landed 10:00:30 mid-run, finished 10:01 -> stale
     (string Path, DateTimeOffset ModifiedUtc)[] changed = [(Path: "a.cs", ModifiedUtc: Base.AddSeconds(30))];
     ShellExecutionRecord[] ledger = [Run(Base, Base.AddMinutes(1))];
-    Assert.False(Fresh().IsSatisfiedBy(ledger, changed));
+    Assert.False(VerificationFreshnessSpecification.IsSatisfiedBy(ledger, changed));
   }
 
   [Fact]
   public void NothingChanged_Passes_EvenWithEmptyLedger() =>
-      Assert.True(Fresh().IsSatisfiedBy([], []));
+      Assert.True(VerificationFreshnessSpecification.IsSatisfiedBy([], []));
 
   [Fact]
   public void FailedRun_NeverCounts_EvenWhenFresh()
   {
     (string Path, DateTimeOffset ModifiedUtc)[] changed = [(Path: "a.cs", ModifiedUtc: Base)];
     ShellExecutionRecord[] ledger = [Run(Base.AddMinutes(5), Base.AddMinutes(10), exit: 1)];
-    Assert.False(Fresh().IsSatisfiedBy(ledger, changed));
+    Assert.False(VerificationFreshnessSpecification.IsSatisfiedBy(ledger, changed));
   }
 
   [Fact]
-  public void NonVerificationRun_NeverCounts()
+  public void UnrelatedCommand_StillCounts_WhenItExitsZero()
   {
+    // No command class exists to match against: 'git status' exiting 0 is evidence like any
+    // other, and the gate cannot tell it apart from a test run.
     (string Path, DateTimeOffset ModifiedUtc)[] changed = [(Path: "a.cs", ModifiedUtc: Base)];
     ShellExecutionRecord[] ledger = [new ShellExecutionRecord(["git", "status"], 0, Base.AddMinutes(5), Base.AddMinutes(6))];
-    Assert.False(Fresh().IsSatisfiedBy(ledger, changed));
+    Assert.True(VerificationFreshnessSpecification.IsSatisfiedBy(ledger, changed));
   }
 
   [Fact]
@@ -67,7 +64,7 @@ public class VerificationFreshnessSpecificationTests
     // edit1 10:00, run 10:05, edit2 10:30 -> newest edit is AFTER the run: stale
     (string Path, DateTimeOffset ModifiedUtc)[] changed = [(Path: "a.cs", ModifiedUtc: Base), (Path: "b.cs", ModifiedUtc: Base.AddMinutes(30))];
     ShellExecutionRecord[] ledger = [Run(Base.AddMinutes(5), Base.AddMinutes(10))];
-    Assert.False(Fresh().IsSatisfiedBy(ledger, changed));
+    Assert.False(VerificationFreshnessSpecification.IsSatisfiedBy(ledger, changed));
   }
 
   [Fact]
@@ -75,6 +72,6 @@ public class VerificationFreshnessSpecificationTests
   {
     (string Path, DateTimeOffset ModifiedUtc)[] changed = [(Path: "notes.txt", ModifiedUtc: Base)];
     ShellExecutionRecord[] ledger = [Run(Base.AddMinutes(5), Base.AddMinutes(6))];
-    Assert.True(Fresh().IsSatisfiedBy(ledger, changed));
+    Assert.True(VerificationFreshnessSpecification.IsSatisfiedBy(ledger, changed));
   }
 }

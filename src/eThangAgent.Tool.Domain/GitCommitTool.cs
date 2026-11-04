@@ -35,8 +35,8 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
       "annotation line `[git-commit <hash>] committed on <branch>` followed by the " +
       "committed message exactly as committed. Before committing, the verification gate may " +
       "append a final line starting with `[warning] verification gate:` when tracked or untracked " +
-      "files changed after the newest successful verification command; the commit still proceeds, " +
-      "and you should run a verification command before claiming completion. " +
+      "files changed after the newest command that exited 0; the commit still proceeds, and you " +
+      "should run whatever verifies this work before claiming completion. " +
       "Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),

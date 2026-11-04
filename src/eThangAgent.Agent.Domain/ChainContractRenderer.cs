@@ -69,7 +69,8 @@ public static class ChainContractRenderer
     lines.Add("## What backs a done-claim");
     lines.Add("");
     lines.Add("No verification command is configured for this workspace, so you choose it: run whatever");
-    lines.Add("actually verifies this work and confirm it exits 0.");
+    lines.Add("actually verifies this work and confirm it exits 0. Any command that exits 0 counts,");
+    lines.Add("whatever the project type.");
     lines.Add("");
     lines.Add("The completion gate reads your session's shell ledger. A result from before your last");
     lines.Add("edit does not count: it proves nothing about the code being declared finished, and the");

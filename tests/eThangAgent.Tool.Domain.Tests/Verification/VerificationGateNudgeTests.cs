@@ -2,11 +2,9 @@ using eThangAgent.ToolDomain.Verification;
 
 namespace eThangAgent.ToolDomain.Tests.Verification;
 
-/// <summary>Pins the turn gate's nudge contract at the gate level (issue #256):
-///     advisory wording, the no-known-command escape, and the branch decision -
-///     ANY verification-class attempt in the ledger (success or failure) means a
-///     command is known, because a model that watched 'dotnet test' fail cannot
-///     honestly be told no verification command is known.</summary>
+/// <summary>Pins the turn gate's nudge contract at the gate level: advisory wording, one note
+///     per dirty turn, and the fact that ANY command which exits 0 satisfies it - the harness
+///     matches no command set, so a workspace of any shape is covered.</summary>
 public class VerificationGateNudgeTests
 {
   private static readonly DateTimeOffset Base = new(2026, 9, 24, 10, 0, 0, TimeSpan.Zero);
@@ -21,10 +19,7 @@ public class VerificationGateNudgeTests
   private static (VerificationGate Gate, FakeLedger Ledger) MakeGate(bool enabled = true)
   {
     FakeLedger ledger = new();
-    VerificationGate gate = new(
-        ledger,
-        new VerificationFreshnessSpecification(new VerificationCommandSpecification(["dotnet test"])),
-        enabled);
+    VerificationGate gate = new(ledger, enabled);
     return (gate, ledger);
   }
 
@@ -46,41 +41,27 @@ public class VerificationGateNudgeTests
   }
 
   [Fact]
-  public void EmptyLedger_NudgeNamesNoKnownCommand()
+  public void EmptyLedger_NudgeDemandsNothingSpecific()
   {
     (VerificationGate gate, _) = MakeGate();
 
     string? nudge = gate.NudgeLine(OneChange);
 
     Assert.NotNull(nudge);
-    Assert.Contains("no verification command is known for this workspace", nudge, StringComparison.Ordinal);
+    Assert.Contains("no command has exited 0 since the newest change", nudge, StringComparison.Ordinal);
+    // No command set is named: the harness does not know this workspace's tooling.
+    Assert.DoesNotContain("dotnet", nudge, StringComparison.Ordinal);
   }
 
   [Fact]
-  public void StaleSuccessfulRun_NudgeTakesKnownCommandBranch()
+  public void FailedAttempt_NudgeStillAdvisory()
   {
-    (VerificationGate gate, FakeLedger ledger) = MakeGate();
-    ledger.Append(new ShellExecutionRecord(["dotnet", "test"], 0, Base.AddMinutes(-30), Base.AddMinutes(-29)));
-
-    string? nudge = gate.NudgeLine(OneChange);
-
-    Assert.NotNull(nudge);
-    Assert.DoesNotContain("no verification command is known", nudge, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void FailedVerificationAttempt_StillKnownCommand_NeverTheEscape()
-  {
-    // The model ran the verification command and watched it FAIL: the command
-    // exists. Telling it "no verification command is known" would contradict its
-    // own transcript; the known-command branch (make the run succeed) is honest.
     (VerificationGate gate, FakeLedger ledger) = MakeGate();
     ledger.Append(new ShellExecutionRecord(["dotnet", "test"], 1, Base.AddMinutes(-30), Base.AddMinutes(-29)));
 
     string? nudge = gate.NudgeLine(OneChange);
 
     Assert.NotNull(nudge);
-    Assert.DoesNotContain("no verification command is known", nudge, StringComparison.Ordinal);
     Assert.Contains("Note for your completion claim", nudge, StringComparison.Ordinal);
   }
 
@@ -89,6 +70,15 @@ public class VerificationGateNudgeTests
   {
     (VerificationGate gate, FakeLedger ledger) = MakeGate();
     ledger.Append(new ShellExecutionRecord(["dotnet", "test"], 0, Base.AddMinutes(5), Base.AddMinutes(6)));
+
+    Assert.Null(gate.NudgeLine(OneChange));
+  }
+
+  [Fact]
+  public void AnyCommand_ExitZero_Verifies()
+  {
+    (VerificationGate gate, FakeLedger ledger) = MakeGate();
+    ledger.Append(new ShellExecutionRecord(["make", "check"], 0, Base.AddMinutes(5), Base.AddMinutes(6)));
 
     Assert.Null(gate.NudgeLine(OneChange));
   }
@@ -110,37 +100,15 @@ public class VerificationGateNudgeTests
   }
 
   [Fact]
-  public void HasKnownCommand_EmptyLedger_False()
+  public void WarningLine_NamesTheLastSuccessfulCommand_OrNone()
   {
-    VerificationCommandSpecification spec = new(["dotnet test"]);
+    (VerificationGate gate, FakeLedger ledger) = MakeGate();
+    ledger.Append(new ShellExecutionRecord(["dotnet", "build"], 0, Base.AddMinutes(-30), Base.AddMinutes(-29)));
 
-    Assert.False(spec.HasKnownCommand([]));
-  }
+    string line = VerificationGate.WarningLine(gate.Evaluate(OneChange));
 
-  [Fact]
-  public void HasKnownCommand_FailedVerificationRun_True()
-  {
-    VerificationCommandSpecification spec = new(["dotnet test"]);
-    ShellExecutionRecord[] ledger = [new ShellExecutionRecord(["dotnet", "test"], 1, Base, Base.AddMinutes(1))];
-
-    Assert.True(spec.HasKnownCommand(ledger));
-  }
-
-  [Fact]
-  public void HasKnownCommand_SuccessfulVerificationRun_True()
-  {
-    VerificationCommandSpecification spec = new(["dotnet test"]);
-    ShellExecutionRecord[] ledger = [new ShellExecutionRecord(["dotnet", "test"], 0, Base, Base.AddMinutes(1))];
-
-    Assert.True(spec.HasKnownCommand(ledger));
-  }
-
-  [Fact]
-  public void HasKnownCommand_NonVerificationRun_False()
-  {
-    VerificationCommandSpecification spec = new(["dotnet test"]);
-    ShellExecutionRecord[] ledger = [new ShellExecutionRecord(["git", "status"], 0, Base, Base.AddMinutes(1))];
-
-    Assert.False(spec.HasKnownCommand(ledger));
+    Assert.Contains("last successful command: dotnet build", line, StringComparison.Ordinal);
+    Assert.Contains("1 file(s) changed", line, StringComparison.Ordinal);
+    Assert.DoesNotContain("default set", line, StringComparison.Ordinal);
   }
 }

@@ -3,16 +3,16 @@ namespace eThangAgent.ToolDomain.Verification;
 /// <summary>Where a session's verification stands when a completion claim is made.</summary>
 public enum VerificationGateStatus
 {
-  /// <summary>A verification-class command exited 0 after the newest workspace change.</summary>
+  /// <summary>A command exited 0 after the newest workspace change.</summary>
   Fresh,
 
-  /// <summary>No verification-class command has run in this session.</summary>
+  /// <summary>No command has exited 0 in this session.</summary>
   NeverRan,
 
-  /// <summary>The newest verification-class run exited nonzero.</summary>
+  /// <summary>Commands ran, but none exited 0; the newest one's code is named in the message.</summary>
   Failed,
 
-  /// <summary>A verification-class run exited 0, but the workspace changed after it started.</summary>
+  /// <summary>A command exited 0, but the workspace changed after it started.</summary>
   Stale,
 
   /// <summary>The workspace could not be read in full, so freshness cannot be decided.</summary>
