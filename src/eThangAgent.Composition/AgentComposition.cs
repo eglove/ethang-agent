@@ -19,12 +19,18 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.FileClaims;
 using eThangAgent.ToolDomain.Mcp;
+using eThangAgent.ToolDomain.Lsp;
 using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using LspAdvisoryDiagnosticsAccess = eThangAgent.Lsp.ACL.LspAdvisoryDiagnosticsAccess;
+using LspDaemonExePathOverride = eThangAgent.Lsp.ACL.LspDaemonExePathOverride;
+using LspDaemonHost = eThangAgent.Lsp.ACL.LspDaemonHost;
+using LspSymbolAccess = eThangAgent.Lsp.ACL.LspSymbolAccess;
 
 namespace eThangAgent.Composition;
 
@@ -196,7 +202,10 @@ public static class AgentComposition
           "Read, render, create, and manipulate PDF documents."),
       new AgentToolBinding(
           new WriteTool(Resolver(sp),
-              sp.GetRequiredService<IFileWriteAccess>()),
+              sp.GetRequiredService<IFileWriteAccess>(),
+              AdvisoryDiagnosticsSource(sp),
+              sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>(),
+              ClaimGate(sp)),
           "Create or overwrite a workspace file."),
       new AgentToolBinding(
           new WriteMarkdownTool(Resolver(sp),
@@ -204,13 +213,58 @@ public static class AgentComposition
           "Render a structured JSON document into markdown; return it or write it to a workspace file."),
       new AgentToolBinding(
           new EditTool(Resolver(sp),
-              sp.GetRequiredService<IFileEditAccess>()),
+              sp.GetRequiredService<IFileEditAccess>(),
+              AdvisoryDiagnosticsSource(sp),
+              sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>(),
+              ClaimGate(sp)),
           "Edit a file by exact literal replacement."),
       new AgentToolBinding(
           new FindFilesTool(ReadOnlyResolver(sp),
               sp.GetRequiredService<IFileSearchAccess>()),
           "Search the workspace for files by name pattern (Win32 glob: * and ?)."),
   ];
+
+  /// <summary>The advisory diagnostics source for edit/write (issue #356): a lazy pipe
+  ///     access that resolves null until a daemon is reachable, so registration never
+  ///     requires a language server to exist and LSP-absent results stay byte-identical.</summary>
+  /// <summary>The file-claim gate for edit/write (issue #364): session-bound over the
+  ///     app-process shared store (issue #363, code-less fallback per #358). The
+  ///     session id is read lazily from RootSessionIdentity, which the factory fills
+  ///     after the container builds; before that the gate is inert and the tool
+  ///     proceeds unclaimed rather than refusing a session that has no id yet.</summary>
+  private static FileClaimGate? ClaimGate(IServiceProvider sp)
+  {
+    string? sessionId = sp.GetRequiredService<RootSessionIdentity>().Id?.ToString();
+    if (string.IsNullOrWhiteSpace(sessionId))
+    {
+      return null;
+    }
+    string workspaceId = sp.GetRequiredService<IWorkspaceContext>().WorkspaceId;
+    return new FileClaimGate(
+        sp.GetRequiredService<SharedFileClaimStore>(), workspaceId, sessionId, () => DateTimeOffset.UtcNow);
+  }
+
+  /// <summary>The language-server daemon this container owns (issue #361): one per
+  ///     workspace, connected lazily on the first advisory query, so a workspace with no
+  ///     code and a session that never edits code start neither a daemon nor a server.</summary>
+  private static LspDaemonHost DaemonHost(IServiceProvider sp)
+  {
+    IWorkspaceContext workspace = sp.GetRequiredService<IWorkspaceContext>();
+    return new LspDaemonHost(
+        workspace.WorkspaceId,
+        workspace.WorkspaceRoot,
+        Guid.NewGuid().ToString("N"),
+        () => sp.GetRequiredService<LspDaemonExePathOverride>().Path);
+  }
+
+  private static LspAdvisoryDiagnosticsAccess AdvisoryDiagnosticsSource(IServiceProvider sp)
+  {
+    LspDaemonHost daemon = sp.GetRequiredService<LspDaemonHost>();
+    return new LspAdvisoryDiagnosticsAccess(
+        ct => daemon.EnsureConnectedAsync(ct).GetAwaiter().GetResult(),
+        sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+        Guid.NewGuid().ToString("N"));
+  }
 
   /// <summary>The trust-aware resolver every MUTATING file tool receives (issue #96): the
   ///     host-supplied resolver widened with the session's approved external roots, with
@@ -327,6 +381,13 @@ public static class AgentComposition
       new AgentToolBinding(
           new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
           "Call tools on configured MCP servers through one dispatch surface (list, call)."),
+      // LSP symbol navigation (issue #357): single dispatch tool mirroring McpTool;
+      // the ACL access is lazy (null service = Unavailable) so registration never
+      // requires a language server to exist.
+      new AgentToolBinding(
+          new LspSymbolTool(sp.GetRequiredService<IPathResolver>(),
+              new LspSymbolAccess(() => null)),
+          "Query language-server symbol navigation (definition, references, hover, document-symbols, workspace-symbols, implementation)."),
   ];
 
   /// <summary>Host-supplied workspace identity, the app database, the storage-backed stores, the
@@ -1191,6 +1252,10 @@ public static class AgentComposition
         // AgentSettings. Unconditional registration: not remote resolves nulls, the
         // empty directory list, and nothing else changes.
         .AddSingleton<IVerificationLedger, SessionVerificationLedger>()
+        .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
+        .AddSingleton<LspDaemonExePathOverride>()
+        .AddSingleton(DaemonHost)
+        .AddSingleton<SharedFileClaimStore>()
         .AddSingleton(sp => new VerificationGate(
             sp.GetRequiredService<IVerificationLedger>(),
             settings.VerificationGateEnabled))

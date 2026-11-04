@@ -1,15 +1,20 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain.FileClaims;
+using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : ITool, IWorkspaceScopedTool
+public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdvisoryDiagnosticsSource? diagnostics = null, SessionAdvisoryDiagnosticsLedger? advisoryLedger = null, IFileClaimGate? claimGate = null) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileEditAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+  private readonly IAdvisoryDiagnosticsSource? _diagnostics = diagnostics;
+  private readonly SessionAdvisoryDiagnosticsLedger? _advisoryLedger = advisoryLedger;
+  private readonly IFileClaimGate? _claimGate = claimGate;
 
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
-      => new EditTool(new WorkspacePathResolver(workspaceRoot), _files);
+      => new EditTool(new WorkspacePathResolver(workspaceRoot), _files, _diagnostics, _advisoryLedger, _claimGate);
 
   public ToolDefinition Definition { get; } = new(
       "edit",
@@ -107,6 +112,12 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
 
   private async Task<ToolResult> ReplaceAsync(string path, EditAnchorInput args, CancellationToken ct)
   {
+    string? refused = _claimGate?.CheckBeforeWrite(path);
+    if (refused is not null)
+    {
+      return new ToolResult(refused, true);
+    }
+
     Result<ReplaceOutcome> replaced = await _files.ReplaceInFileAsync(
         path, args.Old, args.Replacement, args.All ? null : args.Occurrences, ct).ConfigureAwait(false);
     if (!replaced.IsSuccess)
@@ -114,22 +125,31 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
       return Err(replaced.Error);
     }
 
+    _claimGate?.RenewAfterWrite(path);
     ReplaceOutcome o = replaced.Value;
     string noun = o.Replaced == 1 ? "occurrence" : "occurrence(s)";
-    return new ToolResult(
+    ToolResult baseResult = new(
         $"[edit {path}] replaced {o.Replaced} {noun}, file now {o.NewLineCount} lines, " +
         $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
+    return await AdvisoryDiagnosticsAppender.AppendAsync(baseResult, _diagnostics, path, o.ChangedLines ?? [], _advisoryLedger, ct).ConfigureAwait(false);
   }
 
   private async Task<ToolResult> ReplaceHunksAsync(string path, EditHunksInput args, CancellationToken ct)
   {
+    string? refused = _claimGate?.CheckBeforeWrite(path);
+    if (refused is not null)
+    {
+      return new ToolResult(refused, true);
+    }
+
     Result<HunkReplaceOutcome> replaced = await _files.ReplaceHunksAsync(path, args.Hunks, ct).ConfigureAwait(false);
     if (!replaced.IsSuccess)
     {
       return Err(replaced.Error);
     }
 
+    _claimGate?.RenewAfterWrite(path);
     HunkReplaceOutcome o = replaced.Value;
     int total = o.ReplacedPerHunk.Count;
     string[] lines = [..
@@ -139,11 +159,18 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
         $"[edit {path}] {total} {(total == 1 ? "hunk" : "hunks")} applied, file now " +
         $"{o.NewLineCount} lines, {LineEndings.Label(o.NormalizedTo)} line endings",
     ];
-    return new ToolResult(string.Join('\n', lines), false);
+    ToolResult baseResult = new(string.Join('\n', lines), false);
+    return await AdvisoryDiagnosticsAppender.AppendAsync(baseResult, _diagnostics, path, o.ChangedLines ?? [], _advisoryLedger, ct).ConfigureAwait(false);
   }
 
   private async Task<ToolResult> ReplaceRangeAsync(string path, EditRangeInput args, CancellationToken ct)
   {
+    string? refused = _claimGate?.CheckBeforeWrite(path);
+    if (refused is not null)
+    {
+      return new ToolResult(refused, true);
+    }
+
     Result<ReplaceOutcome> replaced = await _files.ReplaceLineRangeAsync(
         path, args.StartLine, args.EndLine, args.Replacement, ct).ConfigureAwait(false);
     if (!replaced.IsSuccess)
@@ -151,11 +178,13 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
       return Err(replaced.Error);
     }
 
+    _claimGate?.RenewAfterWrite(path);
     ReplaceOutcome o = replaced.Value;
-    return new ToolResult(
+    ToolResult baseResult = new(
         $"[edit {path}] replaced lines {args.StartLine}-{args.EndLine}, file now {o.NewLineCount} lines, " +
         $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
+    return await AdvisoryDiagnosticsAppender.AppendAsync(baseResult, _diagnostics, path, o.ChangedLines ?? [], _advisoryLedger, ct).ConfigureAwait(false);
   }
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);

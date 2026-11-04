@@ -76,10 +76,12 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
     }
 
     bool created = !File.Exists(path);
+    string? before = created ? null : ReadTextOrNull(path);
     LineEnding normalizedTo = ResolveConvention(path);
-    File.WriteAllText(path, LineEndings.Normalize(content, normalizedTo), new UTF8Encoding(false));
+    string landed = LineEndings.Normalize(content, normalizedTo);
+    File.WriteAllText(path, landed, new UTF8Encoding(false));
     return Task.FromResult(Result.Success(
-        new FileWriteOutcome(created, new FileInfo(path).Length, normalizedTo)));
+        new FileWriteOutcome(created, new FileInfo(path).Length, normalizedTo, ChangedLineNumbers(before, landed))));
   }
 
   public Task<Result<FileWriteOutcome>> WriteFileLinesAsync(
@@ -222,7 +224,7 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
     string result = sb.ToString();
     File.WriteAllText(path, result, new UTF8Encoding(false));
     int lineCount = SplitLinesLikeReadLine(result).Count;
-    return Task.FromResult(Result.Success(new ReplaceOutcome(done, lineCount, convention)));
+    return Task.FromResult(Result.Success(new ReplaceOutcome(done, lineCount, convention, ChangedLineNumbers(text, result))));
   }
 
   public Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(
@@ -263,7 +265,7 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
     string result = SpliceRange(lines, startLine, endLine, normalizedNew);
     File.WriteAllText(path, result, new UTF8Encoding(false));
     return Task.FromResult(Result.Success(
-        new ReplaceOutcome(endLine - startLine + 1, SplitLinesLikeReadLine(result).Count, convention)));
+        new ReplaceOutcome(endLine - startLine + 1, SplitLinesLikeReadLine(result).Count, convention, ChangedLineNumbers(text, result))));
   }
 
 
@@ -324,7 +326,7 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
     string result = sb.ToString();
     File.WriteAllText(path, result, new UTF8Encoding(false));
     return Task.FromResult(Result.Success(new HunkReplaceOutcome(
-        perHunk, SplitLinesLikeReadLine(result).Count, convention)));
+        perHunk, SplitLinesLikeReadLine(result).Count, convention, ChangedLineNumbers(text, result))));
   }
 
   /// <summary>Finds every hunk's matches against the untouched file text, turning each
@@ -666,6 +668,35 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
 
     map[normalized.Length] = originalIdx;
     return map;
+  }
+
+  /// <summary>The 1-based line numbers whose content differs between <paramref name="before"/>
+  ///     and <paramref name="after"/> (issue #356 changed-line scoping). A null
+  ///     <paramref name="before"/> means the file is new: every landed line is changed.
+  ///     Lines are compared with the same splitter the read path counts with, so the
+  ///     numbers the advisory filter scopes to are the numbers the model sees.</summary>
+  private static List<int> ChangedLineNumbers(string? before, string after)
+  {
+    List<(string Content, string Terminator)> afterLines = SplitLinesLikeReadLine(after);
+    if (before is null)
+    {
+      return [.. Enumerable.Range(1, afterLines.Count)];
+    }
+
+    List<(string Content, string Terminator)> beforeLines = SplitLinesLikeReadLine(before);
+    List<int> changed = [];
+    int limit = Math.Max(beforeLines.Count, afterLines.Count);
+    for (int i = 0; i < limit; i++)
+    {
+      string? b = i < beforeLines.Count ? beforeLines[i].Content : null;
+      string? a = i < afterLines.Count ? afterLines[i].Content : null;
+      if (!string.Equals(a, b, StringComparison.Ordinal))
+      {
+        changed.Add(i + 1);
+      }
+    }
+
+    return changed;
   }
 
   private static string? ReadAllTextRejectBinary(string path)

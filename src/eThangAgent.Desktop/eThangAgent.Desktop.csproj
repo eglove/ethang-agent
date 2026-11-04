@@ -29,6 +29,8 @@
          always finds the host it ships with (2026-10-21: the published app could not
          resolve a host at all and crashed opening a workspace). -->
     <ProjectReference Include="../eThangAgent.ChildHost/eThangAgent.ChildHost.csproj" />
+    <!-- The LSP daemon is a separate executable the supervisor launches from AppContext.BaseDirectory; referencing it puts its exe next to the Desktop's on every build and publish. -->
+    <ProjectReference Include="../eThangAgent.Lsp.Host/eThangAgent.Lsp.Host.csproj" />
     <ProjectReference Include="../eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
     <ProjectReference Include="../eThangAgent.Conversation.Domain/eThangAgent.Conversation.Domain.csproj" />
     <ProjectReference Include="..\eThangAgent.OpenRouter.ACL\eThangAgent.OpenRouter.ACL.csproj" />
@@ -43,4 +45,6 @@
     <PackageReference Include="MarkView.Avalonia.SyntaxHighlighting" Version="12.2.*" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.*" />
   </ItemGroup>
-</Project>
+  <ItemGroup Condition="'$(OmniSharpPath)' != ''">
+    <Content Include="$(OmniSharpPath)" Link="OmniSharp.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup></Project>

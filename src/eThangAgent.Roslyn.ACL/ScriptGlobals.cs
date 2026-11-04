@@ -947,6 +947,7 @@ public sealed class ScriptTools
   public string experiment(object? args = null) => Invoke("experiment", args);
   public string find_files(object? args = null) => Invoke("find_files", args);
   public string mcp(object? args = null) => Invoke("mcp", args);
+  public string lsp(object? args = null) => Invoke("lsp", args);
   public string openrouter_management(object? args = null) => Invoke("openrouter_management", args);
   public string pdf(object? args = null) => Invoke("pdf", args);
   public string read_image(object? args = null) => Invoke("read_image", args);
