@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using eThangAgent.ToolDomain.FileClaims;
 
 namespace eThangAgent.Lsp.ACL;
 
@@ -101,6 +103,53 @@ public sealed class LspPipeClient : IDisposable
     }
   }
 
+  private int _nextRequestId = 2;
+
+  private async Task<JsonObject> RequestAsync(string method, JsonObject parameters, CancellationToken ct)
+  {
+    int id = Interlocked.Increment(ref _nextRequestId);
+    JsonObject request = new() { ["id"] = id, ["method"] = method, ["params"] = parameters };
+    await WriteLineAsync(request.ToJsonString(), ct).ConfigureAwait(false);
+    string line = await ReadLineAsync(ct).ConfigureAwait(false);
+    using JsonDocument doc = JsonDocument.Parse(line);
+    JsonElement root = doc.RootElement;
+    if (root.TryGetProperty("error", out JsonElement err))
+    {
+      string code = err.TryGetProperty("code", out JsonElement c) ? c.GetString() ?? "unknown" : "unknown";
+      throw new InvalidOperationException(method + " error: " + code);
+    }
+    return JsonNode.Parse(root.GetProperty("result").GetRawText())!.AsObject();
+  }
+
+  private static FileClaimResult MapClaim(JsonObject result)
+  {
+    bool granted = result["granted"]?.GetValue<bool>() ?? false;
+    string? holder = result["holderSessionId"]?.GetValue<string>();
+    DateTimeOffset? expiry = result["expiry"] is JsonValue ev && ev.TryGetValue<string>(out string? s) && DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null;
+    return new FileClaimResult(granted, holder, expiry);
+  }
+
+  /// <summary>Acquires a file claim in the daemon's shared store (issue #363).</summary>
+  public async Task<FileClaimResult> AcquireClaimAsync(string path, string sessionId, CancellationToken ct = default)
+  {
+    JsonObject result = await RequestAsync("file-claim.acquire", new JsonObject { ["path"] = path, ["sessionId"] = sessionId }, ct).ConfigureAwait(false);
+    return MapClaim(result);
+  }
+
+  /// <summary>Renews the caller's own file claim in the daemon store (issue #363).</summary>
+  public async Task<FileClaimResult> RenewClaimAsync(string path, string sessionId, CancellationToken ct = default)
+  {
+    JsonObject result = await RequestAsync("file-claim.renew", new JsonObject { ["path"] = path, ["sessionId"] = sessionId }, ct).ConfigureAwait(false);
+    return MapClaim(result);
+  }
+
+  /// <summary>Releases the caller's own file claim in the daemon store (issue #363).</summary>
+  public async Task<bool> ReleaseClaimAsync(string path, string sessionId, CancellationToken ct = default)
+  {
+    JsonObject result = await RequestAsync("file-claim.release", new JsonObject { ["path"] = path, ["sessionId"] = sessionId }, ct).ConfigureAwait(false);
+    return result["released"]?.GetValue<bool>() ?? false;
+  }
+
   /// <summary>Sends one watcher.announce notification over the pipe (issue #362).</summary>
   public async Task SendWatcherAnnouncementAsync(WatcherAnnouncement announcement, CancellationToken ct = default)
   {
@@ -125,13 +174,15 @@ public sealed class LspDaemonServer : IDisposable
   private LspDocumentSync? _forwarder;
   private LspDiagnosticsService? _diagnosticsService;
   private LspSymbolService? _symbolService;
+  private readonly IFileClaimStore _claimStore;
   private Func<CancellationToken, Task>? _restartHook;
 
-  public LspDaemonServer(string pipeName, string workspaceId, Func<Task> onConnected)
+  public LspDaemonServer(string pipeName, string workspaceId, Func<Task> onConnected, IFileClaimStore? claimStore = null)
   {
     _pipeName = pipeName;
     _workspaceId = workspaceId;
     _onConnected = onConnected;
+    _claimStore = claimStore ?? new SharedFileClaimStore();
   }
 
   public string DaemonInstanceId => _daemonInstanceId;
@@ -148,14 +199,38 @@ public sealed class LspDaemonServer : IDisposable
 
   public async Task ServeOnceAsync(CancellationToken ct = default) => await ServeAsync(ct).ConfigureAwait(false);
 
-  /// <summary>Serves one connection and then keeps reading lines until the client
-  /// closes or the token cancels, forwarding watcher.announce notifications.</summary>
-  public async Task ServeUntilClosedAsync(CancellationToken ct = default) => await ServeAsync(ct).ConfigureAwait(false);
+  /// <summary>Serves connections until the token cancels: each connection gets its
+  /// own server instance so concurrent hosts share the daemon's store.</summary>
+  public async Task ServeUntilClosedAsync(CancellationToken ct = default)
+  {
+    while (!ct.IsCancellationRequested)
+    {
+      try
+      {
+        await ServeAsync(ct).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException) when (ct.IsCancellationRequested)
+      {
+        return;
+      }
+      catch (IOException)
+      {
+        return;
+      }
+    }
+  }
 
   private async Task ServeAsync(CancellationToken ct)
   {
-    _server = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-    await _server.WaitForConnectionAsync(ct).ConfigureAwait(false);
+    _server = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, 8, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+    try
+    {
+      await _server.WaitForConnectionAsync(ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+      return;
+    }
     string line = await ReadLineAsync(_server, ct).ConfigureAwait(false);
     using JsonDocument doc = JsonDocument.Parse(line);
     JsonElement p = doc.RootElement.GetProperty("params");
@@ -187,13 +262,13 @@ public sealed class LspDaemonServer : IDisposable
     {
       await ForwardAnnouncementsAsync(_server, _forwarder, ct).ConfigureAwait(false);
     }
-    else if (_symbolService is not null)
+    else if (_symbolService is not null || _claimStore is not null)
     {
-      await ServeSymbolQueriesAsync(_server, _symbolService, ct).ConfigureAwait(false);
+      await ServeSymbolQueriesAsync(_server, ct).ConfigureAwait(false);
     }
   }
 
-  private static async Task ServeSymbolQueriesAsync(NamedPipeServerStream server, LspSymbolService symbolService, CancellationToken ct)
+  private async Task ServeSymbolQueriesAsync(NamedPipeServerStream server, CancellationToken ct)
   {
     List<byte> lineBytes = [];
     byte[] buffer = new byte[8192];
@@ -210,7 +285,7 @@ public sealed class LspDaemonServer : IDisposable
         {
           string line = Encoding.UTF8.GetString([.. lineBytes]);
           lineBytes.Clear();
-          await HandleSymbolQueryAsync(server, line, symbolService, ct).ConfigureAwait(false);
+          await HandleSymbolQueryAsync(server, line, ct).ConfigureAwait(false);
         }
         else
         {
@@ -221,13 +296,20 @@ public sealed class LspDaemonServer : IDisposable
     }
   }
 
-  private static async Task HandleSymbolQueryAsync(NamedPipeServerStream server, string line, LspSymbolService symbolService, CancellationToken ct)
+  private async Task HandleSymbolQueryAsync(NamedPipeServerStream server, string line, CancellationToken ct)
   {
     try
     {
       using JsonDocument doc = JsonDocument.Parse(line);
       JsonElement root = doc.RootElement;
-      if (!root.TryGetProperty("method", out JsonElement m) || m.GetString() != "lsp.symbol") return;
+      if (!root.TryGetProperty("method", out JsonElement m)) return;
+      string method = m.GetString() ?? string.Empty;
+      if (method.StartsWith("file-claim.", StringComparison.Ordinal))
+      {
+        await HandleClaimRequestAsync(server, line, method, ct).ConfigureAwait(false);
+        return;
+      }
+      if (method != "lsp.symbol" || _symbolService is null) return;
       if (!root.TryGetProperty("id", out JsonElement idEl)) return;
       if (!root.TryGetProperty("params", out JsonElement p)) return;
       string action = p.GetProperty("action").GetString() ?? string.Empty;
@@ -237,14 +319,14 @@ public sealed class LspDaemonServer : IDisposable
       int depth = p.TryGetProperty("depth", out JsonElement d) ? d.GetInt32() : 1;
       LspSymbolResult result = action switch
       {
-        "definition" => await symbolService.DefinitionAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
-        "references" => await symbolService.ReferencesAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
-        "hover" => await symbolService.HoverAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
-        "implementation" => await symbolService.ImplementationAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
-        "document-symbols" => await symbolService.DocumentSymbolsAsync(uri, ct).ConfigureAwait(false),
-        "workspace-symbols" => await symbolService.WorkspaceSymbolsAsync(symbolName, ct).ConfigureAwait(false),
-        "call-hierarchy-incoming" => await symbolService.CallHierarchyIncomingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
-        "call-hierarchy-outgoing" => await symbolService.CallHierarchyOutgoingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
+        "definition" => await _symbolService.DefinitionAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
+        "references" => await _symbolService.ReferencesAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
+        "hover" => await _symbolService.HoverAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
+        "implementation" => await _symbolService.ImplementationAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
+        "document-symbols" => await _symbolService.DocumentSymbolsAsync(uri, ct).ConfigureAwait(false),
+        "workspace-symbols" => await _symbolService.WorkspaceSymbolsAsync(symbolName, ct).ConfigureAwait(false),
+        "call-hierarchy-incoming" => await _symbolService.CallHierarchyIncomingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
+        "call-hierarchy-outgoing" => await _symbolService.CallHierarchyOutgoingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
         _ => new LspSymbolResult(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action),
       };
       JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["occurrenceUsed"] = result.OccurrenceUsed, ["totalOccurrences"] = result.TotalOccurrences, ["message"] = result.Message ?? string.Empty, ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()) } };
@@ -252,6 +334,39 @@ public sealed class LspDaemonServer : IDisposable
     }
     catch (JsonException) { }
     catch (IOException) { }
+  }
+
+  private async Task HandleClaimRequestAsync(NamedPipeServerStream server, string line, string method, CancellationToken ct)
+  {
+    try
+    {
+      using JsonDocument doc = JsonDocument.Parse(line);
+      JsonElement root = doc.RootElement;
+      if (!root.TryGetProperty("id", out JsonElement idEl)) return;
+      if (!root.TryGetProperty("params", out JsonElement p)) return;
+      string path = p.GetProperty("path").GetString() ?? string.Empty;
+      string sessionId = p.GetProperty("sessionId").GetString() ?? string.Empty;
+      DateTimeOffset now = DateTimeOffset.UtcNow;
+      JsonObject result = method switch
+      {
+        "file-claim.acquire" => ClaimJson(_claimStore.Acquire(_workspaceId, path, sessionId, now)),
+        "file-claim.renew" => ClaimJson(_claimStore.Renew(_workspaceId, path, sessionId, now)),
+        "file-claim.release" => new JsonObject { ["released"] = _claimStore.Release(_workspaceId, path, sessionId, now) },
+        _ => new JsonObject { ["granted"] = false },
+      };
+      JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = result };
+      await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
+    }
+    catch (JsonException) { }
+    catch (IOException) { }
+  }
+
+  private static JsonObject ClaimJson(FileClaimResult r)
+  {
+    JsonObject o = new() { ["granted"] = r.Granted };
+    if (r.HolderSessionId is not null) o["holderSessionId"] = r.HolderSessionId;
+    if (r.Expiry is not null) o["expiry"] = r.Expiry.Value.ToString("o", CultureInfo.InvariantCulture);
+    return o;
   }
 
   private static async Task ForwardAnnouncementsAsync(NamedPipeServerStream server, LspDocumentSync forwarder, CancellationToken ct)
