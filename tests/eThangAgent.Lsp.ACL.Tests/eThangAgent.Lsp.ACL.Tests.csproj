@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <NoWarn>$(NoWarn);CA2007;S6966;IDE0017;CA1849;CA1307;IDE2001;IDE0005;IDE0011;IDE0200;IDE0058;xUnit1051</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Lsp.ACL/eThangAgent.Lsp.ACL.csproj" />
+  </ItemGroup>
+</Project>

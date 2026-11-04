@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CA2007;S6966;IDE0017;CA1849;CA1307;IDE2001;IDE0011;IDE0005;CA2016;S8949;IDE0060;IDE0032;IDE0290;IDE0052;CA1031;S2486;SYSLIB1054;S4200;CA1515;CA1515</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../eThangAgent.Lsp.ACL/eThangAgent.Lsp.ACL.csproj" />
+  </ItemGroup>
+</Project>

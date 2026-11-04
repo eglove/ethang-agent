@@ -55,6 +55,9 @@
   <Project Path="src/eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />
   <Project Path="src/eThangAgent.ComputerUse.Host/eThangAgent.ComputerUse.Host.csproj" />
   <Project Path="src/eThangAgent.Desktop/eThangAgent.Desktop.csproj" />
+  <Project Path="src/eThangAgent.Lsp.ACL/eThangAgent.Lsp.ACL.csproj" />
+  <Project Path="src/eThangAgent.Lsp.Host/eThangAgent.Lsp.Host.csproj" />
+  <Project Path="tests/eThangAgent.Lsp.ACL.Tests/eThangAgent.Lsp.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.ComputerUse.Host.Tests/eThangAgent.ComputerUse.Host.Tests.csproj" />
   <Project Path="tests/eThangAgent.Desktop.Tests/eThangAgent.Desktop.Tests.csproj" />
 </Solution>
