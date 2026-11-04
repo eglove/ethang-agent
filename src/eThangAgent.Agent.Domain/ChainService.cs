@@ -178,6 +178,11 @@ public sealed class ChainService(IChainStore store)
         (before, _) => StatusChanged?.Invoke(new ChainStatusChanged(
             id, before.Status, ChainStatus.Running, actor, null, now)), ct);
 
+  /// <summary>Records the final agent's session id on a completed chain.</summary>
+  public Task<Result<Chain>> RecordFinalSessionAsync(int id, string sessionId, DateTimeOffset now,
+      CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.WithFinalSession(sessionId, now), now, (_, _) => { }, ct);
+
   /// <summary>Moves the chain's status through the aggregate's state machine.</summary>
   public Task<Result<Chain>> SetStatusAsync(int id, ChainStatus target, ChainActor actor,
       DateTimeOffset now, CancellationToken ct = default)

@@ -29,6 +29,15 @@ public interface IChainAdvanceHost
   /// <param name="ct">Cancellation.</param>
   Task<Result<string>> StartSessionAsync(ChainStepAssignment assignment, string predecessorSessionId,
       CancellationToken ct = default);
+
+  /// <summary>Starts the FINAL agent for a completed chain and returns its id. A failed start is
+  ///     a typed error, never an exception. The final agent summarizes the work done and hands
+  ///     control back to the user; it executes no step.</summary>
+  /// <param name="chain">The completed chain.</param>
+  /// <param name="predecessorSessionId">The session whose completion completed the chain.</param>
+  /// <param name="ct">Cancellation.</param>
+  Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId,
+      CancellationToken ct = default);
 }
 
 /// <summary>Enacts the mechanical advance (issue #301): a completion fact in, the next
@@ -535,6 +544,17 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     if (!completed.IsSuccess)
     {
       return ChainAdvance.Refused(completed.Error.Code, completed.Error.Message);
+    }
+
+    // THE FINAL AGENT IS STARTED BEFORE THE COMPLETING SESSION IS CLOSED, and its id is
+    // recorded before the close as well: the close disposes the completing session's container,
+    // which owns the chain store this write goes through (the #340 rule, applied to the final
+    // launch the same way it applies to the completion write).
+    Result<string> final = await _host.StartFinalSessionAsync(completed.Value, sessionId, ct)
+        .ConfigureAwait(false);
+    if (final.IsSuccess)
+    {
+      _ = await _chains.RecordFinalSessionAsync(chain.Id, final.Value, now, ct).ConfigureAwait(false);
     }
 
     await _host.CloseSessionAsync(sessionId, ct).ConfigureAwait(false);

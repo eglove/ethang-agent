@@ -36,10 +36,15 @@ public static class ChainBriefRenderer
   public static Result<ChainBrief> Render(ChainBriefFacts facts)
   {
     ArgumentNullException.ThrowIfNull(facts);
-    return RefusalFor(facts) is { } refusal
+    return facts.IsFinal
+      ? Result.Success(ChainFinalBriefRenderer.Render(facts))
+      : RenderStep(facts);
+  }
+
+  private static Result<ChainBrief> RenderStep(ChainBriefFacts facts)
+    => RefusalFor(facts) is { } refusal
       ? Result.Failure<ChainBrief>(refusal)
       : Result.Success(new ChainBrief(Text(facts, facts.AssignedStep!)));
-  }
 
   /// <summary>The refusal a step's facts earn, or null when they describe a startable step.
   ///     <para>THE ONE REFUSAL IS A MISSING PLAN STEP. Chains bind to plan steps by position,
@@ -50,7 +55,7 @@ public static class ChainBriefRenderer
   public static DomainError? RefusalFor(ChainBriefFacts facts)
   {
     ArgumentNullException.ThrowIfNull(facts);
-    return facts.AssignedStep is not null
+    return facts.IsFinal || facts.AssignedStep is not null
       ? null
       : new DomainError("ChainStepMissing",
           $"chain #{facts.ChainId} step {facts.AssignedPosition} points at plan #{facts.PlanId} "

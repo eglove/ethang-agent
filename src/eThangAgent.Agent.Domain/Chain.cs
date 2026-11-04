@@ -30,7 +30,8 @@ public sealed record Chain(
   DateTimeOffset CreatedAt,
   DateTimeOffset UpdatedAt,
   int Version,
-  IReadOnlyList<ChainStep> Steps)
+  IReadOnlyList<ChainStep> Steps,
+  string? FinalSessionId = null)
 {
   /// <summary>Creates a fresh Running chain with an unassigned id (0) and version 0.
   ///     <para>THE SEEDS ARE THE DECLARATION (issue #313 D2): each names a plan position and
@@ -324,6 +325,17 @@ public sealed record Chain(
 
   /// <summary>Finds a step by its 1-based position, or null.</summary>
   public ChainStep? StepAt(int position) => Steps.FirstOrDefault(step => step.Position == position);
+
+  /// <summary>Records the final agent's session id. The final agent is not a step, so it has no
+  ///     claim to record; this is the durable link the completion path writes once the final
+  ///     session exists.</summary>
+  /// <param name="sessionId">The final agent's session id.</param>
+  /// <param name="now">The clock.</param>
+  public Chain WithFinalSession(string sessionId, DateTimeOffset now)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+    return this with { FinalSessionId = sessionId.Trim(), UpdatedAt = now };
+  }
 
   /// <summary>Drops the park facts when the chain leaves Parked: a chain that is running or
   ///     finished is no longer waiting on anything, and a stale reason would read as one.</summary>

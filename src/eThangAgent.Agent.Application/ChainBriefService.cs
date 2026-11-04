@@ -68,6 +68,48 @@ public sealed class ChainBriefService(IChainBriefSource source)
       : Result.Failure<ChainBriefLaunch>(brief.Error);
   }
 
+  /// <summary>The seed for the FINAL agent of a completed <paramref name="chain"/>: the same gather
+  ///     as a step brief, but with <see cref="ChainBriefFacts.IsFinal"/> set and no contract.
+  ///     <para>THE FINAL AGENT EXECUTES NO STEP, so it carries no contract: the contract is the
+  ///     standing completion rule for one step, and there is no step left to complete. The seed
+  ///     alone is the launch.</para></summary>
+  /// <param name="chain">The completed chain.</param>
+  /// <param name="ct">Cancellation.</param>
+  public async Task<Result<ChainBriefLaunch>> BuildFinalLaunchAsync(Chain chain,
+      CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(chain);
+    Result<ChainBriefChain> briefChain = await _source
+        .GetChainAsync(chain.Id, 0, ct).ConfigureAwait(false);
+    if (!briefChain.IsSuccess)
+    {
+      return Result.Failure<ChainBriefLaunch>(briefChain.Error);
+    }
+
+    Result<ChainBriefPlan> plan = await _source.GetPlanAsync(chain.PlanId, ct).ConfigureAwait(false);
+    if (!plan.IsSuccess)
+    {
+      return Result.Failure<ChainBriefLaunch>(plan.Error);
+    }
+
+    ChainBriefFacts facts = new(briefChain.Value.ChainId,
+        briefChain.Value.Title,
+        plan.Value.PlanId,
+        plan.Value.Version,
+        plan.Value.Goal,
+        0,
+        plan.Value.Steps,
+        briefChain.Value.Predecessors,
+        ChainLedgerSlug.KeyFor(briefChain.Value.Title),
+        null,
+        false,
+        true);
+    Result<ChainBrief> brief = ChainBriefRenderer.Render(facts);
+    return brief.IsSuccess
+      ? Result.Success(new ChainBriefLaunch([Seed(brief.Value)], null))
+      : Result.Failure<ChainBriefLaunch>(brief.Error);
+  }
+
   /// <summary>Gathers the facts for one assignment. Extracted so the refusal paths read as the
   ///     three separate reads they are rather than as one nested conditional.</summary>
   private async Task<Result<ChainBriefFacts>> GatherAsync(ChainStepAssignment assignment,

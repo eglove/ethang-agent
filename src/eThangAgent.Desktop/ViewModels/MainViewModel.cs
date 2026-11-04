@@ -1681,10 +1681,52 @@ internal sealed partial class MainViewModel : ObservableObject
     // so the ledger key and the gate in the system prompt are the values the brief was rendered
     // with rather than a second derivation that happens to agree.
     Result<ChainBriefLaunch> launch = await briefs.BuildLaunchAsync(assignment).ConfigureAwait(true);
+    return !launch.IsSuccess
+      ? Result.Failure<string>(launch.Error)
+      : await StartSessionInTabAsync(tab, launch.Value, predecessorSessionId, ChainKickoff.Line,
+        assignment.Role, await ReadPlacementAsync(tab, assignment).ConfigureAwait(true))
+        .ConfigureAwait(true);
+  }
+
+  /// <summary>Starts the FINAL agent for a completed chain: a new agent seeded with the final
+  ///     brief (a summary of the work done and a retrospective), which hands control back to
+  ///     the user. It executes no step, so it carries no contract and no role.</summary>
+  /// <param name="chain">The completed chain.</param>
+  /// <param name="predecessorSessionId">The session whose completion completed the chain.</param>
+  public async Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId)
+  {
+    ArgumentNullException.ThrowIfNull(chain);
+    ArgumentException.ThrowIfNullOrWhiteSpace(predecessorSessionId);
+    AgentTabViewModel? tab = Guid.TryParse(predecessorSessionId, out Guid predecessor)
+        ? Tabs.FirstOrDefault(t => t.FindCell(new AgentId(predecessor)) is not null)
+        : null;
+    if (tab is null)
+    {
+      return Result.Failure<string>(new DomainError("TabClosed",
+          "the tab that completed the chain is no longer open; the final agent was not started."));
+    }
+
+    ChainBriefService? briefs = tab.Container.Services.GetService<ChainBriefService>();
+    if (briefs is null)
+    {
+      return Result.Failure<string>(new DomainError("BriefUnsupported",
+          "this host cannot render a final brief; the final agent was not started."));
+    }
+
+    Result<ChainBriefLaunch> launch = await briefs.BuildFinalLaunchAsync(chain).ConfigureAwait(true);
     if (!launch.IsSuccess)
     {
       return Result.Failure<string>(launch.Error);
     }
+
+    ChainPlacement placement = await ReadPlacementAsync(tab, chain).ConfigureAwait(true);
+    return await StartSessionInTabAsync(tab, launch.Value, predecessorSessionId, ChainKickoff.Line,
+        null, placement).ConfigureAwait(true);
+  }
+
+  private async Task<Result<string>> StartSessionInTabAsync(AgentTabViewModel tab, ChainBriefLaunch launch,
+      string predecessorSessionId, string prompt, ChainStepRole? role, ChainPlacement placement)
+  {
 
     // THE COMPLETING TURN MUST FINISH FIRST (issue #322), for the reason in the summary above:
     // the fact that requested this advance was published from inside that turn, so the session it
@@ -1718,18 +1760,14 @@ internal sealed partial class MainViewModel : ObservableObject
     // THE KICKOFF LINE IS THE FIRST TURN (issue #323): a chain step is launched FOR work, so
     // it begins on its own. The brief stays the seeded prefix and the contract stays in the
     // system prompt - this line adds no instruction, it only says 'begin'.
-    // THE STEP'S PLACEMENT IS READ HERE (issue #329): the advance knows which chain and which
-    // position it is starting, and the cell states it. It is passed in rather than re-read from
-    // the record, because the claim that just happened is the authority on who owns the step.
-    ChainPlacement placement = await ReadPlacementAsync(tab, assignment).ConfigureAwait(true);
     // THE PREDECESSOR IS THE SESSION THAT COMPLETED THE PREVIOUS STEP (issue #329): it is the one
     // this launch retires, and the agent that started the chain keeps its own cell.
     AgentId? previousStep = Guid.TryParse(predecessorSessionId, out Guid previousId)
         ? new AgentId(previousId)
         : null;
-    Result<StartedSession> started = await StartSessionAsync(tab, prompt: ChainKickoff.Line,
-        seed: launch.Value.Seed, chainContract: launch.Value.Contract,
-        role: assignment.Role, placement: placement, predecessorId: previousStep)
+    Result<StartedSession> started = await StartSessionAsync(tab, prompt: prompt,
+        seed: launch.Seed, chainContract: launch.Contract,
+        role: role, placement: placement, predecessorId: previousStep)
         .ConfigureAwait(true);
     return started.IsSuccess
         ? Result.Success(started.Value.RootId.ToString())
@@ -1761,6 +1799,26 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     return new ChainPlacement(assignment.ChainId, string.Empty, assignment.Position, null);
+  }
+
+  /// <summary>The placement the final agent's cell states: the chain is complete, so the cell
+  ///     states the chain and its total, with no step position of its own.</summary>
+  /// <param name="tab">The tab whose workspace scopes the chain records.</param>
+  /// <param name="chain">The completed chain.</param>
+  private static async Task<ChainPlacement> ReadPlacementAsync(AgentTabViewModel tab, Chain chain)
+  {
+    ArgumentNullException.ThrowIfNull(tab);
+    ArgumentNullException.ThrowIfNull(chain);
+    if (ChainStoreFor(tab) is { } chains)
+    {
+      Result<Chain> stored = await chains.GetAsync(chain.Id).ConfigureAwait(false);
+      if (stored.IsSuccess)
+      {
+        return new ChainPlacement(stored.Value.Id, stored.Value.Title, 0, stored.Value.Steps.Count);
+      }
+    }
+
+    return new ChainPlacement(chain.Id, chain.Title, 0, chain.Steps.Count);
   }
 
   /// <summary>Applies a chain step's reviewer model to a launching session (issue #218).

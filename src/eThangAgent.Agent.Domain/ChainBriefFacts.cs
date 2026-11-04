@@ -42,6 +42,9 @@ public sealed record ChainBriefPredecessor(int Position, ChainStepStatus Status,
 /// <param name="ReviewRubricAvailable">Whether the <c>reviewing-plans</c> skill (#217) is
 ///     installed in this session's catalog. A reviewer must be told which rubric to apply, and
 ///     the honest answer when there is none is to say so rather than to invent one.</param>
+/// <param name="IsFinal">Whether this brief is for the FINAL agent: the chain is complete, so
+///     there is no assigned step and no completion contract. The final agent summarizes the
+///     work done and hands control back to the user.</param>
 public sealed record ChainBriefFacts(
     int ChainId,
     string ChainTitle,
@@ -53,7 +56,8 @@ public sealed record ChainBriefFacts(
     IReadOnlyList<ChainBriefPredecessor> Predecessors,
     string LedgerKey,
     ChainStepRole? Role = null,
-    bool ReviewRubricAvailable = false)
+    bool ReviewRubricAvailable = false,
+    bool IsFinal = false)
 {
   /// <summary>The plan step this session was assigned, or null when the plan no longer has
   ///     one at that position. Chains bind to plan steps BY POSITION, and

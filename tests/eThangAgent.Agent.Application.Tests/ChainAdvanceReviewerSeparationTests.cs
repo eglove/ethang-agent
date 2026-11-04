@@ -72,6 +72,9 @@ public class ChainAdvanceReviewerSeparationTests
       Started.Add(assignment);
       return Task.FromResult(Result.Success("session-next"));
     }
+
+    public Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId, CancellationToken ct = default)
+      => Task.FromResult(Result.Success("session-final"));
   }
 
   /// <summary>An agent store that answers one served model per session id.</summary>

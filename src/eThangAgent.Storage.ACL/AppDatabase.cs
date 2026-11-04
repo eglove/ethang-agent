@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 32;
+  public const int LatestSchemaVersion = 33;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -140,6 +140,7 @@ public sealed class AppDatabase
     (30, ApplyV30),
     (31, ApplyV31),
     (32, ApplyV32),
+    (33, ApplyV33),
   ];
 
   private void Migrate()
@@ -921,7 +922,8 @@ public sealed class AppDatabase
             session_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            version INTEGER NOT NULL
+            version INTEGER NOT NULL,
+            final_session_id TEXT
         );
         CREATE INDEX IF NOT EXISTS ix_chains_ws ON chains (workspace_id, id);
         CREATE INDEX IF NOT EXISTS ix_chains_plan ON chains (workspace_id, plan_id);
@@ -1412,7 +1414,66 @@ public sealed class AppDatabase
   ///     other column and constraint carried forward verbatim.</para>
   ///     <para>CONDITIONAL ON <c>agents</c> EXISTING, because a migration runs against every
   ///     historical shape of this database (the V26/V28/V31 precedent).</para></summary>
+  /// <summary>V33 adds <c>chains.final_session_id</c>: the session the final agent runs in.
+  ///     <para>NULLABLE, WITH NO BACKFILL VALUE. Every chain that completed before this migration
+  ///     ran had no final agent, and writing a guess would fabricate a link the record cannot
+  ///     support. NULL reads as 'no final agent was started'.</para>
+  ///     <para>THE TABLE IS REBUILT (the V23/V26/V28/V29/V31 idiom) rather than altered in place:
+  ///     the rebuild carries the status CHECK constraint forward VERBATIM, so the door V23 closed
+  ///     against a direct writer stays closed, and rows and every execution column are copied
+  ///     verbatim so no chain changes identity or CAS state.</para>
+  ///     <para>CONDITIONAL ON <c>chains</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database and one stamped below V23 does not have the table yet
+  ///     (the V26/V28/V29/V31 precedent).</para></summary>
   /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV33(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "chains"))
+    {
+      return;
+    }
+
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE chains_v33 (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              workspace_id TEXT NOT NULL,
+              plan_id INTEGER NOT NULL,
+              plan_version INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('Running', 'Parked', 'Completed', 'Abandoned')),
+              park_reason TEXT,
+              parked_at_position INTEGER,
+              session_id TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              version INTEGER NOT NULL,
+              final_session_id TEXT
+          );
+          INSERT INTO chains_v33 (id, workspace_id, plan_id, plan_version, title, status, park_reason,
+              parked_at_position, session_id, created_at, updated_at, version, final_session_id)
+              SELECT id, workspace_id, plan_id, plan_version, title, status, park_reason,
+                  parked_at_position, session_id, created_at, updated_at, version, NULL FROM chains;
+          DROP TABLE chains;
+          ALTER TABLE chains_v33 RENAME TO chains;
+          CREATE INDEX IF NOT EXISTS ix_chains_ws ON chains (workspace_id, id);
+          CREATE INDEX IF NOT EXISTS ix_chains_plan ON chains (workspace_id, plan_id);
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
+  }
+
   private static void ApplyV32(SqliteConnection connection)
   {
     if (!TableExists(connection, "agents"))

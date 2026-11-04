@@ -104,6 +104,8 @@ public class ChainAdvanceServiceTests
 
     public List<ChainStepAssignment> Started { get; } = [];
 
+    public List<string> FinalStarted { get; } = [];
+
     public Result<string>? StartResult { get; set; }
 
     /// <summary>Runs when the host closes a session - the moment a real container is disposed.
@@ -122,6 +124,12 @@ public class ChainAdvanceServiceTests
     {
       Started.Add(assignment);
       return Task.FromResult(StartResult ?? Result.Success("session-next"));
+    }
+
+    public Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId, CancellationToken ct = default)
+    {
+      FinalStarted.Add(predecessorSessionId);
+      return Task.FromResult(Result.Success("session-final"));
     }
   }
 
@@ -175,6 +183,22 @@ public class ChainAdvanceServiceTests
     Assert.Contains("session-a", host.Closed);
     Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken));
     Assert.Equal(ChainStatus.Completed, stored.Status);
+  }
+
+  [Fact]
+  public async Task OnCompletionAsync_OfTheLastStep_StartsTheFinalSessionAndRecordsIt()
+  {
+    (ChainAdvanceService service, FakeStore store, FakeHost host, Chain chain) = await NewAsync(1);
+    _ = await store.SaveAsync(chain.ClaimStep(1, "session-a", T0), chain.Version,
+        TestContext.Current.CancellationToken);
+
+    ChainAdvance decision = Must(await service.OnCompletionAsync("session-a", planId: 3, T0,
+        TestContext.Current.CancellationToken));
+
+    Assert.Equal(ChainAdvanceKind.CompleteChain, decision.Kind);
+    Assert.Contains("session-a", host.FinalStarted);
+    Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken));
+    Assert.Equal("session-final", stored.FinalSessionId);
   }
 
   /// <summary>THE CLOSE MUST NOT PRECEDE THE CHAIN WRITE (issue #340). The chain store is

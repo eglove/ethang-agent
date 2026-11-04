@@ -66,6 +66,9 @@ public class ChainAdvanceReviewTests
       Started.Add(assignment);
       return Task.FromResult(Result.Success("session-fix-" + assignment.Position));
     }
+
+    public Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId, CancellationToken ct = default)
+      => Task.FromResult(Result.Success("session-final"));
   }
 
   private sealed class FakeReviews : IChainReviewSource

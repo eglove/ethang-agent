@@ -37,9 +37,9 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
         insert.Transaction = transaction;
         insert.CommandText = """
             INSERT INTO chains (workspace_id, plan_id, plan_version, title, status, park_reason,
-                parked_at_position, session_id, created_at, updated_at, version)
+                parked_at_position, session_id, created_at, updated_at, version, final_session_id)
             VALUES (@ws, @planId, @planVersion, @title, @status, @parkReason, @parkedAt, @session,
-                @created, @updated, 1);
+                @created, @updated, 1, @finalSession);
             """;
         Add(insert, "@ws", _workspaceId);
         Add(insert, "@planId", draft.PlanId);
@@ -49,6 +49,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
         Add(insert, "@parkReason", draft.ParkReason);
         Add(insert, "@parkedAt", draft.ParkedAtPosition);
         Add(insert, "@session", draft.SessionId);
+        Add(insert, "@finalSession", draft.FinalSessionId);
         Add(insert, "@created", Format(draft.CreatedAt));
         Add(insert, "@updated", Format(draft.UpdatedAt));
         _ = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
@@ -121,7 +122,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
       // Named decision (CA2100): the Replace splices either nothing or a fixed parameterized
       // predicate (@status) - no user input reaches SQL text.
 #pragma warning disable CA2100 // Review SQL query for security vulnerabilities
-      command.CommandText = "SELECT id, plan_id, plan_version, title, status, park_reason, parked_at_position, session_id, created_at, updated_at, version, workspace_id FROM chains WHERE workspace_id=@ws (@statusFilter) ORDER BY id;"
+      command.CommandText = "SELECT id, plan_id, plan_version, title, status, park_reason, parked_at_position, session_id, created_at, updated_at, version, workspace_id, final_session_id FROM chains WHERE workspace_id=@ws (@statusFilter) ORDER BY id;"
           .Replace("(@statusFilter)", status is null ? string.Empty : "AND status=@status", StringComparison.Ordinal);
 #pragma warning restore CA2100 // Review SQL query for security vulnerabilities
       Add(command, "@ws", _workspaceId);
@@ -182,13 +183,15 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
         update.Transaction = transaction;
         update.CommandText = """
             UPDATE chains SET title=@title, status=@status, park_reason=@parkReason,
-                parked_at_position=@parkedAt, version=version+1, updated_at=@updated
+                parked_at_position=@parkedAt, version=version+1, updated_at=@updated,
+                final_session_id=@finalSession
             WHERE id=@id AND workspace_id=@ws AND version=@expected;
             """;
         Add(update, "@title", chain.Title);
         Add(update, "@status", chain.Status.ToString());
         Add(update, "@parkReason", chain.ParkReason);
         Add(update, "@parkedAt", chain.ParkedAtPosition);
+        Add(update, "@finalSession", chain.FinalSessionId);
         Add(update, "@updated", Format(chain.UpdatedAt));
         Add(update, "@id", chain.Id);
         Add(update, "@ws", _workspaceId);
@@ -269,7 +272,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
   private static Chain Materialize(ChainRow row, List<ChainStep> steps)
       => new(row.Id, row.WorkspaceId, row.PlanId, row.PlanVersion, row.Title, row.Status,
           row.ParkReason, row.ParkedAtPosition, row.SessionId, row.CreatedAt, row.UpdatedAt,
-          row.Version, steps);
+          row.Version, steps, row.FinalSessionId);
 
   private static async Task InsertStepAsync(SqliteConnection connection, SqliteTransaction transaction,
       int chainId, ChainStep step, CancellationToken ct)
@@ -307,7 +310,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
       SqliteConnection connection, int id, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
-    command.CommandText = "SELECT id, plan_id, plan_version, title, status, park_reason, parked_at_position, session_id, created_at, updated_at, version, workspace_id FROM chains WHERE id=@id AND workspace_id=@ws;";
+    command.CommandText = "SELECT id, plan_id, plan_version, title, status, park_reason, parked_at_position, session_id, created_at, updated_at, version, workspace_id, final_session_id FROM chains WHERE id=@id AND workspace_id=@ws;";
     Add(command, "@id", id);
     Add(command, "@ws", _workspaceId);
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -449,7 +452,8 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
         ParseTimestamp(reader.GetString(8)),
         ParseTimestamp(reader.GetString(9)),
         reader.GetInt32(10),
-        reader.GetString(11));
+        reader.GetString(11),
+        reader.IsDBNull(12) ? null : reader.GetString(12));
     reason = null;
     return true;
   }
@@ -503,7 +507,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
   /// <summary>Internal read model mirroring the chains row before hydration.</summary>
   private sealed record ChainRow(int Id, int PlanId, int PlanVersion, string Title, ChainStatus Status,
       string? ParkReason, int? ParkedAtPosition, string? SessionId, DateTimeOffset CreatedAt,
-      DateTimeOffset UpdatedAt, int Version, string WorkspaceId);
+      DateTimeOffset UpdatedAt, int Version, string WorkspaceId, string? FinalSessionId);
 
   private static void Add(SqliteCommand command, string name, object? value)
       => command.Parameters.AddWithValue(name, value ?? DBNull.Value);

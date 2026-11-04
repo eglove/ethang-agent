@@ -14,13 +14,22 @@ namespace eThangAgent.Desktop.ViewModels;
 ///     be read - the position is then stated without a total rather than with a wrong one.</param>
 internal sealed record ChainPlacement(int ChainId, string ChainTitle, int Position, int? Total)
 {
+  /// <summary>True when this placement is the FINAL agent's: the chain is complete, so the cell
+  ///     states the chain with no step of its own.</summary>
+  public bool IsFinal => Position == 0;
+
   /// <summary>The placement line the cell header renders: 'step 2 of 5' followed by the chain's
-  ///     title when it has one.</summary>
-  public string Line => (Total, string.IsNullOrWhiteSpace(ChainTitle)) switch
-  {
-    ({ } total, true) => $"step {Position} of {total}",
-    ({ } total, false) => $"step {Position} of {total} · {ChainTitle}",
-    (null, true) => $"step {Position}",
-    (null, false) => $"step {Position} · {ChainTitle}",
-  };
+  ///     title when it has one. The final agent states 'chain complete' instead: it executes no
+  ///     step, so a step position would be a lie about what it is.</summary>
+  public string Line => IsFinal
+    ? FinalLine()
+    : (Total, string.IsNullOrWhiteSpace(ChainTitle)) switch
+    {
+      ({ } total, true) => $"step {Position} of {total}",
+      ({ } total, false) => $"step {Position} of {total} · {ChainTitle}",
+      (null, true) => $"step {Position}",
+      (null, false) => $"step {Position} · {ChainTitle}",
+    };
+
+  private string FinalLine() => string.IsNullOrWhiteSpace(ChainTitle) ? "chain complete" : $"chain complete · {ChainTitle}";
 }

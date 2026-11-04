@@ -17,7 +17,8 @@ namespace eThangAgent.Desktop;
 ///     on an event-pump thread where an escaping exception has no handler.</para></summary>
 internal sealed class ChainAdvanceHost(
     Func<AgentId, Task> closeSession,
-    Func<ChainStepAssignment, string, Task<Result<string>>> startSession) : IChainAdvanceHost
+    Func<ChainStepAssignment, string, Task<Result<string>>> startSession,
+    Func<Chain, string, Task<Result<string>>>? startFinalSession = null) : IChainAdvanceHost
 {
   /// <inheritdoc />
   public async Task CloseSessionAsync(string sessionId, CancellationToken ct = default)
@@ -40,6 +41,34 @@ internal sealed class ChainAdvanceHost(
     {
       await Console.Error.WriteLineAsync($"chain advance: closing session {sessionId} failed: {ex.Message}")
           .ConfigureAwait(false);
+    }
+  }
+
+  /// <inheritdoc />
+  public async Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId,
+      CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(chain);
+    ArgumentException.ThrowIfNullOrWhiteSpace(predecessorSessionId);
+    _ = ct;
+    if (startFinalSession is null)
+    {
+      return Result.Failure<string>(new DomainError("FinalLaunchUnsupported",
+          "this host cannot start the final agent; the completed chain was not handed back."));
+    }
+
+    // Named decision (CA1031): the launcher reports its own typed failures; a thrown fault
+    // is converted here so the completion is still recorded.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      return await startFinalSession(chain, predecessorSessionId).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return Result.Failure<string>(new DomainError("SessionLaunchFailed",
+          "the final agent could not be started: " + ex.Message));
     }
   }
 
