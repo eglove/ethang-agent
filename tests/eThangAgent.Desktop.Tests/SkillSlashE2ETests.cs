@@ -13,7 +13,8 @@ namespace eThangAgent.Desktop.Tests;
 ///     one-line confirmation. The Desktop composer reaches the same skill through its
 ///     <c>@</c> reference (the provider request carries the invocation line + full body
 ///     BEFORE the user message), and a slash name outside the closed command registry
-///     sends no injected message.</summary>
+///     sends no injected message. The popup offers the same two surfaces: the catalog's
+///     skills at <c>@</c> and the registry's commands at <c>/</c>.</summary>
 [Collection("Desktop E2E")]
 public class SkillSlashE2ETests
 {
@@ -21,9 +22,6 @@ public class SkillSlashE2ETests
   private const string SkillBody = "Body of the e2e invocation skill: verify the deploy checklist.";
 
   private static string RawCompletion(string content) => E2E.RawCompletion(content);
-
-
-
 
   /// <summary>Decodes one responses request body into its (role, content) list: message
   ///     input items map to their role and joined content-part text; tool results
@@ -124,7 +122,26 @@ public class SkillSlashE2ETests
       MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, Sink);
       AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
       vmRef = vm;
-      Assert.NotNull(vm.ReferenceCompletions);
+
+      // ── The composer's popup, over the production wiring ─────────────────
+      // '@' lists the catalog's skills and '/' lists the registry's commands.
+      // One concatenated list serves both triggers (spec 9), so a query may match a skill
+      // and a command at once: each surface is asserted by membership, not by count.
+      ComposerReferenceViewModel popup = Assert.IsType<ComposerReferenceViewModel>(vm.ReferenceCompletions);
+      vm.UpdateReferenceCompletions("@" + SkillName, SkillName.Length + 1);
+      Assert.True(popup.IsOpen);
+      Assert.Contains(popup.Options, option =>
+          option.Name == SkillName
+          && option.Kind == ReferenceKind.Skill
+          && option.InsertText == "@" + SkillName);
+
+      vm.UpdateReferenceCompletions("/ne", 3);
+      Assert.True(popup.IsOpen);
+      Assert.Contains(popup.Options, option =>
+          option.Name == "new"
+          && option.Kind == ReferenceKind.Command
+          && option.InsertText == "/new");
+      popup.Close();
 
       // ── Turn 1: the TOOL path — the model calls skill_invoke through the
       // loop's exec surface (the advertised tool), invoking the capability. ──

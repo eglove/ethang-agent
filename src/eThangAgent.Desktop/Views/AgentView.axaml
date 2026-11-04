@@ -44,6 +44,12 @@
       <Setter Property="BorderBrush" Value="#FFB454"/>
       <Setter Property="BorderThickness" Value="2"/>
     </Style>
+
+    <!-- The composer's cost estimate turns amber past the high-token threshold: the same
+         amber as command mode, because both mean 'this line is heavier than it looks'. -->
+    <Style Selector="TextBlock.amber">
+      <Setter Property="Foreground" Value="#FFB454"/>
+    </Style>
   </UserControl.Styles>
   <!-- Issue #307 D1: this view is ONE AGENT CELL, not a workspace. The workbench rail
        and the splitter that sizes it moved to WorkspaceTabView, because the rail is
@@ -109,15 +115,19 @@
              view-model's state machine says so. Selection highlight rides the ListBox's
              own rendering, driven one-way by the view-model's SelectedIndex; tapping an
              option commits it. -->
-        <ListBox x:Name="AutocompleteList"
+        <ListBox x:Name="ReferenceCompletionsList"
                  ItemsSource="{Binding ReferenceCompletions.Options}"
                  SelectedIndex="{Binding ReferenceCompletions.SelectedIndex, Mode=OneWay}"
                  IsVisible="{Binding ReferenceCompletions.IsOpen}"
                  MaxHeight="220" Margin="8,0"
-                 Tapped="OnAutocompleteTapped">
+                 Tapped="OnReferenceCompletionsTapped">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:ReferenceOption">
               <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Padding="6,0" CornerRadius="8" Background="#22000000"
+                        VerticalAlignment="Center">
+                  <TextBlock Text="{Binding Kind}" FontSize="11" Opacity="0.8"/>
+                </Border>
                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
                 <TextBlock Text="{Binding Detail}" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
               </StackPanel>
@@ -141,10 +151,17 @@
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
-        <Grid ColumnDefinitions="*,Auto" Margin="8,0">
+        <Grid ColumnDefinitions="*,Auto,Auto" Margin="8,0">
           <TextBox x:Name="InputBox" Grid.Column="0" PlaceholderText="{Binding ChatInputPlaceholder}"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
-          <Button x:Name="StopButton" Grid.Column="1" Margin="8,0,0,0" MinWidth="36" Padding="10,8"
+          <!-- The composer's running cost estimate: how many references the message carries
+               and roughly what they cost, amber past the high-token threshold. Hidden while
+               the message references nothing. -->
+          <TextBlock x:Name="ReferenceCostText" Grid.Column="1" Margin="8,0,0,0"
+                     VerticalAlignment="Center" TextWrapping="NoWrap"
+                     Text="{Binding ReferenceCostLabel}"
+                     IsVisible="{Binding ReferenceCostLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+          <Button x:Name="StopButton" Grid.Column="2" Margin="8,0,0,0" MinWidth="36" Padding="10,8"
                   IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Center"
                   Content="■" FontSize="14" ToolTip.Tip="Stop"/>
         </Grid>

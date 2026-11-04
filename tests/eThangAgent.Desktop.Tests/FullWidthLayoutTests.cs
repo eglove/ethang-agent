@@ -9,8 +9,9 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Grand-plan layout item: the chat input and the status line span the width
 ///     of their container instead of a fixed 480 DIP input and a left-packed bar. The
-///     input's column is star-sized, the Session Id control is docked right, and the
-///     status border stretches across the row.</summary>
+///     input's column is star-sized, the composer's cost readout and the Stop button take
+///     the auto columns after it, the Session Id control is docked right, and the status
+///     border stretches across the row.</summary>
 public class FullWidthLayoutTests
 {
   [AvaloniaFact]
@@ -21,6 +22,7 @@ public class FullWidthLayoutTests
 
     Assert.Equal(new GridLength(1, GridUnitType.Star), inputGrid.ColumnDefinitions[0].Width);
     Assert.Equal(new GridLength(1, GridUnitType.Auto), inputGrid.ColumnDefinitions[1].Width);
+    Assert.Equal(new GridLength(1, GridUnitType.Auto), inputGrid.ColumnDefinitions[2].Width);
   }
 
   [AvaloniaFact]
@@ -83,7 +85,7 @@ public class FullWidthLayoutTests
   }
 
   private static Grid InputGrid(AgentView view) => view.GetVisualDescendants().OfType<Grid>()
-      .First(g => g.ColumnDefinitions.Count == 2 && g.Children.OfType<TextBox>().Any(t => t.Name == "InputBox"));
+      .First(g => g.ColumnDefinitions.Count == 3 && g.Children.OfType<TextBox>().Any(t => t.Name == "InputBox"));
 
   private static Button SessionIdButton(AgentView view) => view.GetVisualDescendants().OfType<Button>()
       .First(b => b.Name == "SessionIdButton");

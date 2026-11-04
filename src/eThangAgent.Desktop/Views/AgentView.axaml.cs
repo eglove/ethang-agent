@@ -105,6 +105,15 @@ internal partial class AgentView : UserControl
     // gets the amber command border and the shell watermark; clearing reverts.
     InputBox.TextChanged += OnInputTextChanged;
 
+    // The caret is the popup's second input: moving it into or out of a token opens or
+    // closes the popup without any text changing. TextBox exposes no selection event, so the
+    // caret and selection properties are observed directly.
+    InputBox.PropertyChanged += OnInputPropertyChanged;
+
+    // The first '@' needs a file cache to search, so the enumeration starts when the input
+    // takes focus rather than at the first keystroke.
+    InputBox.GotFocus += OnInputGotFocus;
+
     // Tunnel so Esc/End are seen no matter which control inside the view holds
     // focus (input box, transcript).
     AddHandler(KeyDownEvent, OnViewKeyDownTunnel, RoutingStrategies.Tunnel);
@@ -134,7 +143,8 @@ internal partial class AgentView : UserControl
   ///     the attach-to-busy wiring cannot be asserted through the private timer field).</summary>
   internal bool IsSpinnerTimerRunning => _statusTimer?.IsEnabled ?? false;
 
-  /// <summary>Starts/stops the spinner timer with the busy phase.</summary>
+  /// <summary>Starts/stops the spinner timer with the busy phase, and marks the composer's
+  ///     cost readout amber once the message's references pass the high-token threshold.</summary>
   private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
   {
     if (e.PropertyName == nameof(AgentSessionViewModel.IsBusy))
@@ -144,6 +154,18 @@ internal partial class AgentView : UserControl
       {
         _statusTimer?.Start();
       }
+
+      return;
+    }
+
+    if (e.PropertyName == nameof(AgentSessionViewModel.ReferenceCostIsHigh)
+        && sender is AgentSessionViewModel { ReferenceCostIsHigh: true })
+    {
+      ReferenceCostText.Classes.Add("amber");
+    }
+    else if (e.PropertyName == nameof(AgentSessionViewModel.ReferenceCostIsHigh))
+    {
+      _ = ReferenceCostText.Classes.Remove("amber");
     }
   }
 
@@ -312,6 +334,7 @@ internal partial class AgentView : UserControl
     if (!_suppressAutocompleteUpdate)
     {
       Vm?.UpdateReferenceCompletions(text, InputBox.CaretIndex);
+      _ = Vm?.UpdateReferenceCostAsync(text);
     }
 
     bool commandMode = text.TrimStart().StartsWith('!');
@@ -335,15 +358,15 @@ internal partial class AgentView : UserControl
       return;
     }
 
-    // The '/' autocomplete popup owns the keys while open: navigation, Esc,
-    // and Enter/Tab completion — Enter NEVER submits while the popup shows a
-    // name that still needs completing (spec #28). Any other key falls through
-    // to the TextBox's own handling.
+    // The reference popup owns the keys while open: navigation, Esc, and Tab completion.
+    // Any other key falls through to the TextBox's own handling.
     if (vm.ReferenceCompletions is { IsOpen: true } popup && HandlePopupKey(popup, e))
     {
       return;
     }
 
+    // Enter submits only while no popup shows (spec 6): with the popup open, Enter either
+    // completes the token or is consumed by the popup path above.
     if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
     {
       e.Handled = true; // suppress newline insertion
@@ -352,10 +375,9 @@ internal partial class AgentView : UserControl
     // Shift+Enter falls through: TextBox inserts the newline.
   }
 
-  /// <summary>Gives the open '/' autocomplete popup first refusal on the key:
-  ///     Up/Down navigate, Esc closes, and unshifted Tab/Enter accept the
-  ///     selection. Returns true when the popup consumed the key (the caller then
-  ///     stops); false means the key falls through to the TextBox.</summary>
+  /// <summary>Gives the open reference popup first refusal on the key: Up/Down navigate, Esc
+  ///     closes, and unshifted Tab accepts the selection. Returns true when the popup consumed
+  ///     the key (the caller then stops); false means the key falls through to the TextBox.</summary>
   private bool HandlePopupKey(ComposerReferenceViewModel popup, KeyEventArgs e)
   {
     bool shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
@@ -380,6 +402,8 @@ internal partial class AgentView : UserControl
       return true;
     }
 
+    // Tab always completes; Enter completes only while the token still needs completing,
+    // so a fully typed name followed by Enter sends (spec 6).
     if ((e.Key == Key.Tab || e.Key == Key.Enter) && !shift)
     {
       e.Handled = true; // suppress newline insertion and focus navigation
@@ -390,10 +414,10 @@ internal partial class AgentView : UserControl
     return false;
   }
 
-  /// <summary>Applies the popup's accept key: Tab commits the highlighted option over the
-  ///     active token; Enter does the same when the token still needs completing, and submits
-  ///     the input when it already names the highlighted option. With nothing selectable,
-  ///     Enter falls back to an ordinary submit (an unknown '/zzz' stays a plain message).</summary>
+  /// <summary>Applies the popup's accept key: Tab and Enter both commit the highlighted option
+  ///     over the active token, and neither sends — an open popup means the line is not sent yet
+  ///     (spec 6). With nothing selectable, Enter falls back to an ordinary submit (an unknown
+  ///     '/zzz' stays a plain message).</summary>
   private void HandlePopupAcceptKey(ComposerReferenceViewModel popup, Key key)
   {
     if (popup.SelectedIndex < 0 || popup.SelectedIndex >= popup.Options.Count)
@@ -407,30 +431,14 @@ internal partial class AgentView : UserControl
       return;
     }
 
-    if (key == Key.Enter && NamesTheHighlightedOption(popup))
-    {
-      popup.Close();
-      SubmitInput();
-      return;
-    }
-
     if (popup.Accept() is { } commit)
     {
       ApplyCommit(commit);
     }
   }
 
-  /// <summary>True when the text before the caret already ends with the highlighted option's
-  ///     committed text, so Enter means 'send this' rather than 'complete this'.</summary>
-  private bool NamesTheHighlightedOption(ComposerReferenceViewModel popup)
-  {
-    string text = InputBox.Text ?? "";
-    int caret = Math.Clamp(InputBox.CaretIndex, 0, text.Length);
-    return text[..caret].EndsWith(popup.Options[popup.SelectedIndex].InsertText, StringComparison.Ordinal);
-  }
-
   /// <summary>Accepts a tapped option: same commit as the keyboard path.</summary>
-  private void OnAutocompleteTapped(object? sender, TappedEventArgs e)
+  private void OnReferenceCompletionsTapped(object? sender, TappedEventArgs e)
   {
     AgentSessionViewModel? vm = Vm;
     if (vm?.ReferenceCompletions is not { IsOpen: true } popup || sender is not ListBox list)
@@ -445,8 +453,9 @@ internal partial class AgentView : UserControl
   }
 
   /// <summary>Writes the commit's replacement over the token it names, then places the caret
-  ///     after it. The popup is not re-fed: the commit's own trailing space leaves the caret
-  ///     outside every token, so the next input change decides what opens.</summary>
+  ///     after it. The programmatic text set is suppressed, and the popup is fed ONCE with the
+  ///     committed state: the commit's own trailing space leaves the caret outside every token,
+  ///     so the popup stays closed for the token just committed.</summary>
   private void ApplyCommit(ReferenceCommit commit)
   {
     _suppressAutocompleteUpdate = true;
@@ -458,10 +467,42 @@ internal partial class AgentView : UserControl
       string updated = string.Concat(text.AsSpan(0, start), commit.InsertText, text.AsSpan(start + length));
       InputBox.Text = updated;
       InputBox.CaretIndex = Math.Clamp(commit.CaretIndex, 0, updated.Length);
+      Vm?.UpdateReferenceCompletions(updated, InputBox.CaretIndex);
+      _ = Vm?.UpdateReferenceCostAsync(updated);
     }
     finally
     {
       _suppressAutocompleteUpdate = false;
+    }
+  }
+
+  /// <summary>Feeds the popup from the caret: a move into a token opens it and a move out of
+  ///     one closes it, with no text change involved.</summary>
+  private void OnInputPropertyChanged(object? sender, Avalonia.AvaloniaPropertyChangedEventArgs e)
+  {
+    if (_suppressAutocompleteUpdate
+        || (e.Property != TextBox.CaretIndexProperty
+            && e.Property != TextBox.SelectionStartProperty
+            && e.Property != TextBox.SelectionEndProperty))
+    {
+      return;
+    }
+
+    Vm?.UpdateReferenceCompletions(InputBox.Text ?? "", InputBox.CaretIndex);
+  }
+
+  /// <summary>Starts the workspace file enumeration the popup searches, so the first <c>@</c>
+  ///     already has a cache.</summary>
+  private void OnInputGotFocus(object? sender, FocusChangedEventArgs e) =>
+      _ = Vm?.RefreshReferenceIndexAsync();
+
+  /// <summary>Accepts the highlighted option through the same path the Tab key takes. The test
+  ///     observation surface: the key route needs a focused window, the commit does not.</summary>
+  internal void AcceptCompletionsForTest()
+  {
+    if (Vm?.ReferenceCompletions is { IsOpen: true } popup)
+    {
+      HandlePopupAcceptKey(popup, Key.Tab);
     }
   }
 
@@ -534,11 +575,29 @@ internal partial class AgentView : UserControl
     }
   }
 
-  private void SubmitInput()
+  /// <summary>Sends the input and clears the box. A send whose references do not resolve is
+  ///     refused by the view-model, which keeps the message: the box is restored with it so the
+  ///     user's text is never lost and stays editable (spec 7).</summary>
+  private void SubmitInput() => _ = SubmitAndRestoreAsync();
+
+  private async Task SubmitAndRestoreAsync()
   {
+    AgentSessionViewModel? vm = Vm;
     string text = InputBox.Text ?? "";
     InputBox.Text = "";
-    _ = Vm?.SubmitAsync(text);
+    if (vm is null)
+    {
+      return;
+    }
+
+    await vm.SubmitAsync(text).ConfigureAwait(true);
+    if (vm.PendingRefusedInput is not { } refused)
+    {
+      return;
+    }
+
+    InputBox.Text = refused;
+    InputBox.CaretIndex = refused.Length;
   }
 
   private void OnStopClick(object? sender, RoutedEventArgs e) => Vm?.RequestStop();

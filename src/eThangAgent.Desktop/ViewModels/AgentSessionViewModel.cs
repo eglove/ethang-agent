@@ -59,6 +59,11 @@ internal sealed record AgentSessionViewModelOptions
   ///     the turn starts. Null = the message travels exactly as typed (headless stubs).</summary>
   public ReferenceInjector? References { get; init; }
 
+  /// <summary>Re-enumerates the workspace file cache the popup searches. The view kicks it when
+  ///     the input takes focus, so the first <c>@</c> has a cache to read. Null = the popup
+  ///     offers no workspace files (headless stubs).</summary>
+  public Func<Task>? ReferenceIndexRefresh { get; init; }
+
   /// <summary>The shell's new-session command (issue #234): invoked by the /new slash
   ///     command with the rest of the input as the prompt. Null = the command is not
   ///     offered (headless stubs, or a host without the shell seam).</summary>
@@ -340,6 +345,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Resolves a submitted message's references. Null = nothing to resolve.</summary>
   private readonly ReferenceInjector? _references;
 
+  /// <summary>Re-enumerates the popup's file cache. Null = the popup lists no workspace files.</summary>
+  private readonly Func<Task>? _referenceIndexRefresh;
+
   /// <summary>The right-hand workbench (issue #8, design D1/D5): a permanent column with
   ///     an icon strip, showing one view at a time. Always constructed so the shell's
   ///     layout is stable; the user's collapse is what hides it.</summary>
@@ -411,6 +419,91 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>The message a refused send kept, so the view can restore the input box. Set when
   ///     a reference does not resolve; cleared by the next send that goes through.</summary>
   public string? PendingRefusedInput { get; private set; }
+
+  /// <summary>The estimate above which the composer's cost readout turns amber.</summary>
+  private const int ReferenceCostHighTokens = 30_000;
+
+  /// <summary>The newest input the cost estimate was asked about.</summary>
+  private string _referenceCostInput = string.Empty;
+
+  /// <summary>True while a cost resolution runs, so a burst of keystrokes resolves once.</summary>
+  private bool _referenceCostRunning;
+
+  /// <summary>True when the input changed during a running resolution: that pass re-reads the
+  ///     newest input instead of leaving a stale estimate behind.</summary>
+  private bool _referenceCostDirty;
+
+  /// <summary>The composer's running cost estimate for the input's references: how many resolve
+  ///     and roughly how many tokens they carry. Empty when the input references nothing.</summary>
+  [ObservableProperty]
+  public partial string ReferenceCostLabel { get; private set; } = string.Empty;
+
+  /// <summary>True once the estimate passes <see cref="ReferenceCostHighTokens"/>, which is what
+  ///     turns the readout amber.</summary>
+  [ObservableProperty]
+  public partial bool ReferenceCostIsHigh { get; private set; }
+
+  /// <summary>Re-enumerates the popup's workspace file cache so the first <c>@</c> has one.</summary>
+  public Task RefreshReferenceIndexAsync() => _referenceIndexRefresh?.Invoke() ?? Task.CompletedTask;
+
+  /// <summary>Recomputes the cost estimate for <paramref name="input"/>. A resolution already
+  ///     running re-reads the newest input when it finishes, so the estimate never lags the box.</summary>
+  public async Task UpdateReferenceCostAsync(string input)
+  {
+    ArgumentNullException.ThrowIfNull(input);
+    _referenceCostInput = input;
+    if (_references is null)
+    {
+      ClearReferenceCost();
+      return;
+    }
+
+    if (_referenceCostRunning)
+    {
+      _referenceCostDirty = true;
+      return;
+    }
+
+    _referenceCostRunning = true;
+    try
+    {
+      while (true)
+      {
+        _referenceCostDirty = false;
+        ReferenceInjectionResult resolved = await _references
+            .InjectAsync(_referenceCostInput, CancellationToken.None).ConfigureAwait(true);
+        ApplyReferenceCost(resolved);
+        if (!_referenceCostDirty)
+        {
+          return;
+        }
+      }
+    }
+    finally
+    {
+      _referenceCostRunning = false;
+    }
+  }
+
+  private void ApplyReferenceCost(ReferenceInjectionResult resolved)
+  {
+    if (!resolved.IsSuccess || resolved.ReferenceCount == 0)
+    {
+      ClearReferenceCost();
+      return;
+    }
+
+    string plural = resolved.ReferenceCount == 1 ? "" : "s";
+    ReferenceCostLabel =
+        $"{resolved.ReferenceCount} reference{plural} · ~{resolved.EstimatedTokens / 1000}k tokens";
+    ReferenceCostIsHigh = resolved.EstimatedTokens > ReferenceCostHighTokens;
+  }
+
+  private void ClearReferenceCost()
+  {
+    ReferenceCostLabel = string.Empty;
+    ReferenceCostIsHigh = false;
+  }
 
   /// <summary>At most this many popup rows for one query.</summary>
   private const int ReferenceOptionLimit = 50;
@@ -512,6 +605,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // synchronous executor so the session-request path runs headless.
     _uiMarshal = options.UiMarshal ?? (action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
     _references = options.References;
+    _referenceIndexRefresh = options.ReferenceIndexRefresh;
     ReferenceCompletions = options.ReferenceCatalogSource is null
         ? null
         : new ComposerReferenceViewModel(query => ReferenceOptions(query, options.ReferenceCatalogSource));

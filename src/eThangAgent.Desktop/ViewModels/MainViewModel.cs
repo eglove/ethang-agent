@@ -2356,28 +2356,33 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     restore BEFORE the tab can take a turn, persisted-transcript replay (a no-op
   ///     for a fresh session — its conversation is empty), and
   ///     tab attach. Must run on the UI thread.</summary>
-  /// <summary>Maps the session's catalog to the reference popup's options: the registered
-  ///     session commands and the catalog's skills, both matched by name. The composite
-  ///     catalog's ListAsync is async while the popup's source seam is sync, so this resolves
-  ///     synchronously — the documented sync-over-async seam constraint (the
-  ///     SkillsListingPromptProvider Build() precedent). A catalog failure yields the commands
-  ///     alone (the popup shows nothing else).</summary>
-  private static List<ReferenceOption> ReferenceOptionsOf(AgentSession session)
+  /// <summary>Maps the session's catalog to the reference popup's options: the catalog's
+  ///     skills, the registered session commands, and the workspace's files, all matched by
+  ///     name. The composite catalog's ListAsync is async while the popup's source seam is
+  ///     sync, so this resolves synchronously — the documented sync-over-async seam constraint
+  ///     (the SkillsListingPromptProvider Build() precedent). A catalog failure yields the
+  ///     commands and files alone.</summary>
+  private static List<ReferenceOption> ReferenceOptionsOf(AgentSession session, WorkspaceFileIndex? files)
   {
-    List<ReferenceOption> options =
-    [
-        .. SessionCommandRegistry.All.Select(command => new ReferenceOption(
-            command.Name, command.Description, ReferenceKind.Command, "/" + command.Name)),
-    ];
+    List<ReferenceOption> options = [];
     ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
     Result<IReadOnlyList<SkillDefinition>> listed = catalog.ListAsync().GetAwaiter().GetResult();
-    if (!listed.IsSuccess)
+    if (listed.IsSuccess)
+    {
+      options.AddRange(listed.Value.Select(s => new ReferenceOption(
+          s.Name, s.Description, ReferenceKind.Skill, "@" + s.Name)));
+    }
+
+    options.AddRange(SessionCommandRegistry.All.Select(command => new ReferenceOption(
+        command.Name, command.Description, ReferenceKind.Command, "/" + command.Name)));
+    if (files is null)
     {
       return options;
     }
 
-    options.AddRange(listed.Value.Select(s => new ReferenceOption(
-        s.Name, s.Description, ReferenceKind.Skill, "@" + s.Name)));
+    // The popup's own query filters the concatenated list, so the file search runs with an
+    // empty query here and its rows are filtered alongside the skills'.
+    options.AddRange(files.Search(string.Empty));
     return options;
   }
 
@@ -2537,6 +2542,11 @@ internal sealed partial class MainViewModel : ObservableObject
       WorkbenchViewModel workbench, Func<AgentSessionViewModel> currentViewModel,
       Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab)
   {
+    // The popup's workspace file cache: one enumeration per session, ranked on demand.
+    // A container without file search (a bare test stub) offers no files at all.
+    WorkspaceFileIndex? fileIndex = session.Services.GetService<IFileSearchAccess>() is { } search
+        ? new WorkspaceFileIndex(search, session.WorkspaceRoot)
+        : null;
     return new AgentSessionViewModel(
         // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
         // (CA1068) — adapt the parameter order at the call site.
@@ -2558,13 +2568,14 @@ internal sealed partial class MainViewModel : ObservableObject
           ModelPreferences = session.Preferences,
           CommandRunner = session.CommandRunner,
           SkillInvocation = session.SkillInvocation,
-          ReferenceCatalogSource = () => ReferenceOptionsOf(session),
+          ReferenceCatalogSource = () => ReferenceOptionsOf(session, fileIndex),
           // A container that registered no file access (a bare test stub) resolves no
           // references; every production container registers it.
           References = session.Services.GetService<IFileSystemAccess>() is { } referenceFiles
               ? new ReferenceInjector(referenceFiles, new ReadFreshnessLedger(),
                   session.SkillInvocation, session.WorkspaceRoot)
               : null,
+          ReferenceIndexRefresh = fileIndex is null ? null : () => fileIndex.RefreshAsync(),
           // Issue #234: the /new slash command and the host's session-request both start a
           // session in THIS tab's workspace, as a new cell. Both refuse while the tab is
           // unknown (the view-model is built before its tab exists).
