@@ -43,4 +43,6 @@
     <PackageReference Include="MarkView.Avalonia.SyntaxHighlighting" Version="12.2.*" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.*" />
   </ItemGroup>
-</Project>
+  <ItemGroup Condition="'$(OmniSharpPath)' != ''">
+    <Content Include="$(OmniSharpPath)" Link="OmniSharp.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup></Project>
