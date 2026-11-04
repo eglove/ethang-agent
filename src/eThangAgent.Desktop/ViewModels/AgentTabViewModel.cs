@@ -41,6 +41,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     WorkspaceId = session.Services.GetService(typeof(IWorkspaceContext)) is IWorkspaceContext context
         ? context.WorkspaceId
         : null;
+    WorkspaceRoot = session.WorkspaceRoot;
     AgentCellViewModel primary = new(session, sessionVm);
     primary.PropertyChanged += OnCellPropertyChanged;
     Cells = [primary];
@@ -60,8 +61,16 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     but the tab must not resolve 'its session' to a disposed provider.</para>
   ///     <para>THE FIRST CELL IS ALWAYS A CONTAINER CELL (D13): agents running in their own hosts
   ///     append after it, and a host cell never becomes the tab's own session.</para></summary>
-  public AgentSession Container => Cells.Select(cell => cell.Container).FirstOrDefault(s => s is not null)
+  public AgentSession Container => LiveContainer
       ?? throw new InvalidOperationException("the tab must hold at least one live container cell.");
+
+  /// <summary>The live container, or null when the tab holds no cell whose session this app
+  ///     still holds - the state a tab reaches when the user closes its last card.
+  ///     <para>THE NULLABLE HALF IS THE OPT-IN: <see cref="Container"/> keeps throwing for the
+  ///     paths that genuinely cannot proceed without a session, and the few that can - the
+  ///     workspace identity, the branch watcher - read this instead.</para></summary>
+  public AgentSession? LiveContainer
+    => Cells.Select(cell => cell.Container).FirstOrDefault(s => s is not null);
 
   /// <summary>The live cell's view-model (see <see cref="Container"/>): the cell whose session
   ///     the tab is anchored on, so the pre-#307 surface keeps addressing a LIVE conversation
@@ -75,8 +84,13 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     <para>A RETIRED CELL IS THE MARKER FOR THAT: it has no container left to address, so
   ///     the first cell that still has one is the one the tab is about. Cell zero is the
   ///     fallback only when every cell is retired, which is a tab nothing can be done in.</para></summary>
-  public AgentSessionViewModel ViewModel => Cells.Select(cell => cell.ViewModel)
-      .FirstOrDefault(vm => !vm.IsRetired) ?? Cells[0].ViewModel;
+  public AgentSessionViewModel ViewModel => LiveViewModel
+      ?? throw new InvalidOperationException("the tab must hold at least one agent cell.");
+
+  /// <summary>The live cell's view-model, or null when every cell is retired or the tab holds
+  ///     none (see <see cref="LiveContainer"/>).</summary>
+  public AgentSessionViewModel? LiveViewModel
+    => Cells.Select(cell => cell.ViewModel).FirstOrDefault(vm => !vm.IsRetired);
 
   /// <summary>The workspace this tab shows, as the stable identity its durable rows key on.
   ///     Null when the tab was built over a session whose container carries no workspace
@@ -93,7 +107,15 @@ internal sealed partial class AgentTabViewModel : ObservableObject
 
   public string Title { get; }
 
-  public string Subtitle => ViewModel.WorkspaceRoot;
+  /// <summary>The workspace directory this tab shows. STORED, not derived from a cell: a tab
+  ///     whose last card was closed still knows where its next agent goes.</summary>
+  public string WorkspaceRoot { get; }
+
+  public string Subtitle => WorkspaceRoot;
+
+  /// <summary>Whether the tab holds no agent at all, so it renders its empty-state prompt
+  ///     rather than a blank pane.</summary>
+  public bool IsEmpty => Cells.Count == 0;
 
   /// <summary>Whether this tab shows the workspace identified by <paramref name="workspaceId"/>.
   ///     The identity is compared when the tab carries one, and the directory path when it does
@@ -104,7 +126,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
     return WorkspaceId is { } id
         ? string.Equals(id, workspaceId, StringComparison.Ordinal)
-        : WorkspaceIdentity.PathsEqual(Container.WorkspaceRoot, workspaceId);
+        : WorkspaceIdentity.PathsEqual(WorkspaceRoot, workspaceId);
   }
 
   /// <summary>Whether this tab is the shell's selected one. Drives the keep-alive
@@ -259,20 +281,24 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   public AgentCellViewModel? FindCell(AgentId agentId)
     => Cells.FirstOrDefault(c => c.RootId == agentId);
 
-  /// <summary>Removes a FINISHED cell the user dismissed (D7). A running cell is refused:
-  ///     dismissing it would orphan a live session with no surface.
-  ///     <para>THE LAST CELL IS REFUSED TOO (issue #332): the tab resolves its own session
-  ///     through the cells, so removing the only cell would leave a tab whose
-  ///     <see cref="Container"/> names nothing. CELL ZERO IS NOT PROTECTED - every route that
-  ///     starts a session appends, so the first cell is an ordinary agent's card and the user
-  ///     closes it like any other.</para>
-  ///     <para>Returns false when the cell was not dismissed, so the caller can say why.</para></summary>
+  /// <summary>Removes a cell the user closed (D7), whatever state its agent is in.
+  ///     <para>A LIVE RUN IS STOPPED FIRST: detaching it without stopping would leave the agent
+  ///     working with no surface to see it or steer it.</para>
+  ///     <para>THE LAST CELL IS ORDINARY (issue #339): removing it leaves a tab with zero
+  ///     agents, which still knows its workspace and still offers its '+'.</para>
+  ///     <para>Returns false when the cell is not this tab's, so the caller can say why.
+  ///     </para></summary>
   public bool DismissCell(AgentCellViewModel cell)
   {
     ArgumentNullException.ThrowIfNull(cell);
-    if (!cell.IsFinished || Cells.Count <= 1)
+    if (!Cells.Contains(cell))
     {
       return false;
+    }
+
+    if (cell.ViewModel.IsBusy)
+    {
+      cell.ViewModel.RequestStop();
     }
 
     cell.PropertyChanged -= OnCellPropertyChanged;
@@ -305,7 +331,12 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   }
 
   private void OnCellsChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    => OnPropertyChanged(nameof(IsFullyFinished));
+  {
+    OnPropertyChanged(nameof(IsFullyFinished));
+    OnPropertyChanged(nameof(IsEmpty));
+    OnPropertyChanged(nameof(ViewModel));
+    OnPropertyChanged(nameof(Subtitle));
+  }
 
   /// <summary>Subscribes the badge to this session's event stream. Called once by the shell
   ///     after the tab is created; calling again detaches the prior badge.
@@ -429,7 +460,9 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   public void AttachBranchWatcher(IGitQueryAccess? git)
   {
     _branchWatcher?.Dispose();
-    _branchWatcher = git is null ? null : new GitBranchWatcher(Container.WorkspaceRoot, git, ViewModel.Status);
+    _branchWatcher = git is null || LiveViewModel is not { } vm
+        ? null
+        : new GitBranchWatcher(WorkspaceRoot, git, vm.Status);
   }
 
   /// <summary>Disposes the branch watcher (tab close). Safe when none was attached.</summary>

@@ -36,7 +36,6 @@ public class AgentCellSteeringTests
     AgentTabViewModel tab = await shell.OpenAsync("C:\\work\\alpha");
     AgentId agent = shell.StartAgent(tab, "reviewer");
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
-    Assert.True(cell.ViewModel.ShowsChatInput);
 
     await cell.ViewModel.SubmitAsync("check the second test").ConfigureAwait(true);
 
@@ -347,7 +346,6 @@ public class AgentCellSteeringTests
     AgentTabViewModel tab = await shell.OpenAsync("C:\\work\\zeta");
     AgentId agent = shell.StartAgent(tab, "reviewer");
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
-    Assert.True(cell.ViewModel.ShowsChatInput, "the input renders; its refusal is what must be visible");
 
     await cell.ViewModel.SubmitAsync("anyone home?").ConfigureAwait(true);
 
@@ -355,14 +353,12 @@ public class AgentCellSteeringTests
         notice => notice.Contains("Error [NoSteering]", StringComparison.Ordinal));
   }
 
-  /// <summary>A card whose container the shell retired hides its input: there is no session
-  ///     behind it to serve a turn, and a retired card must not offer an affordance it cannot
-  ///     honor.
-  ///     <para>A HOST cell is the opposite case and keeps its input - its agent lives in another
-  ///     process and can still be steered or resumed - which is why the view-model is told
-  ///     explicitly rather than inferring it from a null container.</para></summary>
+  /// <summary>A card whose container the shell retired keeps its input and says what a submit
+  ///     there does: the session behind it is gone, so the message is recorded rather than sent.
+  ///     <para>A HOST cell is the other case - its agent lives in another process and can still
+  ///     be steered or resumed - so its placeholder promises delivery, not a record.</para></summary>
   [Fact]
-  public async Task ARetiredContainerCellsInput_IsHidden_WhileAHostCellsStays()
+  public async Task ARetiredContainerCellsInput_RecordsTheMessage_WhileAHostCellsSendsIt()
   {
     Shell shell = new();
     AgentTabViewModel tab = await shell.OpenAsync("C:\\work\\eta");
@@ -370,8 +366,14 @@ public class AgentCellSteeringTests
     AgentCellViewModel hostCell = await AwaitCellAsync(tab, agent);
     tab.Cells[0].RetireContainer();
 
-    Assert.False(tab.Cells[0].ViewModel.ShowsChatInput);
-    Assert.True(hostCell.ViewModel.ShowsChatInput);
+    Assert.Contains("closed", tab.Cells[0].ViewModel.ChatInputPlaceholder, StringComparison.Ordinal);
+    Assert.DoesNotContain("closed", hostCell.ViewModel.ChatInputPlaceholder, StringComparison.Ordinal);
+
+    await tab.Cells[0].ViewModel.SubmitAsync("are you still there?").ConfigureAwait(true);
+
+    Assert.Contains(tab.Cells[0].ViewModel.Transcript.Notices,
+        notice => notice.Contains("closed", StringComparison.Ordinal));
+    Assert.Empty(shell.Steering.Steers);
   }
 
   /// <summary>The composed shell, a fake steering seam, and the streams and stores the shell

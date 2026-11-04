@@ -65,6 +65,7 @@ internal partial class AgentView : UserControl
     _statusTimer?.Stop();
 
     _restorePending = false;
+    TranscriptScroll.LayoutUpdated -= OnTranscriptLayoutUpdated;
     AgentSessionViewModel? vm = Vm;
     if (vm is null)
     {
@@ -122,6 +123,7 @@ internal partial class AgentView : UserControl
     // controller's offset with the fresh-view zero before the restore reads it.
     _restorePending = true;
     _restoreOffset = vm.Transcript.Scroll.StuckToBottom ? -1 : vm.Transcript.Scroll.LastOffset;
+    TranscriptScroll.LayoutUpdated += OnTranscriptLayoutUpdated;
     Dispatcher.UIThread.Post(ApplyPendingRestore, DispatcherPriority.Loaded);
   }
 
@@ -199,6 +201,10 @@ internal partial class AgentView : UserControl
     TranscriptScroll.ScrollToEnd();
   }
 
+  /// <summary>Re-attempts the pending reading-position restore after a layout pass, which is
+  ///     the only event that can turn zero geometry into real geometry.</summary>
+  private void OnTranscriptLayoutUpdated(object? sender, EventArgs e) => ApplyPendingRestore();
+
   private void OnTranscriptScrollChanged(object? sender, ScrollChangedEventArgs e)
   {
     TranscriptScrollController? controller = Vm?.Transcript.Scroll;
@@ -221,9 +227,14 @@ internal partial class AgentView : UserControl
   }
 
   /// <summary>Applies the transcript's saved reading offset once layout has produced
-  ///     real geometry (DispatcherPriority.Loaded = after measure/arrange). The
-  ///     controller's move-detector treats the jump as a real move and keeps the
-  ///     unstuck state, since the landing spot is away from the bottom.</summary>
+  ///     real geometry. The controller's move-detector treats the jump as a real move and
+  ///     keeps the unstuck state, since the landing spot is away from the bottom.
+  ///     <para>GEOMETRY THAT NEVER ARRIVES IS NOT RETRIED HERE: a transcript laid out at zero
+  ///     height (a cell in a grid that never gave it a row, a detached view) keeps
+  ///     <c>Viewport.Height</c> at zero for as long as that holds, so a re-post from this
+  ///     method turns the dispatcher into a spin. The attempt is driven by
+  ///     <see cref="OnTranscriptLayoutUpdated"/> instead, so it runs exactly when there is
+  ///     new geometry to read and costs nothing when there is not.</para></summary>
   private void ApplyPendingRestore()
   {
     if (Vm is null || !_restorePending)
@@ -233,8 +244,6 @@ internal partial class AgentView : UserControl
 
     if (TranscriptScroll.Extent.Height <= 0 || TranscriptScroll.Viewport.Height <= 0)
     {
-      // Layout has not produced real geometry yet - retry next dispatcher turn.
-      Dispatcher.UIThread.Post(ApplyPendingRestore, DispatcherPriority.Loaded);
       return;
     }
 

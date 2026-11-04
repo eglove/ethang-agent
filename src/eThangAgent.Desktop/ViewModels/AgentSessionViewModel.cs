@@ -214,6 +214,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private Task? _runningTurn;
 
   [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ChatInputPlaceholder))]
   public partial bool IsBusy { get; set; }
 
   [ObservableProperty]
@@ -341,24 +342,28 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     layout is stable; the user's collapse is what hides it.</summary>
   public WorkbenchViewModel Workbench { get; }
 
-  /// <summary>Whether the chat input renders. It renders for EVERY cell that can still be
-  ///     addressed (issue #330): a container cell's input runs turns, and a host agent's steers
-  ///     the run or resumes the agent. The one cell that cannot is a card whose container the
-  ///     shell has already retired - there is no session behind it to serve a turn, and an
-  ///     input there would silently do nothing.</summary>
-  public bool ShowsChatInput => !IsRetired;
+  /// <summary>What a submit does in this card's current state, as the input's placeholder.
+  ///     The input renders on every card; what varies is the effect of sending into it - a live
+  ///     turn is steered, a settled agent is resumed, and a retired card records the message
+  ///     instead of sending it.</summary>
+  public string ChatInputPlaceholder => (IsRetired, IsSettled, IsBusy) switch
+  {
+    (true, _, _) => "This agent is closed - a message here is recorded, not sent",
+    (_, true, _) => "Resume this agent",
+    (_, _, true) => "Steer the running turn",
+    _ => "Type a message",
+  };
 
   /// <summary>True once this cell's session container has been retired (issue #330): the shell
   ///     disposed it, so the card stays as a finished record and nothing here can run a turn.
   ///     Written by the cell that owns the container, which is the object the shell tears down.
   ///     </summary>
   [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(ShowsChatInput))]
+  [NotifyPropertyChangedFor(nameof(ChatInputPlaceholder))]
   public partial bool IsRetired { get; private set; }
 
-  /// <summary>Marks this cell's container retired, so the chat input stops rendering (issue
-  ///     #330): the card keeps its transcript, and nothing claims an affordance the disposed
-  ///     session could not honor. Idempotent.
+  /// <summary>Marks this cell's container retired: the card keeps its transcript, and a
+  ///     submit on it is answered with a notice rather than a turn. Idempotent.
   ///     <para>THE TRANSCRIPT IS KEPT FROM HERE ON (issue #332): a retired container always
   ///     leaves a card behind, so the teardown that follows must not clear the entries the card
   ///     is still rendering.</para></summary>
@@ -373,6 +378,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     path reads it to decide between steering a live run and resuming a settled agent.
   ///     </summary>
   [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ChatInputPlaceholder))]
   public partial bool IsSettled { get; private set; }
 
   /// <summary>Records that this cell's agent started or stopped running (issue #330). A resumed
@@ -747,6 +753,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     string input = rawInput?.Trim() ?? "";
     if (string.IsNullOrWhiteSpace(input))
     {
+      return;
+    }
+
+    // A RETIRED CARD HAS NO SESSION BEHIND IT: the shell disposed the container, so a submit
+    // can neither run a turn nor reach an agent. It says so instead of doing nothing.
+    if (IsRetired)
+    {
+      Transcript.AddNotice("This agent is closed - the session behind this card is gone, so the message was not sent.");
       return;
     }
 

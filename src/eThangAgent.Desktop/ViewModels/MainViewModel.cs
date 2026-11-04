@@ -1432,11 +1432,17 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     <para>READING THE PRIMARY WOULD ALSO FIND THE WRONG AGENT: a chain step is its own agent
   ///     with its own cell, so the primary is an idle agent nothing is about to touch - the #322
   ///     wait would return at once and the teardown would dispose a container with a turn still
-  ///     running through it.</para></summary>
+  ///     running through it.</para>
+  ///     <para>A CLOSED TAB STILL ANSWERS (issue #339): closing a tab retires every cell but
+  ///     keeps the cards, so the tab has no live view-model left while the retired ones still
+  ///     carry the channel the host is waiting on. The fallback is the first card, which is
+  ///     what lets the TabClosed answer reach the host that asked instead of throwing.</para></summary>
   /// <param name="tab">The tab the request landed in.</param>
   /// <param name="sessionId">The session the request names, or null for the tab's live one.</param>
   private static AgentSessionViewModel SessionViewModelOf(AgentTabViewModel tab, AgentId? sessionId)
-    => (sessionId is { } id ? tab.FindCell(id)?.ViewModel : null) ?? tab.ViewModel;
+    => (sessionId is { } id ? tab.FindCell(id)?.ViewModel : null)
+        ?? tab.LiveViewModel
+        ?? tab.Cells[0].ViewModel;
 
   /// <summary>What one start produced: the tab it landed in, and the id of the session it
   ///     started.

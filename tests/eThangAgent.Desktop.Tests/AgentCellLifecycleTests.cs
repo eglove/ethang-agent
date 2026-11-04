@@ -29,39 +29,50 @@ public class AgentCellLifecycleTests
     Assert.True(tab.IsFullyFinished);
   }
 
-  /// <summary>D7: the card is removed only when the user dismisses it - and only once it is
-  ///     finished, so a click can never orphan a live session with no surface.</summary>
+  /// <summary>D7: the card is removed when the user closes it, whatever state its agent is in -
+  ///     an agent that never settles is the one a human most needs a way out of.</summary>
   [Fact]
-  public void DismissingAFinishedCell_RemovesIt_ButARunningOneIsRefused()
+  public void DismissingACell_RemovesIt_InAnyRunState()
   {
     AgentTabViewModel tab = TestFixtures.CreateTab();
     AgentCellViewModel running = tab.AddCell(
         TestFixtures.FakeSessionFor(TestFixtures.CreateViewModel()),
         TestFixtures.CreateViewModel());
 
-    Assert.False(tab.DismissCell(running), "a running cell must not be dismissed");
+    Assert.True(tab.DismissCell(running), "a running cell is closable");
 
-    Assert.Equal(2, tab.Cells.Count);
-
-    _ = tab.MarkSessionFinished(running.RootId);
-    Assert.True(tab.DismissCell(running), "a finished cell is dismissible");
     _ = Assert.Single(tab.Cells);
   }
 
-  /// <summary>The LAST cell is never dismissible: the tab resolves its own session through the
-  ///     cells, so removing the only one would leave a tab whose <c>Container</c> names nothing.
-  ///     <para>CELL ZERO IS NOT WHAT PROTECTS IT (issue #332): the first cell is an ordinary
-  ///     agent's card now, so what the tab refuses to lose is its last card, not its first.
-  ///     </para></summary>
+  /// <summary>A cell that belongs to another tab is refused, so a click can never remove a card
+  ///     this tab does not hold.</summary>
   [Fact]
-  public void TheLastCell_IsNeverDismissible_EvenWhenFinished()
+  public void DismissingAForeignCell_IsRefused()
   {
     AgentTabViewModel tab = TestFixtures.CreateTab();
-    _ = tab.MarkSessionFinished(tab.Container.RootId);
+    AgentTabViewModel other = TestFixtures.CreateTab();
 
-    Assert.False(tab.DismissCell(tab.Cells[0]));
-
+    Assert.False(tab.DismissCell(other.Cells[0]));
     _ = Assert.Single(tab.Cells);
+  }
+
+  /// <summary>THE LAST CELL IS CLOSABLE (issue #339): the tab is then empty, which is an
+  ///     ordinary state - it still knows its workspace, so the next agent has somewhere to go,
+  ///     and its session surface is null rather than a throw.</summary>
+  [Fact]
+  public void TheLastCell_IsDismissible_LeavingATabThatStillKnowsItsWorkspace()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTab();
+    string root = tab.WorkspaceRoot;
+
+    Assert.True(tab.DismissCell(tab.Cells[0]));
+
+    Assert.Empty(tab.Cells);
+    Assert.True(tab.IsEmpty);
+    Assert.Null(tab.LiveContainer);
+    Assert.Null(tab.LiveViewModel);
+    Assert.Equal(root, tab.WorkspaceRoot);
+    Assert.Equal(root, tab.Subtitle);
   }
 
   /// <summary>D5: a non-streaming agent is visually distinct from a streaming one. The
@@ -141,7 +152,7 @@ public class AgentCellLifecycleTests
     Assert.Same(first, tab.Cells[0]);
     Assert.True(first.IsFinished);
     Assert.Null(first.Container);
-    Assert.False(first.ViewModel.ShowsChatInput);
+    Assert.Contains("closed", first.ViewModel.ChatInputPlaceholder, StringComparison.Ordinal);
     // The tab's own session is the successor now, so no lookup can reach the retired id.
     Assert.NotEqual(retired, tab.Container.RootId.Value);
     Assert.Same(fresh, tab.ViewModel);

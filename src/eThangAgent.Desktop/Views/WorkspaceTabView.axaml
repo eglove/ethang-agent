@@ -103,7 +103,20 @@
                                  IsVisible="{Binding HasAddAgentNotice}"/>
           </DockPanel>
         </Border>
+        <!-- THE EMPTY TAB (issue #339): a tab whose last card was closed is an ordinary
+             state, so it says so and names the '+' rather than rendering a blank pane that
+             reads as a failure. -->
+        <Border x:Name="EmptyTabPane" DockPanel.Dock="Top" IsVisible="{Binding IsEmpty}"
+                Margin="16,24" Padding="16" Background="#0A000000" CornerRadius="4">
+          <StackPanel Spacing="6">
+            <SelectableTextBlock x:Name="EmptyTabTitle" Text="No agents in this workspace"
+                                 FontSize="13" FontWeight="SemiBold"/>
+            <SelectableTextBlock x:Name="EmptyTabHint" Text="Press '+' above to start one."
+                                 FontSize="11" Opacity="0.75" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
         <ScrollViewer x:Name="CellScroll"
+                    IsVisible="{Binding !IsEmpty}"
                     HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
           <ItemsControl x:Name="CellGrid" ItemsSource="{Binding Cells, Mode=OneWay}">
             <!-- The grid divides the space itself (AgentGridPanel): a WrapPanel would wrap on
@@ -141,9 +154,8 @@
                         </Border>
                         <Button DockPanel.Dock="Right" Content="✕" Padding="4,0" FontSize="10"
                                 Background="Transparent" BorderThickness="0" Margin="6,0,0,0"
-                                IsVisible="{Binding IsFinished}"
                                 Click="OnDismissCellClick" Tag="{Binding}"
-                                ToolTip.Tip="Dismiss this finished agent"/>
+                                ToolTip.Tip="Close this agent"/>
                       </DockPanel>
                     </Border>
                     <!-- The agent's final report (parent D5, issue #331): what it concluded,
