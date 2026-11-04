@@ -68,10 +68,16 @@ public sealed class LspDiagnosticsService
 {
   private readonly LspJsonRpcTransport? _transport;
   private readonly LspDiagnosticStore _store;
+  private readonly LspCapabilities _capabilities;
   private readonly SemaphoreSlim _restartGate = new(1, 1);
 
   public LspDiagnosticsService(LspJsonRpcTransport? transport, LspDiagnosticStore store)
-    => (_transport, _store) = (transport, store ?? throw new ArgumentNullException(nameof(store)));
+    : this(transport, store, LspCapabilities.None)
+  {
+  }
+
+  public LspDiagnosticsService(LspJsonRpcTransport? transport, LspDiagnosticStore store, LspCapabilities capabilities)
+    => (_transport, _store, _capabilities) = (transport, store ?? throw new ArgumentNullException(nameof(store)), capabilities ?? throw new ArgumentNullException(nameof(capabilities)));
 
   public void BeginRestart() => _ = _restartGate.WaitAsync();
 
@@ -90,6 +96,10 @@ public sealed class LspDiagnosticsService
       if (_transport is null)
       {
         return new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, []);
+      }
+      if (!_capabilities.Supports("textDocument/diagnostic"))
+      {
+        return _store.Get(uri);
       }
       string pullParams = _store.BuildPullParams(uri);
       LspRequestResult response = await _transport.SendRequestAsync("textDocument/diagnostic", pullParams, ct).ConfigureAwait(false);

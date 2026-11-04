@@ -8,9 +8,10 @@ public sealed record LspCapabilities(
     bool DocumentSymbolProvider,
     bool WorkspaceSymbolProvider,
     bool CallHierarchyProvider,
-    bool ImplementationProvider)
+    bool ImplementationProvider,
+    bool DiagnosticPullProvider = false)
 {
-  public static LspCapabilities None => new(false, false, false, false, false, false, false);
+  public static LspCapabilities None => new(false, false, false, false, false, false, false, false);
 
   public bool Supports(string method) => method switch
   {
@@ -21,6 +22,7 @@ public sealed record LspCapabilities(
     "workspace/symbol" => WorkspaceSymbolProvider,
     "callHierarchy/prepare" => CallHierarchyProvider,
     "textDocument/implementation" => ImplementationProvider,
+    "textDocument/diagnostic" => DiagnosticPullProvider,
     _ => true,
   };
 }

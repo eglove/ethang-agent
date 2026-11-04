@@ -21,6 +21,8 @@ LspServerLaunch? launch = resolver.TryResolveForWorkspace(appDir, workspaceRoot)
 Process? serverProcess = null;
 LspJsonRpcTransport? transport = null;
 LspDiagnosticStore store = new();
+LspDiagnosticsService diagnosticsService = new(null, store);
+LspClient? lspClient = null;
 
 if (launch is not null)
 {
@@ -40,8 +42,10 @@ if (launch is not null)
     transport.OnNotification(_ => router.HandleNotification(_));
     LspServerConfig config = LspLanguageDetector.CSharpConfig(launch.ServerPath);
     LspClient client = new(transport, config);
+    lspClient = client;
     string wsUri = LspUriMapper.ToUri(workspaceRoot);
     _ = await client.InitializeAsync(wsUri);
+    diagnosticsService = new LspDiagnosticsService(transport, store, client.Capabilities);
   }
 }
 
@@ -53,6 +57,19 @@ LspDocumentSync forwarder = new(workspaceId, workspaceRoot, syncConfig.LanguageI
 
 using LspDaemonServer server = new(pipeName, workspaceId, () => Task.CompletedTask);
 server.AttachForwarder(forwarder);
+server.AttachDiagnosticsService(diagnosticsService);
+server.AttachRestartHook(async ct =>
+{
+  diagnosticsService.BeginRestart();
+  try
+  {
+    await forwarder.ReopenAllAsync(forwarder.OpenDocuments, ct).ConfigureAwait(false);
+  }
+  finally
+  {
+    await diagnosticsService.CompleteRestartAsync().ConfigureAwait(false);
+  }
+});
 try
 {
   await server.ServeUntilClosedAsync();

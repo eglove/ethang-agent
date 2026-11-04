@@ -123,6 +123,8 @@ public sealed class LspDaemonServer : IDisposable
   private readonly string _daemonInstanceId = Guid.NewGuid().ToString("N");
   private NamedPipeServerStream? _server;
   private LspDocumentSync? _forwarder;
+  private LspDiagnosticsService? _diagnosticsService;
+  private Func<CancellationToken, Task>? _restartHook;
 
   public LspDaemonServer(string pipeName, string workspaceId, Func<Task> onConnected)
   {
@@ -136,6 +138,10 @@ public sealed class LspDaemonServer : IDisposable
   /// <summary>Attaches the document-sync forwarder (issue #362): watcher.announce
   /// notifications received on the pipe are applied to it after hello.</summary>
   public void AttachForwarder(LspDocumentSync forwarder) => _forwarder = forwarder ?? throw new ArgumentNullException(nameof(forwarder));
+
+  public void AttachDiagnosticsService(LspDiagnosticsService service) => _diagnosticsService = service ?? throw new ArgumentNullException(nameof(service));
+
+  public void AttachRestartHook(Func<CancellationToken, Task> hook) => _restartHook = hook ?? throw new ArgumentNullException(nameof(hook));
 
   public async Task ServeOnceAsync(CancellationToken ct = default) => await ServeAsync(ct).ConfigureAwait(false);
 
@@ -170,6 +176,10 @@ public sealed class LspDaemonServer : IDisposable
     };
     await WriteLineAsync(_server, ack.ToJsonString(), ct).ConfigureAwait(false);
     await _onConnected().ConfigureAwait(false);
+    if (_restartHook is not null)
+    {
+      await _restartHook(ct).ConfigureAwait(false);
+    }
     if (_forwarder is not null)
     {
       await ForwardAnnouncementsAsync(_server, _forwarder, ct).ConfigureAwait(false);
