@@ -1,15 +1,18 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : ITool, IWorkspaceScopedTool
+public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IAdvisoryDiagnosticsSource? diagnostics = null, SessionAdvisoryDiagnosticsLedger? advisoryLedger = null) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileWriteAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+  private readonly IAdvisoryDiagnosticsSource? _diagnostics = diagnostics;
+  private readonly SessionAdvisoryDiagnosticsLedger? _advisoryLedger = advisoryLedger;
 
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
-      => new WriteTool(new WorkspacePathResolver(workspaceRoot), _files);
+      => new WriteTool(new WorkspacePathResolver(workspaceRoot), _files, _diagnostics, _advisoryLedger);
 
   public ToolDefinition Definition { get; } = new(
       "write",
@@ -81,10 +84,11 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
     }
 
     FileWriteOutcome o = written.Value;
-    return new ToolResult(
+    ToolResult baseResult = new(
         $"[write {path}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes, " +
         $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
+    return await AdvisoryDiagnosticsAppender.AppendAsync(baseResult, _diagnostics, path, o.ChangedLines ?? [], _advisoryLedger, ct).ConfigureAwait(false);
   }
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);

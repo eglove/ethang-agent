@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using eThangAgent.ToolDomain.FileClaims;
+using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.Lsp.ACL;
 
@@ -150,6 +151,31 @@ public sealed class LspPipeClient : IDisposable
     return result["released"]?.GetValue<bool>() ?? false;
   }
 
+  /// <summary>Queries advisory diagnostics for one file from the daemon (issue #356).</summary>
+  public async Task<AdvisoryDiagnosticsResult> GetDiagnosticsAsync(string path, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(path);
+    JsonObject result = await RequestAsync("lsp.diagnostics", new JsonObject { ["path"] = path }, ct).ConfigureAwait(false);
+    string stateText = result["state"]?.GetValue<string>() ?? nameof(AdvisoryDiagnosticsState.Unavailable);
+    AdvisoryDiagnosticsState state = Enum.TryParse(stateText, out AdvisoryDiagnosticsState parsed)
+      ? parsed
+      : AdvisoryDiagnosticsState.Unavailable;
+    List<AdvisoryDiagnostic> diagnostics = [];
+    if (result["diagnostics"] is JsonArray arr)
+    {
+      foreach (JsonNode? node in arr)
+      {
+        JsonObject d = node!.AsObject();
+        string? code = d["code"]?.GetValue<string>();
+        diagnostics.Add(new AdvisoryDiagnostic(
+          d["startLine"]!.GetValue<int>(), d["startCharacter"]!.GetValue<int>(),
+          d["endLine"]!.GetValue<int>(), d["endCharacter"]!.GetValue<int>(),
+          code, d["message"]?.GetValue<string>() ?? string.Empty));
+      }
+    }
+    return new AdvisoryDiagnosticsResult(state, diagnostics);
+  }
+
   /// <summary>Sends one watcher.announce notification over the pipe (issue #362).</summary>
   public async Task SendWatcherAnnouncementAsync(WatcherAnnouncement announcement, CancellationToken ct = default)
   {
@@ -262,7 +288,7 @@ public sealed class LspDaemonServer : IDisposable
     {
       await ForwardAnnouncementsAsync(_server, _forwarder, ct).ConfigureAwait(false);
     }
-    else if (_symbolService is not null || _claimStore is not null)
+    else if (_symbolService is not null || _claimStore is not null || _diagnosticsService is not null)
     {
       await ServeSymbolQueriesAsync(_server, ct).ConfigureAwait(false);
     }
@@ -309,6 +335,11 @@ public sealed class LspDaemonServer : IDisposable
         await HandleClaimRequestAsync(server, line, method, ct).ConfigureAwait(false);
         return;
       }
+      if (method == "lsp.diagnostics")
+      {
+        await HandleDiagnosticsRequestAsync(server, line, ct).ConfigureAwait(false);
+        return;
+      }
       if (method != "lsp.symbol" || _symbolService is null) return;
       if (!root.TryGetProperty("id", out JsonElement idEl)) return;
       if (!root.TryGetProperty("params", out JsonElement p)) return;
@@ -330,6 +361,40 @@ public sealed class LspDaemonServer : IDisposable
         _ => new LspSymbolResult(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action),
       };
       JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["occurrenceUsed"] = result.OccurrenceUsed, ["totalOccurrences"] = result.TotalOccurrences, ["message"] = result.Message ?? string.Empty, ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()) } };
+      await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
+    }
+    catch (JsonException) { }
+    catch (IOException) { }
+  }
+
+  private async Task HandleDiagnosticsRequestAsync(NamedPipeServerStream server, string line, CancellationToken ct)
+  {
+    try
+    {
+      using JsonDocument doc = JsonDocument.Parse(line);
+      JsonElement root = doc.RootElement;
+      if (!root.TryGetProperty("id", out JsonElement idEl)) return;
+      if (!root.TryGetProperty("params", out JsonElement p)) return;
+      string path = p.GetProperty("path").GetString() ?? string.Empty;
+      string uri = LspUriMapper.ToUri(path);
+      LspDiagnosticsResult result = _diagnosticsService is null
+        ? new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, [])
+        : await _diagnosticsService.PullAsync(uri, ct).ConfigureAwait(false);
+      JsonArray diagnostics = [];
+      foreach (LspDiagnostic d in result.Diagnostics)
+      {
+        JsonObject o = new()
+        {
+          ["startLine"] = d.StartLine + 1,
+          ["startCharacter"] = d.StartCharacter,
+          ["endLine"] = d.EndLine + 1,
+          ["endCharacter"] = d.EndCharacter,
+          ["message"] = d.Message,
+        };
+        if (d.Code is not null) o["code"] = d.Code;
+        diagnostics.Add(o);
+      }
+      JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["diagnostics"] = diagnostics } };
       await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
     }
     catch (JsonException) { }

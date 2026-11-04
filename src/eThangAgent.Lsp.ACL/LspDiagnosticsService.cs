@@ -95,7 +95,10 @@ public sealed class LspDiagnosticsService
     {
       if (_transport is null)
       {
-        return new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, []);
+        LspDiagnosticsResult existing = _store.Get(uri);
+        return existing.State == LspDiagnosticsState.Starting
+          ? new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, [])
+          : existing;
       }
       if (!_capabilities.Supports("textDocument/diagnostic"))
       {

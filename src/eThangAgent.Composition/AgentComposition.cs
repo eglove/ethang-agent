@@ -22,6 +22,7 @@ using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.Mcp;
 using eThangAgent.ToolDomain.Lsp;
 using LspSymbolAccess = eThangAgent.Lsp.ACL.LspSymbolAccess;
+using LspAdvisoryDiagnosticsAccess = eThangAgent.Lsp.ACL.LspAdvisoryDiagnosticsAccess;
 using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
@@ -198,7 +199,9 @@ public static class AgentComposition
           "Read, render, create, and manipulate PDF documents."),
       new AgentToolBinding(
           new WriteTool(Resolver(sp),
-              sp.GetRequiredService<IFileWriteAccess>()),
+              sp.GetRequiredService<IFileWriteAccess>(),
+              AdvisoryDiagnosticsSource(sp),
+              sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>()),
           "Create or overwrite a workspace file."),
       new AgentToolBinding(
           new WriteMarkdownTool(Resolver(sp),
@@ -206,13 +209,24 @@ public static class AgentComposition
           "Render a structured JSON document into markdown; return it or write it to a workspace file."),
       new AgentToolBinding(
           new EditTool(Resolver(sp),
-              sp.GetRequiredService<IFileEditAccess>()),
+              sp.GetRequiredService<IFileEditAccess>(),
+              AdvisoryDiagnosticsSource(sp),
+              sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>()),
           "Edit a file by exact literal replacement."),
       new AgentToolBinding(
           new FindFilesTool(ReadOnlyResolver(sp),
               sp.GetRequiredService<IFileSearchAccess>()),
           "Search the workspace for files by name pattern (Win32 glob: * and ?)."),
   ];
+
+  /// <summary>The advisory diagnostics source for edit/write (issue #356): a lazy pipe
+  ///     access that resolves null until a daemon is reachable, so registration never
+  ///     requires a language server to exist and LSP-absent results stay byte-identical.</summary>
+  private static LspAdvisoryDiagnosticsAccess AdvisoryDiagnosticsSource(IServiceProvider sp)
+  {
+    string workspaceId = sp.GetRequiredService<IWorkspaceContext>().WorkspaceId;
+    return new LspAdvisoryDiagnosticsAccess(() => null, workspaceId, Guid.NewGuid().ToString("N"));
+  }
 
   /// <summary>The trust-aware resolver every MUTATING file tool receives (issue #96): the
   ///     host-supplied resolver widened with the session's approved external roots, with
@@ -1200,6 +1214,7 @@ public static class AgentComposition
         // AgentSettings. Unconditional registration: not remote resolves nulls, the
         // empty directory list, and nothing else changes.
         .AddSingleton<IVerificationLedger, SessionVerificationLedger>()
+        .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
         .AddSingleton(sp => new VerificationGate(
             sp.GetRequiredService<IVerificationLedger>(),
             settings.VerificationGateEnabled))

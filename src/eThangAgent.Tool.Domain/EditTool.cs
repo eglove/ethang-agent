@@ -1,15 +1,18 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : ITool, IWorkspaceScopedTool
+public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdvisoryDiagnosticsSource? diagnostics = null, SessionAdvisoryDiagnosticsLedger? advisoryLedger = null) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileEditAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+  private readonly IAdvisoryDiagnosticsSource? _diagnostics = diagnostics;
+  private readonly SessionAdvisoryDiagnosticsLedger? _advisoryLedger = advisoryLedger;
 
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
-      => new EditTool(new WorkspacePathResolver(workspaceRoot), _files);
+      => new EditTool(new WorkspacePathResolver(workspaceRoot), _files, _diagnostics, _advisoryLedger);
 
   public ToolDefinition Definition { get; } = new(
       "edit",
@@ -116,10 +119,11 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
 
     ReplaceOutcome o = replaced.Value;
     string noun = o.Replaced == 1 ? "occurrence" : "occurrence(s)";
-    return new ToolResult(
+    ToolResult baseResult = new(
         $"[edit {path}] replaced {o.Replaced} {noun}, file now {o.NewLineCount} lines, " +
         $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
+    return await AdvisoryDiagnosticsAppender.AppendAsync(baseResult, _diagnostics, path, o.ChangedLines ?? [], _advisoryLedger, ct).ConfigureAwait(false);
   }
 
   private async Task<ToolResult> ReplaceHunksAsync(string path, EditHunksInput args, CancellationToken ct)
@@ -139,7 +143,8 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
         $"[edit {path}] {total} {(total == 1 ? "hunk" : "hunks")} applied, file now " +
         $"{o.NewLineCount} lines, {LineEndings.Label(o.NormalizedTo)} line endings",
     ];
-    return new ToolResult(string.Join('\n', lines), false);
+    ToolResult baseResult = new(string.Join('\n', lines), false);
+    return await AdvisoryDiagnosticsAppender.AppendAsync(baseResult, _diagnostics, path, o.ChangedLines ?? [], _advisoryLedger, ct).ConfigureAwait(false);
   }
 
   private async Task<ToolResult> ReplaceRangeAsync(string path, EditRangeInput args, CancellationToken ct)
@@ -152,10 +157,11 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
     }
 
     ReplaceOutcome o = replaced.Value;
-    return new ToolResult(
+    ToolResult baseResult = new(
         $"[edit {path}] replaced lines {args.StartLine}-{args.EndLine}, file now {o.NewLineCount} lines, " +
         $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
+    return await AdvisoryDiagnosticsAppender.AppendAsync(baseResult, _diagnostics, path, o.ChangedLines ?? [], _advisoryLedger, ct).ConfigureAwait(false);
   }
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);
