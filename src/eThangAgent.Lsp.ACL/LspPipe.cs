@@ -124,6 +124,7 @@ public sealed class LspDaemonServer : IDisposable
   private NamedPipeServerStream? _server;
   private LspDocumentSync? _forwarder;
   private LspDiagnosticsService? _diagnosticsService;
+  private LspSymbolService? _symbolService;
   private Func<CancellationToken, Task>? _restartHook;
 
   public LspDaemonServer(string pipeName, string workspaceId, Func<Task> onConnected)
@@ -140,6 +141,8 @@ public sealed class LspDaemonServer : IDisposable
   public void AttachForwarder(LspDocumentSync forwarder) => _forwarder = forwarder ?? throw new ArgumentNullException(nameof(forwarder));
 
   public void AttachDiagnosticsService(LspDiagnosticsService service) => _diagnosticsService = service ?? throw new ArgumentNullException(nameof(service));
+
+  public void AttachSymbolService(LspSymbolService service) => _symbolService = service ?? throw new ArgumentNullException(nameof(service));
 
   public void AttachRestartHook(Func<CancellationToken, Task> hook) => _restartHook = hook ?? throw new ArgumentNullException(nameof(hook));
 
@@ -184,6 +187,68 @@ public sealed class LspDaemonServer : IDisposable
     {
       await ForwardAnnouncementsAsync(_server, _forwarder, ct).ConfigureAwait(false);
     }
+    else if (_symbolService is not null)
+    {
+      await ServeSymbolQueriesAsync(_server, _symbolService, ct).ConfigureAwait(false);
+    }
+  }
+
+  private static async Task ServeSymbolQueriesAsync(NamedPipeServerStream server, LspSymbolService symbolService, CancellationToken ct)
+  {
+    List<byte> lineBytes = [];
+    byte[] buffer = new byte[8192];
+    while (!ct.IsCancellationRequested)
+    {
+      int read;
+      try { read = await server.ReadAsync(buffer, ct).ConfigureAwait(false); }
+      catch (OperationCanceledException) { return; }
+      catch (IOException) { return; }
+      if (read == 0) return;
+      for (int i = 0; i < read; i++)
+      {
+        if (buffer[i] == (byte)'\n')
+        {
+          string line = Encoding.UTF8.GetString([.. lineBytes]);
+          lineBytes.Clear();
+          await HandleSymbolQueryAsync(server, line, symbolService, ct).ConfigureAwait(false);
+        }
+        else
+        {
+          lineBytes.Add(buffer[i]);
+          if (lineBytes.Count > LspProtocol.MaxFrameBytes) return;
+        }
+      }
+    }
+  }
+
+  private static async Task HandleSymbolQueryAsync(NamedPipeServerStream server, string line, LspSymbolService symbolService, CancellationToken ct)
+  {
+    try
+    {
+      using JsonDocument doc = JsonDocument.Parse(line);
+      JsonElement root = doc.RootElement;
+      if (!root.TryGetProperty("method", out JsonElement m) || m.GetString() != "lsp.symbol") return;
+      if (!root.TryGetProperty("id", out JsonElement idEl)) return;
+      if (!root.TryGetProperty("params", out JsonElement p)) return;
+      string action = p.GetProperty("action").GetString() ?? string.Empty;
+      string uri = p.TryGetProperty("uri", out JsonElement u) ? u.GetString() ?? string.Empty : string.Empty;
+      string symbolName = p.TryGetProperty("symbolName", out JsonElement s) ? s.GetString() ?? string.Empty : string.Empty;
+      int occurrence = p.TryGetProperty("occurrence", out JsonElement o) ? o.GetInt32() : 0;
+      LspSymbolResult result = action switch
+      {
+        "definition" => await symbolService.DefinitionAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
+        "references" => await symbolService.ReferencesAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
+        "hover" => await symbolService.HoverAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
+        "implementation" => await symbolService.ImplementationAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
+        "document-symbols" => await symbolService.DocumentSymbolsAsync(uri, ct).ConfigureAwait(false),
+        "workspace-symbols" => await symbolService.WorkspaceSymbolsAsync(symbolName, ct).ConfigureAwait(false),
+        _ => new LspSymbolResult(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action),
+      };
+      JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["occurrenceUsed"] = result.OccurrenceUsed, ["totalOccurrences"] = result.TotalOccurrences, ["message"] = result.Message ?? string.Empty, ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()) } };
+      await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
+    }
+    catch (JsonException) { }
+    catch (IOException) { }
   }
 
   private static async Task ForwardAnnouncementsAsync(NamedPipeServerStream server, LspDocumentSync forwarder, CancellationToken ct)

@@ -20,6 +20,8 @@ using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.Mcp;
+using eThangAgent.ToolDomain.Lsp;
+using LspSymbolAccess = eThangAgent.Lsp.ACL.LspSymbolAccess;
 using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
@@ -327,6 +329,13 @@ public static class AgentComposition
       new AgentToolBinding(
           new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
           "Call tools on configured MCP servers through one dispatch surface (list, call)."),
+      // LSP symbol navigation (issue #357): single dispatch tool mirroring McpTool;
+      // the ACL access is lazy (null service = Unavailable) so registration never
+      // requires a language server to exist.
+      new AgentToolBinding(
+          new LspSymbolTool(sp.GetRequiredService<IPathResolver>(),
+              new LspSymbolAccess(() => null)),
+          "Query language-server symbol navigation (definition, references, hover, document-symbols, workspace-symbols, implementation)."),
   ];
 
   /// <summary>Host-supplied workspace identity, the app database, the storage-backed stores, the

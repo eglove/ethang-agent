@@ -22,6 +22,7 @@ Process? serverProcess = null;
 LspJsonRpcTransport? transport = null;
 LspDiagnosticStore store = new();
 LspDiagnosticsService diagnosticsService = new(null, store);
+LspSymbolService symbolService = new(null, LspCapabilities.None);
 LspClient? lspClient = null;
 
 if (launch is not null)
@@ -46,6 +47,7 @@ if (launch is not null)
     string wsUri = LspUriMapper.ToUri(workspaceRoot);
     _ = await client.InitializeAsync(wsUri);
     diagnosticsService = new LspDiagnosticsService(transport, store, client.Capabilities);
+    symbolService = new LspSymbolService(transport, client.Capabilities);
   }
 }
 
@@ -58,6 +60,7 @@ LspDocumentSync forwarder = new(workspaceId, workspaceRoot, syncConfig.LanguageI
 using LspDaemonServer server = new(pipeName, workspaceId, () => Task.CompletedTask);
 server.AttachForwarder(forwarder);
 server.AttachDiagnosticsService(diagnosticsService);
+server.AttachSymbolService(symbolService);
 server.AttachRestartHook(async ct =>
 {
   diagnosticsService.BeginRestart();
