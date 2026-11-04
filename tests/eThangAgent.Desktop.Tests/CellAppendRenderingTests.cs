@@ -78,6 +78,49 @@ public class CellAppendRenderingTests
     window.Close();
   }
 
+  /// <summary>Issue #339: a RUNNING agent's card carries its close button. The control used to
+  ///     render only on a finished card, so an agent that never settled could not be closed at
+  ///     all - the one state a human most needs a way out of.</summary>
+  [AvaloniaFact]
+  public async Task ARunningCardsCloseButton_Renders()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
+    AgentCellViewModel cell = Assert.Single(tab.Cells);
+    cell.ViewModel.IsBusy = true;
+
+    Window window = Show(tab);
+
+    Assert.Contains(window.GetVisualDescendants().OfType<Button>(),
+        button => ReferenceEquals(button.Tag, cell) && button.IsVisible);
+    window.Close();
+  }
+
+  /// <summary>Issue #339: a tab whose last card was closed renders the empty-state prompt naming
+  ///     the '+', never a blank pane.
+  ///     <para>THE PROMPT IS THE ASSERTION: a hidden grid alone is indistinguishable from a tab
+  ///     that failed to render anything, which is the failure the empty state exists to
+  ///     prevent.</para></summary>
+  [AvaloniaFact]
+  public async Task ATabWithZeroAgents_RendersTheEmptyState()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
+    Window window = Show(tab);
+
+    Assert.True(tab.DismissCell(tab.Cells[0]), "the last card is closable");
+    Dispatcher.UIThread.RunJobs();
+
+    Border pane = window.GetVisualDescendants().OfType<Border>()
+        .First(border => border.Name == "EmptyTabPane");
+    Assert.True(pane.IsVisible, "an empty tab states so rather than rendering a blank pane");
+    Assert.Contains(pane.GetVisualDescendants().OfType<SelectableTextBlock>(),
+        block => block.Text is not null && block.Text.Contains('+', StringComparison.Ordinal));
+    Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(),
+        border => border.Name == "CellFrame");
+    window.Close();
+  }
+
   /// <summary>Every rendered cell frame, found by the template's own name.
   ///     <para>COUNTED FROM THE VISUAL TREE, not from <c>tab.Cells</c>: the collection can hold
   ///     two cards while the grid renders one, which is the defect this file exists for.
