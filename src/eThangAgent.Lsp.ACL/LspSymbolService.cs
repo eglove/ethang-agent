@@ -30,7 +30,7 @@ public sealed record LspSymbolResolution(bool Found, int Line, int Character, in
 /// operation. Capability-gated: an unadvertised capability returns Unsupported
 /// without touching the wire. A symbol only referenced (not defined) in the named
 /// file resolves to Unsupported, never a guessed position.</summary>
-public sealed class LspSymbolService
+public sealed partial class LspSymbolService
 {
   private readonly LspJsonRpcTransport? _transport;
   private readonly LspCapabilities _capabilities;

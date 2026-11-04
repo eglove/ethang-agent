@@ -18,7 +18,7 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly ILspSymbolAccess _access = access ?? throw new ArgumentNullException(nameof(access));
 
-  private static readonly string[] ActionNames = ["definition", "references", "hover", "document-symbols", "workspace-symbols", "implementation"];
+  private static readonly string[] ActionNames = ["definition", "references", "hover", "document-symbols", "workspace-symbols", "implementation", "call-hierarchy-incoming", "call-hierarchy-outgoing"];
 
   public ITool RootedAt(string workspaceRoot)
       => new LspSymbolTool(new WorkspacePathResolver(workspaceRoot), _access);
@@ -31,13 +31,15 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber,
               ToolTimeout.ParameterDescription, Minimum: 1),
           new ToolParameter("action", ToolParameterType.Text,
-              "Exactly one of definition, references, hover, document-symbols, workspace-symbols, implementation (case-sensitive)."),
+              "Exactly one of definition, references, hover, document-symbols, workspace-symbols, implementation, call-hierarchy-incoming, call-hierarchy-outgoing (case-sensitive)."),
           new ToolParameter("path", ToolParameterType.Text,
               "Required for definition, references, hover, implementation, document-symbols: the file that defines the symbol."),
           new ToolParameter("symbolName", ToolParameterType.Text,
               "Required for definition, references, hover, implementation, workspace-symbols: the symbol name. No line/column is accepted."),
           new ToolParameter("occurrence", ToolParameterType.WholeNumber,
               "Optional for position queries: 0-based occurrence index when the symbol occurs more than once (default 0)."),
+          new ToolParameter("depth", ToolParameterType.WholeNumber,
+              "Optional for call-hierarchy actions: 1 (default) or 2 levels."),
       ],
       [ToolTimeout.ParameterName, "action"]);
 
@@ -46,7 +48,7 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
     return "Query language-server symbol navigation through one dispatch surface."
         + " timeoutSeconds is mandatory. action is exactly one of " + string.Join(", ", ActionNames)
         + " (case-sensitive)."
-        + " definition, references, hover, and implementation require path and symbolName and take an optional occurrence (default 0);"
+        + " definition, references, hover, implementation, call-hierarchy-incoming, and call-hierarchy-outgoing require path and symbolName and take an optional occurrence (default 0); call-hierarchy actions take an optional depth (1 default, 2 max);"
         + " document-symbols requires path; workspace-symbols requires symbolName."
         + " The caller never supplies line or column: the tool resolves the position from the symbol name via document symbols."
         + " Multiple occurrences resolve deterministically and the result names the occurrence used."
@@ -102,6 +104,8 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
     LspSymbolAction.DocumentSymbols => new LspSymbolCommand.DocumentSymbols(resolvedPath!),
     LspSymbolAction.WorkspaceSymbols => new LspSymbolCommand.WorkspaceSymbols(args.SymbolName!),
     LspSymbolAction.Implementation => new LspSymbolCommand.Implementation(resolvedPath!, args.SymbolName!, args.Occurrence),
+    LspSymbolAction.CallHierarchyIncoming => new LspSymbolCommand.CallHierarchyIncoming(resolvedPath!, args.SymbolName!, args.Occurrence, args.Depth),
+    LspSymbolAction.CallHierarchyOutgoing => new LspSymbolCommand.CallHierarchyOutgoing(resolvedPath!, args.SymbolName!, args.Occurrence, args.Depth),
     _ => throw new InvalidOperationException("unreachable: action is a validated enum"),
   };
 
@@ -113,6 +117,8 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
     LspSymbolAction.DocumentSymbols => "document-symbols",
     LspSymbolAction.WorkspaceSymbols => "workspace-symbols",
     LspSymbolAction.Implementation => "implementation",
+    LspSymbolAction.CallHierarchyIncoming => "call-hierarchy-incoming",
+    LspSymbolAction.CallHierarchyOutgoing => "call-hierarchy-outgoing",
     _ => "unknown",
   };
 

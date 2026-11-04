@@ -30,6 +30,8 @@ public sealed class LspSymbolAccess : ILspSymbolAccess
       LspSymbolCommand.DocumentSymbols c => await service.DocumentSymbolsAsync(ToUri(c.Path), ct).ConfigureAwait(false),
       LspSymbolCommand.WorkspaceSymbols c => await service.WorkspaceSymbolsAsync(c.SymbolName, ct).ConfigureAwait(false),
       LspSymbolCommand.Implementation c => await service.ImplementationAsync(ToUri(c.Path), c.SymbolName, c.Occurrence, ct).ConfigureAwait(false),
+      LspSymbolCommand.CallHierarchyIncoming c => await service.CallHierarchyIncomingAsync(ToUri(c.Path), c.SymbolName, c.Occurrence, c.Depth, ct).ConfigureAwait(false),
+      LspSymbolCommand.CallHierarchyOutgoing c => await service.CallHierarchyOutgoingAsync(ToUri(c.Path), c.SymbolName, c.Occurrence, c.Depth, ct).ConfigureAwait(false),
       _ => throw new InvalidOperationException("unreachable: command is a validated record family"),
     };
     return Map(result);

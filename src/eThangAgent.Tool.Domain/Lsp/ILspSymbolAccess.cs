@@ -34,6 +34,8 @@ public abstract record LspSymbolCommand
   public sealed record DocumentSymbols(string Path) : LspSymbolCommand;
   public sealed record WorkspaceSymbols(string SymbolName) : LspSymbolCommand;
   public sealed record Implementation(string Path, string SymbolName, int Occurrence) : LspSymbolCommand;
+  public sealed record CallHierarchyIncoming(string Path, string SymbolName, int Occurrence, int Depth = 1) : LspSymbolCommand;
+  public sealed record CallHierarchyOutgoing(string Path, string SymbolName, int Occurrence, int Depth = 1) : LspSymbolCommand;
 }
 
 /// <summary>Outcomes the seam returns (the closed outcome set).</summary>

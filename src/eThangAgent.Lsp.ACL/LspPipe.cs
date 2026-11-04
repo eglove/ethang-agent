@@ -234,6 +234,7 @@ public sealed class LspDaemonServer : IDisposable
       string uri = p.TryGetProperty("uri", out JsonElement u) ? u.GetString() ?? string.Empty : string.Empty;
       string symbolName = p.TryGetProperty("symbolName", out JsonElement s) ? s.GetString() ?? string.Empty : string.Empty;
       int occurrence = p.TryGetProperty("occurrence", out JsonElement o) ? o.GetInt32() : 0;
+      int depth = p.TryGetProperty("depth", out JsonElement d) ? d.GetInt32() : 1;
       LspSymbolResult result = action switch
       {
         "definition" => await symbolService.DefinitionAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
@@ -242,6 +243,8 @@ public sealed class LspDaemonServer : IDisposable
         "implementation" => await symbolService.ImplementationAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
         "document-symbols" => await symbolService.DocumentSymbolsAsync(uri, ct).ConfigureAwait(false),
         "workspace-symbols" => await symbolService.WorkspaceSymbolsAsync(symbolName, ct).ConfigureAwait(false),
+        "call-hierarchy-incoming" => await symbolService.CallHierarchyIncomingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
+        "call-hierarchy-outgoing" => await symbolService.CallHierarchyOutgoingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
         _ => new LspSymbolResult(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action),
       };
       JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["occurrenceUsed"] = result.OccurrenceUsed, ["totalOccurrences"] = result.TotalOccurrences, ["message"] = result.Message ?? string.Empty, ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()) } };
