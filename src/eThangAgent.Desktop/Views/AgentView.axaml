@@ -105,23 +105,21 @@
       <!-- Normal input row. The input stays enabled while a turn runs: text submitted
            then steers the active turn; the Stop button interrupts it. -->
       <StackPanel x:Name="InputArea" DockPanel.Dock="Bottom">
-        <!-- '/' autocomplete popup (spec #28): anchored above the input, open only
-             while the session view-model's state machine says so. Selection highlight
-             rides the ListBox's own rendering, driven one-way by the view-model's
-             SelectedIndex; tapping an option accepts it. -->
+        <!-- Reference popup: anchored above the input, open only while the session
+             view-model's state machine says so. Selection highlight rides the ListBox's
+             own rendering, driven one-way by the view-model's SelectedIndex; tapping an
+             option commits it. -->
         <ListBox x:Name="AutocompleteList"
-                 ItemsSource="{Binding Autocomplete.Options}"
-                 SelectedIndex="{Binding Autocomplete.SelectedIndex, Mode=OneWay}"
-                 IsVisible="{Binding Autocomplete.IsOpen}"
+                 ItemsSource="{Binding ReferenceCompletions.Options}"
+                 SelectedIndex="{Binding ReferenceCompletions.SelectedIndex, Mode=OneWay}"
+                 IsVisible="{Binding ReferenceCompletions.IsOpen}"
                  MaxHeight="220" Margin="8,0"
                  Tapped="OnAutocompleteTapped">
           <ListBox.ItemTemplate>
-            <DataTemplate x:DataType="vm:SkillOption">
+            <DataTemplate x:DataType="vm:ReferenceOption">
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                <TextBlock Text="[manual]" IsVisible="{Binding IsManual}" Foreground="#FFB454"/>
-                <TextBlock Text="[command]" IsVisible="{Binding IsCommand}" Foreground="#4FC3F7"/>
-                <TextBlock Text="{Binding Description}" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding Detail}" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
               </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>

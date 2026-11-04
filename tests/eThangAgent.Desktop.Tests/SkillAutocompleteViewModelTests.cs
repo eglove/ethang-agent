@@ -53,7 +53,7 @@ public class SkillAutocompleteViewModelTests
     SkillOption[] catalog =
     [
         Opt("deploy-app"),
-        AgentSessionViewModel.NewSessionCommandOption,
+        new("new", "Start a new session.", IsManual: false, IsCommand: true),
         Opt("dep-check"),
         Opt("Other", manual: true),
         Opt("Another", manual: true),
@@ -68,13 +68,11 @@ public class SkillAutocompleteViewModelTests
   }
 
   [Fact]
-  public void NewSessionCommandOption_IsACommandRow_NotManual()
+  public void TheRegisteredNewCommand_IsTheOnlyCommandRow()
   {
-    SkillOption option = AgentSessionViewModel.NewSessionCommandOption;
-    Assert.Equal("new", option.Name, StringComparer.Ordinal);
-    Assert.True(option.IsCommand);
-    Assert.False(option.IsManual);
-    Assert.False(string.IsNullOrWhiteSpace(option.Description));
+    SessionCommand command = Assert.Single(SessionCommandRegistry.All);
+    Assert.Equal("new", command.Name, StringComparer.Ordinal);
+    Assert.False(string.IsNullOrWhiteSpace(command.Description));
   }
 
   [Fact]

@@ -9,11 +9,12 @@ namespace eThangAgent.Transport.ACL;
 public sealed record RootTurnImage(string MediaType, string Base64Data);
 
 /// <summary>One app-supplied message that must reach the host's conversation BEFORE the
-///     turn's user input (spec D6). The app owns two such mutations - a slash invocation's
-///     System line and a ! command's model-facing line - and both are CONVERSATION
-///     mutations, so they travel as one rather than being re-derived host-side (the host
-///     has no skill catalog and no command runner, and inventing either would be a second
-///     implementation of the app's own surface).</summary>
+///     turn's user input (spec D6). The app owns these mutations - a ! command's
+///     model-facing line and the read output of a message's <c>@</c> references - and each is
+///     a CONVERSATION mutation, so they travel as one rather than being re-derived host-side
+///     (the host has no command runner and no workspace reader, and inventing either would be
+///     a second implementation of the app's own surface). <see cref="Role"/> is
+///     <c>system</c> for the command line and <c>user</c> for a reference's read output.</summary>
 public sealed record RootTurnPreTurnMessage(string Role, string Text);
 
 /// <summary>One host→app request to start a NEW session in the workspace (issue #234).

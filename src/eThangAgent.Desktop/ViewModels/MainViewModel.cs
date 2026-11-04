@@ -2356,26 +2356,29 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     restore BEFORE the tab can take a turn, persisted-transcript replay (a no-op
   ///     for a fresh session — its conversation is empty), and
   ///     tab attach. Must run on the UI thread.</summary>
-  /// <summary>Maps the session's catalog to the autocomplete popup's options
-  ///     (spec #28 task 5). The composite catalog's ListAsync is async while the
-  ///     popup's source seam is sync, so this resolves synchronously — the
-  ///     documented sync-over-async seam constraint (the SkillsListingPromptProvider
-  ///     Build() precedent). Reachable only when the session wired the invocation
-  ///     core; a catalog failure yields an empty list (the popup shows nothing).</summary>
-  private static IReadOnlyList<SkillOption> SkillOptionsOf(AgentSession session)
+  /// <summary>Maps the session's catalog to the reference popup's options: the registered
+  ///     session commands and the catalog's skills, both matched by name. The composite
+  ///     catalog's ListAsync is async while the popup's source seam is sync, so this resolves
+  ///     synchronously — the documented sync-over-async seam constraint (the
+  ///     SkillsListingPromptProvider Build() precedent). A catalog failure yields the commands
+  ///     alone (the popup shows nothing else).</summary>
+  private static List<ReferenceOption> ReferenceOptionsOf(AgentSession session)
   {
+    List<ReferenceOption> options =
+    [
+        .. SessionCommandRegistry.All.Select(command => new ReferenceOption(
+            command.Name, command.Description, ReferenceKind.Command, "/" + command.Name)),
+    ];
     ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
     Result<IReadOnlyList<SkillDefinition>> listed = catalog.ListAsync().GetAwaiter().GetResult();
     if (!listed.IsSuccess)
     {
-      return [];
+      return options;
     }
 
-    // The session COMMAND rides the same popup (issue #234): it is listed alongside the
-    // skills but is not one — IsCommand sorts it after manual skills and before plain
-    // ones, and the row renders the distinct [command] badge.
-    return [.. listed.Value.Select(s => new SkillOption(s.Name, s.Description, s.Manual)),
-        AgentSessionViewModel.NewSessionCommandOption];
+    options.AddRange(listed.Value.Select(s => new ReferenceOption(
+        s.Name, s.Description, ReferenceKind.Skill, "@" + s.Name)));
+    return options;
   }
 
   /// <summary>Attaches a session as a tab at the END of the strip (the open/resume path).</summary>
@@ -2555,9 +2558,13 @@ internal sealed partial class MainViewModel : ObservableObject
           ModelPreferences = session.Preferences,
           CommandRunner = session.CommandRunner,
           SkillInvocation = session.SkillInvocation,
-          SkillCatalogSource = session.SkillInvocation is null
-              ? null
-              : () => SkillOptionsOf(session),
+          ReferenceCatalogSource = () => ReferenceOptionsOf(session),
+          // A container that registered no file access (a bare test stub) resolves no
+          // references; every production container registers it.
+          References = session.Services.GetService<IFileSystemAccess>() is { } referenceFiles
+              ? new ReferenceInjector(referenceFiles, new ReadFreshnessLedger(),
+                  session.SkillInvocation, session.WorkspaceRoot)
+              : null,
           // Issue #234: the /new slash command and the host's session-request both start a
           // session in THIS tab's workspace, as a new cell. Both refuse while the tab is
           // unknown (the view-model is built before its tab exists).

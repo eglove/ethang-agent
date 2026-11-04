@@ -8,12 +8,12 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Invocation channel end-to-end (plan #30 task 6): over the real
 ///     composition and the mock provider, a manual file skill in a configured
-///     directory flows through BOTH channels — the skill_invoke tool (the System
-///     message lands in the conversation ahead of the assistant's visible reply,
-///     the tool result is the one-line confirmation) and the Desktop slash path
-///     simulated at the view-model seam (the provider request carries the
-///     invocation line + full body BEFORE the user message, with the arguments
-///     line). An unknown slash name sends no injected message.</summary>
+///     directory flows through the skill_invoke tool — the System message lands in the
+///     conversation ahead of the assistant's visible reply and the tool result is the
+///     one-line confirmation. The Desktop composer reaches the same skill through its
+///     <c>@</c> reference (the provider request carries the invocation line + full body
+///     BEFORE the user message), and a slash name outside the closed command registry
+///     sends no injected message.</summary>
 [Collection("Desktop E2E")]
 public class SkillSlashE2ETests
 {
@@ -124,7 +124,7 @@ public class SkillSlashE2ETests
       MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, Sink);
       AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
       vmRef = vm;
-      Assert.NotNull(vm.Autocomplete);
+      Assert.NotNull(vm.ReferenceCompletions);
 
       // ── Turn 1: the TOOL path — the model calls skill_invoke through the
       // loop's exec surface (the advertised tool), invoking the capability. ──
@@ -152,17 +152,16 @@ public class SkillSlashE2ETests
       Assert.Contains(SkillBody, last[invocation].Content, StringComparison.Ordinal);
       Assert.Contains(last, m => m.Role == "tool");
 
-      // ── Turn 2: the DESKTOP slash path at the view-model seam. ────────────
-      _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletion("slash done"));
-      await vm.RunTurnAsync($"/{SkillName} run it").WaitAsync(
+      // ── Turn 2: the DESKTOP reference path at the view-model seam. ────────
+      _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletion("reference done"));
+      await vm.RunTurnAsync($"run @{SkillName}").WaitAsync(
           TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
 
       last = MessagesOf(host.Mock.LastChatRequestBody!);
       int slashInvocation = last.FindLastIndex(IsInvocationSystem);
-      Assert.True(slashInvocation >= 0, "no invocation system message in the slash request");
+      Assert.True(slashInvocation >= 0, "no invocation message in the reference request");
       Assert.Contains(SkillBody, last[slashInvocation].Content, StringComparison.Ordinal);
-      Assert.Contains("arguments: run it", last[slashInvocation].Content, StringComparison.Ordinal);
-      int userIndex = last.FindIndex(m => m.Role == "user" && m.Content == $"/{SkillName} run it");
+      int userIndex = last.FindIndex(m => m.Role == "user" && m.Content == $"run @{SkillName}");
       Assert.True(userIndex > slashInvocation, "the invocation message must precede the user message");
 
       // ── Turn 3: an unknown slash name is a plain message — no injection. ──
@@ -172,7 +171,7 @@ public class SkillSlashE2ETests
 
       last = MessagesOf(host.Mock.LastChatRequestBody!);
       Assert.Equal(("user", "/zzz-not-a-skill"), last[^1]);
-      Assert.Equal(2, last.Count(IsInvocationSystem)); // history's two; no new injection
+      Assert.Equal(1, last.Count(IsInvocationSystem)); // the tool path's one; no new injection
     }
     finally
     {

@@ -4,6 +4,7 @@ using eThangAgent.AgentInfrastructure;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.FileSystem.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
@@ -130,18 +131,42 @@ public sealed class ThinClientTurnTests
   }
 
   [Fact]
-  public async Task SubmitAsync_SlashInvocation_CarriesTheSystemLineAsPreTurn()
+  public async Task SubmitAsync_ReferenceBlock_CarriesTheReadOutputAsPreTurn()
   {
-    FakeHostSession session = await FakeHostSession.StartAsync(["done"], skillName: "deploy").ConfigureAwait(true);
+    string root = Directory.CreateTempSubdirectory("ethang-thinclient-ref").FullName;
+    try
+    {
+      await File.WriteAllLinesAsync(Path.Combine(root, "notes.txt"), ["alpha", "beta"],
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+      using DirectFileSystemAccess files = new(new EditorConfigLineEndingPolicy(root));
+      FakeHostSession session = await FakeHostSession
+          .StartAsync(["done"], references: new ReferenceInjector(files, new ReadFreshnessLedger(), null, root))
+          .ConfigureAwait(true);
 
-    await session.ViewModel.SubmitAsync("/deploy staging").ConfigureAwait(true);
+      await session.ViewModel.SubmitAsync("check @notes.txt").ConfigureAwait(true);
 
-    // The invocation line is a CONVERSATION mutation the app made; the host owns the
-    // conversation the model reads, so it must travel with the turn.
-    RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
-    RootTurnPreTurnMessage preTurn = Assert.Single(request.PreTurn);
-    Assert.Equal("system", preTurn.Role, StringComparer.Ordinal);
-    Assert.Contains("[skill invoked: deploy]", preTurn.Text, StringComparison.Ordinal);
+      // The read output is a CONVERSATION mutation the app made; the host owns the
+      // conversation the model reads, so it must travel with the turn - on the USER
+      // message, never as a fabricated assistant turn.
+      RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
+      RootTurnPreTurnMessage preTurn = Assert.Single(request.PreTurn);
+      Assert.Equal("user", preTurn.Role, StringComparer.Ordinal);
+      Assert.Contains("1→ alpha", preTurn.Text, StringComparison.Ordinal);
+      Assert.Equal("check @notes.txt", request.Input, StringComparer.Ordinal);
+    }
+    finally
+    {
+#pragma warning disable CA1031 // Named decision: temp-dir cleanup is best effort.
+      try
+      {
+        Directory.Delete(root, recursive: true);
+      }
+      catch (IOException)
+      {
+        // best effort: a still-draining reader may pin the directory
+      }
+#pragma warning restore CA1031
+    }
   }
 
   [Fact]
@@ -391,7 +416,8 @@ internal sealed class FakeHostSession
   ///     order and then settles with their concatenation. <paramref name="holdOpen"/> keeps
   ///     the turn in flight until it is cancelled (the stop-button shape).</summary>
   public static Task<FakeHostSession> StartAsync(IReadOnlyList<string> deltas, bool holdOpen = false,
-      string? skillName = null, bool commandLine = false, SessionModelPreferences? preferences = null)
+      string? skillName = null, bool commandLine = false, SessionModelPreferences? preferences = null,
+      ReferenceInjector? references = null)
   {
     ArgumentNullException.ThrowIfNull(deltas);
     FakeRootTurnChannel host = new(deltas, holdOpen);
@@ -408,7 +434,8 @@ internal sealed class FakeHostSession
           WorkspaceRoot = @"C:\work\demo",
           RootTurnChannel = host,
           SkillInvocation = skillName is null ? null : new SkillInvocationService(new FakeSkillCatalog(skillName)),
-          SkillCatalogSource = skillName is null ? null : () => [],
+          ReferenceCatalogSource = skillName is null ? null : () => [],
+          References = references,
           CommandRunner = commandLine ? new FakeCommandRunner() : null,
           ModelPreferences = preferences,
         });

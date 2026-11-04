@@ -7,12 +7,12 @@ using eThangAgent.SkillDomain;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>The /new slash command (issue #234): a shell command resolved BEFORE the
-///     skill lookup — with a wired shell seam and an idle session it invokes the
-///     command with the rest of the input as the prompt and announces the start;
-///     it refuses while busy, without a prompt, or unwired (typed notices, never a
-///     coerced turn); it is case-insensitive; unknown slash names still fall through
-///     as ordinary messages; and a resolvable skill named 'new' loses to the command.</summary>
+/// <summary>The /new slash command (issue #234): the one entry in the closed command
+///     registry — with a wired shell seam and an idle session it invokes the command with
+///     the rest of the input as the prompt and announces the start; it refuses while busy,
+///     without a prompt, or unwired (typed notices, never a coerced turn); it is
+///     case-insensitive; unknown slash names still fall through as ordinary messages; and a
+///     skill named 'new' is not reachable through '/' at all.</summary>
 public class NewSessionSlashCommandTests
 {
   private static SkillDefinition Skill(string name, bool manual = false) => new(
@@ -49,7 +49,6 @@ public class NewSessionSlashCommandTests
     RecordingCommand command = new();
     StubStore store = new();
     RecordingLifecycle lifecycle = new(store);
-    List<SkillOption> options = [.. skills.Select(s => new SkillOption(s.Name, s.Description, s.Manual))];
     AgentSessionViewModel vm = new(
         (cmd, _, _, _) =>
         {
@@ -62,7 +61,7 @@ public class NewSessionSlashCommandTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          SkillCatalogSource = () => options,
+          ReferenceCatalogSource = () => [],
           NewSessionCommand = command.Invoke,
           UiMarshal = action => action(),
         });
@@ -102,7 +101,7 @@ public class NewSessionSlashCommandTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          SkillCatalogSource = () => [],
+          ReferenceCatalogSource = () => [],
           NewSessionCommand = command.Invoke,
           UiMarshal = action => action(),
         });
@@ -172,7 +171,7 @@ public class NewSessionSlashCommandTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          SkillCatalogSource = () => [],
+          ReferenceCatalogSource = () => [],
           UiMarshal = action => action(),
         });
 
@@ -203,7 +202,7 @@ public class NewSessionSlashCommandTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          SkillCatalogSource = () => [],
+          ReferenceCatalogSource = () => [],
           NewSessionCommand = _ => throw new InvalidOperationException("the shell exploded"),
           UiMarshal = action => action(),
         });
@@ -249,7 +248,7 @@ public class NewSessionSlashCommandTests
   }
 
   [Fact]
-  public async Task SkillNamedNew_TheCommandWins()
+  public async Task SkillNamedNew_IsNotReachableThroughSlash_TheCommandRuns()
   {
     (AgentSessionViewModel vm, Conversation conversation, List<string> turns, RecordingCommand command) =
         Build(Skill("new"));

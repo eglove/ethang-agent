@@ -46,14 +46,18 @@ internal sealed record AgentSessionViewModelOptions
   ///     commands unavailable.</summary>
   public IUserCommandRunner? CommandRunner { get; init; }
 
-  /// <summary>The session's shared skill invocation core (spec #28): slash submit
-  ///     resolves through the same object the skill_invoke tool uses. Null = the
-  ///     slash surface reports unavailable.</summary>
+  /// <summary>The session's shared skill invocation core (spec #28): the reference injector
+  ///     resolves an <c>@skillname</c> through the same object the skill_invoke tool uses.
+  ///     Null = no skill resolves by name.</summary>
   public SkillInvocationService? SkillInvocation { get; init; }
 
-  /// <summary>The autocomplete popup's catalog source. Null = no popup (headless
-  ///     stubs without the skill catalog).</summary>
-  public Func<IReadOnlyList<SkillOption>>? SkillCatalogSource { get; init; }
+  /// <summary>The reference popup's catalog source: every option the <c>@</c> and <c>/</c>
+  ///     triggers can offer. Null = no popup (headless stubs without a catalog).</summary>
+  public Func<IReadOnlyList<ReferenceOption>>? ReferenceCatalogSource { get; init; }
+
+  /// <summary>Resolves a submitted message's <c>@</c> references into read-tool output before
+  ///     the turn starts. Null = the message travels exactly as typed (headless stubs).</summary>
+  public ReferenceInjector? References { get; init; }
 
   /// <summary>The shell's new-session command (issue #234): invoked by the /new slash
   ///     command with the rest of the input as the prompt. Null = the command is not
@@ -329,13 +333,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     the session-request path must be drivable headless.</summary>
   private readonly Action<Action> _uiMarshal;
 
-  /// <summary>The shared skill invocation core (slash resolution) — null when the
-  ///     session did not wire the skill catalog.</summary>
-  private readonly SkillInvocationService? _skillInvocation;
+  /// <summary>The reference popup. Null when the session has no catalog source (headless
+  ///     stubs); the view routes keys only while it is open.</summary>
+  public ComposerReferenceViewModel? ReferenceCompletions { get; }
 
-  /// <summary>The '/' autocomplete popup. Null when the session has no catalog
-  ///     source (headless stubs); the view routes keys only while it is open.</summary>
-  public SkillAutocompleteViewModel? Autocomplete { get; }
+  /// <summary>Resolves a submitted message's references. Null = nothing to resolve.</summary>
+  private readonly ReferenceInjector? _references;
 
   /// <summary>The right-hand workbench (issue #8, design D1/D5): a permanent column with
   ///     an icon strip, showing one view at a time. Always constructed so the shell's
@@ -400,18 +403,35 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     would kill the pane its siblings are still reading.</summary>
   private readonly WorkbenchViewModel? _sharedWorkbench;
 
-  /// <summary>Feeds the popup from the input box's current text; the view calls
-  ///     this on every input change.</summary>
-  public void UpdateAutocomplete(string input) => Autocomplete?.Update(input);
+  /// <summary>Feeds the popup from the input box's current text and caret; the view calls
+  ///     this on every input change and on every caret move.</summary>
+  public void UpdateReferenceCompletions(string input, int caretIndex) =>
+      ReferenceCompletions?.Update(input, caretIndex);
 
-  /// <summary>The /new command's popup row (issue #234): a well-known option the
-  ///     catalog source can include alongside the skills. It is a COMMAND, not a
-  ///     manual skill — it sorts after manual skills and before plain ones and
-  ///     renders the distinct <c>[command]</c> badge. The source wiring itself
-  ///     (MainViewModel.SkillOptionsOf) is Task 7's; the option's shape is what
-  ///     the popup tests pin here.</summary>
-  public static SkillOption NewSessionCommandOption { get; } =
-      new("new", "Start a new session in this workspace with the rest of the input as its first prompt.", IsManual: false, IsCommand: true);
+  /// <summary>The message a refused send kept, so the view can restore the input box. Set when
+  ///     a reference does not resolve; cleared by the next send that goes through.</summary>
+  public string? PendingRefusedInput { get; private set; }
+
+  /// <summary>At most this many popup rows for one query.</summary>
+  private const int ReferenceOptionLimit = 50;
+
+  /// <summary>The catalog source's options matching <paramref name="query"/> by name
+  ///     (case-insensitive substring), capped at <see cref="ReferenceOptionLimit"/> rows.
+  ///     An empty query matches everything.</summary>
+  private static IReadOnlyList<ReferenceOption> ReferenceOptions(string query,
+      Func<IReadOnlyList<ReferenceOption>> source)
+  {
+    ArgumentNullException.ThrowIfNull(query);
+    ArgumentNullException.ThrowIfNull(source);
+    IReadOnlyList<ReferenceOption> all = source()
+        ?? throw new InvalidOperationException("The reference catalog source returned null.");
+    return
+    [
+        .. all
+            .Where(option => option.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Take(ReferenceOptionLimit),
+    ];
+  }
 
   private readonly IAgentInbox? _inbox;
   /// <summary>A supervision sink attached AFTER construction (issue #323). The shell builds the
@@ -486,13 +506,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     string servingModel = ResolveServingModel(_modelPreferences, modelId);
     Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
     _commandRunner = options.CommandRunner;
-    _skillInvocation = options.SkillInvocation;
     _newSessionCommand = options.NewSessionCommand;
     _sessionRequestHandler = options.SessionRequestHandler;
     // Null = the Avalonia UI-thread dispatcher (production); tests inject a
     // synchronous executor so the session-request path runs headless.
     _uiMarshal = options.UiMarshal ?? (action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
-    Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
+    _references = options.References;
+    ReferenceCompletions = options.ReferenceCatalogSource is null
+        ? null
+        : new ComposerReferenceViewModel(query => ReferenceOptions(query, options.ReferenceCatalogSource));
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
     RunsInOwnHost = options.RunsInOwnHost;
@@ -743,10 +765,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Processes one submission. Blank input is ignored. While a turn runs, input
   /// steers it. For normal turns, sets the in-flight task and returns that same
   /// task so callers can await it directly. A RAW leading '/' (no trim — the
-  /// spec's slash-detection amendment) resolves as a skill invocation BEFORE
-  /// the ! check: found injects the System line then forwards the full input
-  /// as the ordinary user message; unknown names fall through as plain
-  /// messages; ambiguous names send nothing and surface a notice.
+  /// spec's slash-detection amendment) resolves through the closed command
+  /// registry BEFORE the ! check: a registered name runs its command, and any
+  /// other name falls through as an ordinary message. Every other message has its
+  /// references resolved first, so a reference that does not resolve refuses the
+  /// send and keeps the input.
   /// </summary>
   public async Task SubmitAsync(string rawInput)
   {
@@ -785,35 +808,70 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     // The ! prefix is a USER-side shell command, not an LLM turn: it runs against the
     // workspace directly — even while a turn is in flight (it never steers the model).
+    // Shell input carries no references: what the user types after ! is the command.
     if (input.StartsWith('!'))
     {
       await RunCommandAsync(input[1..].Trim()).ConfigureAwait(true);
       return;
     }
 
+    await SendMessageAsync(input).ConfigureAwait(true);
+  }
+
+  /// <summary>Resolves a message's references and sends it. A reference that does not resolve
+  ///     refuses the send: the notice names the reason and the input is kept, never lost.
+  ///     <para>The bubble shows exactly what the user typed; each resolved file's read output
+  ///     is appended beneath it as a transcript-only entry and rides the USER message to the
+  ///     model, so no assistant turn is fabricated for a read the harness performed.</para></summary>
+  private async Task SendMessageAsync(string input)
+  {
+    string messageText = input;
+    IReadOnlyList<string> blocks = [];
+    if (_references is not null)
+    {
+      ReferenceInjectionResult resolved = await _references.InjectAsync(input, CancellationToken.None).ConfigureAwait(true);
+      if (!resolved.IsSuccess)
+      {
+        Transcript.AddNotice(resolved.FailureNotice
+            ?? "Error [ReferenceRefused]: the message's references did not resolve.");
+        PendingRefusedInput = input;
+        return;
+      }
+
+      messageText = resolved.MessageText;
+      blocks = resolved.AppendedBlocks;
+    }
+
+    PendingRefusedInput = null;
+    foreach (string block in blocks)
+    {
+      Transcript.AddToolResult("read", ReferenceBlockSummary(block), block, isError: false, title: "reference");
+      _pendingPreTurn.Add(new RootTurnPreTurnMessage("user", block));
+    }
+
     // While a turn runs, input steers it: posted to the session inbox for delivery at the
     // loop's next safe point, and echoed into the transcript immediately. Never dropped.
     if (IsBusy)
     {
-      Steer(input);
+      Steer(messageText);
       return;
     }
 
     // Real turn — start and track it.
-    _runningTurn = ExecuteTurnAsync(input);
+    _runningTurn = ExecuteTurnAsync(messageText);
     await _runningTurn.ConfigureAwait(true);
   }
 
-  /// <summary>Resolves a slash input: the session commands first (issue #234 —
-  ///     /new is a SHELL command, not a skill, and must work even where no skill
-  ///     catalog is wired), then the shared invocation core (the same object the
-  ///     skill_invoke tool uses). Found: the System line goes into the
-  ///     conversation (out-of-turn, the UserCommandRunner precedent) AND onto the
-  ///     transcript (live parity with the ! command surface), then the FULL
-  ///     original input forwards as the ordinary user message. Unknown: not slash
-  ///     input — a plain message. Ambiguous: nothing is sent; a transcript notice
-  ///     lists the matches (spec amendment). A resolvable skill named 'new' loses
-  ///     to the command: the command registry resolves before the skill lookup.</summary>
+  /// <summary>The read annotation line a reference block opens with, used as its card summary.</summary>
+  private static string ReferenceBlockSummary(string block)
+  {
+    int newline = block.IndexOf('\n', StringComparison.Ordinal);
+    return newline < 0 ? block : block[..newline].TrimEnd('\r');
+  }
+
+  /// <summary>Resolves a slash input through the closed command registry. A registered name
+  ///     runs its command with the rest of the input as its arguments; any other name is not
+  ///     slash input at all and forwards as an ordinary message.</summary>
   private async Task SubmitSlashAsync(string rawInput)
   {
     string token = rawInput[1..];
@@ -821,54 +879,30 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     string name = space < 0 ? token : token[..space];
     string? args = space < 0 ? null : token[(space + 1)..].Trim();
 
-    // Issue #234: the /new command resolves BEFORE the skill lookup — it is a
-    // shell command, not a skill, so it must work even without a catalog.
-    if (string.Equals(name, "new", StringComparison.OrdinalIgnoreCase))
+    if (SessionCommandRegistry.Find(name) is { } command)
     {
-      await RunNewSessionCommandAsync(args).ConfigureAwait(true);
+      await RunSessionCommandAsync(command, args).ConfigureAwait(true);
       return;
     }
 
-    if (_skillInvocation is null)
-    {
-      Transcript.AddNotice("Skill invocation is unavailable in this session (no catalog wired).");
-      return;
-    }
+    await SendMessageAsync(rawInput).ConfigureAwait(true);
+  }
 
-    Result<SkillInvocation> r = await _skillInvocation.InvokeAsync(name, args, CancellationToken.None).ConfigureAwait(true);
-    if (r.IsSuccess)
-    {
-      _conversation.AddSystemMessage(r.Value.SystemLine);
-      // Spec D6: the host owns the conversation the model reads, so the line must ALSO
-      // travel with the next turn — a local-only injection reaches no model at all.
-      _pendingPreTurn.Add(new RootTurnPreTurnMessage("system", r.Value.SystemLine));
-      Transcript.AddSystemMessage(r.Value.SystemLine);
-      if (IsBusy)
-      {
-        Steer(rawInput);
-        return;
-      }
+  /// <summary>Runs one registered session command. A name the registry carries but no handler
+  ///     serves is a registry/handler mismatch, so it surfaces as a notice rather than a
+  ///     silently dropped message.</summary>
+  private Task RunSessionCommandAsync(SessionCommand command, string? args)
+  {
+    ArgumentNullException.ThrowIfNull(command);
+    return string.Equals(command.Name, "new", StringComparison.OrdinalIgnoreCase)
+        ? RunNewSessionCommandAsync(args)
+        : RefuseUnhandledCommand(command.Name);
+  }
 
-      _runningTurn = ExecuteTurnAsync(rawInput);
-      await _runningTurn.ConfigureAwait(true);
-      return;
-    }
-
-    if (r.Error.Code == "AmbiguousSkill")
-    {
-      Transcript.AddNotice(r.Error.Message);
-      return;
-    }
-
-    // Unknown name: not slash input — an ordinary message.
-    if (IsBusy)
-    {
-      Steer(rawInput);
-      return;
-    }
-
-    _runningTurn = ExecuteTurnAsync(rawInput);
-    await _runningTurn.ConfigureAwait(true);
+  private Task RefuseUnhandledCommand(string name)
+  {
+    Transcript.AddNotice($"Error [CommandNotHandled]: '/{name}' is registered but has no handler.");
+    return Task.CompletedTask;
   }
 
   /// <summary>Runs the /new session command (issue #234): every refusal is a typed
@@ -896,6 +930,29 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       Transcript.AddNotice("Give the new session its first prompt: /new <prompt>.");
       return;
     }
+
+    // The prompt is a message like any other, so its references resolve first; a reference
+    // that does not resolve refuses the command and keeps the input.
+    if (_references is not null)
+    {
+      ReferenceInjectionResult resolved = await _references.InjectAsync(prompt, CancellationToken.None).ConfigureAwait(true);
+      if (!resolved.IsSuccess)
+      {
+        Transcript.AddNotice(resolved.FailureNotice
+            ?? "Error [ReferenceRefused]: the prompt's references did not resolve.");
+        PendingRefusedInput = "/new " + prompt;
+        return;
+      }
+
+      foreach (string block in resolved.AppendedBlocks)
+      {
+        _pendingPreTurn.Add(new RootTurnPreTurnMessage("user", block));
+      }
+
+      prompt = resolved.MessageText;
+    }
+
+    PendingRefusedInput = null;
 
     Transcript.AddNotice("[new session: starting a fresh session with the prompt you gave.]");
     try

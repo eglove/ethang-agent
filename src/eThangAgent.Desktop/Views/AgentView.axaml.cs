@@ -279,7 +279,7 @@ internal partial class AgentView : UserControl
       // The popup outranks the stop shortcut: Esc closes it first (the input
       // box's own tunnel would do this, but the view tunnel runs first in the
       // tunnel route, so the guard lives here too).
-      if (vm.Autocomplete is { IsOpen: true } popup)
+      if (vm.ReferenceCompletions is { IsOpen: true } popup)
       {
         e.Handled = true;
         popup.Close();
@@ -311,7 +311,7 @@ internal partial class AgentView : UserControl
     string text = InputBox.Text ?? "";
     if (!_suppressAutocompleteUpdate)
     {
-      Vm?.UpdateAutocomplete(text);
+      Vm?.UpdateReferenceCompletions(text, InputBox.CaretIndex);
     }
 
     bool commandMode = text.TrimStart().StartsWith('!');
@@ -339,7 +339,7 @@ internal partial class AgentView : UserControl
     // and Enter/Tab completion — Enter NEVER submits while the popup shows a
     // name that still needs completing (spec #28). Any other key falls through
     // to the TextBox's own handling.
-    if (vm.Autocomplete is { IsOpen: true } popup && HandlePopupKey(popup, e))
+    if (vm.ReferenceCompletions is { IsOpen: true } popup && HandlePopupKey(popup, e))
     {
       return;
     }
@@ -356,7 +356,7 @@ internal partial class AgentView : UserControl
   ///     Up/Down navigate, Esc closes, and unshifted Tab/Enter accept the
   ///     selection. Returns true when the popup consumed the key (the caller then
   ///     stops); false means the key falls through to the TextBox.</summary>
-  private bool HandlePopupKey(SkillAutocompleteViewModel popup, KeyEventArgs e)
+  private bool HandlePopupKey(ComposerReferenceViewModel popup, KeyEventArgs e)
   {
     bool shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
     if (e.Key == Key.Down)
@@ -390,13 +390,11 @@ internal partial class AgentView : UserControl
     return false;
   }
 
-  /// <summary>Applies the popup's accept key: a name that still needs completing
-  ///     autofills the full name plus a trailing space; an already-complete name
-  ///     (typed out or previously autofilled, with or without arguments after it)
-  ///     submits the input so the session resolves it (spec #28: 'subsequent
-  ///     Enter submits and resolves'). With nothing selectable, Enter falls back
-  ///     to an ordinary submit (an unknown '/zzz' stays a plain message).</summary>
-  private void HandlePopupAcceptKey(SkillAutocompleteViewModel popup, Key key)
+  /// <summary>Applies the popup's accept key: Tab commits the highlighted option over the
+  ///     active token; Enter does the same when the token still needs completing, and submits
+  ///     the input when it already names the highlighted option. With nothing selectable,
+  ///     Enter falls back to an ordinary submit (an unknown '/zzz' stays a plain message).</summary>
+  private void HandlePopupAcceptKey(ComposerReferenceViewModel popup, Key key)
   {
     if (popup.SelectedIndex < 0 || popup.SelectedIndex >= popup.Options.Count)
     {
@@ -409,58 +407,62 @@ internal partial class AgentView : UserControl
       return;
     }
 
-    string name = popup.Options[popup.SelectedIndex].Name;
-    string token = NameTokenOf(InputBox.Text ?? "");
-    if (key == Key.Enter && token.Equals(name, StringComparison.OrdinalIgnoreCase))
+    if (key == Key.Enter && NamesTheHighlightedOption(popup))
     {
       popup.Close();
       SubmitInput();
       return;
     }
 
-    SetAutofill(name);
+    if (popup.Accept() is { } commit)
+    {
+      ApplyCommit(commit);
+    }
   }
 
-  /// <summary>Accepts a tapped option: same autofill as the keyboard path.</summary>
+  /// <summary>True when the text before the caret already ends with the highlighted option's
+  ///     committed text, so Enter means 'send this' rather than 'complete this'.</summary>
+  private bool NamesTheHighlightedOption(ComposerReferenceViewModel popup)
+  {
+    string text = InputBox.Text ?? "";
+    int caret = Math.Clamp(InputBox.CaretIndex, 0, text.Length);
+    return text[..caret].EndsWith(popup.Options[popup.SelectedIndex].InsertText, StringComparison.Ordinal);
+  }
+
+  /// <summary>Accepts a tapped option: same commit as the keyboard path.</summary>
   private void OnAutocompleteTapped(object? sender, TappedEventArgs e)
   {
     AgentSessionViewModel? vm = Vm;
-    if (vm?.Autocomplete is not { IsOpen: true } popup || sender is not ListBox list)
+    if (vm?.ReferenceCompletions is not { IsOpen: true } popup || sender is not ListBox list)
     {
       return;
     }
 
-    if (list.SelectedIndex is int index && index >= 0 && index < popup.Options.Count &&
-        popup.Click(index) is { } name)
+    if (list.SelectedIndex is int index && popup.Click(index) is { } commit)
     {
-      SetAutofill(name);
+      ApplyCommit(commit);
     }
   }
 
-  private void SetAutofill(string name)
+  /// <summary>Writes the commit's replacement over the token it names, then places the caret
+  ///     after it. The popup is not re-fed: the commit's own trailing space leaves the caret
+  ///     outside every token, so the next input change decides what opens.</summary>
+  private void ApplyCommit(ReferenceCommit commit)
   {
     _suppressAutocompleteUpdate = true;
     try
     {
-      InputBox.Text = "/" + name + " ";
-      InputBox.CaretIndex = InputBox.Text.Length;
+      string text = InputBox.Text ?? "";
+      int start = Math.Clamp(commit.Start, 0, text.Length);
+      int length = Math.Clamp(commit.Length, 0, text.Length - start);
+      string updated = string.Concat(text.AsSpan(0, start), commit.InsertText, text.AsSpan(start + length));
+      InputBox.Text = updated;
+      InputBox.CaretIndex = Math.Clamp(commit.CaretIndex, 0, updated.Length);
     }
     finally
     {
       _suppressAutocompleteUpdate = false;
     }
-  }
-
-  private static string NameTokenOf(string input)
-  {
-    if (!input.StartsWith('/'))
-    {
-      return "";
-    }
-
-    string rest = input[1..];
-    int space = rest.IndexOf(' ', StringComparison.Ordinal);
-    return space < 0 ? rest : rest[..space];
   }
 
   /// <summary>Ctrl+V on the input box: a clipboard IMAGE stages as an attachment

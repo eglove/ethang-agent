@@ -429,10 +429,10 @@ public sealed class RootRunHost : IDisposable
   }
 
   /// <summary>Appends the app-supplied messages that must precede this turn's user input
-  ///     (a slash invocation's System line, a ! command's model-facing line). They arrive on
-  ///     the REQUEST because they are conversation mutations the app already made: the host
-  ///     has no skill catalog and no command runner, so re-deriving them here would be a
-  ///     second implementation of the app's own surface.
+  ///     (a ! command's model-facing line, and the read output of a message's <c>@</c>
+  ///     references). They arrive on the REQUEST because they are conversation mutations the
+  ///     app already made: the host has no command runner and no workspace reader for them, so
+  ///     re-deriving them here would be a second implementation of the app's own surface.
   ///     <para>These use the conversation's Add* methods DELIBERATELY, unlike hydration: they
   ///     are genuinely new messages this turn introduces, so the transcript sink must persist
   ///     them (a hydrated message, by contrast, is one the store already holds). They are
@@ -445,6 +445,10 @@ public sealed class RootRunHost : IDisposable
       if (string.Equals(message.Role, "system", StringComparison.Ordinal))
       {
         Conversation.AddSystemMessage(message.Text);
+      }
+      else if (string.Equals(message.Role, "user", StringComparison.Ordinal))
+      {
+        Conversation.AddUserMessage(message.Text);
       }
       else
       {
