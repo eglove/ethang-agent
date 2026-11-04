@@ -14,7 +14,15 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     event emission is wrong - not merely if a stub was called.</summary>
 public sealed class ChildHostRootRunTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
+  // The envelope tests drive a REAL ChildHostServer whose first turn builds
+  // the host's full session container (DI graph, provider stack, native
+  // assets) before it can answer, so their settle latency is a
+  // container-build latency, not a wire latency. Under parallel test
+  // modules the machine is saturated by sibling projects' child-host
+  // processes and that build can exceed a tight window (issue #324).
+  // The bound below is generous on purpose: it asserts the settle ARRIVES
+  // and is typed, not that the build is fast.
+  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(60);
 
   /// <summary>Stands up the REAL <see cref="ChildHostServer"/> over a real pipe and returns
   ///     the app side. <paramref name="runner"/> is attached through the server's own seam
@@ -211,7 +219,7 @@ public sealed class ChildHostRootRunTests
 
     Result<string> result = await runtime.SendRootTurnAsync(
         new RootTurnRequest("turn-server", "hello", []), events.Add,
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken)
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken)
         .ConfigureAwait(true);
 
     Assert.True(result.IsSuccess, result.Error?.Message);
@@ -241,7 +249,7 @@ public sealed class ChildHostRootRunTests
 
     Result<string> result = await runtime.SendRootTurnAsync(
         new RootTurnRequest("turn-unbound", "hello", []), events.Add,
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken)
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken)
         .ConfigureAwait(true);
 
     Assert.True(result.IsSuccess, result.Error?.Message);
