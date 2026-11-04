@@ -19,6 +19,7 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.FileClaims;
 using eThangAgent.ToolDomain.Mcp;
 using eThangAgent.ToolDomain.Lsp;
 using LspSymbolAccess = eThangAgent.Lsp.ACL.LspSymbolAccess;
@@ -201,7 +202,8 @@ public static class AgentComposition
           new WriteTool(Resolver(sp),
               sp.GetRequiredService<IFileWriteAccess>(),
               AdvisoryDiagnosticsSource(sp),
-              sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>()),
+              sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>(),
+              ClaimGate(sp)),
           "Create or overwrite a workspace file."),
       new AgentToolBinding(
           new WriteMarkdownTool(Resolver(sp),
@@ -211,7 +213,8 @@ public static class AgentComposition
           new EditTool(Resolver(sp),
               sp.GetRequiredService<IFileEditAccess>(),
               AdvisoryDiagnosticsSource(sp),
-              sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>()),
+              sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>(),
+              ClaimGate(sp)),
           "Edit a file by exact literal replacement."),
       new AgentToolBinding(
           new FindFilesTool(ReadOnlyResolver(sp),
@@ -222,6 +225,23 @@ public static class AgentComposition
   /// <summary>The advisory diagnostics source for edit/write (issue #356): a lazy pipe
   ///     access that resolves null until a daemon is reachable, so registration never
   ///     requires a language server to exist and LSP-absent results stay byte-identical.</summary>
+  /// <summary>The file-claim gate for edit/write (issue #364): session-bound over the
+  ///     app-process shared store (issue #363, code-less fallback per #358). The
+  ///     session id is read lazily from RootSessionIdentity, which the factory fills
+  ///     after the container builds; before that the gate is inert and the tool
+  ///     proceeds unclaimed rather than refusing a session that has no id yet.</summary>
+  private static FileClaimGate? ClaimGate(IServiceProvider sp)
+  {
+    string? sessionId = sp.GetRequiredService<RootSessionIdentity>().Id?.ToString();
+    if (string.IsNullOrWhiteSpace(sessionId))
+    {
+      return null;
+    }
+    string workspaceId = sp.GetRequiredService<IWorkspaceContext>().WorkspaceId;
+    return new FileClaimGate(
+        sp.GetRequiredService<SharedFileClaimStore>(), workspaceId, sessionId, () => DateTimeOffset.UtcNow);
+  }
+
   private static LspAdvisoryDiagnosticsAccess AdvisoryDiagnosticsSource(IServiceProvider sp)
   {
     string workspaceId = sp.GetRequiredService<IWorkspaceContext>().WorkspaceId;
@@ -1215,6 +1235,7 @@ public static class AgentComposition
         // empty directory list, and nothing else changes.
         .AddSingleton<IVerificationLedger, SessionVerificationLedger>()
         .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
+        .AddSingleton<SharedFileClaimStore>()
         .AddSingleton(sp => new VerificationGate(
             sp.GetRequiredService<IVerificationLedger>(),
             settings.VerificationGateEnabled))

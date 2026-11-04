@@ -1,18 +1,20 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain.FileClaims;
 using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IAdvisoryDiagnosticsSource? diagnostics = null, SessionAdvisoryDiagnosticsLedger? advisoryLedger = null) : ITool, IWorkspaceScopedTool
+public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IAdvisoryDiagnosticsSource? diagnostics = null, SessionAdvisoryDiagnosticsLedger? advisoryLedger = null, IFileClaimGate? claimGate = null) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileWriteAccess _files = files ?? throw new ArgumentNullException(nameof(files));
   private readonly IAdvisoryDiagnosticsSource? _diagnostics = diagnostics;
   private readonly SessionAdvisoryDiagnosticsLedger? _advisoryLedger = advisoryLedger;
+  private readonly IFileClaimGate? _claimGate = claimGate;
 
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
-      => new WriteTool(new WorkspacePathResolver(workspaceRoot), _files, _diagnostics, _advisoryLedger);
+      => new WriteTool(new WorkspacePathResolver(workspaceRoot), _files, _diagnostics, _advisoryLedger, _claimGate);
 
   public ToolDefinition Definition { get; } = new(
       "write",
@@ -71,6 +73,12 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
 
   private async Task<ToolResult> WriteAsync(string path, WriteToolInput args, CancellationToken ct)
   {
+    string? refused = _claimGate?.CheckBeforeWrite(path);
+    if (refused is not null)
+    {
+      return new ToolResult(refused, true);
+    }
+
     // 'lines' mode goes through its own seam method so the backend joins with the
     // file's resolved line-ending convention instead of a hardcoded LF.
     // WriteToolInput guarantees exactly one of Lines/Content is set, so the null-forgiving
@@ -83,6 +91,7 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
       return Err(written.Error);
     }
 
+    _claimGate?.RenewAfterWrite(path);
     FileWriteOutcome o = written.Value;
     ToolResult baseResult = new(
         $"[write {path}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes, " +
