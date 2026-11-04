@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Text;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
@@ -99,13 +97,7 @@ public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, Re
     FileCoverage coverage = CheckedCoverage(path, file, args.StartLine, last);
     bool forced = args.Force && !coverage.IsEmpty;
     RecordRead(path, file, args.StartLine, last);
-    int width = last.ToString(CultureInfo.InvariantCulture).Length;
-
-    StringBuilder sb = new();
-    _ = sb.AppendLine(CultureInfo.InvariantCulture, $"{Header(args, path, file, last, coverage, forced)}");
-    AppendBody(sb, file.Lines, args.StartLine, coverage, forced, width);
-    AppendTail(sb, clamped, args, file);
-    return new ToolResult(sb.ToString(), false);
+    return new ToolResult(ReadOutputRenderer.Render(path, args.StartLine, args.EndLine, file, coverage, forced), false);
   }
 
   private FileCoverage CheckedCoverage(string path, FileRead file, int start, int last)
@@ -118,96 +110,6 @@ public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, Re
       _ledger.Record(path, file.Version, startLine, last);
     }
   }
-
-  private static string Header(ReadToolInput args, string path, FileRead file, int last, FileCoverage coverage, bool forced)
-  {
-    string tokenSuffix = file.Version is null ? string.Empty : $" | {file.Version.Token}";
-    string elisionSuffix = ElisionSuffix(coverage, forced, args.StartLine, last);
-    return $"[read {path} lines {args.StartLine}-{last} of {file.TotalLines} total{tokenSuffix}{elisionSuffix}]";
-  }
-
-  private static void AppendBody(StringBuilder sb, IReadOnlyList<string> lines, int firstLine,
-      FileCoverage coverage, bool forced, int width)
-  {
-    if (!forced && !coverage.IsEmpty)
-    {
-      // Elide: deliver only the lines the model does NOT already hold.
-      AppendUncoveredLines(sb, lines, firstLine, coverage.Elided, width);
-    }
-    else
-    {
-      AppendAllLines(sb, lines, firstLine, width);
-    }
-  }
-
-  private static void AppendTail(StringBuilder sb, bool clamped, ReadToolInput args, FileRead file)
-  {
-    if (clamped)
-    {
-      _ = sb.Append(CultureInfo.InvariantCulture, $"[warning] endLine {args.EndLine} exceeded file length ({file.TotalLines}); clamped");
-    }
-    else
-    {
-      sb.Length -= Environment.NewLine.Length;  // trim trailing newline
-    }
-  }
-
-  /// <summary>Appends the lines of the delivered slice that fall OUTSIDE the held
-  ///     spans, keeping their absolute line numbers.</summary>
-  private static void AppendUncoveredLines(StringBuilder sb, IReadOnlyList<string> lines, int firstLine,
-      IReadOnlyList<LineSpan> elided, int width)
-  {
-    int line = firstLine;
-    int spanIdx = 0;
-    foreach (string text in lines)
-    {
-      while (spanIdx < elided.Count && line > elided[spanIdx].End)
-      {
-        spanIdx++;
-      }
-
-      bool held = spanIdx < elided.Count && line >= elided[spanIdx].Start;
-      if (!held)
-      {
-        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"{line.ToString(CultureInfo.InvariantCulture).PadLeft(width)}→ {text}");
-      }
-
-      line++;
-    }
-  }
-
-  private static void AppendAllLines(StringBuilder sb, IReadOnlyList<string> lines, int firstLine, int width)
-  {
-    foreach ((string? text, int i) in lines.Select((t, i) => (t, i)))
-    {
-      _ = sb.AppendLine(CultureInfo.InvariantCulture, $"{(firstLine + i).ToString(CultureInfo.InvariantCulture).PadLeft(width)}→ {text}");
-    }
-  }
-
-  /// <summary>The annotation's elision suffix: empty when nothing is held, 'forced'
-  ///     when the model overrode, a whole-range elision line for full coverage, or a
-  ///     span list naming exactly which ranges the model already holds.</summary>
-  private static string ElisionSuffix(FileCoverage coverage, bool forced, int startLine, int last)
-  {
-    if (coverage.IsEmpty)
-    {
-      return string.Empty;
-    }
-
-    if (forced)
-    {
-      return " | forced";
-    }
-
-    bool fullyCovered = coverage.Elided[0].Start <= startLine && coverage.Elided[^1].End >= last;
-    return fullyCovered
-        ? " | unchanged since your last read; content elided"
-        : $" | lines {DescribeSpans(coverage.Elided)} elided (unchanged since your last read)";
-  }
-
-  /// <summary>"lines 2-3, 7" — the elided spans, comma-separated.</summary>
-  private static string DescribeSpans(IReadOnlyList<LineSpan> spans)
-      => string.Join(", ", spans.Select(s => s.ToString()));
 
   private static ToolResult Err(DomainError error) => new(
       $"Error [{error.Code}]: {error.Message}", true);
