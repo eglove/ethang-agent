@@ -27,6 +27,7 @@ public sealed class LspJsonRpcTransport
   private readonly Queue<string> _incoming = new();
   private int _nextId = 1;
   private bool _useQueue;
+  private Action<string>? _notificationHandler;
 
   public LspJsonRpcTransport(Stream input, Stream output, TimeSpan timeout)
   {
@@ -34,6 +35,9 @@ public sealed class LspJsonRpcTransport
     _output = output ?? throw new ArgumentNullException(nameof(output));
     _timeout = timeout;
   }
+
+  /// <summary>Registers a handler for server-to-client notifications (e.g. publishDiagnostics).</summary>
+  public void OnNotification(Action<string> handler) => _notificationHandler = handler ?? throw new ArgumentNullException(nameof(handler));
 
   /// <summary>Test hook: queue a raw incoming message instead of reading the stream.</summary>
   public void EnqueueIncomingForTest(string json)
@@ -121,7 +125,11 @@ public sealed class LspJsonRpcTransport
         await WriteMessageAsync(reply, ct).ConfigureAwait(false);
         continue;
       }
-      if (hasMethod && !hasId) continue;
+      if (hasMethod && !hasId)
+      {
+        _notificationHandler?.Invoke(msg);
+        continue;
+      }
       return msg;
     }
   }

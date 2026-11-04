@@ -89,15 +89,16 @@ public class LspDiagnosticsTests
   }
 
   [Fact]
-  public void DiagnosticsStore_DistinctDiagnostics_PullReplacesPush()
+  public void DiagnosticsStore_DistinctDiagnostics_UnionMergeKeepsBoth()
   {
     LspDiagnosticStore store = new();
     string uri = "file:///C:/ws/Bad.cs";
     store.OnPublishDiagnostics(PushJson(uri, "CS0029", 0, 38, 0, 52, "Cannot implicitly convert type"));
     store.OnPullDiagnostics(uri, PushJson(uri, "CS1002", 1, 0, 1, 5, "; expected"));
     LspDiagnosticsResult result = store.Get(uri);
-    LspDiagnostic only = Assert.Single(result.Diagnostics);
-    Assert.Equal("CS1002", only.Code);
+    Assert.Equal(2, result.Diagnostics.Count);
+    Assert.Contains(result.Diagnostics, d => d.Code == "CS0029");
+    Assert.Contains(result.Diagnostics, d => d.Code == "CS1002");
   }
 
   [Fact]
@@ -120,7 +121,7 @@ public class LspDiagnosticsTests
   }
 
   [Fact]
-  public void DiagnosticsStore_PullEmptyResult_ReportsReadyEmpty()
+  public void DiagnosticsStore_PullEmptyResult_KeepsPushDiagnostics()
   {
     LspDiagnosticStore store = new();
     string uri = "file:///C:/ws/Bad.cs";
@@ -128,7 +129,8 @@ public class LspDiagnosticsTests
     store.OnPullDiagnostics(uri, "{\"uri\":\"" + uri + "\",\"diagnostics\":[]}");
     LspDiagnosticsResult result = store.Get(uri);
     Assert.Equal(LspDiagnosticsState.Ready, result.State);
-    Assert.Empty(result.Diagnostics);
+    LspDiagnostic only = Assert.Single(result.Diagnostics);
+    Assert.Equal("CS0029", only.Code);
   }
 
   [Fact]

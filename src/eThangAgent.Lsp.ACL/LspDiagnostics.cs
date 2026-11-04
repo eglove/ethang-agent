@@ -34,10 +34,8 @@ public sealed record LspDiagnosticsResult(LspDiagnosticsState State, IReadOnlyLi
 /// #355); pull is secondary and must not be assumed from advertisement. Both
 /// paths merge by identity (file + range + code + message): a diagnostic
 /// reported by both appears once, distinct diagnostics are kept. A later
-/// report for a file replaces that path's earlier set for the file. A pull
-/// result is authoritative for the file at pull time, so it replaces the push
-/// set; a push replaces the pull set only when newer. The union is then
-/// deduplicated by identity.</summary>
+/// report for a file replaces that path's earlier set for the file. The
+/// union of both paths is deduplicated by identity.</summary>
 public sealed class LspDiagnosticStore
 {
   private readonly Dictionary<string, List<LspDiagnostic>> _pushByUri = new(StringComparer.Ordinal);
@@ -45,7 +43,15 @@ public sealed class LspDiagnosticStore
   private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
   private readonly Lock _gate = new();
 
-  public string? LastResultId { get; private set; }
+  private readonly Dictionary<string, string> _resultIdByUri = new(StringComparer.Ordinal);
+
+  public string? LastResultId => _resultIdByUri.Count > 0 ? _resultIdByUri.Values.Last() : null;
+
+  public string? GetResultId(string uri)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(uri);
+    lock (_gate) { return _resultIdByUri.TryGetValue(uri, out string? id) ? id : null; }
+  }
 
   public void OnPublishDiagnostics(string paramsJson)
   {
@@ -66,9 +72,8 @@ public sealed class LspDiagnosticStore
     lock (_gate)
     {
       _pullByUri[uri] = diags;
-      _pushByUri.Remove(uri);
       _reported.Add(uri);
-      if (resultId is not null) LastResultId = resultId;
+      if (resultId is not null) _resultIdByUri[uri] = resultId;
       _ = parsedUri;
     }
   }
@@ -118,7 +123,7 @@ public sealed class LspDiagnosticStore
   public string BuildPullParams(string uri)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(uri);
-    string? previous = LastResultId;
+    string? previous = GetResultId(uri);
     if (previous is null)
     {
       return "{\"textDocument\":{\"uri\":\"" + uri + "\"}}";
