@@ -51,11 +51,12 @@ internal sealed record AgentSessionViewModelOptions
   ///     Null = no skill resolves by name.</summary>
   public SkillInvocationService? SkillInvocation { get; init; }
 
-  /// <summary>The reference popup's catalog source: every option matching the query the
-  ///     <c>@</c> and <c>/</c> triggers can offer. The query reaches the source so any cap it
-  ///     applies bounds the MATCHES, never the unfiltered catalog. Null = no popup (headless
-  ///     stubs without a catalog).</summary>
-  public Func<string, IReadOnlyList<ReferenceOption>>? ReferenceCatalogSource { get; init; }
+  /// <summary>The reference popup's catalog source: the options a trigger offers for a query.
+  ///     The trigger reaches the source because the two lists are disjoint — <c>/</c> offers
+  ///     commands only and <c>@</c> offers skills and files — and the query reaches it so any
+  ///     cap bounds the MATCHES, never the unfiltered catalog. Null = no popup (headless stubs
+  ///     without a catalog).</summary>
+  public Func<ReferenceTrigger, string, IReadOnlyList<ReferenceOption>>? ReferenceCatalogSource { get; init; }
 
   /// <summary>Resolves a submitted message's <c>@</c> references into read-tool output before
   ///     the turn starts. Null = the message travels exactly as typed (headless stubs).</summary>
@@ -540,15 +541,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>At most this many popup rows for one query.</summary>
   private const int ReferenceOptionLimit = 50;
 
-  /// <summary>The catalog source's options for <paramref name="query"/>, capped at
-  ///     <see cref="ReferenceOptionLimit"/> rows. The source filters; this bounds the row
+  /// <summary>The catalog source's options for one trigger and <paramref name="query"/>, capped
+  ///     at <see cref="ReferenceOptionLimit"/> rows. The source filters; this bounds the row
   ///     count only, so the cap can never crowd out a match the query would have found.</summary>
-  private static IReadOnlyList<ReferenceOption> ReferenceOptions(string query,
-      Func<string, IReadOnlyList<ReferenceOption>> source)
+  private static IReadOnlyList<ReferenceOption> ReferenceOptions(ReferenceTrigger trigger, string query,
+      Func<ReferenceTrigger, string, IReadOnlyList<ReferenceOption>> source)
   {
     ArgumentNullException.ThrowIfNull(query);
     ArgumentNullException.ThrowIfNull(source);
-    IReadOnlyList<ReferenceOption> matched = source(query)
+    IReadOnlyList<ReferenceOption> matched = source(trigger, query)
         ?? throw new InvalidOperationException("The reference catalog source returned null.");
     return matched.Count <= ReferenceOptionLimit ? matched : [.. matched.Take(ReferenceOptionLimit)];
   }
@@ -635,7 +636,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _referenceIndexRefresh = options.ReferenceIndexRefresh;
     ReferenceCompletions = options.ReferenceCatalogSource is null
         ? null
-        : new ComposerReferenceViewModel(query => ReferenceOptions(query, options.ReferenceCatalogSource));
+        : new ComposerReferenceViewModel((trigger, query) =>
+            ReferenceOptions(trigger, query, options.ReferenceCatalogSource));
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
     RunsInOwnHost = options.RunsInOwnHost;

@@ -53,8 +53,11 @@ public class SkillSlashSubmitTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          ReferenceCatalogSource = query => [.. options.Where(o =>
-              o.Name.Contains(query, StringComparison.OrdinalIgnoreCase))],
+          ReferenceCatalogSource = (trigger, query) => [.. options
+              .Where(o => trigger == ReferenceTrigger.Command
+                  ? o.Kind == ReferenceKind.Command
+                  : o.Kind != ReferenceKind.Command)
+              .Where(o => o.Name.Contains(query, StringComparison.OrdinalIgnoreCase))],
         });
     return (vm, conversation, turns);
   }
@@ -124,12 +127,40 @@ public class SkillSlashSubmitTests
   {
     (AgentSessionViewModel vm, Conversation _, List<string> _) = Build(Skill("deploy"));
 
+    // '/dep' no longer lists the deploy SKILL: a slash token is the closed command registry,
+    // so the only row it can offer is a registered command.
     ComposerReferenceViewModel popup = Assert.IsType<ComposerReferenceViewModel>(vm.ReferenceCompletions);
-    vm.UpdateReferenceCompletions("/dep", 4);
+    vm.UpdateReferenceCompletions("/ne", 3);
     Assert.True(popup.IsOpen);
-    Assert.Equal("deploy", popup.Options[0].Name);
+    Assert.Equal("new", popup.Options[0].Name);
+    vm.UpdateReferenceCompletions("/dep", 4);
+    Assert.False(popup.IsOpen);
     vm.UpdateReferenceCompletions("plain", 5);
     Assert.False(popup.IsOpen);
+  }
+
+  [Fact]
+  public void Popup_AtTrigger_NeverOffersTheNewCommand()
+  {
+    // '@new' is not a reference: the command registry is a disjoint list reached only by '/'.
+    (AgentSessionViewModel vm, Conversation _, List<string> _) = Build(Skill("deploy"));
+
+    ComposerReferenceViewModel popup = Assert.IsType<ComposerReferenceViewModel>(vm.ReferenceCompletions);
+    vm.UpdateReferenceCompletions("@new", 4);
+    Assert.DoesNotContain(popup.Options, o => o.Kind == ReferenceKind.Command);
+    Assert.False(popup.IsOpen);
+  }
+
+  [Fact]
+  public void Popup_SlashTrigger_OffersCommandsOnly()
+  {
+    (AgentSessionViewModel vm, Conversation _, List<string> _) = Build(Skill("deploy"));
+
+    ComposerReferenceViewModel popup = Assert.IsType<ComposerReferenceViewModel>(vm.ReferenceCompletions);
+    vm.UpdateReferenceCompletions("/", 1);
+    Assert.True(popup.IsOpen);
+    Assert.All(popup.Options, o => Assert.Equal(ReferenceKind.Command, o.Kind));
+    Assert.Equal("new", Assert.Single(popup.Options).Name);
   }
 
   [Fact]

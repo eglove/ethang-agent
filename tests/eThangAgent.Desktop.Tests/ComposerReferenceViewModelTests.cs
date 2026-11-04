@@ -8,10 +8,15 @@ public class ComposerReferenceViewModelTests
   [
     new("grill", "Interview the user", ReferenceKind.Skill, "@grill"),
     new("src/AgentView.cs", "", ReferenceKind.File, "@src/AgentView.cs"),
+    new("new", "Start a new session", ReferenceKind.Command, "/new"),
   ];
 
   private static ComposerReferenceViewModel Vm(params ReferenceOption[] options)
-    => new(query => [.. options.Where(o => o.Name.Contains(query, StringComparison.OrdinalIgnoreCase))]);
+    => new((trigger, query) => [.. options
+        .Where(o => trigger == ReferenceTrigger.Command
+            ? o.Kind == ReferenceKind.Command
+            : o.Kind != ReferenceKind.Command)
+        .Where(o => o.Name.Contains(query, StringComparison.OrdinalIgnoreCase))]);
 
   [Fact]
   public void OpensOnAnAtTokenAndClosesWhenTheCaretLeavesIt()
@@ -34,6 +39,38 @@ public class ComposerReferenceViewModelTests
     Assert.False(vm.IsOpen);
     vm.Update("@grill ", 7);
     Assert.False(vm.IsOpen);
+  }
+
+  [Fact]
+  public void ASlashTokenListsCommandsOnly()
+  {
+    ComposerReferenceViewModel vm = Vm(Catalog);
+    vm.Update("/", 1);
+    Assert.True(vm.IsOpen);
+    ReferenceOption only = Assert.Single(vm.Options);
+    Assert.Equal(ReferenceKind.Command, only.Kind);
+    Assert.Equal("new", only.Name);
+  }
+
+  [Fact]
+  public void AnAtTokenNeverListsCommands()
+  {
+    // The regression this pins: '@new' resolved and appeared in the file search, because the
+    // popup mixed every kind under both triggers. A command is not a reference.
+    ComposerReferenceViewModel vm = Vm(Catalog);
+    vm.Update("@new", 4);
+    Assert.False(vm.IsOpen);
+    Assert.DoesNotContain(vm.Options, o => o.Kind == ReferenceKind.Command);
+  }
+
+  [Fact]
+  public void AnAtTokenListsSkillsAndFiles()
+  {
+    ComposerReferenceViewModel vm = Vm(Catalog);
+    vm.Update("@", 1);
+    Assert.True(vm.IsOpen);
+    Assert.Equal(2, vm.Options.Count);
+    Assert.DoesNotContain(vm.Options, o => o.Kind == ReferenceKind.Command);
   }
 
   [Fact]

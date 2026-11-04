@@ -25,9 +25,9 @@ internal sealed record ReferenceCommit(int Start, int Length, string InsertText,
 ///     wrap-around, and commits a replacement span. The search delegate is synchronous and
 ///     reads an already-cached catalog. Pure state — the view routes keys and applies the
 ///     commit; nothing here touches the conversation.</summary>
-internal sealed class ComposerReferenceViewModel(Func<string, IReadOnlyList<ReferenceOption>> search) : ObservableObject
+internal sealed class ComposerReferenceViewModel(Func<ReferenceTrigger, string, IReadOnlyList<ReferenceOption>> search) : ObservableObject
 {
-  private readonly Func<string, IReadOnlyList<ReferenceOption>> _search = search ?? throw new ArgumentNullException(nameof(search));
+  private readonly Func<ReferenceTrigger, string, IReadOnlyList<ReferenceOption>> _search = search ?? throw new ArgumentNullException(nameof(search));
   private ReferenceToken? _token;
   private int _committedStart = -1;
   private int _committedEnd = -1;
@@ -36,7 +36,9 @@ internal sealed class ComposerReferenceViewModel(Func<string, IReadOnlyList<Refe
   /// <summary>Whether the popup shows.</summary>
   public bool IsOpen { get; private set; }
 
-  /// <summary>The options for the active token, skills before commands before files, then name ordinal.</summary>
+  /// <summary>The options for the active token, sorted by kind then name. The search decides
+  ///     WHICH kinds a trigger offers: a <c>/</c> token lists commands only and an <c>@</c> token
+  ///     lists skills and files, so the two lists never mix.</summary>
   public IReadOnlyList<ReferenceOption> Options { get; private set; } = [];
 
   /// <summary>The highlighted row (index into <see cref="Options"/>), or -1 when nothing is selectable.</summary>
@@ -66,7 +68,7 @@ internal sealed class ComposerReferenceViewModel(Func<string, IReadOnlyList<Refe
     }
 
     ClearCommit();
-    IReadOnlyList<ReferenceOption> matches = _search(token.Query)
+    IReadOnlyList<ReferenceOption> matches = _search(token.Trigger, token.Query)
         ?? throw new InvalidOperationException("The reference search returned null.");
     Options =
     [

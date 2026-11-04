@@ -2356,16 +2356,31 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     restore BEFORE the tab can take a turn, persisted-transcript replay (a no-op
   ///     for a fresh session — its conversation is empty), and
   ///     tab attach. Must run on the UI thread.</summary>
-  /// <summary>Maps the session's catalog to the reference popup's options: the catalog's
-  ///     skills, the registered session commands, and the workspace's files, all matched by
-  ///     name. The composite catalog's ListAsync is async while the popup's source seam is
-  ///     sync, so this resolves synchronously — the documented sync-over-async seam constraint
-  ///     (the SkillsListingPromptProvider Build() precedent). A catalog failure yields the
-  ///     commands and files alone.</summary>
+  /// <summary>Maps one trigger's options for the reference popup, matched by name. The two
+  ///     triggers are DISJOINT lists: <c>/</c> yields the registered session commands and
+  ///     nothing else, while <c>@</c> yields the catalog's skills and the workspace's files.
+  ///     The composite catalog's ListAsync is async while the popup's source seam is sync, so
+  ///     this resolves synchronously — the documented sync-over-async seam constraint (the
+  ///     SkillsListingPromptProvider Build() precedent). A catalog failure yields the files
+  ///     alone.</summary>
   private static List<ReferenceOption> ReferenceOptionsOf(AgentSession session, WorkspaceFileIndex? files,
-      string query)
+      ReferenceTrigger trigger, string query)
   {
     ArgumentNullException.ThrowIfNull(query);
+    // The two trigger lists are DISJOINT. A '/' token is a closed command registry and offers
+    // nothing else, so an '@' reference can never resolve to a command and '/new' never appears
+    // in the file and skill search.
+    if (trigger == ReferenceTrigger.Command)
+    {
+      return
+      [
+          .. SessionCommandRegistry.All
+              .Where(command => command.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+              .Select(command => new ReferenceOption(
+                  command.Name, command.Description, ReferenceKind.Command, "/" + command.Name)),
+      ];
+    }
+
     List<ReferenceOption> options = [];
     ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
     Result<IReadOnlyList<SkillDefinition>> listed = catalog.ListAsync().GetAwaiter().GetResult();
@@ -2376,10 +2391,6 @@ internal sealed partial class MainViewModel : ObservableObject
           .Select(s => new ReferenceOption(s.Name, s.Description, ReferenceKind.Skill, "@" + s.Name)));
     }
 
-    options.AddRange(SessionCommandRegistry.All
-        .Where(command => command.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-        .Select(command => new ReferenceOption(
-            command.Name, command.Description, ReferenceKind.Command, "/" + command.Name)));
     if (files is not null)
     {
       // The query reaches the index so its 50-row cap applies to the MATCHES: an empty query
@@ -2572,7 +2583,7 @@ internal sealed partial class MainViewModel : ObservableObject
           ModelPreferences = session.Preferences,
           CommandRunner = session.CommandRunner,
           SkillInvocation = session.SkillInvocation,
-          ReferenceCatalogSource = query => ReferenceOptionsOf(session, fileIndex, query),
+          ReferenceCatalogSource = (trigger, query) => ReferenceOptionsOf(session, fileIndex, trigger, query),
           // A container that registered no file access (a bare test stub) resolves no
           // references; every production container registers it.
           References = session.Services.GetService<IFileSystemAccess>() is { } referenceFiles

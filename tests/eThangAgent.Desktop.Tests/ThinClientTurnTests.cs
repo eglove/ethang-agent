@@ -434,7 +434,7 @@ internal sealed class FakeHostSession
           WorkspaceRoot = @"C:\work\demo",
           RootTurnChannel = host,
           SkillInvocation = skillName is null ? null : new SkillInvocationService(new FakeSkillCatalog(skillName)),
-          ReferenceCatalogSource = skillName is null ? null : _ => [],
+          ReferenceCatalogSource = skillName is null ? null : (_, _) => [],
           References = references,
           CommandRunner = commandLine ? new FakeCommandRunner() : null,
           ModelPreferences = preferences,
