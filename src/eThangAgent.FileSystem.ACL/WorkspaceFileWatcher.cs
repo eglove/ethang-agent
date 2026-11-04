@@ -11,14 +11,15 @@ namespace eThangAgent.FileSystem.ACL;
 ///     against the same baseline. A pass emits a raw dirty-path set (added/modified)
 ///     and deleted-path set; renames surface as a delete plus an add. Excluded paths
 ///     (DirectWorkspaceSnapshotAccess.ExcludedDirectories) never produce events.
-///     <para>No polling, no re-sync, no generation counter - those are sibling slices
-///     (#349, #350). The watcher announces, it does not analyze.</para></summary>
+///     <para>Polling sweep (#349) catches missed events; generation counter and re-sync are #350.</para></summary>
 public sealed class WorkspaceFileWatcher(
     string workspaceRoot,
     IWorkspaceSnapshotAccess snapshots,
-    Func<WorkspaceChangeSet, Task> onPass) : IAsyncDisposable
+    Func<WorkspaceChangeSet, Task> onPass,
+    TimeSpan? pollingInterval = null) : IAsyncDisposable
 {
   private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(250);
+  private static readonly TimeSpan DefaultPollingInterval = TimeSpan.FromSeconds(5);
 
   private readonly string _root = workspaceRoot
       ?? throw new ArgumentNullException(nameof(workspaceRoot));
@@ -26,6 +27,7 @@ public sealed class WorkspaceFileWatcher(
       ?? throw new ArgumentNullException(nameof(snapshots));
   private readonly Func<WorkspaceChangeSet, Task> _onPass = onPass
       ?? throw new ArgumentNullException(nameof(onPass));
+  private readonly TimeSpan _pollingInterval = pollingInterval ?? DefaultPollingInterval;
   private readonly CancellationTokenSource _cts = new();
   private readonly Lock _gate = new();
   private readonly SemaphoreSlim _checkGate = new(1, 1);
@@ -33,6 +35,7 @@ public sealed class WorkspaceFileWatcher(
   private WorkspaceSnapshot? _baseline;
   private int _checking;
   private bool _started;
+  private Task? _sweepLoop;
 
   /// <summary>True once <see cref="Start"/> has run; exposed for wiring tests.</summary>
   public bool IsStarted { get; private set; }
@@ -70,9 +73,13 @@ public sealed class WorkspaceFileWatcher(
     fsw.Created += OnEvent;
     fsw.Deleted += OnEvent;
     fsw.Renamed += OnEvent;
+    fsw.Error += OnErrored;
     fsw.EnableRaisingEvents = true;
     _watcher = fsw;
+    _sweepLoop = Task.Run(() => SweepLoopAsync(), CancellationToken.None);
   }
+
+  private void OnErrored(object sender, ErrorEventArgs e) => ScheduleCheck();
 
   private void OnEvent(object sender, FileSystemEventArgs e)
   {
@@ -120,6 +127,32 @@ public sealed class WorkspaceFileWatcher(
     }
   }
 
+  /// <summary>One polling sweep: same diff as CheckOnceAsync against the owned baseline.</summary>
+  public Task SweepOnceAsync(CancellationToken ct = default) => CheckOnceAsync(ct);
+
+  /// <summary>Test hook: simulate a buffer overflow by forcing a sweep.</summary>
+  public void SimulateBufferOverflow() => ScheduleCheck();
+
+  private async Task SweepLoopAsync()
+  {
+    while (!_cts.IsCancellationRequested)
+    {
+      try
+      {
+        await Task.Delay(_pollingInterval, _cts.Token).ConfigureAwait(false);
+        await CheckOnceAsync(_cts.Token).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        break;
+      }
+      catch
+      {
+        // Named decision (#348/#349): transient faults never kill the sweep.
+      }
+    }
+  }
+
   /// <summary>One check pass: capture a snapshot, diff against the baseline, announce
   ///     a non-empty change set. Concurrent callers serialize on a gate - EVERY caller
   ///     performs its own pass, none is skipped, never concurrent.</summary>
@@ -156,6 +189,18 @@ public sealed class WorkspaceFileWatcher(
 
     _checkGate.Dispose();
     await _cts.CancelAsync().ConfigureAwait(false);
+    if (_sweepLoop is { } loop)
+    {
+      try
+      {
+        await loop.ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        // Expected on dispose.
+      }
+    }
+
     _cts.Dispose();
   }
 }
