@@ -48,8 +48,8 @@ public class ReferenceInjectorTests
       null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, false, null);
 
   private static ReferenceInjector Injector(
-      IFileSystemAccess files, ReadFreshnessLedger? ledger = null, SkillInvocationService? skills = null)
-    => new(files, ledger ?? new ReadFreshnessLedger(), skills, Root);
+      IFileSystemAccess files, SkillInvocationService? skills = null)
+    => new(files, skills, Root);
 
   [Fact]
   public async Task MissingFileRefusesAndNamesThePath()
@@ -73,11 +73,15 @@ public class ReferenceInjectorTests
   }
 
   [Fact]
-  public async Task ReferenceReadRegistersInTheLedger()
+  public async Task ARepeatedReferenceStillDeliversFullContent()
   {
-    ReadFreshnessLedger ledger = new();
-    _ = await Injector(new FakeFiles(), ledger).InjectAsync("@notes.txt", Ct);
-    Assert.NotEmpty(ledger.Check(Path.Combine(Path.GetFullPath(Root), "notes.txt"), Version, 1, 2).Elided);
+    // The freshness ledger is the agent's per-turn memory and is reset at turn start, so a
+    // reference never elides: the same file named twice delivers its content twice.
+    FakeFiles files = new();
+    ReferenceInjectionResult r = await Injector(files).InjectAsync("@notes.txt and @notes.txt", Ct);
+    Assert.Equal(2, r.AppendedBlocks.Count);
+    Assert.All(r.AppendedBlocks, block =>
+        Assert.Contains("1→ alpha", block, StringComparison.Ordinal));
   }
 
   [Fact]
@@ -105,7 +109,7 @@ public class ReferenceInjectorTests
   public async Task AFileReferenceReadsOneReadToolPage()
   {
     FakeFiles files = new();
-    ReferenceInjector injector = new(files, new ReadFreshnessLedger(), null, Root);
+    ReferenceInjector injector = new(files, null, Root);
     _ = await injector.InjectAsync("@notes.txt", Ct);
     Assert.Equal(Path.Combine(Path.GetFullPath(Root), "notes.txt"), Assert.Single(files.Reads));
   }

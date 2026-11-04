@@ -37,6 +37,18 @@ public class ComposerReferenceViewModelTests
   }
 
   [Fact]
+  public void NoMatchClosesThePopup()
+  {
+    // Spec 6: the popup closes on no match. An empty box that still owns Enter would make
+    // the next keystroke un-sendable.
+    ComposerReferenceViewModel vm = Vm(Catalog);
+    vm.Update("@zzzz", 5);
+    Assert.False(vm.IsOpen);
+    Assert.Empty(vm.Options);
+    Assert.Equal(-1, vm.SelectedIndex);
+  }
+
+  [Fact]
   public void SkillsSortAboveFiles()
   {
     ComposerReferenceViewModel vm = Vm(Catalog);

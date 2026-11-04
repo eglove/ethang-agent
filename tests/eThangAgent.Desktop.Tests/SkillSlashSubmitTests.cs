@@ -53,7 +53,8 @@ public class SkillSlashSubmitTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          ReferenceCatalogSource = () => options,
+          ReferenceCatalogSource = query => [.. options.Where(o =>
+              o.Name.Contains(query, StringComparison.OrdinalIgnoreCase))],
         });
     return (vm, conversation, turns);
   }

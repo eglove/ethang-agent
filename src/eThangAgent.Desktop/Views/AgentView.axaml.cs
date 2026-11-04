@@ -33,10 +33,10 @@ internal partial class AgentView : UserControl
   private bool _restorePending;
   private double _restoreOffset;
 
-  // True only around a programmatic autofill text set: the autofill's own
-  // TextChanged must not re-open the popup the Accept just closed; the next
-  // user-driven change re-enables the feed.
-  private bool _suppressAutocompleteUpdate;
+  // True only around a programmatic commit text set: the commit's own TextChanged
+  // must not re-open the popup the Accept just closed; the next user-driven change
+  // re-enables the feed.
+  private bool _suppressReferenceFeed;
 
   public AgentView()
   {
@@ -158,14 +158,19 @@ internal partial class AgentView : UserControl
       return;
     }
 
-    if (e.PropertyName == nameof(AgentSessionViewModel.ReferenceCostIsHigh)
-        && sender is AgentSessionViewModel { ReferenceCostIsHigh: true })
+    // The amber class follows the flag, and the flag is re-read on every cost change: a
+    // label that appears while the flag is already true still needs the class applied.
+    if (e.PropertyName is nameof(AgentSessionViewModel.ReferenceCostIsHigh)
+        or nameof(AgentSessionViewModel.ReferenceCostLabel))
     {
-      ReferenceCostText.Classes.Add("amber");
-    }
-    else if (e.PropertyName == nameof(AgentSessionViewModel.ReferenceCostIsHigh))
-    {
-      _ = ReferenceCostText.Classes.Remove("amber");
+      if (sender is AgentSessionViewModel { ReferenceCostIsHigh: true })
+      {
+        ReferenceCostText.Classes.Add("amber");
+      }
+      else
+      {
+        _ = ReferenceCostText.Classes.Remove("amber");
+      }
     }
   }
 
@@ -331,7 +336,7 @@ internal partial class AgentView : UserControl
   private void OnInputTextChanged(object? sender, TextChangedEventArgs e)
   {
     string text = InputBox.Text ?? "";
-    if (!_suppressAutocompleteUpdate)
+    if (!_suppressReferenceFeed)
     {
       Vm?.UpdateReferenceCompletions(text, InputBox.CaretIndex);
       _ = Vm?.UpdateReferenceCostAsync(text);
@@ -458,7 +463,7 @@ internal partial class AgentView : UserControl
   ///     so the popup stays closed for the token just committed.</summary>
   private void ApplyCommit(ReferenceCommit commit)
   {
-    _suppressAutocompleteUpdate = true;
+    _suppressReferenceFeed = true;
     try
     {
       string text = InputBox.Text ?? "";
@@ -472,7 +477,7 @@ internal partial class AgentView : UserControl
     }
     finally
     {
-      _suppressAutocompleteUpdate = false;
+      _suppressReferenceFeed = false;
     }
   }
 
@@ -480,7 +485,7 @@ internal partial class AgentView : UserControl
   ///     one closes it, with no text change involved.</summary>
   private void OnInputPropertyChanged(object? sender, Avalonia.AvaloniaPropertyChangedEventArgs e)
   {
-    if (_suppressAutocompleteUpdate
+    if (_suppressReferenceFeed
         || (e.Property != TextBox.CaretIndexProperty
             && e.Property != TextBox.SelectionStartProperty
             && e.Property != TextBox.SelectionEndProperty))
@@ -580,6 +585,9 @@ internal partial class AgentView : UserControl
   ///     user's text is never lost and stays editable (spec 7).</summary>
   private void SubmitInput() => _ = SubmitAndRestoreAsync();
 
+  /// <summary>Sends the input and restores it when the send was refused. A fault is delivered
+  ///     to the transcript rather than dropped: the caller fire-and-forgets this task, so an
+  ///     unobserved exception would leave the user with no sign the message never went.</summary>
   private async Task SubmitAndRestoreAsync()
   {
     AgentSessionViewModel? vm = Vm;
@@ -590,7 +598,20 @@ internal partial class AgentView : UserControl
       return;
     }
 
-    await vm.SubmitAsync(text).ConfigureAwait(true);
+    try
+    {
+      await vm.SubmitAsync(text).ConfigureAwait(true);
+    }
+#pragma warning disable CA1031 // Named decision: the submit path is a fault boundary.
+    catch (Exception ex)
+    {
+      vm.Transcript.AddNotice($"Error [SubmitFault]: {ex.Message}");
+      InputBox.Text = text;
+      InputBox.CaretIndex = text.Length;
+      return;
+    }
+#pragma warning restore CA1031
+
     if (vm.PendingRefusedInput is not { } refused)
     {
       return;

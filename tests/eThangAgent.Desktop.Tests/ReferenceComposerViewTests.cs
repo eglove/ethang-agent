@@ -72,9 +72,10 @@ public class ReferenceComposerViewTests
         new AgentSessionViewModelOptions
         {
           WorkspaceRoot = Root,
-          ReferenceCatalogSource = () => Catalog,
+          ReferenceCatalogSource = query => [.. Catalog.Where(o =>
+              o.Name.Contains(query, StringComparison.OrdinalIgnoreCase))],
           References = new ReferenceInjector(
-              files ?? new FakeFiles(), new ReadFreshnessLedger(), null, Root),
+              files ?? new FakeFiles(), null, Root),
           ReferenceIndexRefresh = () =>
           {
             refreshes.Add("refresh");

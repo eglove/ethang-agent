@@ -31,14 +31,33 @@ public class ReferenceSubmitTests
 
   /// <summary>The built session plus the temp workspace it reads; disposing it releases the
   ///     file-system access and removes the directory.</summary>
+  /// <summary>Counts reads so a test can prove the cost estimate did (or did not) touch the
+  ///     file system for a given input.</summary>
+  private sealed class CountingFiles(IFileSystemAccess inner) : IFileSystemAccess
+  {
+    public int ReadCount { get; private set; }
+
+    public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
+        CancellationToken ct = default)
+    {
+      ReadCount++;
+      return inner.ReadLinesAsync(path, startLine, endLine, ct);
+    }
+
+    public Task<Result<byte[]>> ReadBytesAsync(string path, CancellationToken ct = default)
+      => inner.ReadBytesAsync(path, ct);
+  }
+
   private sealed class Harness(AgentSessionViewModel vm, List<string> turns, string root,
-      DirectFileSystemAccess files) : IDisposable
+      DirectFileSystemAccess files, CountingFiles counter) : IDisposable
   {
     public AgentSessionViewModel Vm { get; } = vm;
 
     public List<string> Turns { get; } = turns;
 
     public string Root { get; } = root;
+
+    public CountingFiles Files { get; } = counter;
 
     public void Dispose()
     {
@@ -70,6 +89,7 @@ public class ReferenceSubmitTests
 
     List<string> turns = [];
     DirectFileSystemAccess fileAccess = new(new EditorConfigLineEndingPolicy(root));
+    CountingFiles counter = new(fileAccess);
     AgentSessionViewModel vm = new(
         (command, _, _, _) =>
         {
@@ -83,12 +103,11 @@ public class ReferenceSubmitTests
           WorkspaceRoot = root,
           SkillInvocation = skills.Length == 0 ? null : new SkillInvocationService(new FakeCatalog(skills)),
           References = new ReferenceInjector(
-              fileAccess,
-              new ReadFreshnessLedger(),
+              counter,
               skills.Length == 0 ? null : new SkillInvocationService(new FakeCatalog(skills)),
               root),
         });
-    return new Harness(vm, turns, root, fileAccess);
+    return new Harness(vm, turns, root, fileAccess, counter);
   }
 
   [Fact]
@@ -129,6 +148,32 @@ public class ReferenceSubmitTests
         e => e is NoticeEntry n && n.Text.Contains("ReferenceNotFound", StringComparison.Ordinal));
     Assert.Equal("read @missing.cs please", h.Vm.PendingRefusedInput);
     Assert.Empty(h.Turns);
+  }
+
+  [Fact]
+  public async Task TheCostEstimateDoesNotReReadForUnchangedReferences()
+  {
+    // Typing prose around a reference must not re-read the file: the estimate keys on the
+    // reference NAMES, so an unchanged set reuses the last resolution.
+    using Harness h = Build(new Dictionary<string, string[]> { ["notes.txt"] = ["alpha", "beta"] });
+
+    await h.Vm.UpdateReferenceCostAsync("check @notes.txt").ConfigureAwait(true);
+    int reads = h.Files.ReadCount;
+    Assert.True(reads > 0, "the first estimate must resolve the reference");
+
+    await h.Vm.UpdateReferenceCostAsync("check @notes.txt please").ConfigureAwait(true);
+    await h.Vm.UpdateReferenceCostAsync("check @notes.txt please now").ConfigureAwait(true);
+    Assert.Equal(reads, h.Files.ReadCount);
+  }
+
+  [Fact]
+  public async Task PlainProseNeverResolvesAReference()
+  {
+    using Harness h = Build(new Dictionary<string, string[]> { ["notes.txt"] = ["alpha"] });
+
+    await h.Vm.UpdateReferenceCostAsync("just some words").ConfigureAwait(true);
+    Assert.Equal(0, h.Files.ReadCount);
+    Assert.Equal(string.Empty, h.Vm.ReferenceCostLabel);
   }
 
   [Fact]

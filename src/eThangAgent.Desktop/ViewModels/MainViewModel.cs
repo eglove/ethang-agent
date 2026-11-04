@@ -2362,27 +2362,31 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     sync, so this resolves synchronously — the documented sync-over-async seam constraint
   ///     (the SkillsListingPromptProvider Build() precedent). A catalog failure yields the
   ///     commands and files alone.</summary>
-  private static List<ReferenceOption> ReferenceOptionsOf(AgentSession session, WorkspaceFileIndex? files)
+  private static List<ReferenceOption> ReferenceOptionsOf(AgentSession session, WorkspaceFileIndex? files,
+      string query)
   {
+    ArgumentNullException.ThrowIfNull(query);
     List<ReferenceOption> options = [];
     ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
     Result<IReadOnlyList<SkillDefinition>> listed = catalog.ListAsync().GetAwaiter().GetResult();
     if (listed.IsSuccess)
     {
-      options.AddRange(listed.Value.Select(s => new ReferenceOption(
-          s.Name, s.Description, ReferenceKind.Skill, "@" + s.Name)));
+      options.AddRange(listed.Value
+          .Where(s => s.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+          .Select(s => new ReferenceOption(s.Name, s.Description, ReferenceKind.Skill, "@" + s.Name)));
     }
 
-    options.AddRange(SessionCommandRegistry.All.Select(command => new ReferenceOption(
-        command.Name, command.Description, ReferenceKind.Command, "/" + command.Name)));
-    if (files is null)
+    options.AddRange(SessionCommandRegistry.All
+        .Where(command => command.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+        .Select(command => new ReferenceOption(
+            command.Name, command.Description, ReferenceKind.Command, "/" + command.Name)));
+    if (files is not null)
     {
-      return options;
+      // The query reaches the index so its 50-row cap applies to the MATCHES: an empty query
+      // here would let the workspace's shortest paths fill every row before filtering.
+      options.AddRange(files.Search(query));
     }
 
-    // The popup's own query filters the concatenated list, so the file search runs with an
-    // empty query here and its rows are filtered alongside the skills'.
-    options.AddRange(files.Search(string.Empty));
     return options;
   }
 
@@ -2568,12 +2572,11 @@ internal sealed partial class MainViewModel : ObservableObject
           ModelPreferences = session.Preferences,
           CommandRunner = session.CommandRunner,
           SkillInvocation = session.SkillInvocation,
-          ReferenceCatalogSource = () => ReferenceOptionsOf(session, fileIndex),
+          ReferenceCatalogSource = query => ReferenceOptionsOf(session, fileIndex, query),
           // A container that registered no file access (a bare test stub) resolves no
           // references; every production container registers it.
           References = session.Services.GetService<IFileSystemAccess>() is { } referenceFiles
-              ? new ReferenceInjector(referenceFiles, new ReadFreshnessLedger(),
-                  session.SkillInvocation, session.WorkspaceRoot)
+              ? new ReferenceInjector(referenceFiles, session.SkillInvocation, session.WorkspaceRoot)
               : null,
           ReferenceIndexRefresh = fileIndex is null ? null : () => fileIndex.RefreshAsync(),
           // Issue #234: the /new slash command and the host's session-request both start a

@@ -14,8 +14,9 @@ internal sealed class WorkspaceFileIndex(IFileSearchAccess search, string worksp
   private readonly string _workspaceRoot = workspaceRoot ?? throw new ArgumentNullException(nameof(workspaceRoot));
   private IReadOnlyList<string> _paths = [];
 
-  /// <summary>The ranked options for <paramref name="query"/>, at most <paramref name="limit"/> rows.
-  ///     An empty cache yields an empty list.</summary>
+  /// <summary>The ranked options matching <paramref name="query"/>, at most <paramref name="limit"/>
+  ///     rows. Ranking and the cap both apply to the MATCHES, so a short unrelated path can
+  ///     never occupy a row a match would have taken. An empty cache yields an empty list.</summary>
   public IReadOnlyList<ReferenceOption> Search(string query, int limit = 50)
   {
     ArgumentNullException.ThrowIfNull(query);

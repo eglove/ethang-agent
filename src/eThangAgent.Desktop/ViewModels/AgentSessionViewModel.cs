@@ -51,9 +51,11 @@ internal sealed record AgentSessionViewModelOptions
   ///     Null = no skill resolves by name.</summary>
   public SkillInvocationService? SkillInvocation { get; init; }
 
-  /// <summary>The reference popup's catalog source: every option the <c>@</c> and <c>/</c>
-  ///     triggers can offer. Null = no popup (headless stubs without a catalog).</summary>
-  public Func<IReadOnlyList<ReferenceOption>>? ReferenceCatalogSource { get; init; }
+  /// <summary>The reference popup's catalog source: every option matching the query the
+  ///     <c>@</c> and <c>/</c> triggers can offer. The query reaches the source so any cap it
+  ///     applies bounds the MATCHES, never the unfiltered catalog. Null = no popup (headless
+  ///     stubs without a catalog).</summary>
+  public Func<string, IReadOnlyList<ReferenceOption>>? ReferenceCatalogSource { get; init; }
 
   /// <summary>Resolves a submitted message's <c>@</c> references into read-tool output before
   ///     the turn starts. Null = the message travels exactly as typed (headless stubs).</summary>
@@ -426,6 +428,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>The newest input the cost estimate was asked about.</summary>
   private string _referenceCostInput = string.Empty;
 
+  /// <summary>The reference names the last estimate resolved, so an unchanged set reuses it
+  ///     instead of re-reading every referenced file.</summary>
+  private string _referenceCostKey = string.Empty;
+
   /// <summary>True while a cost resolution runs, so a burst of keystrokes resolves once.</summary>
   private bool _referenceCostRunning;
 
@@ -446,8 +452,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Re-enumerates the popup's workspace file cache so the first <c>@</c> has one.</summary>
   public Task RefreshReferenceIndexAsync() => _referenceIndexRefresh?.Invoke() ?? Task.CompletedTask;
 
-  /// <summary>Recomputes the cost estimate for <paramref name="input"/>. A resolution already
-  ///     running re-reads the newest input when it finishes, so the estimate never lags the box.</summary>
+  /// <summary>Recomputes the cost estimate for <paramref name="input"/>. Resolving a reference
+  ///     reads its content, so this runs only when the message's SET of reference names changes:
+  ///     typing prose around a reference costs nothing, and an unchanged set reuses the last
+  ///     estimate. A resolution already running re-reads the newest input when it finishes, so the
+  ///     estimate never lags the box.</summary>
   public async Task UpdateReferenceCostAsync(string input)
   {
     ArgumentNullException.ThrowIfNull(input);
@@ -456,6 +465,20 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     {
       ClearReferenceCost();
       return;
+    }
+
+    // No references means no estimate, and no read: the common case of plain prose costs nothing.
+    string key = string.Join('\u001f', ReferenceInjector.Names(input));
+    if (key.Length == 0)
+    {
+      _referenceCostKey = string.Empty;
+      ClearReferenceCost();
+      return;
+    }
+
+    if (string.Equals(key, _referenceCostKey, StringComparison.Ordinal))
+    {
+      return; // same references: the last estimate still holds
     }
 
     if (_referenceCostRunning)
@@ -470,8 +493,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       while (true)
       {
         _referenceCostDirty = false;
+        string resolvedKey = string.Join('\u001f', ReferenceInjector.Names(_referenceCostInput));
+        if (resolvedKey.Length == 0)
+        {
+          _referenceCostKey = string.Empty;
+          ClearReferenceCost();
+          return;
+        }
+
         ReferenceInjectionResult resolved = await _references
             .InjectAsync(_referenceCostInput, CancellationToken.None).ConfigureAwait(true);
+        _referenceCostKey = resolvedKey;
         ApplyReferenceCost(resolved);
         if (!_referenceCostDirty)
         {
@@ -508,22 +540,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>At most this many popup rows for one query.</summary>
   private const int ReferenceOptionLimit = 50;
 
-  /// <summary>The catalog source's options matching <paramref name="query"/> by name
-  ///     (case-insensitive substring), capped at <see cref="ReferenceOptionLimit"/> rows.
-  ///     An empty query matches everything.</summary>
+  /// <summary>The catalog source's options for <paramref name="query"/>, capped at
+  ///     <see cref="ReferenceOptionLimit"/> rows. The source filters; this bounds the row
+  ///     count only, so the cap can never crowd out a match the query would have found.</summary>
   private static IReadOnlyList<ReferenceOption> ReferenceOptions(string query,
-      Func<IReadOnlyList<ReferenceOption>> source)
+      Func<string, IReadOnlyList<ReferenceOption>> source)
   {
     ArgumentNullException.ThrowIfNull(query);
     ArgumentNullException.ThrowIfNull(source);
-    IReadOnlyList<ReferenceOption> all = source()
+    IReadOnlyList<ReferenceOption> matched = source(query)
         ?? throw new InvalidOperationException("The reference catalog source returned null.");
-    return
-    [
-        .. all
-            .Where(option => option.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .Take(ReferenceOptionLimit),
-    ];
+    return matched.Count <= ReferenceOptionLimit ? matched : [.. matched.Take(ReferenceOptionLimit)];
   }
 
   private readonly IAgentInbox? _inbox;
@@ -940,15 +967,21 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     foreach (string block in blocks)
     {
       Transcript.AddToolResult("read", ReferenceBlockSummary(block), block, isError: false, title: "reference");
-      _pendingPreTurn.Add(new RootTurnPreTurnMessage("user", block));
     }
 
     // While a turn runs, input steers it: posted to the session inbox for delivery at the
     // loop's next safe point, and echoed into the transcript immediately. Never dropped.
+    // The read blocks ride the STEERING message itself — a pre-turn entry queued here would
+    // never be consumed by a running turn and would leak into the NEXT turn's prefix.
     if (IsBusy)
     {
-      Steer(messageText);
+      Steer(blocks.Count == 0 ? messageText : string.Join(Environment.NewLine + Environment.NewLine, [messageText, .. blocks]));
       return;
+    }
+
+    foreach (string block in blocks)
+    {
+      _pendingPreTurn.Add(new RootTurnPreTurnMessage("user", block));
     }
 
     // Real turn — start and track it.
@@ -1038,12 +1071,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         return;
       }
 
-      foreach (string block in resolved.AppendedBlocks)
-      {
-        _pendingPreTurn.Add(new RootTurnPreTurnMessage("user", block));
-      }
-
-      prompt = resolved.MessageText;
+      // The blocks ride the PROMPT, not this session's pre-turn queue: the new session runs
+      // the turn, so a pre-turn entry queued here would never be consumed and would leak into
+      // this session's next turn instead.
+      prompt = resolved.AppendedBlocks.Count == 0
+          ? resolved.MessageText
+          : string.Join(Environment.NewLine + Environment.NewLine,
+              [resolved.MessageText, .. resolved.AppendedBlocks]);
     }
 
     PendingRefusedInput = null;

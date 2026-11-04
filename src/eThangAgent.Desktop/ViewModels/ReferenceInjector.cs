@@ -15,19 +15,21 @@ internal sealed record ReferenceInjectionResult(
     int EstimatedTokens);
 
 /// <summary>Resolves every <c>@</c> reference in a submitted message: a catalog skill name
-///     wins over a workspace file, a file renders through the read tool's own output format
-///     for one page of lines, and each delivered read registers in the freshness ledger.</summary>
+///     wins over a workspace file, and a file renders through the read tool's own output format
+///     for one page of lines. The freshness ledger is deliberately NOT touched: it is the
+///     agent's per-turn memory, reset at turn start, so a record made here would be cleared
+///     before the model ever read from it.</summary>
 internal sealed class ReferenceInjector(
     IFileSystemAccess files,
-    ReadFreshnessLedger ledger,
     SkillInvocationService? skills,
     string workspaceRoot)
 {
   private const int PageLines = 1000;
-  private const int CharactersPerToken = 4;
+
+  /// <summary>The rough characters-per-token ratio the composer's cost readout divides by.</summary>
+  public const int CharactersPerToken = 4;
 
   private readonly IFileSystemAccess _files = files ?? throw new ArgumentNullException(nameof(files));
-  private readonly ReadFreshnessLedger _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
   private readonly SkillInvocationService? _skills = skills;
   private readonly WorkspacePathResolver _resolver = new(workspaceRoot ?? throw new ArgumentNullException(nameof(workspaceRoot)));
 
@@ -62,7 +64,7 @@ internal sealed class ReferenceInjector(
   }
 
   /// <summary>Every unescaped <c>@</c> token in the message, in order, without its trigger.</summary>
-  private static List<string> Names(string input)
+  public static List<string> Names(string input)
   {
     List<string> names = [];
     int i = 0;
@@ -130,9 +132,7 @@ internal sealed class ReferenceInjector(
     }
 
     FileRead file = read.Value;
-    int last = Math.Min(PageLines, file.TotalLines);
     string block = ReadOutputRenderer.Render(path, 1, PageLines, file, new FileCoverage([]), forced: false);
-    _ledger.Record(path, file.Version, 1, last);
     return Result.Success(block);
   }
 

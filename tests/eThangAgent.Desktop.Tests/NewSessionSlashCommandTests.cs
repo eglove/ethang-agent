@@ -61,7 +61,7 @@ public class NewSessionSlashCommandTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          ReferenceCatalogSource = () => [],
+          ReferenceCatalogSource = _ => [],
           NewSessionCommand = command.Invoke,
           UiMarshal = action => action(),
         });
@@ -101,7 +101,7 @@ public class NewSessionSlashCommandTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          ReferenceCatalogSource = () => [],
+          ReferenceCatalogSource = _ => [],
           NewSessionCommand = command.Invoke,
           UiMarshal = action => action(),
         });
@@ -171,7 +171,7 @@ public class NewSessionSlashCommandTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          ReferenceCatalogSource = () => [],
+          ReferenceCatalogSource = _ => [],
           UiMarshal = action => action(),
         });
 
@@ -202,7 +202,7 @@ public class NewSessionSlashCommandTests
         {
           WorkspaceRoot = @"C:\work\demo",
           SkillInvocation = invocation,
-          ReferenceCatalogSource = () => [],
+          ReferenceCatalogSource = _ => [],
           NewSessionCommand = _ => throw new InvalidOperationException("the shell exploded"),
           UiMarshal = action => action(),
         });

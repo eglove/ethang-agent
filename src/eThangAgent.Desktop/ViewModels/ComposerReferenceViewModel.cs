@@ -72,8 +72,15 @@ internal sealed class ComposerReferenceViewModel(Func<string, IReadOnlyList<Refe
     [
       .. matches.OrderBy(o => KindRank(o.Kind)).ThenBy(o => o.Name, StringComparer.Ordinal),
     ];
+    // No match closes the popup rather than showing an empty box (spec 6).
+    if (Options.Count == 0)
+    {
+      Close();
+      return;
+    }
+
     _token = token;
-    SelectedIndex = Options.Count > 0 ? 0 : -1;
+    SelectedIndex = 0;
     IsOpen = true;
     RaiseAll();
   }

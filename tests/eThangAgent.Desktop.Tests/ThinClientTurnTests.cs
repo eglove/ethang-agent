@@ -140,7 +140,7 @@ public sealed class ThinClientTurnTests
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       using DirectFileSystemAccess files = new(new EditorConfigLineEndingPolicy(root));
       FakeHostSession session = await FakeHostSession
-          .StartAsync(["done"], references: new ReferenceInjector(files, new ReadFreshnessLedger(), null, root))
+          .StartAsync(["done"], references: new ReferenceInjector(files, null, root))
           .ConfigureAwait(true);
 
       await session.ViewModel.SubmitAsync("check @notes.txt").ConfigureAwait(true);
@@ -434,7 +434,7 @@ internal sealed class FakeHostSession
           WorkspaceRoot = @"C:\work\demo",
           RootTurnChannel = host,
           SkillInvocation = skillName is null ? null : new SkillInvocationService(new FakeSkillCatalog(skillName)),
-          ReferenceCatalogSource = skillName is null ? null : () => [],
+          ReferenceCatalogSource = skillName is null ? null : _ => [],
           References = references,
           CommandRunner = commandLine ? new FakeCommandRunner() : null,
           ModelPreferences = preferences,
