@@ -56,8 +56,8 @@ public class LspCallHierarchyTests
     Assert.Equal(2, site.Character);
     Assert.Equal("Caller", site.SymbolName);
     string written = Encoding.UTF8.GetString(output.ToArray());
-    Assert.Contains("callHierarchy/prepare", written);
-    Assert.Contains("callHierarchy/incoming", written);
+    Assert.Contains("textDocument/prepareCallHierarchy", written);
+    Assert.Contains("callHierarchy/incomingCalls", written);
   }
 
   [Fact]
@@ -76,7 +76,7 @@ public class LspCallHierarchyTests
     LspSymbolSite site = Assert.Single(result.Sites);
     Assert.Equal("Callee", site.SymbolName);
     string written = Encoding.UTF8.GetString(output.ToArray());
-    Assert.Contains("callHierarchy/outgoing", written);
+    Assert.Contains("callHierarchy/outgoingCalls", written);
   }
 
   [Fact]
@@ -89,7 +89,7 @@ public class LspCallHierarchyTests
     LspSymbolResult result = await service.CallHierarchyIncomingAsync("file:///C:/ws/A.cs", "Foo", 0, 1);
     Assert.Equal(LspSymbolState.Unsupported, result.State);
     string written = Encoding.UTF8.GetString(output.ToArray());
-    Assert.DoesNotContain("callHierarchy/prepare", written);
+    Assert.DoesNotContain("textDocument/prepareCallHierarchy", written);
   }
 
   [Fact]

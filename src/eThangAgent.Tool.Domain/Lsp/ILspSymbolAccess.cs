@@ -41,7 +41,7 @@ public abstract record LspSymbolCommand
 /// <summary>Outcomes the seam returns (the closed outcome set).</summary>
 public abstract record LspSymbolOutcome
 {
-  public sealed record Ready(IReadOnlyList<LspSymbolSite> Sites, int OccurrenceUsed = 0, int TotalOccurrences = 1) : LspSymbolOutcome;
+  public sealed record Ready(IReadOnlyList<LspSymbolSite> Sites, int OccurrenceUsed = 0, int TotalOccurrences = 1, string? Message = null) : LspSymbolOutcome;
   public sealed record Unsupported(string Message) : LspSymbolOutcome;
   public sealed record Unavailable(string Message) : LspSymbolOutcome;
   public sealed record Starting(string Message) : LspSymbolOutcome;

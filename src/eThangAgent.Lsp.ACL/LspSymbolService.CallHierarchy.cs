@@ -22,9 +22,9 @@ public sealed partial class LspSymbolService
       return new LspSymbolResult(LspSymbolState.Unsupported, [], occurrence, 1, DepthMessage(depth));
     }
 
-    if (!_capabilities.Supports("callHierarchy/prepare"))
+    if (!_capabilities.Supports("textDocument/prepareCallHierarchy"))
     {
-      return Unsupported("callHierarchy/prepare");
+      return Unsupported("textDocument/prepareCallHierarchy");
     }
 
     LspSymbolResolution? resolution = await ResolveAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false);
@@ -39,12 +39,12 @@ public sealed partial class LspSymbolService
     }
 
     string prepParams = BuildPrepParams(uri, resolution);
-    LspRequestResult prep = await _transport.SendRequestAsync("callHierarchy/prepare", prepParams, ct).ConfigureAwait(false);
+    LspRequestResult prep = await _transport.SendRequestAsync("textDocument/prepareCallHierarchy", prepParams, ct).ConfigureAwait(false);
     if (!prep.IsSuccess)
     {
       if (prep.ErrorCode == "Unsupported")
       {
-        return Unsupported("callHierarchy/prepare");
+        return Unsupported("textDocument/prepareCallHierarchy");
       }
 
       return new LspSymbolResult(LspSymbolState.Degraded, [], occurrence, resolution.TotalOccurrences, prep.ErrorMessage);
@@ -56,7 +56,7 @@ public sealed partial class LspSymbolService
       return new LspSymbolResult(LspSymbolState.Ready, [], occurrence, resolution.TotalOccurrences);
     }
 
-    string method = incoming ? "callHierarchy/incoming" : "callHierarchy/outgoing";
+    string method = incoming ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls";
     List<LspSymbolSite> all = [];
     List<string> frontier = [itemJson];
     for (int level = 0; level < depth; level++)

@@ -53,6 +53,8 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
         + " The caller never supplies line or column: the tool resolves the position from the symbol name via document symbols."
         + " Multiple occurrences resolve deterministically and the result names the occurrence used."
         + " A symbol that is only referenced (not defined) in the named file returns Unsupported, never a guessed position."
+        + " A member resolves by its declared name even when the server reports it with its signature."
+        + " hover carries the server's hover text after the site line."
         + " The first call to a workspace connects to its language server lazily; later calls reuse the session."
         + " Output: one annotation line '[lsp] <State>: <action>' then one line per site - 'path:line:character symbol' (1-based)."
         + " States: Ready (sites returned), Starting (server still initializing - no evidence yet), Stale (results may be outdated),"
@@ -146,6 +148,11 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
     {
       lines.Add(string.Create(CultureInfo.InvariantCulture,
           $"{site.Path}:{site.Line + 1}:{site.Character + 1} {site.SymbolName}"));
+    }
+
+    if (!string.IsNullOrWhiteSpace(ready.Message))
+    {
+      lines.Add(ready.Message);
     }
 
     return new ToolResult(string.Join("\n", lines), false);

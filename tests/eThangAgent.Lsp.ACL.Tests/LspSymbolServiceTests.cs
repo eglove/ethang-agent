@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Nodes;
 using eThangAgent.Lsp.ACL;
 
 namespace eThangAgent.Lsp.ACL.Tests;
@@ -143,10 +144,114 @@ public class LspSymbolServiceTests
   }
 
   [Fact]
+  public async Task Hover_RendersContents_NotBarePosition()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    JsonObject hover = new()
+    {
+      ["contents"] = new JsonObject { ["kind"] = "markdown", ["value"] = "class Foo" },
+      ["range"] = new JsonObject
+      {
+        ["start"] = new JsonObject { ["line"] = 0, ["character"] = 5 },
+        ["end"] = new JsonObject { ["line"] = 0, ["character"] = 8 },
+      },
+    };
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + hover + "}");
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolResult result = await service.HoverAsync(uri, "Foo", 0);
+    Assert.Equal(LspSymbolState.Ready, result.State);
+    Assert.Contains("class Foo", result.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task UnavailableTransport_ReturnsUnavailable()
   {
     LspSymbolService service = new(null, LspCapabilities.None);
     LspSymbolResult result = await service.DefinitionAsync("file:///C:/ws/A.cs", "Foo", 0);
     Assert.Equal(LspSymbolState.Unavailable, result.State);
+  }
+
+  [Fact]
+  public void ResolveSymbol_MatchesMemberByName_WhenNameCarriesSignature()
+  {
+    string json = DocSymbolsJsonMulti(("GetStatus(AgentId, CancellationToken) : Task<Result<AgentRecord>>", 13, 36));
+    LspSymbolResolution r = LspSymbolService.ResolveSymbol(json, "GetStatus", 0);
+    Assert.True(r.Found);
+    Assert.Equal(13, r.Line);
+    Assert.Equal(36, r.Character);
+  }
+
+  [Fact]
+  public void ResolveSymbol_MatchesFieldByName_WhenNameCarriesTypeAnnotation()
+  {
+    string json = DocSymbolsJsonMulti(("_store : IAgentStore", 10, 32));
+    LspSymbolResolution r = LspSymbolService.ResolveSymbol(json, "_store", 0);
+    Assert.True(r.Found);
+    Assert.Equal(10, r.Line);
+  }
+
+  [Fact]
+  public void ResolveSymbol_DoesNotMatchLongerName()
+  {
+    string json = DocSymbolsJsonMulti(("FooBar", 0, 5));
+    LspSymbolResolution r = LspSymbolService.ResolveSymbol(json, "Foo", 0);
+    Assert.False(r.Found);
+  }
+
+  [Fact]
+  public void ResolveSymbol_AcceptsSignatureAsQuery()
+  {
+    string json = DocSymbolsJsonMulti(("GetStatus(AgentId, CancellationToken) : Task<Result<AgentRecord>>", 13, 36));
+    LspSymbolResolution r = LspSymbolService.ResolveSymbol(json, "GetStatus(AgentId, CancellationToken)", 0);
+    Assert.True(r.Found);
+  }
+
+  [Fact]
+  public async Task DocumentSymbols_SitesCarryTheDocumentUri()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolResult result = await service.DocumentSymbolsAsync(uri);
+    Assert.Equal(LspSymbolState.Ready, result.State);
+    Assert.Equal(uri, Assert.Single(result.Sites).Uri);
+  }
+
+  [Fact]
+  public async Task WorkspaceSymbols_ParsesNestedLocation()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    string payload = "[{\"name\":\"Baz\",\"kind\":12,\"location\":" + LocationJson(uri, 4, 6) + "}]";
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + payload + "}");
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolResult result = await service.WorkspaceSymbolsAsync("Baz");
+    Assert.Equal(LspSymbolState.Ready, result.State);
+    LspSymbolSite site = Assert.Single(result.Sites);
+    Assert.Equal(uri, site.Uri);
+    Assert.Equal(4, site.Line);
+    Assert.Equal(6, site.Character);
+  }
+
+  [Fact]
+  public async Task WorkspaceSymbols_EmptyResult_IsNotReady()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 1, ["result"] = new JsonArray() }.ToJsonString());
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolResult result = await service.WorkspaceSymbolsAsync("Nothing");
+    Assert.NotEqual(LspSymbolState.Ready, result.State);
+    Assert.False(string.IsNullOrWhiteSpace(result.Message));
   }
 }

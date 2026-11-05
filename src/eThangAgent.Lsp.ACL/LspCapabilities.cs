@@ -20,7 +20,7 @@ public sealed record LspCapabilities(
     "textDocument/references" => ReferencesProvider,
     "textDocument/documentSymbol" => DocumentSymbolProvider,
     "workspace/symbol" => WorkspaceSymbolProvider,
-    "callHierarchy/prepare" => CallHierarchyProvider,
+    "textDocument/prepareCallHierarchy" => CallHierarchyProvider,
     "textDocument/implementation" => ImplementationProvider,
     "textDocument/diagnostic" => DiagnosticPullProvider,
     _ => true,

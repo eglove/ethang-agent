@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 
 namespace eThangAgent.Lsp.ACL;
@@ -81,7 +82,7 @@ public sealed partial class LspSymbolService
 
     if (el.TryGetProperty("name", out JsonElement nameEl)
         && nameEl.ValueKind == JsonValueKind.String
-        && string.Equals(nameEl.GetString(), symbolName, StringComparison.Ordinal))
+        && NamesMatch(nameEl.GetString()!, symbolName))
     {
       JsonElement range = el.TryGetProperty("selectionRange", out JsonElement sel) ? sel : el.GetProperty("range");
       int line = range.GetProperty("start").GetProperty("line").GetInt32();
@@ -93,6 +94,33 @@ public sealed partial class LspSymbolService
     {
       CollectMatches(children, symbolName, matches);
     }
+  }
+
+  /// <summary>True when a document symbol's name denotes the queried symbol. A server
+  /// reports a member's name together with its signature ("GetStatus(AgentId) : Task"),
+  /// so the declared name is compared as well as the raw string.</summary>
+  private static bool NamesMatch(string declaredName, string symbolName)
+  {
+    if (string.Equals(declaredName, symbolName, StringComparison.Ordinal))
+    {
+      return true;
+    }
+
+    return string.Equals(DeclaredName(declaredName), DeclaredName(symbolName), StringComparison.Ordinal)
+        && DeclaredName(declaredName).Length > 0;
+  }
+
+  /// <summary>The name a symbol declares, with any signature or type annotation removed.</summary>
+  private static string DeclaredName(string raw)
+  {
+    int cut = raw.IndexOf('(', StringComparison.Ordinal);
+    int colon = raw.IndexOf(" : ", StringComparison.Ordinal);
+    if (colon >= 0 && (cut < 0 || colon < cut))
+    {
+      cut = colon;
+    }
+
+    return (cut < 0 ? raw : raw[..cut]).Trim();
   }
 
   private async Task<LspSymbolResolution?> ResolveAsync(string uri, string symbolName, int occurrence, CancellationToken ct)
@@ -160,7 +188,69 @@ public sealed partial class LspSymbolService
     }
 
     List<LspSymbolSite> sites = ParseLocations(response.ResultJson, symbolName);
-    return new LspSymbolResult(LspSymbolState.Ready, sites, occurrence, resolution.TotalOccurrences);
+    string? message = method == "textDocument/hover" ? HoverText(response.ResultJson) : null;
+    return new LspSymbolResult(LspSymbolState.Ready, sites, occurrence, resolution.TotalOccurrences, message);
+  }
+
+  /// <summary>The text a hover response carries. The protocol allows a string, a
+  /// MarkupContent object, or an array of either.</summary>
+  private static string? HoverText(string? json)
+  {
+    if (string.IsNullOrWhiteSpace(json))
+    {
+      return null;
+    }
+
+    try
+    {
+      using JsonDocument doc = JsonDocument.Parse(json);
+      if (doc.RootElement.ValueKind != JsonValueKind.Object
+          || !doc.RootElement.TryGetProperty("contents", out JsonElement contents))
+      {
+        return null;
+      }
+
+      StringBuilder text = new();
+      AppendHoverContents(contents, text);
+      string rendered = text.ToString().Trim();
+      return rendered.Length == 0 ? null : rendered;
+    }
+    catch (JsonException)
+    {
+      return null;
+    }
+  }
+
+  private static void AppendHoverContents(JsonElement contents, StringBuilder text)
+  {
+    if (contents.ValueKind == JsonValueKind.String)
+    {
+      text.Append(contents.GetString());
+      return;
+    }
+
+    if (contents.ValueKind == JsonValueKind.Object)
+    {
+      if (contents.TryGetProperty("value", out JsonElement value) && value.ValueKind == JsonValueKind.String)
+      {
+        text.Append(value.GetString());
+      }
+
+      return;
+    }
+
+    if (contents.ValueKind == JsonValueKind.Array)
+    {
+      foreach (JsonElement part in contents.EnumerateArray())
+      {
+        if (text.Length > 0)
+        {
+          text.Append('\n');
+        }
+
+        AppendHoverContents(part, text);
+      }
+    }
   }
 
   private static List<LspSymbolSite> ParseLocations(string? json, string symbolName)
@@ -239,11 +329,11 @@ public sealed partial class LspSymbolService
       return new LspSymbolResult(LspSymbolState.Degraded, [], 0, 1, response.ErrorMessage);
     }
 
-    List<LspSymbolSite> sites = ParseDocumentSymbols(response.ResultJson);
+    List<LspSymbolSite> sites = ParseDocumentSymbols(response.ResultJson, uri);
     return new LspSymbolResult(LspSymbolState.Ready, sites, 0, sites.Count);
   }
 
-  private static List<LspSymbolSite> ParseDocumentSymbols(string? json)
+  private static List<LspSymbolSite> ParseDocumentSymbols(string? json, string uri)
   {
     List<LspSymbolSite> sites = [];
     if (string.IsNullOrWhiteSpace(json))
@@ -254,7 +344,7 @@ public sealed partial class LspSymbolService
     try
     {
       using JsonDocument doc = JsonDocument.Parse(json);
-      CollectDocumentSymbols(doc.RootElement, string.Empty, sites);
+      CollectDocumentSymbols(doc.RootElement, uri, sites);
     }
     catch (JsonException)
     {
@@ -294,6 +384,52 @@ public sealed partial class LspSymbolService
     }
   }
 
+  /// <summary>Parses a workspace/symbol payload. Both shapes the protocol allows are
+  /// accepted: SymbolInformation carries a nested location, WorkspaceSymbol carries
+  /// the uri and range inline.</summary>
+  private static List<LspSymbolSite> ParseWorkspaceSymbols(string? json)
+  {
+    List<LspSymbolSite> sites = [];
+    if (string.IsNullOrWhiteSpace(json))
+    {
+      return sites;
+    }
+
+    try
+    {
+      using JsonDocument doc = JsonDocument.Parse(json);
+      if (doc.RootElement.ValueKind != JsonValueKind.Array)
+      {
+        return sites;
+      }
+
+      foreach (JsonElement item in doc.RootElement.EnumerateArray())
+      {
+        if (item.ValueKind != JsonValueKind.Object)
+        {
+          continue;
+        }
+
+        JsonElement located = item.TryGetProperty("location", out JsonElement loc) && loc.ValueKind == JsonValueKind.Object ? loc : item;
+        if (!located.TryGetProperty("range", out _))
+        {
+          continue;
+        }
+
+        string name = item.TryGetProperty("name", out JsonElement n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : string.Empty;
+        sites.Add(ParseLocation(located, name));
+      }
+    }
+    catch (JsonException)
+    {
+    }
+
+    return sites;
+  }
+
+  private static string NoWorkspaceSymbolsMessage(string query)
+    => "the language server returned no workspace symbols for '" + query + "'; its workspace index may not be loaded yet";
+
   public async Task<LspSymbolResult> WorkspaceSymbolsAsync(string query, CancellationToken ct = default)
   {
     if (_transport is null)
@@ -313,8 +449,10 @@ public sealed partial class LspSymbolService
       return new LspSymbolResult(LspSymbolState.Degraded, [], 0, 1, response.ErrorMessage);
     }
 
-    List<LspSymbolSite> sites = ParseLocations(response.ResultJson, query);
-    return new LspSymbolResult(LspSymbolState.Ready, sites, 0, sites.Count);
+    List<LspSymbolSite> sites = ParseWorkspaceSymbols(response.ResultJson);
+    return sites.Count == 0
+        ? new LspSymbolResult(LspSymbolState.Degraded, [], 0, 0, NoWorkspaceSymbolsMessage(query))
+        : new LspSymbolResult(LspSymbolState.Ready, sites, 0, sites.Count);
   }
 }
 
