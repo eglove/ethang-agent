@@ -16,8 +16,16 @@ Console.Out.WriteLine("daemon-starting " + pipeName);
 Console.Out.Flush();
 
 string appDir = AppContext.BaseDirectory;
-LspServerResolver resolver = LspServerResolver.CreateDefault();
-LspServerLaunch? launch = resolver.TryResolveForWorkspace(appDir, workspaceRoot);
+LspServerLaunch? launch = null;
+if (LspLanguageDetector.DetectLanguage(workspaceRoot) == "csharp")
+{
+  Console.Out.WriteLine("server-resolving " + workspaceId);
+  Console.Out.Flush();
+  launch = await LspServerProvisioner.CreateDefault(appDir, workspaceRoot)
+    .ResolveOrInstallAsync(LspServerCatalog.CSharp, CancellationToken.None);
+  Console.Out.WriteLine(launch is null ? "server-unavailable" : "server-ready " + launch.Version);
+  Console.Out.Flush();
+}
 Process? serverProcess = null;
 LspJsonRpcTransport? transport = null;
 LspDiagnosticStore store = new();
@@ -27,14 +35,7 @@ LspClient? lspClient = null;
 
 if (launch is not null)
 {
-  ProcessStartInfo psi = new(launch.ServerPath, "--languageserver")
-  {
-    CreateNoWindow = true,
-    UseShellExecute = false,
-    RedirectStandardInput = true,
-    RedirectStandardOutput = true,
-    RedirectStandardError = true,
-  };
+  ProcessStartInfo psi = LspServerLauncher.BuildStartInfo(launch);
   serverProcess = Process.Start(psi);
   if (serverProcess is not null)
   {

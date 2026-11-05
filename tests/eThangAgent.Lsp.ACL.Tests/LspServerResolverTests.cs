@@ -14,18 +14,18 @@ public class LspServerResolverTests
       fileExists: p => { onProbe?.Invoke(); return existing.Contains(p); },
       whereOnPath: n => pathHits.TryGetValue(n, out string? hit) ? hit : null,
       knownRoots: roots,
-      serverFileName: "OmniSharp.exe");
+      serverFileName: LspServerResolver.CSharpServerFileName);
   }
 
   [Fact]
   public void BundledBesideApp_WinsOverPathAndKnownRoots()
   {
     string appDir = "C:\\app";
-    string bundled = Path.Combine(appDir, "OmniSharp.exe");
-    string onPath = "C:\\tools\\OmniSharp.exe";
-    string inRoot = "C:\\roots\\OmniSharp.exe";
+    string bundled = Path.Combine(appDir, LspServerResolver.CSharpServerFileName);
+    string onPath = "C:\\tools\\" + LspServerResolver.CSharpServerFileName;
+    string inRoot = "C:\\roots\\" + LspServerResolver.CSharpServerFileName;
     HashSet<string> existing = [bundled, onPath, inRoot];
-    Dictionary<string, string?> pathHits = new() { ["OmniSharp.exe"] = onPath };
+    Dictionary<string, string?> pathHits = new() { [LspServerResolver.CSharpServerFileName] = onPath };
     LspServerResolver resolver = Fake(existing, pathHits, ["C:\\roots"]);
     Assert.Equal(bundled, resolver.Resolve(appDir));
   }
@@ -33,10 +33,10 @@ public class LspServerResolverTests
   [Fact]
   public void PathHit_WinsOverKnownRoots()
   {
-    string onPath = "C:\\tools\\OmniSharp.exe";
-    string inRoot = "C:\\roots\\OmniSharp.exe";
+    string onPath = "C:\\tools\\" + LspServerResolver.CSharpServerFileName;
+    string inRoot = "C:\\roots\\" + LspServerResolver.CSharpServerFileName;
     HashSet<string> existing = [onPath, inRoot];
-    Dictionary<string, string?> pathHits = new() { ["OmniSharp.exe"] = onPath };
+    Dictionary<string, string?> pathHits = new() { [LspServerResolver.CSharpServerFileName] = onPath };
     LspServerResolver resolver = Fake(existing, pathHits, ["C:\\roots"]);
     Assert.Equal(onPath, resolver.Resolve("C:\\app"));
   }
@@ -44,7 +44,7 @@ public class LspServerResolverTests
   [Fact]
   public void KnownRootHit_WhenNoBundledOrPath()
   {
-    string inRoot = "C:\\roots\\OmniSharp.exe";
+    string inRoot = "C:\\roots\\" + LspServerResolver.CSharpServerFileName;
     HashSet<string> existing = [inRoot];
     Dictionary<string, string?> pathHits = [];
     LspServerResolver resolver = Fake(existing, pathHits, ["C:\\roots"]);
@@ -62,7 +62,7 @@ public class LspServerResolverTests
   public void Cache_RepeatedResolve_DoesNotReprobe()
   {
     int probes = 0;
-    string bundled = Path.Combine("C:\\app", "OmniSharp.exe");
+    string bundled = Path.Combine("C:\\app", LspServerResolver.CSharpServerFileName);
     HashSet<string> existing = [bundled];
     LspServerResolver resolver = Fake(existing, [], [], () => probes++);
     Assert.Equal(bundled, resolver.Resolve("C:\\app"));
@@ -85,15 +85,54 @@ public class LspServerResolverTests
   [Fact]
   public void TrustRule_WorkspaceBinary_NeverResolved()
   {
-    string workspaceBinary = Path.Combine("C:\\ws", "OmniSharp.exe");
+    string workspaceBinary = Path.Combine("C:\\ws", LspServerResolver.CSharpServerFileName);
     HashSet<string> existing = [workspaceBinary];
     LspServerResolver resolver = Fake(existing, [], []);
     Assert.Null(resolver.Resolve("C:\\app"));
   }
 
   [Fact]
+  public void DownloadedCache_UsedWhenNothingElseResolves()
+  {
+    string downloaded = Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName);
+    LspServerResolver resolver = new(
+      fileExists: p => p == downloaded,
+      whereOnPath: _ => null,
+      knownRoots: [],
+      serverFileName: LspServerResolver.CSharpServerFileName,
+      downloadedServer: () => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
+    Assert.Equal(downloaded, resolver.Resolve("C:\\app"));
+  }
+
+  [Fact]
+  public void Bundled_WinsOverDownloadedCache()
+  {
+    string bundled = Path.Combine("C:\\app", LspServerResolver.CSharpServerFileName);
+    LspServerResolver resolver = new(
+      fileExists: p => p == bundled,
+      whereOnPath: _ => null,
+      knownRoots: [],
+      serverFileName: LspServerResolver.CSharpServerFileName,
+      downloadedServer: () => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
+    Assert.Equal(bundled, resolver.Resolve("C:\\app"));
+  }
+
+  [Fact]
+  public void DownloadedCache_IsProbedLast()
+  {
+    string onPath = "C:\\tools\\" + LspServerResolver.CSharpServerFileName;
+    LspServerResolver resolver = new(
+      fileExists: p => p == onPath,
+      whereOnPath: _ => onPath,
+      knownRoots: [],
+      serverFileName: LspServerResolver.CSharpServerFileName,
+      downloadedServer: () => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
+    Assert.Equal(onPath, resolver.Resolve("C:\\app"));
+  }
+
+  [Fact]
   public void VersionPin_IsRecorded() =>
-    Assert.Equal("1.40.0", LspServerResolver.CSharpServerVersion);
+    Assert.Equal(LspServerResolver.CSharpServerVersion, LspServerCatalog.CSharp.Version);
 
   [Fact]
   public void TryResolveForWorkspace_ProjectLess_ReturnsNull()
@@ -102,7 +141,7 @@ public class LspServerResolverTests
     try
     {
       File.WriteAllText(Path.Combine(root, "notes.md"), "hello");
-      string bundled = Path.Combine("C:\\app", "OmniSharp.exe");
+      string bundled = Path.Combine("C:\\app", LspServerResolver.CSharpServerFileName);
       HashSet<string> existing = [bundled];
       LspServerResolver resolver = Fake(existing, [], []);
       Assert.Null(resolver.TryResolveForWorkspace("C:\\app", root));
@@ -117,7 +156,7 @@ public class LspServerResolverTests
     try
     {
       File.WriteAllText(Path.Combine(root, "app.sln"), "solution");
-      string bundled = Path.Combine("C:\\app", "OmniSharp.exe");
+      string bundled = Path.Combine("C:\\app", LspServerResolver.CSharpServerFileName);
       HashSet<string> existing = [bundled];
       LspServerResolver resolver = Fake(existing, [], []);
       LspServerLaunch? launch = resolver.TryResolveForWorkspace("C:\\app", root);

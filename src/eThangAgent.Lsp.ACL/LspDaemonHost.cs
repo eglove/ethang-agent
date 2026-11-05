@@ -110,8 +110,11 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     psi.ArgumentList.Add(LspPipeNames.ForWorkspaceId(_workspaceId));
     psi.ArgumentList.Add(_workspaceId);
     psi.ArgumentList.Add(_workspaceRoot);
-    return System.Diagnostics.Process.Start(psi)
+    System.Diagnostics.Process started = System.Diagnostics.Process.Start(psi)
         ?? throw new InvalidOperationException("the language-server daemon could not be started");
+    _ = started.StandardOutput.ReadToEndAsync();
+    _ = started.StandardError.ReadToEndAsync();
+    return started;
   }
 
   /// <summary>Releases the daemon this host started and stops forwarding watcher
