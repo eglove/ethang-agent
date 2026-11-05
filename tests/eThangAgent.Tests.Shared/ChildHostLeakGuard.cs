@@ -2,7 +2,12 @@ namespace eThangAgent.TestSupport;
 
 /// <summary>The suite-wide leak check, as pure policy: given the processes that are
 ///     direct children of this test process, the host's image name, and the pids that
-///     existed before the tests started, name the ones that leaked.
+///     existed before the tests started, name the ones still alive at the end of the run.
+///     <para>IT REPORTS A PRESENCE, NOT A CAUSE. A host alive at teardown is either one a
+///     test never disposed or one whose disposal was still completing - the bounded wait
+///     in the supervisor's teardown does not make 'disposal returned' mean 'the process is
+///     gone' on a loaded machine. Both look identical from here, so the message names the
+///     pids and states both causes rather than asserting the first.</para>
 ///     <para>Separated from the OS query and from xUnit so it can be tested with fakes:
 ///     every interesting question is about which candidates COUNT, and none of those
 ///     needs a real process to answer.</para></summary>
@@ -41,12 +46,15 @@ public static class ChildHostLeakGuard
     }
 
     string pids = string.Join(", ", leaks.Select(l => l.ProcessId));
-    return $"{leaks.Count} {hostImageName} process(es) outlived the test run: pid {pids}. "
-        + "A session OWNS its host, so disposing its container kills it; a host still alive "
-        + "here means a test opened a session and never disposed it - an assertion that threw "
-        + "before its teardown, or a teardown that was never written. Dispose sessions from "
-        + "IAsyncLifetime.DisposeAsync rather than a finally inside the test body, and kill "
-        + "the pids above before re-running: a surviving host holds its SQLite file and "
-        + "silently slows every later run.";
+    return $"{leaks.Count} {hostImageName} process(es) were still alive as children of this "
+        + $"test process when the run ended: pid {pids}. "
+        + "This check OBSERVES that they are alive; it cannot tell why, and two causes look "
+        + "identical here: a test that opened a session and never disposed it (dispose "
+        + "sessions from IAsyncLifetime.DisposeAsync rather than a finally inside the test "
+        + "body), or a session that WAS disposed whose host outlived the bounded teardown "
+        + "wait on a loaded machine. "
+        + "Do NOT kill these by pid or image name: every host process is a live session - "
+        + "the user's, another agent's, or the one running the command - and killing by "
+        + "image name takes all of them. Surface the pids above to the user, who decides.";
   }
 }

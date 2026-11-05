@@ -10,6 +10,11 @@ namespace eThangAgent.TestSupport;
 ///     wall-clock time, because the survivor holds its SQLite file. Measured during
 ///     #271: the composition suite took over 4 minutes with a leaked host alive and 1
 ///     minute 15 seconds once the orphan was killed.</para>
+///     <para>IT CANNOT PROVE THAT IS WHAT HAPPENED. The check sees a pid still present; it
+///     does not see why. A session whose container WAS disposed can leave its host alive
+///     past the supervisor's bounded teardown wait on a loaded machine, and that reads
+///     exactly like a test that never disposed. The message therefore names the pids and
+///     both causes, and never instructs a kill: a host process is a live session.</para>
 ///     <para>WHY THIS SHAPE. Detecting leaks means asking the OS which processes are
 ///     children of THIS process, because that is what a session's host is: the
 ///     supervisor starts it directly. Ancestry gives exact attribution, so the guard

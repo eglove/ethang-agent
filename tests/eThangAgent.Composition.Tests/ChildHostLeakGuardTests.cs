@@ -95,6 +95,31 @@ public class ChildHostLeakGuardTests
     Assert.Contains("5353", message, StringComparison.Ordinal);
     Assert.Contains("2 " + Host, message, StringComparison.Ordinal);
     Assert.Contains("IAsyncLifetime.DisposeAsync", message, StringComparison.Ordinal);
-    Assert.Contains("holds its SQLite file", message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Describe_StatesBothCauses_RatherThanAssertingOne()
+  {
+    // The check sees a pid still present; it cannot see why. A session whose container WAS
+    // disposed can leave its host alive past the supervisor's bounded teardown wait on a
+    // loaded machine, and that reads exactly like a test that never disposed. A message
+    // naming only the second cause sends the reader to fix a test that was already correct.
+    string message = ChildHostLeakGuard.Describe([new(4242, Host)], Host)!;
+
+    Assert.Contains("never disposed", message, StringComparison.Ordinal);
+    Assert.Contains("outlived the bounded teardown wait", message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Describe_NeverInstructsAKill()
+  {
+    // README: a host process is a live session - the user's, another agent's, or the one
+    // running the command - and killing by image name takes all of them. A guard that told
+    // the reader to kill the pids would be instructing the one forbidden action.
+    string message = ChildHostLeakGuard.Describe([new(4242, Host)], Host)!;
+
+    Assert.Contains("Do NOT kill", message, StringComparison.Ordinal);
+    Assert.Contains("Surface the pids", message, StringComparison.Ordinal);
+    Assert.DoesNotContain("kill the pids above", message, StringComparison.OrdinalIgnoreCase);
   }
 }
