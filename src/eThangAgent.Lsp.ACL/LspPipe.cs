@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO.Pipes;
 using System.Text;
@@ -126,7 +127,7 @@ public sealed class LspPipeClient : IDisposable
   {
     bool granted = result["granted"]?.GetValue<bool>() ?? false;
     string? holder = result["holderSessionId"]?.GetValue<string>();
-    DateTimeOffset? expiry = result["expiry"] is JsonValue ev && ev.TryGetValue<string>(out string? s) && DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null;
+    DateTimeOffset? expiry = result["expiry"] is JsonValue ev && ev.TryGetValue(out string? s) && DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null;
     return new FileClaimResult(granted, holder, expiry);
   }
 
@@ -151,11 +152,13 @@ public sealed class LspPipeClient : IDisposable
     return result["released"]?.GetValue<bool>() ?? false;
   }
 
-  /// <summary>Queries advisory diagnostics for one file from the daemon (issue #356).</summary>
-  public async Task<AdvisoryDiagnosticsResult> GetDiagnosticsAsync(string path, CancellationToken ct = default)
+  /// <summary>Queries advisory diagnostics for one file from the daemon. The caller
+  ///     states the watcher generation it last applied so the daemon can label a
+  ///     result computed before a correction as Stale.</summary>
+  public async Task<AdvisoryDiagnosticsResult> GetDiagnosticsAsync(string path, long knownGeneration = 0, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(path);
-    JsonObject result = await RequestAsync("lsp.diagnostics", new JsonObject { ["path"] = path }, ct).ConfigureAwait(false);
+    JsonObject result = await RequestAsync("lsp.diagnostics", new JsonObject { ["path"] = path, ["knownGeneration"] = knownGeneration }, ct).ConfigureAwait(false);
     string stateText = result["state"]?.GetValue<string>() ?? nameof(AdvisoryDiagnosticsState.Unavailable);
     AdvisoryDiagnosticsState state = Enum.TryParse(stateText, out AdvisoryDiagnosticsState parsed)
       ? parsed
@@ -176,7 +179,48 @@ public sealed class LspPipeClient : IDisposable
     return new AdvisoryDiagnosticsResult(state, diagnostics);
   }
 
-  /// <summary>Sends one watcher.announce notification over the pipe (issue #362).</summary>
+  /// <summary>Issues one lsp.symbol query and returns the daemon's answer.</summary>
+  public async Task<LspSymbolResult> SymbolAsync(string action, string uri, string symbolName, int occurrence, int depth, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(action);
+    JsonObject parameters = new()
+    {
+      ["action"] = action,
+      ["uri"] = uri,
+      ["symbolName"] = symbolName,
+      ["occurrence"] = occurrence,
+      ["depth"] = depth,
+    };
+    JsonObject result = await RequestAsync("lsp.symbol", parameters, ct).ConfigureAwait(false);
+    return MapSymbol(result);
+  }
+
+  private static LspSymbolResult MapSymbol(JsonObject result)
+  {
+    string stateText = result["state"]?.GetValue<string>() ?? nameof(LspSymbolState.Unavailable);
+    LspSymbolState state = Enum.TryParse(stateText, out LspSymbolState parsed) ? parsed : LspSymbolState.Unavailable;
+    List<LspSymbolSite> sites = [];
+    if (result["sites"] is JsonArray arr)
+    {
+      foreach (JsonNode? node in arr)
+      {
+        JsonObject site = node!.AsObject();
+        sites.Add(new LspSymbolSite(
+            site["uri"]?.GetValue<string>() ?? string.Empty,
+            site["line"]?.GetValue<int>() ?? 0,
+            site["character"]?.GetValue<int>() ?? 0,
+            site["symbolName"]?.GetValue<string>() ?? string.Empty));
+      }
+    }
+    return new LspSymbolResult(
+        state,
+        sites,
+        result["occurrenceUsed"]?.GetValue<int>() ?? 0,
+        result["totalOccurrences"]?.GetValue<int>() ?? 1,
+        result["message"]?.GetValue<string>());
+  }
+
+  /// <summary>Sends one watcher.announce notification over the pipe.</summary>
   public async Task SendWatcherAnnouncementAsync(WatcherAnnouncement announcement, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(announcement);
@@ -196,11 +240,11 @@ public sealed class LspDaemonServer : IDisposable
   private readonly string _workspaceId;
   private readonly Func<Task> _onConnected;
   private readonly string _daemonInstanceId = Guid.NewGuid().ToString("N");
-  private NamedPipeServerStream? _server;
   private LspDocumentSync? _forwarder;
   private LspDiagnosticsService? _diagnosticsService;
   private LspSymbolService? _symbolService;
   private readonly IFileClaimStore _claimStore;
+  private readonly ConcurrentDictionary<NamedPipeServerStream, byte> _connections = new();
   private Func<CancellationToken, Task>? _restartHook;
 
   public LspDaemonServer(string pipeName, string workspaceId, Func<Task> onConnected, IFileClaimStore? claimStore = null)
@@ -223,17 +267,31 @@ public sealed class LspDaemonServer : IDisposable
 
   public void AttachRestartHook(Func<CancellationToken, Task> hook) => _restartHook = hook ?? throw new ArgumentNullException(nameof(hook));
 
-  public async Task ServeOnceAsync(CancellationToken ct = default) => await ServeAsync(ct).ConfigureAwait(false);
+  public async Task ServeOnceAsync(CancellationToken ct = default)
+  {
+    NamedPipeServerStream server = new(_pipeName, PipeDirection.InOut, 8, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+    try
+    {
+      await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
+      await ServeOneAsync(server, ct).ConfigureAwait(false);
+    }
+    finally
+    {
+      await server.DisposeAsync().ConfigureAwait(false);
+    }
+  }
 
-  /// <summary>Serves connections until the token cancels: each connection gets its
-  /// own server instance so concurrent hosts share the daemon's store.</summary>
+  /// <summary>Serves connections until the token cancels. Each accepted connection is
+  /// handed to its own serve loop, so every host in the workspace reaches the same
+  /// daemon store concurrently; a single sequential accept loop would let one long-lived
+  /// host starve every sibling.</summary>
   public async Task ServeUntilClosedAsync(CancellationToken ct = default)
   {
     while (!ct.IsCancellationRequested)
     {
       try
       {
-        await ServeAsync(ct).ConfigureAwait(false);
+        await AcceptAsync(ct).ConfigureAwait(false);
       }
       catch (OperationCanceledException) when (ct.IsCancellationRequested)
       {
@@ -246,25 +304,52 @@ public sealed class LspDaemonServer : IDisposable
     }
   }
 
-  private async Task ServeAsync(CancellationToken ct)
+  private async Task AcceptAsync(CancellationToken ct)
   {
-    _server = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, 8, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+    NamedPipeServerStream server = new(_pipeName, PipeDirection.InOut, 8, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
     try
     {
-      await _server.WaitForConnectionAsync(ct).ConfigureAwait(false);
+      await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
     }
     catch (OperationCanceledException) when (ct.IsCancellationRequested)
     {
+      await server.DisposeAsync().ConfigureAwait(false);
       return;
     }
-    string line = await ReadLineAsync(_server, ct).ConfigureAwait(false);
+
+    _ = _connections.TryAdd(server, 0);
+    _ = Task.Run(() => ServeConnectionLifecycleAsync(server, ct), CancellationToken.None);
+  }
+
+  private async Task ServeConnectionLifecycleAsync(NamedPipeServerStream server, CancellationToken ct)
+  {
+    try
+    {
+      await ServeOneAsync(server, ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+    }
+    catch (IOException)
+    {
+    }
+    finally
+    {
+      _ = _connections.TryRemove(server, out _);
+      await server.DisposeAsync().ConfigureAwait(false);
+    }
+  }
+
+  private async Task ServeOneAsync(NamedPipeServerStream server, CancellationToken ct)
+  {
+    string line = await ReadLineAsync(server, ct).ConfigureAwait(false);
     using JsonDocument doc = JsonDocument.Parse(line);
     JsonElement p = doc.RootElement.GetProperty("params");
     string clientWs = p.GetProperty("workspaceId").GetString() ?? string.Empty;
     if (!string.Equals(clientWs, _workspaceId, StringComparison.Ordinal))
     {
       JsonObject reply = new() { ["id"] = 1, ["error"] = new JsonObject { ["code"] = "workspace-mismatch", ["message"] = "workspace mismatch" } };
-      await WriteLineAsync(_server, reply.ToJsonString(), ct).ConfigureAwait(false);
+      await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
       return;
     }
     JsonObject ack = new()
@@ -278,13 +363,13 @@ public sealed class LspDaemonServer : IDisposable
         ["daemonInstanceId"] = _daemonInstanceId
       }
     };
-    await WriteLineAsync(_server, ack.ToJsonString(), ct).ConfigureAwait(false);
+    await WriteLineAsync(server, ack.ToJsonString(), ct).ConfigureAwait(false);
     await _onConnected().ConfigureAwait(false);
     if (_restartHook is not null)
     {
       await _restartHook(ct).ConfigureAwait(false);
     }
-    await ServeConnectionAsync(_server, ct).ConfigureAwait(false);
+    await ServeConnectionAsync(server, ct).ConfigureAwait(false);
   }
 
   /// <summary>Serves one connected host for the life of the connection: watcher
@@ -328,6 +413,7 @@ public sealed class LspDaemonServer : IDisposable
       if (_forwarder is not null)
       {
         await _forwarder.ApplyAsync(announcement, ct).ConfigureAwait(false);
+        _diagnosticsService?.LastAppliedGeneration = _forwarder.LastAppliedGeneration;
       }
 
       return;
@@ -390,10 +476,11 @@ public sealed class LspDaemonServer : IDisposable
       if (!root.TryGetProperty("id", out JsonElement idEl)) return;
       if (!root.TryGetProperty("params", out JsonElement p)) return;
       string path = p.GetProperty("path").GetString() ?? string.Empty;
+      long knownGeneration = p.TryGetProperty("knownGeneration", out JsonElement g) ? g.GetInt64() : 0;
       string uri = LspUriMapper.ToUri(path);
       LspDiagnosticsResult result = _diagnosticsService is null
         ? new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, [])
-        : await _diagnosticsService.PullAsync(uri, ct).ConfigureAwait(false);
+        : await _diagnosticsService.PullAsync(uri, knownGeneration, ct).ConfigureAwait(false);
       JsonArray diagnostics = [];
       foreach (LspDiagnostic d in result.Diagnostics)
       {
@@ -475,5 +562,13 @@ public sealed class LspDaemonServer : IDisposable
     await server.FlushAsync(ct).ConfigureAwait(false);
   }
 
-  public void Dispose() => _server?.Dispose();
+  public void Dispose()
+  {
+    foreach (NamedPipeServerStream connection in _connections.Keys)
+    {
+      connection.Dispose();
+    }
+
+    _connections.Clear();
+  }
 }

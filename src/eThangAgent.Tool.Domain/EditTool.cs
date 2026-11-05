@@ -112,7 +112,7 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
 
   private async Task<ToolResult> ReplaceAsync(string path, EditAnchorInput args, CancellationToken ct)
   {
-    string? refused = _claimGate?.CheckBeforeWrite(path);
+    string? refused = _claimGate is null ? null : await _claimGate.CheckBeforeWriteAsync(path, ct).ConfigureAwait(false);
     if (refused is not null)
     {
       return new ToolResult(refused, true);
@@ -125,7 +125,7 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
       return Err(replaced.Error);
     }
 
-    _claimGate?.RenewAfterWrite(path);
+    await RenewAsync(path, ct).ConfigureAwait(false);
     ReplaceOutcome o = replaced.Value;
     string noun = o.Replaced == 1 ? "occurrence" : "occurrence(s)";
     ToolResult baseResult = new(
@@ -137,7 +137,7 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
 
   private async Task<ToolResult> ReplaceHunksAsync(string path, EditHunksInput args, CancellationToken ct)
   {
-    string? refused = _claimGate?.CheckBeforeWrite(path);
+    string? refused = _claimGate is null ? null : await _claimGate.CheckBeforeWriteAsync(path, ct).ConfigureAwait(false);
     if (refused is not null)
     {
       return new ToolResult(refused, true);
@@ -149,7 +149,7 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
       return Err(replaced.Error);
     }
 
-    _claimGate?.RenewAfterWrite(path);
+    await RenewAsync(path, ct).ConfigureAwait(false);
     HunkReplaceOutcome o = replaced.Value;
     int total = o.ReplacedPerHunk.Count;
     string[] lines = [..
@@ -165,7 +165,7 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
 
   private async Task<ToolResult> ReplaceRangeAsync(string path, EditRangeInput args, CancellationToken ct)
   {
-    string? refused = _claimGate?.CheckBeforeWrite(path);
+    string? refused = _claimGate is null ? null : await _claimGate.CheckBeforeWriteAsync(path, ct).ConfigureAwait(false);
     if (refused is not null)
     {
       return new ToolResult(refused, true);
@@ -178,7 +178,7 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
       return Err(replaced.Error);
     }
 
-    _claimGate?.RenewAfterWrite(path);
+    await RenewAsync(path, ct).ConfigureAwait(false);
     ReplaceOutcome o = replaced.Value;
     ToolResult baseResult = new(
         $"[edit {path}] replaced lines {args.StartLine}-{args.EndLine}, file now {o.NewLineCount} lines, " +
@@ -186,6 +186,9 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
         false);
     return await AdvisoryDiagnosticsAppender.AppendAsync(baseResult, _diagnostics, path, o.ChangedLines ?? [], _advisoryLedger, ct).ConfigureAwait(false);
   }
+
+  private Task RenewAsync(string path, CancellationToken ct) =>
+      _claimGate is null ? Task.CompletedTask : _claimGate.RenewAfterWriteAsync(path, ct);
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);
 }

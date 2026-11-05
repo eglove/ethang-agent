@@ -12,7 +12,7 @@ public class LspSymbolServiceTests
 
   private static string DocSymbolsJsonMulti(params (string Name, int Line, int Char)[] symbols)
   {
-    System.Text.StringBuilder sb = new();
+    StringBuilder sb = new();
     sb.Append('[');
     for (int i = 0; i < symbols.Length; i++)
     {

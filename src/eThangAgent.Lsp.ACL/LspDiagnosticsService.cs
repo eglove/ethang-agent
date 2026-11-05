@@ -79,6 +79,10 @@ public sealed class LspDiagnosticsService
   public LspDiagnosticsService(LspJsonRpcTransport? transport, LspDiagnosticStore store, LspCapabilities capabilities)
     => (_transport, _store, _capabilities) = (transport, store ?? throw new ArgumentNullException(nameof(store)), capabilities ?? throw new ArgumentNullException(nameof(capabilities)));
 
+  /// <summary>The watcher generation whose document sync the server model reflects.
+  ///     Set by the daemon from its forwarder so a query behind it can be labeled Stale.</summary>
+  public long LastAppliedGeneration { get; set; }
+
   public void BeginRestart() => _ = _restartGate.WaitAsync();
 
   public async Task CompleteRestartAsync()
@@ -87,12 +91,17 @@ public sealed class LspDiagnosticsService
     await Task.CompletedTask.ConfigureAwait(false);
   }
 
-  public async Task<LspDiagnosticsResult> PullAsync(string uri, CancellationToken ct = default)
+  public async Task<LspDiagnosticsResult> PullAsync(string uri, long knownGeneration = 0, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(uri);
     await _restartGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
+      if (knownGeneration >= 0 && knownGeneration < LastAppliedGeneration)
+      {
+        return new LspDiagnosticsResult(LspDiagnosticsState.Stale, []);
+      }
+
       if (_transport is null)
       {
         LspDiagnosticsResult existing = _store.Get(uri);
@@ -102,7 +111,7 @@ public sealed class LspDiagnosticsService
       }
       if (!_capabilities.Supports("textDocument/diagnostic"))
       {
-        return _store.Get(uri);
+        return _store.Get(uri, knownGeneration, LastAppliedGeneration);
       }
       string pullParams = _store.BuildPullParams(uri);
       LspRequestResult response = await _transport.SendRequestAsync("textDocument/diagnostic", pullParams, ct).ConfigureAwait(false);
@@ -116,7 +125,7 @@ public sealed class LspDiagnosticsService
         return new LspDiagnosticsResult(LspDiagnosticsState.Degraded, []);
       }
       _store.OnPullDiagnostics(uri, response.ResultJson ?? "{}");
-      return _store.Get(uri);
+      return _store.Get(uri, knownGeneration, LastAppliedGeneration);
     }
     finally
     {

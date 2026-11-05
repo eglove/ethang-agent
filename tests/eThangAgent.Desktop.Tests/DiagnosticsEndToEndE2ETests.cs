@@ -183,7 +183,16 @@ public class DiagnosticsEndToEndE2ETests
     (int withGate, List<string> withOutputs) = await RunParitySequenceAsync(withDaemon: true).ConfigureAwait(true);
 
     Assert.Equal(withoutGate, withGate);
-    Assert.Equal(withoutOutputs, withOutputs);
+    Assert.Equal(withoutOutputs.Count, withOutputs.Count);
+    for (int i = 0; i < withoutOutputs.Count; i++)
+    {
+      Assert.Equal(WithoutDiagnostics(withoutOutputs[i]), WithoutDiagnostics(withOutputs[i]));
+    }
+
+    // The daemon run must actually have produced diagnostics; otherwise the parity above
+    // is two identical LSP-absent runs and proves nothing.
+    Assert.Contains(withOutputs, o => o.Contains("[diagnostics]", StringComparison.Ordinal));
+    Assert.DoesNotContain(withoutOutputs, o => o.Contains("[diagnostics]", StringComparison.Ordinal));
   }
 
   private static async Task<(int GateMessages, List<string> ToolOutputs)> RunParitySequenceAsync(bool withDaemon)
@@ -218,6 +227,37 @@ public class DiagnosticsEndToEndE2ETests
       int gateMessages = messages.Count(m => m.Contains("[verification gate]", StringComparison.Ordinal));
       List<string> toolOutputs = [.. AllToolOutputs(host.Mock.RequestBodies[^1]).Select(o => Normalize(o, ws))];
       return (gateMessages, toolOutputs);
+    }
+    finally
+    {
+      DeleteWorkspace(ws);
+    }
+  }
+
+  /// <summary>A code workspace with a resolvable daemon executable starts the daemon
+  ///     process on the first edit, proving the production start path (not an in-process
+  ///     harness) is what an edit reaches.</summary>
+  [Fact]
+  public async Task CodeWorkspace_EditStartsTheDaemonProcess()
+  {
+    string ws = Directory.CreateTempSubdirectory("ethang-lsp-start").FullName;
+    string wsId = "start-" + Guid.NewGuid().ToString("N");
+    try
+    {
+      await File.WriteAllTextAsync(Path.Combine(ws, "a.cs"), "class A\n{\n  int x = 1;\n}\n", Ct).ConfigureAwait(true);
+      await File.WriteAllTextAsync(Path.Combine(ws, "a.csproj"),
+          "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n", Ct).ConfigureAwait(true);
+      int before = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
+
+      using E2E.HostHarness host = new();
+      _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
+      _ = host.Mock.ReturnsForModel(E2E.SessionModel,
+          E2E.ExecToolCall("s1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "a.cs"), "int x = 1;", "int x = 2;"))),
+          E2E.RawCompletion("edited"));
+      await host.Vm.RunTurnAsync("edit the file").WaitAsync(TimeSpan.FromSeconds(120), Ct).ConfigureAwait(true);
+
+      int after = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
+      Assert.True(after > before, "the edit did not start the workspace's language-server daemon");
     }
     finally
     {
@@ -324,16 +364,19 @@ public class DiagnosticsEndToEndE2ETests
     return outputs;
   }
 
-  /// <summary>One tool result with the advisory diagnostics lines removed and the
-  ///     workspace root normalized - exactly the parts the parity claim is about.</summary>
+  /// <summary>One tool result with the workspace root normalized. Advisory diagnostics
+  ///     are NOT stripped: the parity claim is that the non-diagnostics text is identical,
+  ///     and that is asserted separately, so a diagnostics difference cannot hide here.</summary>
   private static string Normalize(string text, string workspaceRoot)
-    => string.Join("\n", text
+    => text
         .Replace(workspaceRoot, "<ws>", StringComparison.OrdinalIgnoreCase)
         .Replace(Directory.GetCurrentDirectory(), "<cwd>", StringComparison.OrdinalIgnoreCase)
         .Replace(AppContext.BaseDirectory, "<base>", StringComparison.OrdinalIgnoreCase)
-        .Replace(Path.GetFileName(workspaceRoot), "<wsname>", StringComparison.OrdinalIgnoreCase)
-        .Split('\n')
-        .Where(line => !line.StartsWith("[diagnostics]", StringComparison.Ordinal)));
+        .Replace(Path.GetFileName(workspaceRoot), "<wsname>", StringComparison.OrdinalIgnoreCase);
+
+  /// <summary>The non-diagnostics text of one tool result: the part the parity claim covers.</summary>
+  private static string WithoutDiagnostics(string text)
+    => string.Join("\n", text.Split('\n').Where(line => !line.StartsWith("[diagnostics]", StringComparison.Ordinal)));
 
   private static async Task<List<string>> ReadAllMessagesAsync(string dbPath)
   {

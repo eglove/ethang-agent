@@ -23,7 +23,7 @@ public class AdvisoryDiagnosticsPipeTests
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token));
     await Task.Delay(100, cts.Token);
     using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
-    AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync("C:\\ws\\a.cs", cts.Token);
+    AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync("C:\\ws\\a.cs", ct: cts.Token);
     Assert.Equal(AdvisoryDiagnosticsState.Ready, result.State);
     AdvisoryDiagnostic diag = Assert.Single(result.Diagnostics);
     Assert.Equal(2, diag.StartLine);
@@ -44,7 +44,7 @@ public class AdvisoryDiagnosticsPipeTests
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token));
     await Task.Delay(100, cts.Token);
     using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
-    AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync("C:\\ws\\a.cs", cts.Token);
+    AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync("C:\\ws\\a.cs", ct: cts.Token);
     Assert.Equal(AdvisoryDiagnosticsState.Unavailable, result.State);
     Assert.Empty(result.Diagnostics);
     client.Dispose();
@@ -64,7 +64,7 @@ public class AdvisoryDiagnosticsPipeTests
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token));
     await Task.Delay(100, cts.Token);
     using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
-    AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync("C:\\ws\\a.cs", cts.Token);
+    AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync("C:\\ws\\a.cs", ct: cts.Token);
     Assert.Equal(AdvisoryDiagnosticsState.Unavailable, result.State);
     Assert.Empty(result.Diagnostics);
     client.Dispose();
@@ -75,7 +75,7 @@ public class AdvisoryDiagnosticsPipeTests
   [Fact]
   public async Task AdvisoryAccess_NullClient_ReturnsUnavailable()
   {
-    LspAdvisoryDiagnosticsAccess access = new(_ => null, "ws-1", "app-1");
+    LspAdvisoryDiagnosticsAccess access = new(() => null, "ws-1", "app-1");
     AdvisoryDiagnosticsResult result = await access.GetAsync("C:\\ws\\a.cs", TestContext.Current.CancellationToken);
     Assert.Equal(AdvisoryDiagnosticsState.Unavailable, result.State);
     Assert.Empty(result.Diagnostics);

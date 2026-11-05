@@ -4,6 +4,9 @@ using System.Text;
 using System.Text.Json;
 using eThangAgent.Lsp.ACL;
 
+// JSON002 fires only in the format/IDE host; the pragma pair is the repo's named pattern.
+#pragma warning disable JSON002 // Probable JSON string detected
+
 namespace eThangAgent.Lsp.ACL.Tests;
 
 // Issue #354: document sync and pull diagnostics. Push (publishDiagnostics)
@@ -251,3 +254,5 @@ public class LspDiagnosticsTests
     => Assert.Skip("Real-server test deferred: OmniSharp initialize hangs under testhost; verified separately in #355 smoke.");
 
 }
+
+#pragma warning restore JSON002

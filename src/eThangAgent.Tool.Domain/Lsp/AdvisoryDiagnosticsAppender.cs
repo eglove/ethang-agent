@@ -2,14 +2,14 @@ using System.Globalization;
 
 namespace eThangAgent.ToolDomain.Lsp;
 
-/// <summary>Appends advisory diagnostics to a successful edit/write result (issue #356).
+/// <summary>Appends advisory diagnostics to a successful edit/write result.
 /// The edit result is assembled first; diagnostics are collected off the synchronous
-/// path under a 2s cancellation-token budget and filtered to the changed lines (the
-/// <c>ChangedLines</c> the edit/write outcome carries, which the ACL computes from
-/// <c>WorkspaceSnapshot.DiffTo</c> change sets). The append never delays the edit beyond
-/// the budget, never fails it, and never renders silence as clean: degraded states
-/// append a labeled note. Non-code files and a null source append nothing, so the
-/// result stays byte-identical to the pre-advisory output.</summary>
+/// path under a 2 s budget and filtered to the changed lines (the <c>ChangedLines</c>
+/// the edit/write outcome carries). The append never delays the edit beyond the
+/// budget and never fails it. A producer that exists but is starting, stale, or
+/// degraded appends a labeled note; a workspace with no producer appends nothing,
+/// as do non-code files and a null source, so those results stay byte-identical to
+/// the pre-advisory output.</summary>
 public static class AdvisoryDiagnosticsAppender
 {
   /// <summary>The latency budget: diagnostics never add more than 2s to an edit/write call.</summary>
@@ -68,10 +68,16 @@ public static class AdvisoryDiagnosticsAppender
       IAdvisoryDiagnosticsSource source, string path, CancellationToken ct)
   {
     using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-    cts.CancelAfter(Budget);
     try
     {
-      return await source.GetAsync(path, cts.Token).ConfigureAwait(false);
+      // WaitAsync bounds the wait without a timer of its own: the edit result is already
+      // assembled, so a producer that misses the budget is abandoned, not awaited.
+      return await source.GetAsync(path, cts.Token).WaitAsync(Budget, ct).ConfigureAwait(false);
+    }
+    catch (TimeoutException)
+    {
+      await cts.CancelAsync().ConfigureAwait(false);
+      return new AdvisoryDiagnosticsResult(AdvisoryDiagnosticsState.Stale, []);
     }
     catch (OperationCanceledException) when (!ct.IsCancellationRequested)
     {
@@ -101,7 +107,9 @@ public static class AdvisoryDiagnosticsAppender
       AdvisoryDiagnosticsState.Starting => "[diagnostics] Starting: server starting \u2014 no evidence yet.",
       AdvisoryDiagnosticsState.Stale => "[diagnostics] stale: diagnostics may be outdated.",
       AdvisoryDiagnosticsState.Degraded => "[diagnostics] Degraded: diagnostics unavailable.",
-      AdvisoryDiagnosticsState.Unavailable => "[diagnostics] unavailable: no language server for this workspace.",
+      // No language server for this workspace is the ordinary state of a workspace whose
+      // language is not served; nothing is appended, so the result is byte-identical.
+      AdvisoryDiagnosticsState.Unavailable => null,
       _ => null,
     };
   }

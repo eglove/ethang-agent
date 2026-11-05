@@ -19,9 +19,8 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
-using eThangAgent.ToolDomain.FileClaims;
-using eThangAgent.ToolDomain.Mcp;
 using eThangAgent.ToolDomain.Lsp;
+using eThangAgent.ToolDomain.Mcp;
 using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
@@ -30,7 +29,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using LspAdvisoryDiagnosticsAccess = eThangAgent.Lsp.ACL.LspAdvisoryDiagnosticsAccess;
 using LspDaemonExePathOverride = eThangAgent.Lsp.ACL.LspDaemonExePathOverride;
 using LspDaemonHost = eThangAgent.Lsp.ACL.LspDaemonHost;
-using LspSymbolAccess = eThangAgent.Lsp.ACL.LspSymbolAccess;
+using LspDaemonSymbolAccess = eThangAgent.Lsp.ACL.LspDaemonSymbolAccess;
+using LspPipeClaimGate = eThangAgent.Lsp.ACL.LspPipeClaimGate;
 
 namespace eThangAgent.Composition;
 
@@ -224,29 +224,27 @@ public static class AgentComposition
           "Search the workspace for files by name pattern (Win32 glob: * and ?)."),
   ];
 
-  /// <summary>The advisory diagnostics source for edit/write (issue #356): a lazy pipe
-  ///     access that resolves null until a daemon is reachable, so registration never
-  ///     requires a language server to exist and LSP-absent results stay byte-identical.</summary>
-  /// <summary>The file-claim gate for edit/write (issue #364): session-bound over the
-  ///     app-process shared store (issue #363, code-less fallback per #358). The
-  ///     session id is read lazily from RootSessionIdentity, which the factory fills
-  ///     after the container builds; before that the gate is inert and the tool
-  ///     proceeds unclaimed rather than refusing a session that has no id yet.</summary>
-  private static FileClaimGate? ClaimGate(IServiceProvider sp)
+  /// <summary>The file-claim gate for edit/write: session-bound over the daemon's shared
+  ///     claim table, so every host in the workspace sees the same claims. The session id
+  ///     is read lazily from RootSessionIdentity, which the factory fills after the
+  ///     container builds; before that the gate is inert and the tool proceeds unclaimed
+  ///     rather than refusing a session that has no id yet.</summary>
+  private static LspPipeClaimGate? ClaimGate(IServiceProvider sp)
   {
     string? sessionId = sp.GetRequiredService<RootSessionIdentity>().Id?.ToString();
     if (string.IsNullOrWhiteSpace(sessionId))
     {
       return null;
     }
-    string workspaceId = sp.GetRequiredService<IWorkspaceContext>().WorkspaceId;
-    return new FileClaimGate(
-        sp.GetRequiredService<SharedFileClaimStore>(), workspaceId, sessionId, () => DateTimeOffset.UtcNow);
+
+    LspDaemonHost daemon = sp.GetRequiredService<LspDaemonHost>();
+    return new LspPipeClaimGate(daemon.EnsureConnectedAsync, sessionId);
   }
 
-  /// <summary>The language-server daemon this container owns (issue #361): one per
-  ///     workspace, connected lazily on the first advisory query, so a workspace with no
-  ///     code and a session that never edits code start neither a daemon nor a server.</summary>
+  /// <summary>The language-server daemon this container owns: one per workspace, connected
+  ///     lazily on the first advisory query, so a workspace with no code and a session that
+  ///     never edits code start neither a daemon nor a server. Connecting also starts the
+  ///     workspace watcher's forwarding subscription.</summary>
   private static LspDaemonHost DaemonHost(IServiceProvider sp)
   {
     IWorkspaceContext workspace = sp.GetRequiredService<IWorkspaceContext>();
@@ -254,14 +252,34 @@ public static class AgentComposition
         workspace.WorkspaceId,
         workspace.WorkspaceRoot,
         Guid.NewGuid().ToString("N"),
-        () => sp.GetRequiredService<LspDaemonExePathOverride>().Path);
+        () => sp.GetRequiredService<LspDaemonExePathOverride>().Path,
+        WatchWorkspace(sp));
+  }
+
+  /// <summary>Starts the workspace watcher on first demand and hands it to the daemon host,
+  ///     so watcher announcements reach the language server. A workspace whose daemon is
+  ///     never reached never starts a watcher.</summary>
+  private static Func<string, IFileWatcher?> WatchWorkspace(IServiceProvider sp)
+  {
+    WorkspaceFileWatcher? watcher = null;
+    return root =>
+    {
+      if (watcher is not null)
+      {
+        return watcher;
+      }
+
+      watcher = new WorkspaceFileWatcher(root, sp.GetRequiredService<IWorkspaceSnapshotAccess>(), _ => Task.CompletedTask);
+      watcher.Start();
+      return watcher;
+    };
   }
 
   private static LspAdvisoryDiagnosticsAccess AdvisoryDiagnosticsSource(IServiceProvider sp)
   {
     LspDaemonHost daemon = sp.GetRequiredService<LspDaemonHost>();
     return new LspAdvisoryDiagnosticsAccess(
-        ct => daemon.EnsureConnectedAsync(ct).GetAwaiter().GetResult(),
+        () => daemon.Client,
         sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
         Guid.NewGuid().ToString("N"));
   }
@@ -386,7 +404,7 @@ public static class AgentComposition
       // requires a language server to exist.
       new AgentToolBinding(
           new LspSymbolTool(sp.GetRequiredService<IPathResolver>(),
-              new LspSymbolAccess(() => null)),
+              new LspDaemonSymbolAccess(ct => sp.GetRequiredService<LspDaemonHost>().EnsureConnectedAsync(ct))),
           "Query language-server symbol navigation (definition, references, hover, document-symbols, workspace-symbols, implementation)."),
   ];
 
@@ -1255,7 +1273,6 @@ public static class AgentComposition
         .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
         .AddSingleton<LspDaemonExePathOverride>()
         .AddSingleton(DaemonHost)
-        .AddSingleton<SharedFileClaimStore>()
         .AddSingleton(sp => new VerificationGate(
             sp.GetRequiredService<IVerificationLedger>(),
             settings.VerificationGateEnabled))

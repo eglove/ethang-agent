@@ -1,6 +1,9 @@
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain.Lsp;
 
+// JSON002 fires only in the format/IDE host; the pragma pair is the repo's named pattern.
+#pragma warning disable JSON002 // Probable JSON string detected
+
 namespace eThangAgent.ToolDomain.Tests;
 
 // Issue #356: advisory diagnostics ride the existing tool bindings, so children
@@ -64,3 +67,5 @@ public class AdvisoryDiagnosticsRegistrationTests
     Assert.Equal(root.Definition.Description, rooted.Definition.Description);
   }
 }
+
+#pragma warning restore JSON002

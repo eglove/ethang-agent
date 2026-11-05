@@ -2,6 +2,9 @@ using System.Text;
 using System.Text.Json;
 using eThangAgent.Lsp.ACL;
 
+// JSON002 fires only in the format/IDE host; the pragma pair is the repo's named pattern.
+#pragma warning disable JSON002 // Probable JSON string detected
+
 namespace eThangAgent.Lsp.ACL.Tests;
 
 public class LspClientTests
@@ -103,3 +106,5 @@ public class LspClientTests
     Assert.Equal("Unsupported", hover.ErrorCode);
   }
 }
+
+#pragma warning restore JSON002

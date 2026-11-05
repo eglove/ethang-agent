@@ -1,6 +1,9 @@
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain.FileClaims;
 
+// JSON002 fires only in the format/IDE host; the pragma pair is the repo's named pattern.
+#pragma warning disable JSON002 // Probable JSON string detected
+
 namespace eThangAgent.ToolDomain.Tests;
 
 /// <summary>Tool-layer file-claim checks (issue #364): edit/write consult the claim
@@ -161,3 +164,5 @@ public class FileClaimToolTests
     Assert.Equal(root.Definition.Name, rooted.Definition.Name);
   }
 }
+
+#pragma warning restore JSON002

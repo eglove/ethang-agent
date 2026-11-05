@@ -75,9 +75,13 @@ public class LspDaemonConnectionTests
       await client.SendWatcherAnnouncementAsync(
           new WatcherAnnouncement(ws, ["a.cs"], [], 1, DateTimeOffset.UtcNow), Ct).ConfigureAwait(true);
       await Task.Delay(300, Ct).ConfigureAwait(true);
-      AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync(Path.Combine(root, "a.cs"), Ct).ConfigureAwait(true);
+      // The client states the generation it has applied. Behind the daemon's applied
+      // generation the answer is Stale; at it, the store's own answer.
+      AdvisoryDiagnosticsResult behind = await client.GetDiagnosticsAsync(Path.Combine(root, "a.cs"), knownGeneration: 0, ct: Ct).ConfigureAwait(true);
+      AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync(Path.Combine(root, "a.cs"), knownGeneration: 1, ct: Ct).ConfigureAwait(true);
 
       Assert.Single(sync.Calls);
+      Assert.Equal(AdvisoryDiagnosticsState.Stale, behind.State);
       Assert.Equal(AdvisoryDiagnosticsState.Ready, result.State);
       Assert.Equal("CS1002", Assert.Single(result.Diagnostics).Code);
       await cts.CancelAsync().ConfigureAwait(true);

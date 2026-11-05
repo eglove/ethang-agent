@@ -2,6 +2,9 @@ using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain.Lsp;
 using eThangAgent.ToolDomain.Verification;
 
+// JSON002 fires only in the format/IDE host; the pragma pair is the repo's named pattern.
+#pragma warning disable JSON002 // Probable JSON string detected
+
 namespace eThangAgent.ToolDomain.Tests;
 
 // Issue #356: advisory diagnostics appended to edit/write results, scoped to
@@ -109,11 +112,13 @@ public class AdvisoryDiagnosticsTests
   }
 
   [Fact]
-  public async Task Unavailable_ReturnsLabeledNotEmpty()
+  public async Task Unavailable_AppendsNothing_SoTheResultIsByteIdentical()
   {
     ScriptedSource source = new() { Next = new AdvisoryDiagnosticsResult(AdvisoryDiagnosticsState.Unavailable, []) };
-    ToolResult result = await EditToolWith(source).ExecuteAsync(new RawToolInput("edit", EditArgs), ct: TestContext.Current.CancellationToken);
-    Assert.Contains("unavailable", result.Content, StringComparison.Ordinal);
+    ToolResult withSource = await EditToolWith(source).ExecuteAsync(new RawToolInput("edit", EditArgs), ct: TestContext.Current.CancellationToken);
+    ToolResult withoutSource = await EditToolWith(null).ExecuteAsync(new RawToolInput("edit", EditArgs), ct: TestContext.Current.CancellationToken);
+    Assert.Equal(withoutSource.Content, withSource.Content);
+    Assert.DoesNotContain("[diagnostics]", withSource.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -221,3 +226,5 @@ public class AdvisoryDiagnosticsTests
         Task.FromResult(snapshot);
   }
 }
+
+#pragma warning restore JSON002

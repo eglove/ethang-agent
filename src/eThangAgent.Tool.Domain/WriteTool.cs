@@ -73,7 +73,7 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
 
   private async Task<ToolResult> WriteAsync(string path, WriteToolInput args, CancellationToken ct)
   {
-    string? refused = _claimGate?.CheckBeforeWrite(path);
+    string? refused = _claimGate is null ? null : await _claimGate.CheckBeforeWriteAsync(path, ct).ConfigureAwait(false);
     if (refused is not null)
     {
       return new ToolResult(refused, true);
@@ -91,7 +91,11 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
       return Err(written.Error);
     }
 
-    _claimGate?.RenewAfterWrite(path);
+    if (_claimGate is not null)
+    {
+      await _claimGate.RenewAfterWriteAsync(path, ct).ConfigureAwait(false);
+    }
+
     FileWriteOutcome o = written.Value;
     ToolResult baseResult = new(
         $"[write {path}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes, " +
