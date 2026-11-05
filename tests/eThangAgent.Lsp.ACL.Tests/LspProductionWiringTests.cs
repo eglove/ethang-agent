@@ -81,7 +81,7 @@ public class LspProductionWiringTests
     string uri = "file:///C:/ws/Bad.cs";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + PushJson(uri, "CS0029", 0, 38, 0, 52, "err") + "}");
     LspDiagnosticStore store = new();
-    LspCapabilities caps = new(false, false, false, false, false, false, false, DiagnosticPullProvider: true);
+    LspCapabilities caps = new(false, false, false, false, false, false, false, DiagnosticPullProvider: true, RenameProvider: false);
     LspDiagnosticsService service = new(transport, store, caps);
     LspDiagnosticsResult result = await service.PullAsync(uri);
     Assert.Equal(LspDiagnosticsState.Ready, result.State);
@@ -99,7 +99,7 @@ public class LspProductionWiringTests
     string uri = "file:///C:/ws/Bad.cs";
     LspDiagnosticStore store = new();
     store.OnPublishDiagnostics(PushJson(uri, "CS0029", 0, 38, 0, 52, "push err"));
-    LspCapabilities caps = new(false, false, false, false, false, false, false, DiagnosticPullProvider: true);
+    LspCapabilities caps = new(false, false, false, false, false, false, false, DiagnosticPullProvider: true, RenameProvider: false);
     LspDiagnosticsService service = new(transport, store, caps);
     LspDiagnosticsResult result = await service.PullAsync(uri);
     Assert.Equal(LspDiagnosticsState.Degraded, result.State);
@@ -124,7 +124,7 @@ public class LspProductionWiringTests
     string uri = "file:///C:/ws/a.cs";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + PushJson(uri, "CS0029", 0, 38, 0, 52, "err") + "}");
     LspDiagnosticStore store = new();
-    LspCapabilities caps = new(false, false, false, false, false, false, false, DiagnosticPullProvider: true);
+    LspCapabilities caps = new(false, false, false, false, false, false, false, DiagnosticPullProvider: true, RenameProvider: false);
     LspDiagnosticsService service = new(transport, store, caps);
     service.BeginRestart();
     Task<LspDiagnosticsResult> query = service.PullAsync(uri);

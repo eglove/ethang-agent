@@ -142,7 +142,7 @@ public class LspWorkspaceModelTests
     LspDiagnosticsService service = new(
         transport,
         new LspDiagnosticStore(),
-        new LspCapabilities(false, false, false, false, false, false, false, true),
+        new LspCapabilities(false, false, false, false, false, false, false, true, false),
         new UnloadedModel());
     LspDiagnosticsResult result = await service.PullAsync("file:///C:/ws/a.cs", Ct);
     Assert.Equal(LspDiagnosticsState.Starting, result.State);
