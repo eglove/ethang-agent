@@ -14,6 +14,7 @@ public enum LspSymbolAction
   Implementation,
   CallHierarchyIncoming,
   CallHierarchyOutgoing,
+  WorkspaceLoad,
 }
 
 /// <summary>Strictly parsed arguments for the 'lsp' symbol tool (issue #357): a required
@@ -23,6 +24,40 @@ public enum LspSymbolAction
 #pragma warning disable IDE0046 // Named decision: guard+return names each validation step; the ternary form hides it.
 public sealed record LspSymbolToolInput(LspSymbolAction Action, string? Path, string? SymbolName, int Occurrence, int Depth = 1)
 {
+  /// <summary>One row per action: its wire name, the arguments it accepts beyond action and
+  ///     timeoutSeconds, and the parser that validates them. Adding an action is a row here,
+  ///     never another switch over the same enum.</summary>
+  private sealed record ActionRow(
+      LspSymbolAction Action,
+      string Name,
+      string[] Arguments,
+      Func<JsonElement, LspSymbolAction, Result<LspSymbolToolInput>> Parse);
+
+  private static readonly ActionRow[] Rows =
+  [
+    new(LspSymbolAction.Definition, "definition", ["path", "symbolName", "occurrence"], ParsePositionQuery),
+    new(LspSymbolAction.References, "references", ["path", "symbolName", "occurrence"], ParsePositionQuery),
+    new(LspSymbolAction.Hover, "hover", ["path", "symbolName", "occurrence"], ParsePositionQuery),
+    new(LspSymbolAction.DocumentSymbols, "document-symbols", ["path"], ParseDocumentSymbols),
+    new(LspSymbolAction.WorkspaceSymbols, "workspace-symbols", ["symbolName"], ParseWorkspaceSymbols),
+    new(LspSymbolAction.Implementation, "implementation", ["path", "symbolName", "occurrence"], ParsePositionQuery),
+    new(LspSymbolAction.CallHierarchyIncoming, "call-hierarchy-incoming", ["path", "symbolName", "occurrence", "depth"], ParseCallHierarchy),
+    new(LspSymbolAction.CallHierarchyOutgoing, "call-hierarchy-outgoing", ["path", "symbolName", "occurrence", "depth"], ParseCallHierarchy),
+    new(LspSymbolAction.WorkspaceLoad, "workspace-load", [], NoArguments),
+  ];
+
+  private static readonly string[] ActionNames = BuildActionNames();
+
+  private static string[] BuildActionNames() => [.. Rows.Select(row => row.Name)];
+
+  private static ActionRow? FindRow(LspSymbolAction action)
+    => Rows.FirstOrDefault(row => row.Action == action);
+
+  private static ActionRow? FindRow(string name)
+    => Rows.FirstOrDefault(row => string.Equals(row.Name, name, StringComparison.Ordinal));
+
+  private static string ActionList() => string.Join(", ", ActionNames);
+
   public static Result<LspSymbolToolInput> Create(string jsonArguments)
   {
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
@@ -47,25 +82,17 @@ public sealed record LspSymbolToolInput(LspSymbolAction Action, string? Path, st
     return Dispatch(json, action.Value);
   }
 
-  private static Result<LspSymbolToolInput> Dispatch(JsonElement json, LspSymbolAction action) => action switch
-  {
-    LspSymbolAction.DocumentSymbols => ParseDocumentSymbols(json, action),
-    LspSymbolAction.WorkspaceSymbols => ParseWorkspaceSymbols(json, action),
-    LspSymbolAction.Definition => ParsePositionQuery(json, action),
-    LspSymbolAction.References => ParsePositionQuery(json, action),
-    LspSymbolAction.Hover => ParsePositionQuery(json, action),
-    LspSymbolAction.Implementation => ParsePositionQuery(json, action),
-    LspSymbolAction.CallHierarchyIncoming => ParseCallHierarchy(json, action),
-    LspSymbolAction.CallHierarchyOutgoing => ParseCallHierarchy(json, action),
-    _ => Result.Failure<LspSymbolToolInput>(new DomainError("InvalidAction", "'action' is not a known action.")),
-  };
+  private static Result<LspSymbolToolInput> Dispatch(JsonElement json, LspSymbolAction action)
+    => FindRow(action) is ActionRow row
+        ? row.Parse(json, action)
+        : Result.Failure<LspSymbolToolInput>(new DomainError("InvalidAction", "'action' is not a known action."));
 
   private static Result<LspSymbolAction> ParseAction(JsonElement json)
   {
     if (!json.TryGetProperty("action", out JsonElement actionEl))
     {
       return Result.Failure<LspSymbolAction>(new DomainError("InvalidAction",
-          "'action' is required: exactly one of definition, references, hover, document-symbols, workspace-symbols, implementation, call-hierarchy-incoming, call-hierarchy-outgoing (case-sensitive)."));
+          "'action' is required: exactly one of " + ActionList() + " (case-sensitive)."));
     }
 
     if (actionEl.ValueKind is not JsonValueKind.String)
@@ -78,19 +105,11 @@ public sealed record LspSymbolToolInput(LspSymbolAction Action, string? Path, st
     return MapActionText(actionText);
   }
 
-  private static Result<LspSymbolAction> MapActionText(string actionText) => actionText switch
-  {
-    "definition" => Result.Success(LspSymbolAction.Definition),
-    "references" => Result.Success(LspSymbolAction.References),
-    "hover" => Result.Success(LspSymbolAction.Hover),
-    "document-symbols" => Result.Success(LspSymbolAction.DocumentSymbols),
-    "workspace-symbols" => Result.Success(LspSymbolAction.WorkspaceSymbols),
-    "implementation" => Result.Success(LspSymbolAction.Implementation),
-    "call-hierarchy-incoming" => Result.Success(LspSymbolAction.CallHierarchyIncoming),
-    "call-hierarchy-outgoing" => Result.Success(LspSymbolAction.CallHierarchyOutgoing),
-    _ => Result.Failure<LspSymbolAction>(new DomainError("InvalidAction",
-        $"'action' must be exactly one of definition, references, hover, document-symbols, workspace-symbols, implementation, call-hierarchy-incoming, call-hierarchy-outgoing (case-sensitive; got '{actionText}').")),
-  };
+  private static Result<LspSymbolAction> MapActionText(string actionText)
+    => FindRow(actionText) is ActionRow row
+        ? Result.Success(row.Action)
+        : Result.Failure<LspSymbolAction>(new DomainError("InvalidAction",
+            $"'action' must be exactly one of {ActionList()} (case-sensitive; got '{actionText}')"));
 
   private static Result<LspSymbolToolInput> ParsePositionQuery(JsonElement json, LspSymbolAction action)
   {
@@ -172,17 +191,16 @@ public sealed record LspSymbolToolInput(LspSymbolAction Action, string? Path, st
     return Result.Success(new LspSymbolToolInput(action, null, symbol.Value, 0));
   }
 
-  private static string[] Allowed(LspSymbolAction action) => action switch
+  private static string[] Allowed(LspSymbolAction action)
   {
-    LspSymbolAction.DocumentSymbols => ["action", ToolTimeout.ParameterName, "path"],
-    LspSymbolAction.WorkspaceSymbols => ["action", ToolTimeout.ParameterName, "symbolName"],
-    LspSymbolAction.Definition => ["action", ToolTimeout.ParameterName, "path", "symbolName", "occurrence"],
-    LspSymbolAction.References => ["action", ToolTimeout.ParameterName, "path", "symbolName", "occurrence"],
-    LspSymbolAction.Hover => ["action", ToolTimeout.ParameterName, "path", "symbolName", "occurrence"],
-    LspSymbolAction.Implementation => ["action", ToolTimeout.ParameterName, "path", "symbolName", "occurrence"],
-    LspSymbolAction.CallHierarchyIncoming => ["action", ToolTimeout.ParameterName, "path", "symbolName", "occurrence", "depth"],
-    LspSymbolAction.CallHierarchyOutgoing => ["action", ToolTimeout.ParameterName, "path", "symbolName", "occurrence", "depth"],
-    _ => [],
-  };
+    ActionRow? row = FindRow(action);
+    return row is null
+        ? []
+        : ["action", ToolTimeout.ParameterName, .. row.Arguments];
+  }
+
+  /// <summary>An action that takes no arguments beyond action and timeoutSeconds.</summary>
+  private static Result<LspSymbolToolInput> NoArguments(JsonElement json, LspSymbolAction action)
+    => Result.Success(new LspSymbolToolInput(action, null, null, 0));
 }
 #pragma warning restore IDE0046

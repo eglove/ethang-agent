@@ -15,4 +15,9 @@ public interface ILspWorkspaceModel
   /// <paramref name="uri"/> with its current disk text, so the query that follows has a
   /// compilation to answer from.</summary>
   Task PrepareAsync(string uri, CancellationToken ct = default);
+
+  /// <summary>Requests the load if it has not been requested yet and waits up to
+  /// <paramref name="timeout"/> for the server's load-complete announcement. Returns the
+  /// loaded state, so a caller can tell a finished load from one still running.</summary>
+  Task<bool> EnsureLoadedAsync(TimeSpan timeout, CancellationToken ct = default);
 }

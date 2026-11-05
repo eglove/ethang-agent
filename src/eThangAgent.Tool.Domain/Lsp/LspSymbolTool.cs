@@ -18,7 +18,12 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly ILspSymbolAccess _access = access ?? throw new ArgumentNullException(nameof(access));
 
-  private static readonly string[] ActionNames = ["definition", "references", "hover", "document-symbols", "workspace-symbols", "implementation", "call-hierarchy-incoming", "call-hierarchy-outgoing"];
+  private static readonly string[] ActionNames = ["definition", "references", "hover", "document-symbols", "workspace-symbols", "implementation", "call-hierarchy-incoming", "call-hierarchy-outgoing", "workspace-load"];
+
+  /// <summary>Actions that answer with a set of symbols rather than a resolved position, so
+  ///     their annotation reports how many sites came back instead of an occurrence index.</summary>
+  private static bool IsListingAction(LspSymbolAction action)
+    => action is LspSymbolAction.DocumentSymbols or LspSymbolAction.WorkspaceSymbols or LspSymbolAction.WorkspaceLoad;
 
   public ITool RootedAt(string workspaceRoot)
       => new LspSymbolTool(new WorkspacePathResolver(workspaceRoot), _access);
@@ -31,7 +36,7 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber,
               ToolTimeout.ParameterDescription, Minimum: 1),
           new ToolParameter("action", ToolParameterType.Text,
-              "Exactly one of definition, references, hover, document-symbols, workspace-symbols, implementation, call-hierarchy-incoming, call-hierarchy-outgoing (case-sensitive)."),
+              "Exactly one of definition, references, hover, document-symbols, workspace-symbols, implementation, call-hierarchy-incoming, call-hierarchy-outgoing, workspace-load (case-sensitive)."),
           new ToolParameter("path", ToolParameterType.Text,
               "Required for definition, references, hover, implementation, document-symbols: the file that defines the symbol."),
           new ToolParameter("symbolName", ToolParameterType.Text,
@@ -49,13 +54,15 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
         + " timeoutSeconds is mandatory. action is exactly one of " + string.Join(", ", ActionNames)
         + " (case-sensitive)."
         + " definition, references, hover, implementation, call-hierarchy-incoming, and call-hierarchy-outgoing require path and symbolName and take an optional occurrence (default 0); call-hierarchy actions take an optional depth (1 default, 2 max);"
-        + " document-symbols requires path; workspace-symbols requires symbolName."
+        + " document-symbols requires path; workspace-symbols requires symbolName; workspace-load takes neither."
         + " The caller never supplies line or column: the tool resolves the position from the symbol name via document symbols."
         + " Multiple occurrences resolve deterministically and the result names the occurrence used."
         + " A symbol that is only referenced (not defined) in the named file returns Unsupported, never a guessed position."
         + " A member resolves by its declared name even when the server reports it with its signature."
         + " hover carries the server's hover text after the site line."
         + " The first call to a workspace connects to its language server lazily; later calls reuse the session."
+        + " A query against a workspace the server has not loaded returns Starting and never an empty Ready, because an unloaded server reports a symbol's own declaration and none of its cross-file uses."
+        + " workspace-load requests the load and waits for it, so it is the action to call when a query reports Starting and you need a real answer."
         + " Output: one annotation line '[lsp] <State>: <action>' then one line per site - 'path:line:character symbol' (1-based)."
         + " States: Ready (sites returned), Starting (server still initializing - no evidence yet), Stale (results may be outdated),"
         + " Degraded (partial results), Unavailable (no language server for this workspace), Unsupported (capability not advertised or symbol only referenced)."
@@ -98,31 +105,34 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
     return Render(outcome, args);
   }
 
-  private static LspSymbolCommand CommandOf(LspSymbolToolInput args, string? resolvedPath) => args.Action switch
-  {
-    LspSymbolAction.Definition => new LspSymbolCommand.Definition(resolvedPath!, args.SymbolName!, args.Occurrence),
-    LspSymbolAction.References => new LspSymbolCommand.References(resolvedPath!, args.SymbolName!, args.Occurrence),
-    LspSymbolAction.Hover => new LspSymbolCommand.Hover(resolvedPath!, args.SymbolName!, args.Occurrence),
-    LspSymbolAction.DocumentSymbols => new LspSymbolCommand.DocumentSymbols(resolvedPath!),
-    LspSymbolAction.WorkspaceSymbols => new LspSymbolCommand.WorkspaceSymbols(args.SymbolName!),
-    LspSymbolAction.Implementation => new LspSymbolCommand.Implementation(resolvedPath!, args.SymbolName!, args.Occurrence),
-    LspSymbolAction.CallHierarchyIncoming => new LspSymbolCommand.CallHierarchyIncoming(resolvedPath!, args.SymbolName!, args.Occurrence, args.Depth),
-    LspSymbolAction.CallHierarchyOutgoing => new LspSymbolCommand.CallHierarchyOutgoing(resolvedPath!, args.SymbolName!, args.Occurrence, args.Depth),
-    _ => throw new InvalidOperationException("unreachable: action is a validated enum"),
-  };
+  /// <summary>One row per action: how the action is named on the wire and the command it
+  ///     builds. The name and the command live together so neither can be added without the
+  ///     other, and no switch over the enum has to grow with the action set.</summary>
+  private sealed record ActionRow(LspSymbolAction Action, string Name, Func<LspSymbolToolInput, string?, LspSymbolCommand> Command);
 
-  private static string ActionText(LspSymbolAction action) => action switch
-  {
-    LspSymbolAction.Definition => "definition",
-    LspSymbolAction.References => "references",
-    LspSymbolAction.Hover => "hover",
-    LspSymbolAction.DocumentSymbols => "document-symbols",
-    LspSymbolAction.WorkspaceSymbols => "workspace-symbols",
-    LspSymbolAction.Implementation => "implementation",
-    LspSymbolAction.CallHierarchyIncoming => "call-hierarchy-incoming",
-    LspSymbolAction.CallHierarchyOutgoing => "call-hierarchy-outgoing",
-    _ => "unknown",
-  };
+  private static readonly ActionRow[] Rows =
+  [
+    new(LspSymbolAction.Definition, "definition", (a, p) => new LspSymbolCommand.Definition(p!, a.SymbolName!, a.Occurrence)),
+    new(LspSymbolAction.References, "references", (a, p) => new LspSymbolCommand.References(p!, a.SymbolName!, a.Occurrence)),
+    new(LspSymbolAction.Hover, "hover", (a, p) => new LspSymbolCommand.Hover(p!, a.SymbolName!, a.Occurrence)),
+    new(LspSymbolAction.DocumentSymbols, "document-symbols", (a, p) => new LspSymbolCommand.DocumentSymbols(p!)),
+    new(LspSymbolAction.WorkspaceSymbols, "workspace-symbols", (a, _) => new LspSymbolCommand.WorkspaceSymbols(a.SymbolName!)),
+    new(LspSymbolAction.Implementation, "implementation", (a, p) => new LspSymbolCommand.Implementation(p!, a.SymbolName!, a.Occurrence)),
+    new(LspSymbolAction.CallHierarchyIncoming, "call-hierarchy-incoming", (a, p) => new LspSymbolCommand.CallHierarchyIncoming(p!, a.SymbolName!, a.Occurrence, a.Depth)),
+    new(LspSymbolAction.CallHierarchyOutgoing, "call-hierarchy-outgoing", (a, p) => new LspSymbolCommand.CallHierarchyOutgoing(p!, a.SymbolName!, a.Occurrence, a.Depth)),
+    new(LspSymbolAction.WorkspaceLoad, "workspace-load", (_, _) => new LspSymbolCommand.WorkspaceLoad()),
+  ];
+
+  private static ActionRow RowOf(LspSymbolAction action)
+    => Rows.FirstOrDefault(row => row.Action == action)
+        ?? throw new InvalidOperationException("unreachable: action is a validated enum");
+
+  private static LspSymbolCommand CommandOf(LspSymbolToolInput args, string? resolvedPath)
+    => RowOf(args.Action).Command(args, resolvedPath);
+
+  private static string ActionText(LspSymbolAction action) => RowOf(action).Name;
+
+  private static string Pluralize(int count) => count == 1 ? "symbol" : "symbols";
 
   private static ToolResult Render(LspSymbolOutcome outcome, LspSymbolToolInput args)
   {
@@ -142,8 +152,10 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
   private static ToolResult RenderReady(LspSymbolOutcome.Ready ready, string actionText, LspSymbolToolInput args)
   {
     List<string> lines = [];
-    lines.Add(string.Create(CultureInfo.InvariantCulture,
-        $"[lsp] Ready: {actionText} - occurrence {ready.OccurrenceUsed} of {ready.TotalOccurrences} for '{args.SymbolName ?? args.Path}'"));
+    lines.Add(IsListingAction(args.Action)
+        ? string.Create(CultureInfo.InvariantCulture, $"[lsp] Ready: {actionText} - {ready.Sites.Count} {Pluralize(ready.Sites.Count)}")
+        : string.Create(CultureInfo.InvariantCulture,
+            $"[lsp] Ready: {actionText} - occurrence {ready.OccurrenceUsed} of {ready.TotalOccurrences} for '{args.SymbolName ?? args.Path}'"));
     foreach (LspSymbolSite site in ready.Sites)
     {
       lines.Add(string.Create(CultureInfo.InvariantCulture,

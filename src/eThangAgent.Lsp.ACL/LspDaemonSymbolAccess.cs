@@ -40,6 +40,7 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     LspSymbolCommand.Implementation c => ("implementation", c.Path, c.SymbolName, c.Occurrence, 1),
     LspSymbolCommand.CallHierarchyIncoming c => ("call-hierarchy-incoming", c.Path, c.SymbolName, c.Occurrence, c.Depth),
     LspSymbolCommand.CallHierarchyOutgoing c => ("call-hierarchy-outgoing", c.Path, c.SymbolName, c.Occurrence, c.Depth),
+    LspSymbolCommand.WorkspaceLoad => ("workspace-load", null, null, 0, 1),
     _ => throw new InvalidOperationException("unreachable: command is a validated record family"),
   };
 

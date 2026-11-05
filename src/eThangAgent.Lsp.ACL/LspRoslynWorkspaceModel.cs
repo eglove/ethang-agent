@@ -13,6 +13,7 @@ public sealed class LspRoslynWorkspaceModel : ILspWorkspaceModel
   private readonly LspDocumentSync _documents;
   private readonly string? _solutionPath;
   private readonly Lock _gate = new();
+  private readonly TaskCompletionSource<bool> _loadCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
   private bool _loadRequested;
   private bool _loaded;
 
@@ -26,6 +27,7 @@ public sealed class LspRoslynWorkspaceModel : ILspWorkspaceModel
     {
       // Nothing to load: the server's file-based project system covers an opened document.
       _loaded = true;
+      _loadCompleted.TrySetResult(true);
     }
   }
 
@@ -44,6 +46,31 @@ public sealed class LspRoslynWorkspaceModel : ILspWorkspaceModel
       // cannot each send their own didOpen for the same document.
       await _documents.EnsureOpenAsync(uri, ct).ConfigureAwait(false);
     }
+  }
+
+  /// <summary>Requests the load and waits for the server's load-complete announcement,
+  ///     bounded by <paramref name="timeout"/>. Returns the loaded state: false means the
+  ///     load is still running and a query answered now has no compilation behind it.</summary>
+  public async Task<bool> EnsureLoadedAsync(TimeSpan timeout, CancellationToken ct = default)
+  {
+    await RequestLoadAsync(ct).ConfigureAwait(false);
+    if (IsLoaded)
+    {
+      return true;
+    }
+
+    using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    deadline.CancelAfter(timeout);
+    try
+    {
+      await _loadCompleted.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+      return IsLoaded;
+    }
+
+    return IsLoaded;
   }
 
   /// <summary>Sends solution/open once and returns without waiting. The load runs
@@ -88,6 +115,7 @@ public sealed class LspRoslynWorkspaceModel : ILspWorkspaceModel
       }
 
       lock (_gate) { _loaded = true; }
+      _loadCompleted.TrySetResult(true);
       return true;
     }
     catch (System.Text.Json.JsonException)

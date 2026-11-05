@@ -490,6 +490,7 @@ public sealed class LspDaemonServer : IDisposable
         "workspace-symbols" => await _symbolService.WorkspaceSymbolsAsync(symbolName, ct).ConfigureAwait(false),
         "call-hierarchy-incoming" => await _symbolService.CallHierarchyIncomingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
         "call-hierarchy-outgoing" => await _symbolService.CallHierarchyOutgoingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
+        "workspace-load" => await _symbolService.LoadWorkspaceAsync(ct).ConfigureAwait(false),
         _ => new LspSymbolResult(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action),
       };
       JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["occurrenceUsed"] = result.OccurrenceUsed, ["totalOccurrences"] = result.TotalOccurrences, ["message"] = result.Message ?? string.Empty, ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()) } };

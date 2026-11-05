@@ -61,7 +61,7 @@ if (transport is not null)
   string wsUri = LspUriMapper.ToUri(workspaceRoot);
   _ = await client.InitializeAsync(wsUri);
   diagnosticsService = new LspDiagnosticsService(transport, store, client.Capabilities, workspace);
-  symbolService = new LspSymbolService(transport, client.Capabilities);
+  symbolService = new LspSymbolService(transport, client.Capabilities, workspace);
 }
 
 using LspDaemonServer server = new(pipeName, workspaceId, () => Task.CompletedTask);

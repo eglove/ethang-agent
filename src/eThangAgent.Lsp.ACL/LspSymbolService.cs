@@ -33,11 +33,15 @@ public sealed record LspSymbolResolution(bool Found, int Line, int Character, in
 /// file resolves to Unsupported, never a guessed position.</summary>
 public sealed partial class LspSymbolService
 {
+  private static readonly TimeSpan NoWait = TimeSpan.Zero;
+  private static readonly TimeSpan LoadWait = TimeSpan.FromSeconds(60);
+
   private readonly LspJsonRpcTransport? _transport;
   private readonly LspCapabilities _capabilities;
+  private readonly ILspWorkspaceModel? _workspace;
 
-  public LspSymbolService(LspJsonRpcTransport? transport, LspCapabilities capabilities)
-    => (_transport, _capabilities) = (transport, capabilities ?? throw new ArgumentNullException(nameof(capabilities)));
+  public LspSymbolService(LspJsonRpcTransport? transport, LspCapabilities capabilities, ILspWorkspaceModel? workspace = null)
+    => (_transport, _capabilities, _workspace) = (transport, capabilities ?? throw new ArgumentNullException(nameof(capabilities)), workspace);
 
   public static LspSymbolResolution ResolveSymbol(string documentSymbolsJson, string symbolName, int occurrence)
   {
@@ -147,16 +151,71 @@ public sealed partial class LspSymbolService
 
   private static LspSymbolResult Unavailable() => new(LspSymbolState.Unavailable, [], 0, 1, "no language server for this workspace");
 
+  private const string NotLoadedMessage =
+    "the language server has not loaded this workspace yet, so a symbol query has no compilation behind it; retry, or call the workspace-load action to wait for the load";
+
+  /// <summary>Answers Starting when the workspace has no compilation behind it. Roslyn
+  ///     answers a symbol query against an unloaded workspace from its file-based project
+  ///     system, which reports a type's own declaration and none of its cross-file uses -
+  ///     an empty Ready that reads as truth. The load is requested here and not awaited:
+  ///     it takes far longer than a query budget, so the caller gets Starting now and a
+  ///     real answer on a later call.</summary>
+  private async Task<LspSymbolResult?> WorkspaceGateAsync(CancellationToken ct)
+  {
+    if (_workspace is null || _workspace.IsLoaded)
+    {
+      return null;
+    }
+
+    await _workspace.EnsureLoadedAsync(NoWait, ct).ConfigureAwait(false);
+    return new LspSymbolResult(LspSymbolState.Starting, [], 0, 1, NotLoadedMessage);
+  }
+
+  /// <summary>Requests the workspace load and waits for it to finish. The one operation
+  ///     that blocks on the load, because waiting is the whole of what it asks for.</summary>
+  public async Task<LspSymbolResult> LoadWorkspaceAsync(CancellationToken ct = default)
+  {
+    if (_transport is null)
+    {
+      return Unavailable();
+    }
+
+    if (_workspace is null)
+    {
+      return new LspSymbolResult(LspSymbolState.Ready, [], 0, 1, "this workspace has no solution to load");
+    }
+
+    bool loaded = await _workspace.EnsureLoadedAsync(LoadWait, ct).ConfigureAwait(false);
+    return loaded
+        ? new LspSymbolResult(LspSymbolState.Ready, [], 0, 1)
+        : new LspSymbolResult(LspSymbolState.Starting, [], 0, 1, NotLoadedMessage);
+  }
+
   private static LspSymbolResult Unsupported(string method) => new(LspSymbolState.Unsupported, [], 0, 1, "capability not advertised for " + method);
 
   private static LspSymbolResult ReferencedOnly(string symbolName, string uri)
     => new(LspSymbolState.Unsupported, [], 0, 1, "symbol '" + symbolName + "' is only referenced, not defined, in " + uri + "; position cannot be resolved");
+
+  /// <summary>Why a symbol name did not resolve to a position. A name absent from the file
+  ///     and an occurrence index past the last definition are different mistakes, so they
+  ///     never share a message.</summary>
+  private static LspSymbolResult NotResolved(string symbolName, string uri, int occurrence, LspSymbolResolution resolution)
+    => resolution.TotalOccurrences == 0
+        ? ReferencedOnly(symbolName, uri)
+        : new(LspSymbolState.Unsupported, [], occurrence, resolution.TotalOccurrences,
+            "occurrence " + occurrence + " is out of range: '" + symbolName + "' is defined " + resolution.TotalOccurrences + " time(s) in " + uri + "; pass an occurrence from 0 to " + (resolution.TotalOccurrences - 1));
 
   private async Task<LspSymbolResult> QueryAsync(string uri, string symbolName, int occurrence, string method, Func<string, string, LspSymbolResolution, string> buildParams, CancellationToken ct)
   {
     if (_transport is null)
     {
       return Unavailable();
+    }
+
+    LspSymbolResult? gate = await WorkspaceGateAsync(ct).ConfigureAwait(false);
+    if (gate is not null)
+    {
+      return gate;
     }
 
     if (!_capabilities.Supports(method))
@@ -172,7 +231,7 @@ public sealed partial class LspSymbolService
 
     if (!resolution.Found)
     {
-      return ReferencedOnly(symbolName, uri);
+      return NotResolved(symbolName, uri, occurrence, resolution);
     }
 
     string paramsJson = buildParams(uri, symbolName, resolution);
@@ -317,6 +376,12 @@ public sealed partial class LspSymbolService
       return Unavailable();
     }
 
+    LspSymbolResult? gate = await WorkspaceGateAsync(ct).ConfigureAwait(false);
+    if (gate is not null)
+    {
+      return gate;
+    }
+
     if (!_capabilities.Supports("textDocument/documentSymbol"))
     {
       return Unsupported("textDocument/documentSymbol");
@@ -435,6 +500,12 @@ public sealed partial class LspSymbolService
     if (_transport is null)
     {
       return Unavailable();
+    }
+
+    LspSymbolResult? gate = await WorkspaceGateAsync(ct).ConfigureAwait(false);
+    if (gate is not null)
+    {
+      return gate;
     }
 
     if (!_capabilities.Supports("workspace/symbol"))

@@ -190,4 +190,56 @@ public class LspSymbolToolTests
     ITool rooted = tool.RootedAt("C:\\other");
     Assert.Equal("lsp", rooted.Definition.Name);
   }
+
+  [Fact]
+  public async Task DocumentSymbols_Annotation_ReportsCount_NotOccurrence()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Ready(
+          [new LspSymbolSite("C:\\ws\\A.cs", 0, 5, "Foo"), new LspSymbolSite("C:\\ws\\A.cs", 3, 2, "Bar")],
+          0, 2),
+    };
+    ToolResult result = await Call(access, "\"action\":\"document-symbols\",\"path\":\"A.cs\"");
+    Assert.Contains("2 symbols", result.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("occurrence", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task WorkspaceSymbols_Annotation_ReportsCount_NotOccurrence()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Ready([new LspSymbolSite("C:\\ws\\A.cs", 0, 5, "Foo")], 0, 1),
+    };
+    ToolResult result = await Call(access, "\"action\":\"workspace-symbols\",\"symbolName\":\"Foo\"");
+    Assert.Contains("1 symbol", result.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("occurrence", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task WorkspaceLoad_IsAnAction_WithNoPathOrSymbol()
+  {
+    ScriptedSymbolAccess access = new() { Next = new LspSymbolOutcome.Ready([], 0, 1) };
+    ToolResult result = await Call(access, "\"action\":\"workspace-load\"");
+    Assert.False(result.IsError);
+    _ = Assert.IsType<LspSymbolCommand.WorkspaceLoad>(Assert.Single(access.Commands));
+  }
+
+  [Fact]
+  public async Task WorkspaceLoad_RejectsPathAndSymbolName()
+  {
+    ScriptedSymbolAccess access = new();
+    ToolResult result = await Call(access, "\"action\":\"workspace-load\",\"path\":\"A.cs\"");
+    Assert.True(result.IsError);
+    Assert.Contains("UnknownParameter", result.Content, StringComparison.Ordinal);
+    Assert.Empty(access.Commands);
+  }
+
+  [Fact]
+  public void Definition_DescriptionDocumentsWorkspaceLoad()
+  {
+    string d = new LspSymbolTool(new WorkspacePathResolver("C:\\ws"), new ScriptedSymbolAccess()).Definition.Description;
+    Assert.Contains("workspace-load", d, StringComparison.Ordinal);
+  }
 }
