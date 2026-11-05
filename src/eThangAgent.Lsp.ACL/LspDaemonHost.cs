@@ -51,10 +51,13 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   /// <summary>True once the workspace watcher is publishing to this daemon.</summary>
   public bool IsForwarding => _forwarder?.IsForwarding == true;
 
-  /// <summary>Connects once per host and reuses the connection afterwards. Returns
-  /// null when the workspace holds no code or no daemon can be reached; the caller then
-  /// reports Unavailable. Detection runs once per host: a workspace that held no code at
-  /// open is never re-scanned, so a vault or document workspace never starts a daemon.</summary>
+  /// <summary>Returns a client for the workspace daemon, connecting when there is no
+  /// usable connection. A connection whose daemon has exited is discarded and replaced
+  /// rather than handed out, so a daemon restart is recovered on the next query instead
+  /// of failing every query for the life of the process. Returns null when the workspace
+  /// holds no code or no daemon can be reached; the caller then reports Unavailable.
+  /// Detection runs once per host: a workspace that held no code at open is never
+  /// re-scanned, so a vault or document workspace never starts a daemon.</summary>
   public async Task<LspPipeClient?> EnsureConnectedAsync(CancellationToken ct = default)
   {
     _hasCode ??= CodeDetector.Detect(_workspaceRoot) != CodeDetectionResult.NotFound;
@@ -66,11 +69,12 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     await _gate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
-      if (_connection is not null)
+      if (_connection is not null && _connection.IsAlive)
       {
         return _connection.Client;
       }
 
+      await DiscardConnectionAsync().ConfigureAwait(false);
       _connection = await LspDaemonConnection.ConnectAsync(
           _workspaceId, _workspaceRoot, _appInstanceId, StartDaemon, ct).ConfigureAwait(false);
       LspPipeClient? client = _connection?.Client;
@@ -79,7 +83,7 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
         return null;
       }
 
-      StartForwarding(client);
+      StartForwarding();
       return client;
     }
     finally
@@ -88,7 +92,19 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     }
   }
 
-  private void StartForwarding(LspPipeClient client)
+  /// <summary>Drops the current connection, releasing the daemon this host started.
+  ///     Called when the daemon behind it is gone, so the next query reconnects.</summary>
+  private async Task DiscardConnectionAsync()
+  {
+    LspDaemonConnection? dead = _connection;
+    _connection = null;
+    if (dead is not null)
+    {
+      await dead.DisposeAsync().ConfigureAwait(false);
+    }
+  }
+
+  private void StartForwarding()
   {
     if (_forwarder is not null)
     {
@@ -101,7 +117,9 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
       return;
     }
 
-    _forwarder = new LspWatcherForwarder(watcher, _workspaceId, _ => Task.FromResult<LspPipeClient?>(client));
+    // The forwarder resolves the current client per announcement: capturing the client
+    // here would pin the watcher to a daemon that a reconnect has since replaced.
+    _forwarder = new LspWatcherForwarder(watcher, _workspaceId, EnsureConnectedAsync);
     _forwarder.Start();
   }
 

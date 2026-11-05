@@ -25,6 +25,10 @@ public sealed class LspDaemonConnection : IAsyncDisposable
   /// <summary>The daemon process this app started, or null when it joined an existing one.</summary>
   public int? DaemonProcessId => _process is null || _process.HasExited ? null : _process.Id;
 
+  /// <summary>True while the client can still reach a daemon: the process this app
+  ///     started has not exited, and no request on the pipe has failed yet.</summary>
+  public bool IsAlive => _client is not null && !_client.IsBroken && (_process is null || !_process.HasExited);
+
   /// <summary>Connects to the daemon for one workspace, starting it first when the pipe
   /// has no listener. Returns null when no daemon can be reached, which every caller
   /// treats as the silent Unavailable no-op.</summary>

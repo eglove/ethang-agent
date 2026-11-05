@@ -25,6 +25,31 @@ public sealed class LspPipeClient : IDisposable
   public string WorkspaceId { get; private set; } = string.Empty;
   public int ProtocolVersion { get; private set; }
 
+  private volatile bool _broken;
+
+  /// <summary>True once this client can no longer reach its daemon: the server has hung
+  ///     up, or a write or read on the pipe has failed. The owner discards a broken client
+  ///     and reconnects instead of reusing it.</summary>
+  public bool IsBroken
+  {
+    get
+    {
+      if (_broken)
+      {
+        return true;
+      }
+
+      try
+      {
+        return !_pipe.IsConnected;
+      }
+      catch (ObjectDisposedException)
+      {
+        return true;
+      }
+    }
+  }
+
   public static async Task<LspPipeClient> ConnectAsync(string pipeName, string workspaceId, string appInstanceId, CancellationToken ct = default)
   {
     NamedPipeClientStream pipe = new(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
@@ -111,8 +136,18 @@ public sealed class LspPipeClient : IDisposable
   {
     int id = Interlocked.Increment(ref _nextRequestId);
     JsonObject request = new() { ["id"] = id, ["method"] = method, ["params"] = parameters };
-    await WriteLineAsync(request.ToJsonString(), ct).ConfigureAwait(false);
-    string line = await ReadLineAsync(ct).ConfigureAwait(false);
+    string line;
+    try
+    {
+      await WriteLineAsync(request.ToJsonString(), ct).ConfigureAwait(false);
+      line = await ReadLineAsync(ct).ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+    {
+      _broken = true;
+      throw;
+    }
+
     using JsonDocument doc = JsonDocument.Parse(line);
     JsonElement root = doc.RootElement;
     if (root.TryGetProperty("error", out JsonElement err))
