@@ -3,6 +3,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
@@ -590,6 +591,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // Shell access is registered by the core composition; a bare session container
       // (test stubs) without it yields a null runner and the ! surface reports unavailable.
       CommandRunner = services.GetService<IUserCommandRunner>(),
+      // The language-server status the daemon announces on (plan #143 step 6): the SAME
+      // host instance the container's tools resolve, so what the model's queries trigger
+      // is what the status bar shows.
+      LspServerStatus = services.GetService<LspDaemonHost>()?.ServerStatus,
       // The shared invocation core (spec #28) rides the session beside the runner:
       // the Desktop's slash input resolves through it, same object the tool uses.
       SkillInvocation = services.GetService<SkillInvocationService>(),

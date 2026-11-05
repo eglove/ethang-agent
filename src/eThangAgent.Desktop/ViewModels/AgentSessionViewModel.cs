@@ -5,6 +5,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
+using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
@@ -41,6 +42,12 @@ internal sealed record AgentSessionViewModelOptions
   /// <summary>The session's live model/effort preferences backing the Model and Effort
   ///     pickers.</summary>
   public SessionModelPreferences? ModelPreferences { get; init; }
+
+  /// <summary>The workspace's language-server status, as the daemon announces it (plan #143
+  ///     step 6). The status bar follows it so a first-run download is visible instead of
+  ///     looking like a hung app. Null = nothing to follow (a headless stub, or a container
+  ///     with no language-server seam), and the segment stays hidden.</summary>
+  public LspServerStatusMonitor? LspServerStatus { get; init; }
 
   /// <summary>Runs ! commands (user-side shell utilities). Null = the surface reports
   ///     commands unavailable.</summary>
@@ -218,6 +225,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>The usage ledger's read model (issue #24): the tab-open seed for the status
   ///     bar's session cost. Null = nothing to seed from (headless stubs).</summary>
   private readonly IUsageQueries? _usageQueries;
+
+  /// <summary>The status bar's language-server subscription, released with the session.
+  ///     Null when the container wired no monitor (headless stubs).</summary>
+  private readonly LspStatusBinder? _lspStatus;
 
   /// <summary>The session's bootstrap model (the provider default). Serves as the
   ///     status-bar display when the user returns the session to automatic choice.</summary>
@@ -626,6 +637,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // The session's model is ALWAYS NAMED (2026-10-22) - see ResolveServingModel.
     string servingModel = ResolveServingModel(_modelPreferences, modelId);
     Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
+    // The language-server segment follows the daemon from here (plan #143 step 6): a
+    // first-run download is otherwise invisible, and the bar is where a one-time wait
+    // belongs. Seeded on attach, so a session opened after the download shows it.
+    _lspStatus = LspStatusBinder.Attach(options.LspServerStatus, Status);
     _commandRunner = options.CommandRunner;
     _newSessionCommand = options.NewSessionCommand;
     _sessionRequestHandler = options.SessionRequestHandler;
@@ -1279,6 +1294,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // M17: release decoded screenshot bitmaps when the tab shuts down.
     _drainLease?.Dispose();
     _drainLease = null;
+    _lspStatus?.Dispose();
     // Issue #8: stop the workbench's poller and detach its event subscriptions; a
     // closed tab must not keep reading the database once a second.
     // Issue #307 D6: a SHARED rail belongs to the tab, not to this cell - disposing it here
