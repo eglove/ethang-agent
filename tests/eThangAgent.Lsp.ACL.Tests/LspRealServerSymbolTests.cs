@@ -23,6 +23,13 @@ public class LspRealServerSymbolTests
       "    _count += by;\n" +
       "    return _count;\n" +
       "  }\n" +
+      "}\n" +
+      "\n" +
+      "// A primary constructor makes the server report the type and its constructor\n" +
+      "// over one range, which is the shape a reference answer must not duplicate.\n" +
+      "public sealed class Holder(int seed)\n" +
+      "{\n" +
+      "  public int Seed => seed;\n" +
       "}\n";
 
   [Fact]
@@ -68,6 +75,11 @@ public class LspRealServerSymbolTests
         LspPipeClient client = await ConnectAsync(pipeName, workspaceId).ConfigureAwait(true);
         string uri = LspUriMapper.ToUri(file);
 
+        // A cold workspace reports Starting until its load settles, so the load is
+        // requested first: an unloaded server answers with declarations only.
+        LspSymbolResult loaded = await client.SymbolAsync("workspace-load", string.Empty, string.Empty, 0, 1, Ct).ConfigureAwait(true);
+        Assert.Equal(LspSymbolState.Ready, loaded.State);
+
         LspSymbolResult document = await client.SymbolAsync("document-symbols", uri, string.Empty, 0, 1, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, document.State);
         Assert.NotEmpty(document.Sites);
@@ -85,6 +97,16 @@ public class LspRealServerSymbolTests
         LspSymbolResult hover = await client.SymbolAsync("hover", uri, "Bump", 0, 1, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, hover.State);
         Assert.False(string.IsNullOrWhiteSpace(hover.Message), "hover must carry the server's contents, not a bare position");
+
+        // A hover response carries no location, so its site is built from the request:
+        // it must still name the file that was asked about.
+        Assert.All(hover.Sites, site => Assert.Equal(uri, site.Uri));
+
+        // A server reports a type and the primary constructor it declares over one
+        // range; the reference answer must not list that declaration twice.
+        LspSymbolResult references = await client.SymbolAsync("references", uri, "Holder", 0, 1, Ct).ConfigureAwait(true);
+        Assert.Equal(LspSymbolState.Ready, references.State);
+        Assert.Equal(references.Sites.Count, references.Sites.Distinct().Count());
 
         LspSymbolResult field = await client.SymbolAsync("definition", uri, "_count", 0, 1, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, field.State);

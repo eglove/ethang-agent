@@ -390,4 +390,51 @@ public class LspSymbolServiceTests
     Assert.Equal(LspSymbolState.Unsupported, result.State);
     Assert.Contains("only referenced", result.Message, StringComparison.Ordinal);
   }
+
+  [Fact]
+  public async Task Hover_SiteCarriesTheRequestUri_BecauseHoverHasNoLocation()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    JsonObject hover = new()
+    {
+      ["contents"] = new JsonObject { ["kind"] = "markdown", ["value"] = "class Foo" },
+      ["range"] = new JsonObject
+      {
+        ["start"] = new JsonObject { ["line"] = 7, ["character"] = 5 },
+        ["end"] = new JsonObject { ["line"] = 7, ["character"] = 8 },
+      },
+    };
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + hover + "}");
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolResult result = await service.HoverAsync(uri, "Foo", 0);
+    Assert.Equal(LspSymbolState.Ready, result.State);
+    LspSymbolSite site = Assert.Single(result.Sites);
+    Assert.Equal(uri, site.Uri);
+    Assert.Equal(7, site.Line);
+    Assert.Equal(5, site.Character);
+    Assert.Equal("Foo", site.SymbolName);
+  }
+
+  [Fact]
+  public async Task References_IdenticalSites_AreCollapsed()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    string dup = LocationJson(uri, 3, 22);
+    string refs = "[" + dup + "," + dup + "," + LocationJson(uri, 9, 4) + "]";
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + refs + "}");
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolResult result = await service.ReferencesAsync(uri, "Foo", 0);
+    Assert.Equal(LspSymbolState.Ready, result.State);
+    Assert.Equal(2, result.Sites.Count);
+    Assert.Equal(3, result.Sites[0].Line);
+    Assert.Equal(9, result.Sites[1].Line);
+  }
 }

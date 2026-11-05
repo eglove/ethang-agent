@@ -246,7 +246,9 @@ public sealed partial class LspSymbolService
       return new LspSymbolResult(LspSymbolState.Degraded, [], resolution.OccurrenceUsedOr(occurrence), resolution.TotalOccurrences, response.ErrorMessage);
     }
 
-    List<LspSymbolSite> sites = ParseLocations(response.ResultJson, symbolName);
+    List<LspSymbolSite> sites = method == "textDocument/hover"
+        ? HoverSites(response.ResultJson, uri, symbolName, resolution)
+        : ParseLocations(response.ResultJson, symbolName);
     string? message = method == "textDocument/hover" ? HoverText(response.ResultJson) : null;
     return new LspSymbolResult(LspSymbolState.Ready, sites, occurrence, resolution.TotalOccurrences, message);
   }
@@ -278,6 +280,35 @@ public sealed partial class LspSymbolService
     {
       return null;
     }
+  }
+
+  /// <summary>The site a hover answers for. A hover response carries contents and an
+  ///     optional range, never a location, so the position comes from the range the server
+  ///     reported and falls back to the resolved declaration; the document is the one asked
+  ///     about.</summary>
+  private static List<LspSymbolSite> HoverSites(string? json, string uri, string symbolName, LspSymbolResolution resolution)
+  {
+    (int line, int character) = (resolution.Line, resolution.Character);
+    if (!string.IsNullOrWhiteSpace(json))
+    {
+      try
+      {
+        using JsonDocument doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind == JsonValueKind.Object
+            && doc.RootElement.TryGetProperty("range", out JsonElement range)
+            && range.ValueKind == JsonValueKind.Object)
+        {
+          JsonElement start = range.GetProperty("start");
+          line = start.GetProperty("line").GetInt32();
+          character = start.GetProperty("character").GetInt32();
+        }
+      }
+      catch (JsonException)
+      {
+      }
+    }
+
+    return [new LspSymbolSite(uri, line, character, symbolName)];
   }
 
   private static void AppendHoverContents(JsonElement contents, StringBuilder text)
@@ -340,7 +371,25 @@ public sealed partial class LspSymbolService
     {
     }
 
-    return sites;
+    return Dedupe(sites);
+  }
+
+  /// <summary>Collapses sites that name the same position. A server reports a type and the
+  ///     primary constructor it declares as separate symbols over one range, so a reference
+  ///     query answers with that declaration twice.</summary>
+  private static List<LspSymbolSite> Dedupe(List<LspSymbolSite> sites)
+  {
+    List<LspSymbolSite> unique = [];
+    HashSet<(string Uri, int Line, int Character, string SymbolName)> seen = [];
+    foreach (LspSymbolSite site in sites)
+    {
+      if (seen.Add((site.Uri, site.Line, site.Character, site.SymbolName)))
+      {
+        unique.Add(site);
+      }
+    }
+
+    return unique;
   }
 
   private static LspSymbolSite ParseLocation(JsonElement item, string symbolName)

@@ -143,7 +143,7 @@ public class LspProductionPathTests
     await Task.Delay(150, cts.Token);
 
     LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
-    LspDaemonSymbolAccess access = new(_ => Task.FromResult<LspPipeClient?>(client));
+    LspDaemonSymbolAccess access = new(_ => Task.FromResult<LspPipeClient?>(client), _ => true);
     LspSymbolOutcome outcome = await access.ExecuteAsync(new LspSymbolCommand.Definition("C:\\ws\\a.cs", "Foo", 0), cts.Token);
 
     LspSymbolOutcome.Ready ready = Assert.IsType<LspSymbolOutcome.Ready>(outcome);
@@ -159,7 +159,7 @@ public class LspProductionPathTests
   [Fact]
   public async Task SymbolAccess_NoDaemon_ReturnsUnavailable()
   {
-    LspDaemonSymbolAccess access = new(_ => Task.FromResult<LspPipeClient?>(null));
+    LspDaemonSymbolAccess access = new(_ => Task.FromResult<LspPipeClient?>(null), _ => true);
     LspSymbolOutcome outcome = await access.ExecuteAsync(
         new LspSymbolCommand.Definition("C:\\ws\\a.cs", "Foo", 0), TestContext.Current.CancellationToken);
     LspSymbolOutcome.Unavailable unavailable = Assert.IsType<LspSymbolOutcome.Unavailable>(outcome);
@@ -240,6 +240,23 @@ public class LspProductionPathTests
     {
       Directory.Delete(root, recursive: true);
     }
+  }
+
+  [Fact]
+  public async Task SymbolAccess_MissingFile_FailsTyped_WithoutReachingTheDaemon()
+  {
+    bool connected = false;
+    LspDaemonSymbolAccess access = new(_ =>
+    {
+      connected = true;
+      return Task.FromResult<LspPipeClient?>(null);
+    });
+    string missing = Path.Combine(Path.GetTempPath(), "no-such-" + Guid.NewGuid().ToString("N") + ".cs");
+    LspSymbolOutcome outcome = await access.ExecuteAsync(
+        new LspSymbolCommand.DocumentSymbols(missing), TestContext.Current.CancellationToken);
+    LspSymbolOutcome.Unsupported unsupported = Assert.IsType<LspSymbolOutcome.Unsupported>(outcome);
+    Assert.Contains("does not exist", unsupported.Message, StringComparison.Ordinal);
+    Assert.False(connected, "a missing file must not start or reach a language server");
   }
 }
 

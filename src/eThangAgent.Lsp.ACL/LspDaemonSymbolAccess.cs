@@ -9,14 +9,23 @@ namespace eThangAgent.Lsp.ACL;
 public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
 {
   private readonly Func<CancellationToken, Task<LspPipeClient?>> _clientFactory;
+  private readonly Func<string, bool> _fileExists;
 
-  public LspDaemonSymbolAccess(Func<CancellationToken, Task<LspPipeClient?>> clientFactory)
-    => _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
+  public LspDaemonSymbolAccess(Func<CancellationToken, Task<LspPipeClient?>> clientFactory, Func<string, bool>? fileExists = null)
+  {
+    _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
+    _fileExists = fileExists ?? File.Exists;
+  }
 
   public async Task<LspSymbolOutcome> ExecuteAsync(LspSymbolCommand command, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(command);
     (string action, string? path, string? symbolName, int occurrence, int depth) = Describe(command);
+    if (path is not null && !_fileExists(path))
+    {
+      return new LspSymbolOutcome.Unsupported("the file '" + path + "' does not exist");
+    }
+
     LspPipeClient? client = await _clientFactory(ct).ConfigureAwait(false);
     if (client is null)
     {
