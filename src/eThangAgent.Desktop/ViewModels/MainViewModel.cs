@@ -2661,6 +2661,9 @@ internal sealed partial class MainViewModel : ObservableObject
               ? HandleSessionRequestAsync(requestTab, request, session.RootId)
               : Task.CompletedTask,
           AgentEvents = session.Services.GetService<IAgentEvents>(),
+          // Plan #143 step 6: the status bar's language-server segment follows this
+          // container's daemon, so a first-run download is visible rather than a hang.
+          LspServerStatus = session.LspServerStatus,
           // Spec D6: the app runs NO agent work. A container built with the wire runtime
           // (every production session) resolves the channel here and every turn travels to
           // this conversation's host; a headless/test container that opted into the

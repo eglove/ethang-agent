@@ -36,6 +36,13 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     _watcherFactory = watcherFactory ?? (_ => null);
   }
 
+  /// <summary>What the daemon announced it is doing with the language server: no
+  ///     announcement yet, downloading, ready, or unavailable.
+  ///     <para>PRESENT FROM CONSTRUCTION, not created when a daemon starts: a reader binds
+  ///     this before the workspace has done anything, and the first announcement has to land
+  ///     somewhere it is already watching.</para></summary>
+  public LspServerStatusMonitor ServerStatus { get; } = new();
+
   /// <summary>The connected client, or null when no daemon is reachable.</summary>
   public LspPipeClient? Client => _connection?.Client;
 
@@ -112,7 +119,10 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     psi.ArgumentList.Add(_workspaceRoot);
     System.Diagnostics.Process started = System.Diagnostics.Process.Start(psi)
         ?? throw new InvalidOperationException("the language-server daemon could not be started");
-    _ = started.StandardOutput.ReadToEndAsync();
+    // The daemon announces its install work on stdout, so the drain feeds the monitor
+    // rather than discarding what it reads. A redirected stream nobody drains would fill
+    // its pipe buffer and block the daemon, so the read is required either way.
+    _ = LspDaemonOutputPump.DrainAsync(started.StandardOutput, ServerStatus);
     _ = started.StandardError.ReadToEndAsync();
     return started;
   }

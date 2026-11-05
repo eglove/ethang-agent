@@ -85,6 +85,18 @@
                fresh session's bar is unchanged. -->
           <TextBlock x:Name="CostText" Text="{Binding Status.CostDisplay}" ToolTip.Tip="{Binding Status.CostBreakdownText}" IsVisible="{Binding Status.CostDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
+          <!-- The language server (plan #143 step 6): the first run downloads a 64 MB server,
+               and without this the app looks hung for however long the fetch takes. Hidden
+               until the daemon announces something, so a workspace with no code - which never
+               announces - renders exactly the bar it always did.
+               A FIXED-ISH WIDTH AND TRIMMING, because this is the one segment whose text is
+               not the user's own short choice: a long version string must not be able to
+               widen the chat column (ChatNeverScrollsSidewaysTests). -->
+          <TextBlock x:Name="ServerStatusText" Text="{Binding Status.ServerDisplay}"
+                     ToolTip.Tip="{Binding Status.ServerBreakdownText}"
+                     IsVisible="{Binding Status.ServerDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                     MaxWidth="220" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                     DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock Text="{Binding Status.Provider}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock x:Name="ModelIdText" Text="{Binding Status.ModelId}" DockPanel.Dock="Left" Margin="0,0,12,0" TextTrimming="CharacterEllipsis"/>
           <!-- The committed routing variant (issue #296, D7/B6): the pair is the decision, so

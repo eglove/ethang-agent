@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using Avalonia.Threading;
+using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -130,6 +131,74 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
 
   /// <summary>Current spinner frame; empty whenever the turn phase is Ready.</summary>
   public string Spinner => Phase == TurnPhase.Ready ? "" : Frames[_frame];
+
+  /// <summary>The language-server segment: what the daemon announced it is doing, or ""
+  ///     while it has announced nothing (a workspace with no code never does).
+  ///     <para>THE FIRST RUN IS THE CASE THIS EXISTS FOR: the server is a one-time 64 MB
+  ///     download, and without a segment the app looks hung for as long as the fetch takes.
+  ///     A ready or unavailable server is a fact worth one word, not a progress report.
+  ///     </para></summary>
+  public string ServerDisplay
+  {
+    get;
+    private set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(ServerDisplay));
+    }
+  } = "";
+
+  /// <summary>Hover text for the server segment: what the one-time download is, so the
+  ///     number in the bar is not a mystery.</summary>
+  public string ServerBreakdownText
+  {
+    get;
+    private set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(ServerBreakdownText));
+    }
+  } = "";
+
+  /// <summary>Applies one announced language-server state. Any thread: the daemon's
+  ///     stdout pump reports off-UI, and <see cref="Raise"/> marshals.</summary>
+  /// <param name="state">What the daemon announced.</param>
+  /// <param name="version">The version a ready announcement named, or empty.</param>
+  public void SetServerStatus(LspServerInstallState state, string version)
+  {
+    ArgumentNullException.ThrowIfNull(version);
+    (ServerDisplay, ServerBreakdownText) = state switch
+    {
+      LspServerInstallState.Downloading =>
+          ($"C# server: downloading ({ServerDownloadSize})",
+           "The C# language server is downloaded once, hash-verified, and cached for every "
+           + "later session. Code intelligence is unavailable until it finishes."),
+      LspServerInstallState.Ready =>
+          (version.Length == 0 ? "C# server: ready" : $"C# server: ready {version}",
+           "Code intelligence is serving this workspace."),
+      LspServerInstallState.Unavailable =>
+          ("C# server: unavailable",
+           "No language server could be resolved or installed, so code intelligence is off "
+           + "for this workspace."),
+      LspServerInstallState.Unknown => (string.Empty, string.Empty),
+      _ => (string.Empty, string.Empty),
+    };
+  }
+
+  /// <summary>The one-time download's approximate size, as the user should read it.
+  ///     A round figure: the point is 'this is big and it happens once', not a byte count.
+  ///     </summary>
+  private const string ServerDownloadSize = "64 MB";
 
   /// <summary>CTX statusline text, e.g. "CTX 148.2K/1M, 15%". "" until the first
   ///     context update; unknown window shows session totals only. A provider-reported

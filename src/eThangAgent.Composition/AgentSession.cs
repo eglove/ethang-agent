@@ -1,6 +1,7 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
+using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -38,6 +39,14 @@ public sealed record AgentSession(
   ///     workspace: persists the run, appends the system message. Null when the host
   ///     did not wire shell access (headless stubs).</summary>
   public IUserCommandRunner? CommandRunner { get; init; }
+
+  /// <summary>This container's language-server status (plan #143 step 6): what the daemon
+  ///     announced it is doing with the server, so the status bar can show a first-run
+  ///     download. Null when the container wired no daemon host (a bare test stub).
+  ///     <para>THE SAME INSTANCE THE CONTAINER'S TOOLS USE: the daemon host is a singleton,
+  ///     so the announcements the model's symbol queries trigger land on the monitor the
+  ///     status bar is following.</para></summary>
+  public LspServerStatusMonitor? LspServerStatus { get; init; }
 
   /// <summary>The shared skill invocation core (spec #28): the Desktop's slash
   ///     input resolves through it exactly as the skill_invoke tool does. Null
