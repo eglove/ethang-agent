@@ -54,8 +54,6 @@ public class LspDiagnosticsTests
     Assert.Empty(ready.Diagnostics);
     LspDiagnosticsResult starting = new(LspDiagnosticsState.Starting, []);
     Assert.NotEqual(LspDiagnosticsState.Ready, starting.State);
-    LspDiagnosticsResult stale = new(LspDiagnosticsState.Stale, []);
-    Assert.NotEqual(LspDiagnosticsState.Ready, stale.State);
     LspDiagnosticsResult degraded = new(LspDiagnosticsState.Degraded, []);
     Assert.NotEqual(LspDiagnosticsState.Ready, degraded.State);
     LspDiagnosticsResult unavailable = new(LspDiagnosticsState.Unavailable, []);
@@ -114,16 +112,6 @@ public class LspDiagnosticsTests
   }
 
   [Fact]
-  public void DiagnosticsStore_StaleGeneration_ReportsStale()
-  {
-    LspDiagnosticStore store = new();
-    string uri = "file:///C:/ws/Bad.cs";
-    store.OnPublishDiagnostics(PushJson(uri, "CS0029", 0, 38, 0, 52, "Cannot implicitly convert type"));
-    LspDiagnosticsResult result = store.Get(uri, knownGeneration: 0, lastAppliedGeneration: 5);
-    Assert.Equal(LspDiagnosticsState.Stale, result.State);
-  }
-
-  [Fact]
   public void DiagnosticsStore_PullEmptyResult_KeepsPushDiagnostics()
   {
     LspDiagnosticStore store = new();
@@ -136,17 +124,33 @@ public class LspDiagnosticsTests
     Assert.Equal("CS0029", only.Code);
   }
 
+  /// <summary>A pull response carries its diagnostics under "items", not
+  ///     "diagnostics" - the shape a push notification uses. Reading only the push name
+  ///     silently drops every pulled diagnostic (issue #365 defect 3).</summary>
   [Fact]
-  public void DiagnosticsStore_PullResultId_RoundTrips()
+  public void DiagnosticsStore_PullResponse_ParsesItems()
   {
     LspDiagnosticStore store = new();
     string uri = "file:///C:/ws/Bad.cs";
-    string withId = "{\"uri\":\"" + uri + "\",\"resultId\":\"abc-1\",\"diagnostics\":[{\"range\":{\"start\":{\"line\":0,\"character\":38},\"end\":{\"line\":0,\"character\":52}},\"severity\":1,\"code\":\"CS0029\",\"message\":\"Cannot implicitly convert type\"}]}";
-    store.OnPullDiagnostics(uri, withId);
-    Assert.Equal("abc-1", store.LastResultId);
-    string pullParams = store.BuildPullParams(uri);
-    Assert.Contains("abc-1", pullParams);
-    Assert.Contains(uri, pullParams);
+    string pulled = "{\"kind\":\"full\",\"resultId\":\"DocumentPullDiagnosticsHandler(category: ):1\",\"items\":[{\"range\":{\"start\":{\"line\":2,\"character\":31},\"end\":{\"line\":2,\"character\":43}},\"severity\":1,\"code\":\"CS0029\",\"message\":\"Cannot implicitly convert type 'string' to 'int'\"}]}";
+    store.OnPullDiagnostics(uri, pulled);
+    LspDiagnosticsResult result = store.Get(uri);
+    Assert.Equal(LspDiagnosticsState.Ready, result.State);
+    LspDiagnostic only = Assert.Single(result.Diagnostics);
+    Assert.Equal("CS0029", only.Code);
+    Assert.Equal(2, only.StartLine);
+  }
+
+  /// <summary>The server's result id names the diagnostic KIND, not the document content:
+  ///     echoing it back as previousResultId makes the server answer "unchanged" for a file
+  ///     that has since changed, and the answer then carries no items at all.</summary>
+  [Fact]
+  public void DiagnosticsStore_PullParams_OmitPreviousResultId()
+  {
+    string uri = "file:///C:/ws/Bad.cs";
+    string pullParams = LspDiagnosticStore.BuildPullParams(uri);
+    Assert.Contains(uri, pullParams, StringComparison.Ordinal);
+    Assert.DoesNotContain("previousResultId", pullParams, StringComparison.Ordinal);
   }
 
   [Fact]

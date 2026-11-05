@@ -63,12 +63,16 @@ public sealed class LspNotificationRouter
 
 /// <summary>Production diagnostics query service (issue #354): executes
 /// textDocument/diagnostic pull requests, merges with push via the store, and
-/// enforces the restart query gate. Null transport means no server (Unavailable).</summary>
+/// enforces the restart query gate. Null transport means no server (Unavailable).
+/// A workspace model is consulted first: a server that has not loaded the workspace
+/// reports no diagnostics for any file, and reporting that as Ready would read as a
+/// clean file.</summary>
 public sealed class LspDiagnosticsService
 {
   private readonly LspJsonRpcTransport? _transport;
   private readonly LspDiagnosticStore _store;
   private readonly LspCapabilities _capabilities;
+  private readonly ILspWorkspaceModel? _workspace;
   private readonly SemaphoreSlim _restartGate = new(1, 1);
 
   public LspDiagnosticsService(LspJsonRpcTransport? transport, LspDiagnosticStore store)
@@ -77,11 +81,35 @@ public sealed class LspDiagnosticsService
   }
 
   public LspDiagnosticsService(LspJsonRpcTransport? transport, LspDiagnosticStore store, LspCapabilities capabilities)
-    => (_transport, _store, _capabilities) = (transport, store ?? throw new ArgumentNullException(nameof(store)), capabilities ?? throw new ArgumentNullException(nameof(capabilities)));
+    : this(transport, store, capabilities, workspace: null)
+  {
+  }
 
-  /// <summary>The watcher generation whose document sync the server model reflects.
-  ///     Set by the daemon from its forwarder so a query behind it can be labeled Stale.</summary>
-  public long LastAppliedGeneration { get; set; }
+  public LspDiagnosticsService(
+      LspJsonRpcTransport? transport,
+      LspDiagnosticStore store,
+      LspCapabilities capabilities,
+      ILspWorkspaceModel? workspace)
+    => (_transport, _store, _capabilities, _workspace) = (transport, store ?? throw new ArgumentNullException(nameof(store)), capabilities ?? throw new ArgumentNullException(nameof(capabilities)), workspace);
+
+  /// <summary>The request id the server uses for "content modified": a pull issued while
+  /// the server is still applying a document change is refused with it. The answer would
+  /// be stale by construction, so it is reported as Starting - the server has not reported
+  /// for this content yet - and the next query asks again.</summary>
+  private const string ContentModifiedCode = "-32800";
+
+  /// <summary>How long one pull may occupy the daemon. A pull that outlives this is
+  /// abandoned and reported Starting: the answer would arrive after the edit that asked
+  /// for it, and a query that never returns would hold the pipe against every later one.</summary>
+  private static readonly TimeSpan PullDeadline = TimeSpan.FromSeconds(10);
+
+  /// <summary>Pull is available when the server advertises it in its initialize result
+  /// or registers it afterwards. Roslyn registers textDocument/diagnostic through
+  /// client/registerCapability and advertises no diagnosticProvider at all, so the
+  /// static record alone would leave pull unreachable.</summary>
+  private bool SupportsPull()
+    => _capabilities.Supports("textDocument/diagnostic")
+        || (_transport is not null && _transport.DynamicRegistrations.Contains("textDocument/diagnostic"));
 
   public void BeginRestart() => _ = _restartGate.WaitAsync();
 
@@ -91,17 +119,12 @@ public sealed class LspDiagnosticsService
     await Task.CompletedTask.ConfigureAwait(false);
   }
 
-  public async Task<LspDiagnosticsResult> PullAsync(string uri, long knownGeneration = 0, CancellationToken ct = default)
+  public async Task<LspDiagnosticsResult> PullAsync(string uri, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(uri);
     await _restartGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
-      if (knownGeneration >= 0 && knownGeneration < LastAppliedGeneration)
-      {
-        return new LspDiagnosticsResult(LspDiagnosticsState.Stale, []);
-      }
-
       if (_transport is null)
       {
         LspDiagnosticsResult existing = _store.Get(uri);
@@ -109,12 +132,38 @@ public sealed class LspDiagnosticsService
           ? new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, [])
           : existing;
       }
-      if (!_capabilities.Supports("textDocument/diagnostic"))
+      if (_workspace is not null)
       {
-        return _store.Get(uri, knownGeneration, LastAppliedGeneration);
+        await _workspace.PrepareAsync(uri, ct).ConfigureAwait(false);
+        if (!_workspace.IsLoaded)
+        {
+          return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
+        }
       }
-      string pullParams = _store.BuildPullParams(uri);
-      LspRequestResult response = await _transport.SendRequestAsync("textDocument/diagnostic", pullParams, ct).ConfigureAwait(false);
+      if (!SupportsPull())
+      {
+        return _store.Get(uri);
+      }
+      LspRequestResult response;
+      using (CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
+      {
+        deadline.CancelAfter(PullDeadline);
+        try
+        {
+          response = await _transport.SendRequestAsync(
+              "textDocument/diagnostic", LspDiagnosticStore.BuildPullParams(uri), deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+          return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
+        }
+      }
+
+      if (!response.IsSuccess && string.Equals(response.ErrorCode, ContentModifiedCode, StringComparison.Ordinal))
+      {
+        return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
+      }
+
       if (!response.IsSuccess)
       {
         LspDiagnosticsResult existing = _store.Get(uri);
@@ -124,8 +173,9 @@ public sealed class LspDiagnosticsService
         }
         return new LspDiagnosticsResult(LspDiagnosticsState.Degraded, []);
       }
+
       _store.OnPullDiagnostics(uri, response.ResultJson ?? "{}");
-      return _store.Get(uri, knownGeneration, LastAppliedGeneration);
+      return _store.Get(uri);
     }
     finally
     {

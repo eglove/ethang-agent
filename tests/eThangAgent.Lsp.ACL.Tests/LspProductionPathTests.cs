@@ -134,7 +134,7 @@ public class LspProductionPathTests
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[{\"name\":\"Foo\",\"kind\":12,\"range\":{\"start\":{\"line\":2,\"character\":2},\"end\":{\"line\":2,\"character\":9}},\"selectionRange\":{\"start\":{\"line\":2,\"character\":2},\"end\":{\"line\":2,\"character\":5}}}]}");
     transport.EnqueueIncomingForTest(
         "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":[{\"uri\":\"" + uri + "\",\"range\":{\"start\":{\"line\":2,\"character\":2},\"end\":{\"line\":2,\"character\":5}}}]}");
-    LspCapabilities caps = new(false, true, false, true, false, false, false);
+    LspCapabilities caps = new(false, true, false, true, false, false, false, false);
     LspSymbolService service = new(transport, caps);
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
     server.AttachSymbolService(service);
@@ -200,29 +200,46 @@ public class LspProductionPathTests
     Assert.Null(await gate.CheckBeforeWriteAsync("C:\\ws\\a.cs", TestContext.Current.CancellationToken));
   }
 
+  /// <summary>An edit-time query is not watcher-driven: the file's own editor has no
+  ///     knowledge of the watcher generation, so a watcher announcement must not turn the
+  ///     next edit's diagnostics into a permanent "outdated" label (issue #365 defect 1).</summary>
   [Fact]
-  public async Task Diagnostics_QueryBehindAppliedGeneration_IsStale()
+  public async Task Diagnostics_QueryAfterWatcherAnnouncement_StillReportsRealDiagnostics()
   {
-    string ws = "ws-stale-" + Guid.NewGuid().ToString("N");
+    string ws = "ws-announced-" + Guid.NewGuid().ToString("N");
     string pipe = LspPipeNames.ForWorkspaceId(ws);
-    LspDiagnosticStore store = new();
-    LspDiagnosticsService service = new(null, store) { LastAppliedGeneration = 5 };
-    using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
-    server.AttachDiagnosticsService(service);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
-    Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
-    await Task.Delay(150, cts.Token);
+    string root = Directory.CreateTempSubdirectory("lsp-announced").FullName;
+    try
+    {
+      await File.WriteAllTextAsync(Path.Combine(root, "a.cs"), "class A { }", TestContext.Current.CancellationToken).ConfigureAwait(true);
+      string uri = LspUriMapper.ToUri(Path.Combine(root, "a.cs"));
+      LspDiagnosticStore store = new();
+      store.OnPublishDiagnostics(
+          "{\"uri\":\"" + uri + "\",\"diagnostics\":[{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":5}},\"severity\":1,\"code\":\"CS1002\",\"message\":\"missing semicolon\"}]}");
+      LspDocumentSync forwarder = new(ws, root, "csharp", [".cs"], new RecordingSync());
+      using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
+      server.AttachForwarder(forwarder);
+      server.AttachDiagnosticsService(new LspDiagnosticsService(null, store));
+      using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+      Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
+      await Task.Delay(150, cts.Token);
 
-    LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
-    AdvisoryDiagnosticsResult behind = await client.GetDiagnosticsAsync("C:\\ws\\a.cs", knownGeneration: 2, ct: cts.Token);
-    Assert.Equal(AdvisoryDiagnosticsState.Stale, behind.State);
+      using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
+      await client.SendWatcherAnnouncementAsync(
+          new WatcherAnnouncement(ws, ["a.cs"], [], 7, DateTimeOffset.UtcNow), cts.Token);
+      await Task.Delay(300, cts.Token);
 
-    AdvisoryDiagnosticsResult current = await client.GetDiagnosticsAsync("C:\\ws\\a.cs", knownGeneration: 5, ct: cts.Token);
-    Assert.NotEqual(AdvisoryDiagnosticsState.Stale, current.State);
+      AdvisoryDiagnosticsResult result = await client.GetDiagnosticsAsync(Path.Combine(root, "a.cs"), cts.Token);
+      Assert.Equal(AdvisoryDiagnosticsState.Ready, result.State);
+      Assert.Equal("CS1002", Assert.Single(result.Diagnostics).Code);
 
-    client.Dispose();
-    await cts.CancelAsync();
-    try { await serve; } catch (OperationCanceledException) { Assert.True(true); }
+      await cts.CancelAsync();
+      try { await serve; } catch (OperationCanceledException) { Assert.True(true); }
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
   }
 }
 

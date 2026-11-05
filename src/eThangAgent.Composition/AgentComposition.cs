@@ -19,6 +19,7 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.FileClaims;
 using eThangAgent.ToolDomain.Lsp;
 using eThangAgent.ToolDomain.Mcp;
 using eThangAgent.ToolDomain.Verification;
@@ -26,6 +27,8 @@ using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using CodeDetectionResult = eThangAgent.Lsp.ACL.CodeDetectionResult;
+using CodeDetector = eThangAgent.Lsp.ACL.CodeDetector;
 using LspAdvisoryDiagnosticsAccess = eThangAgent.Lsp.ACL.LspAdvisoryDiagnosticsAccess;
 using LspDaemonExePathOverride = eThangAgent.Lsp.ACL.LspDaemonExePathOverride;
 using LspDaemonHost = eThangAgent.Lsp.ACL.LspDaemonHost;
@@ -224,17 +227,31 @@ public static class AgentComposition
           "Search the workspace for files by name pattern (Win32 glob: * and ?)."),
   ];
 
-  /// <summary>The file-claim gate for edit/write: session-bound over the daemon's shared
-  ///     claim table, so every host in the workspace sees the same claims. The session id
-  ///     is read lazily from RootSessionIdentity, which the factory fills after the
-  ///     container builds; before that the gate is inert and the tool proceeds unclaimed
-  ///     rather than refusing a session that has no id yet.</summary>
-  private static LspPipeClaimGate? ClaimGate(IServiceProvider sp)
+  /// <summary>The file-claim gate for edit/write: session-bound over the workspace's
+  ///     shared claim table, so every host in the workspace sees the same claims. The
+  ///     session id is read lazily from RootSessionIdentity, which the factory fills after
+  ///     the container builds; before that the gate is inert and the tool proceeds unclaimed
+  ///     rather than refusing a session that has no id yet.
+  ///     <para>The STORE is chosen by code detection. A code workspace's daemon already
+  ///     holds the shared table; a workspace with no code starts no daemon, and a gate over
+  ///     a daemon that does not exist would grant every write, so it reads the app database
+  ///     instead - the one store every host of a code-less workspace shares.</para></summary>
+  private static IFileClaimGate? ClaimGate(IServiceProvider sp)
   {
     string? sessionId = sp.GetRequiredService<RootSessionIdentity>().Id?.ToString();
     if (string.IsNullOrWhiteSpace(sessionId))
     {
       return null;
+    }
+
+    IWorkspaceContext workspace = sp.GetRequiredService<IWorkspaceContext>();
+    if (CodeDetector.Detect(workspace.WorkspaceRoot) == CodeDetectionResult.NotFound)
+    {
+      return new FileClaimGate(
+          new SqliteFileClaimStore(sp.GetRequiredService<AppDatabase>()),
+          workspace.WorkspaceId,
+          sessionId,
+          sp.GetRequiredService<Func<DateTimeOffset>>());
     }
 
     LspDaemonHost daemon = sp.GetRequiredService<LspDaemonHost>();
@@ -275,13 +292,13 @@ public static class AgentComposition
     };
   }
 
+  /// <summary>The advisory diagnostics source edit/write consult: a pipe query to the
+  ///     workspace's daemon. The factory is the daemon host's connect, so a COLD workspace
+  ///     starts the daemon on the first edit instead of reporting Unavailable forever.</summary>
   private static LspAdvisoryDiagnosticsAccess AdvisoryDiagnosticsSource(IServiceProvider sp)
   {
     LspDaemonHost daemon = sp.GetRequiredService<LspDaemonHost>();
-    return new LspAdvisoryDiagnosticsAccess(
-        () => daemon.Client,
-        sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
-        Guid.NewGuid().ToString("N"));
+    return new LspAdvisoryDiagnosticsAccess(daemon.EnsureConnectedAsync);
   }
 
   /// <summary>The trust-aware resolver every MUTATING file tool receives (issue #96): the

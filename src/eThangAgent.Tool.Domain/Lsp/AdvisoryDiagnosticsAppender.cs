@@ -12,8 +12,11 @@ namespace eThangAgent.ToolDomain.Lsp;
 /// the pre-advisory output.</summary>
 public static class AdvisoryDiagnosticsAppender
 {
-  /// <summary>The latency budget: diagnostics never add more than 2s to an edit/write call.</summary>
-  public static TimeSpan Budget { get; } = TimeSpan.FromSeconds(2);
+  /// <summary>The latency budget: diagnostics never add more than this to an edit/write
+  ///     call. A warm pull after a change costs the server about 1.6 s of re-analysis, so a
+  ///     tighter budget would systematically answer Stale for the very edit that produced
+  ///     the diagnostic.</summary>
+  public static TimeSpan Budget { get; } = TimeSpan.FromSeconds(5);
 
   /// <summary>Code extensions the advisory slice consults. A file whose extension is
   /// not listed is non-code: no server is consulted, no text is appended.</summary>

@@ -37,9 +37,9 @@ public class LspProductionWiringTests
     store.OnPullDiagnostics(uriB, withIdB);
     Assert.Equal("id-A", store.GetResultId(uriA));
     Assert.Equal("id-B", store.GetResultId(uriB));
-    string paramsA = store.BuildPullParams(uriA);
-    Assert.Contains("id-A", paramsA);
-    Assert.DoesNotContain("id-B", paramsA);
+    string paramsA = LspDiagnosticStore.BuildPullParams(uriA);
+    Assert.Contains(uriA, paramsA, StringComparison.Ordinal);
+    Assert.DoesNotContain(uriB, paramsA, StringComparison.Ordinal);
   }
 
   [Fact]

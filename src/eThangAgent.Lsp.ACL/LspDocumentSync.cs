@@ -13,8 +13,8 @@ public interface ILspDocumentSync
 /// <summary>Forwards watcher announcements to the language server (issue #362).
 /// Reads current disk text at forward time: didOpen for a new path, didChange for
 /// a tracked path, didClose for deletedPaths and for any read failure. Records
-/// LastAppliedGeneration and ignores generation &lt;= last applied, so data
-/// computed before a correction can be labeled stale via IsStale.</summary>
+/// LastAppliedGeneration and ignores generation &lt;= last applied, so a repeated
+/// announcement never re-sends a document the server already has.</summary>
 public sealed class LspDocumentSync
 {
   private readonly string _workspaceId;
@@ -44,8 +44,6 @@ public sealed class LspDocumentSync
     get { lock (_gate) { return [.. _openVersions.Keys]; } }
   }
 
-  public bool IsStale(long knownGeneration) => knownGeneration < LastAppliedGeneration;
-
   public async Task ApplyAsync(WatcherAnnouncement announcement, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(announcement);
@@ -67,17 +65,26 @@ public sealed class LspDocumentSync
         await _sink.DidCloseAsync(uri, ct).ConfigureAwait(false);
         lock (_gate) { _ = _openVersions.Remove(relative); }
       }
-      else if (isOpen)
-      {
-        int version = checked((int)announcement.Generation);
-        await _sink.DidChangeAsync(uri, version, text, ct).ConfigureAwait(false);
-        lock (_gate) { _openVersions[relative] = version; }
-      }
       else
       {
-        int version = checked((int)announcement.Generation);
-        await _sink.DidOpenAsync(uri, _languageId, version, text, ct).ConfigureAwait(false);
-        lock (_gate) { _openVersions[relative] = version; }
+        // The document version advances by one per change and is independent of the
+        // announcement generation: a server ignores a didChange that does not move the
+        // version forward, so a generation-derived version can repeat one already sent.
+        int version;
+        lock (_gate)
+        {
+          version = isOpen && _openVersions.TryGetValue(relative, out int current) ? current + 1 : 1;
+          _openVersions[relative] = version;
+        }
+
+        if (isOpen)
+        {
+          await _sink.DidChangeAsync(uri, version, text, ct).ConfigureAwait(false);
+        }
+        else
+        {
+          await _sink.DidOpenAsync(uri, _languageId, version, text, ct).ConfigureAwait(false);
+        }
       }
     }
     foreach (string relative in announcement.DeletedPaths)
@@ -89,6 +96,46 @@ public sealed class LspDocumentSync
       lock (_gate) { _ = _openVersions.Remove(relative); }
     }
     lock (_gate) { LastAppliedGeneration = announcement.Generation; }
+  }
+
+  /// <summary>Makes sure the server holds the document's current disk text: didOpen
+  /// when this forwarder has not opened it, didChange when it has. The forwarder owns the
+  /// open-document set, so this and a watcher announcement can never disagree about a
+  /// document's version. A path outside the claimed extensions or unreadable is left
+  /// alone.</summary>
+  public async Task EnsureOpenAsync(string uri, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(uri);
+    string fullPath = LspUriMapper.FromUri(uri);
+    string? relative = RelativeToRoot(fullPath);
+    if (relative is null || !Claims(relative))
+    {
+      return;
+    }
+
+    string? text = await TryReadTextAsync(fullPath, ct).ConfigureAwait(false);
+    if (text is null)
+    {
+      return;
+    }
+
+    bool isOpen;
+    int version;
+    lock (_gate)
+    {
+      isOpen = _openVersions.TryGetValue(relative, out int current);
+      version = isOpen ? current + 1 : 1;
+      _openVersions[relative] = version;
+    }
+
+    if (isOpen)
+    {
+      await _sink.DidChangeAsync(uri, version, text, ct).ConfigureAwait(false);
+    }
+    else
+    {
+      await _sink.DidOpenAsync(uri, _languageId, version, text, ct).ConfigureAwait(false);
+    }
   }
 
   /// <summary>Re-opens every previously open document from current disk text.
@@ -116,6 +163,18 @@ public sealed class LspDocumentSync
       }
       await _sink.DidOpenAsync(uri, _languageId, version, text, ct).ConfigureAwait(false);
     }
+  }
+
+  /// <summary>The document's path relative to the workspace root, or null when it
+  /// lies outside it - the same key the watcher's announcements use.</summary>
+  private string? RelativeToRoot(string fullPath)
+  {
+    if (!fullPath.StartsWith(_workspaceRoot, StringComparison.OrdinalIgnoreCase))
+    {
+      return null;
+    }
+
+    return Path.GetRelativePath(_workspaceRoot, fullPath).Replace(Path.DirectorySeparatorChar, '/');
   }
 
   private bool Claims(string relative)

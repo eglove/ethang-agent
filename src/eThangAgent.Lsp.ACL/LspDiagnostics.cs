@@ -9,7 +9,6 @@ public enum LspDiagnosticsState
 {
   Ready,
   Starting,
-  Stale,
   Degraded,
   Unavailable,
 }
@@ -78,15 +77,11 @@ public sealed class LspDiagnosticStore
     }
   }
 
-  public LspDiagnosticsResult Get(string uri, long knownGeneration = -1, long lastAppliedGeneration = -1)
+  public LspDiagnosticsResult Get(string uri)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(uri);
     lock (_gate)
     {
-      if (knownGeneration >= 0 && lastAppliedGeneration >= 0 && knownGeneration < lastAppliedGeneration)
-      {
-        return new LspDiagnosticsResult(LspDiagnosticsState.Stale, []);
-      }
       if (!_reported.Contains(uri))
       {
         return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
@@ -120,15 +115,14 @@ public sealed class LspDiagnosticStore
   private static string Identity(LspDiagnostic d)
     => d.FileUri + "|" + d.StartLine + ":" + d.StartCharacter + "-" + d.EndLine + ":" + d.EndCharacter + "|" + (d.Code ?? string.Empty) + "|" + d.Message;
 
-  public string BuildPullParams(string uri)
+  /// <summary>Pull parameters for one document. No <c>previousResultId</c> is sent:
+  /// the server's result id identifies the diagnostic KIND, not the document's content,
+  /// so echoing it back makes the server answer "unchanged" for a file that has since
+  /// changed - and the answer then carries no items at all.</summary>
+  public static string BuildPullParams(string uri)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(uri);
-    string? previous = GetResultId(uri);
-    if (previous is null)
-    {
-      return "{\"textDocument\":{\"uri\":\"" + uri + "\"}}";
-    }
-    return "{\"textDocument\":{\"uri\":\"" + uri + "\"},\"previousResultId\":\"" + previous + "\"}";
+    return "{\"textDocument\":{\"uri\":\"" + uri + "\"}}";
   }
 
   private static (string Uri, List<LspDiagnostic> Diags) Parse(string json)
@@ -143,15 +137,29 @@ public sealed class LspDiagnosticStore
     JsonElement root = doc.RootElement;
     string uri = root.TryGetProperty("uri", out JsonElement u) ? u.GetString() ?? string.Empty : string.Empty;
     string? resultId = root.TryGetProperty("resultId", out JsonElement rid) ? rid.GetString() : null;
+    // A pull response carries its diagnostics under "items"; a push notification
+    // carries them under "diagnostics". Both shapes reach this parser, so it reads
+    // whichever is present.
     List<LspDiagnostic> diags = [];
-    if (root.TryGetProperty("diagnostics", out JsonElement arr) && arr.ValueKind == JsonValueKind.Array)
+    if (TryGetArray(root, "items", out JsonElement items) || TryGetArray(root, "diagnostics", out items))
     {
-      foreach (JsonElement item in arr.EnumerateArray())
+      foreach (JsonElement item in items.EnumerateArray())
       {
         diags.Add(ParseOne(uri, item));
       }
     }
     return (uri, diags, resultId);
+  }
+
+  private static bool TryGetArray(JsonElement root, string name, out JsonElement value)
+  {
+    if (root.TryGetProperty(name, out value) && value.ValueKind == JsonValueKind.Array)
+    {
+      return true;
+    }
+
+    value = default;
+    return false;
   }
 
   private static LspDiagnostic ParseOne(string uri, JsonElement item)

@@ -48,7 +48,7 @@ public class LspCallHierarchyTests
     transport.EnqueueIncomingForTest(Resp(1, DocSym()));
     transport.EnqueueIncomingForTest(Resp(2, Prep(uri)));
     transport.EnqueueIncomingForTest(Resp(3, Incoming(uri, 10, 2, "Caller")));
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, true, true));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, true, true, false));
     LspSymbolResult result = await service.CallHierarchyIncomingAsync(uri, "Foo", 0, 1);
     Assert.Equal(LspSymbolState.Ready, result.State);
     LspSymbolSite site = Assert.Single(result.Sites);
@@ -70,7 +70,7 @@ public class LspCallHierarchyTests
     transport.EnqueueIncomingForTest(Resp(1, DocSym()));
     transport.EnqueueIncomingForTest(Resp(2, Prep(uri)));
     transport.EnqueueIncomingForTest(Resp(3, Outgoing(uri, 20, 1, "Callee")));
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, true, true));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, true, true, false));
     LspSymbolResult result = await service.CallHierarchyOutgoingAsync(uri, "Foo", 0, 1);
     Assert.Equal(LspSymbolState.Ready, result.State);
     LspSymbolSite site = Assert.Single(result.Sites);
@@ -103,7 +103,7 @@ public class LspCallHierarchyTests
     transport.EnqueueIncomingForTest(Resp(2, Prep(uri)));
     transport.EnqueueIncomingForTest(Resp(3, Incoming(uri, 10, 2, "Caller")));
     transport.EnqueueIncomingForTest(Resp(4, Incoming(uri, 30, 0, "GrandCaller")));
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, true, true));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, true, true, false));
     LspSymbolResult result = await service.CallHierarchyIncomingAsync(uri, "Foo", 0, 2);
     Assert.Equal(LspSymbolState.Ready, result.State);
     Assert.Equal(2, result.Sites.Count);
@@ -115,7 +115,7 @@ public class LspCallHierarchyTests
     using MemoryStream input = new();
     using MemoryStream output = new();
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, true, true));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, true, true, false));
     LspSymbolResult result = await service.CallHierarchyIncomingAsync("file:///C:/ws/A.cs", "Foo", 0, 3);
     Assert.Equal(LspSymbolState.Unsupported, result.State);
   }

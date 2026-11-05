@@ -80,8 +80,6 @@ public class LspAnnouncementForwardingTests
       Assert.Contains(":1:", call);
       Assert.Contains("class A {}", call);
       Assert.Equal(1, forwarder.LastAppliedGeneration);
-      Assert.False(forwarder.IsStale(1));
-      Assert.True(forwarder.IsStale(0));
     }
     finally { Directory.Delete(root, true); }
   }

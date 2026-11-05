@@ -147,7 +147,7 @@ public class DiagnosticsEndToEndE2ETests
   {
     if (Environment.GetEnvironmentVariable("ETHANG_LSP_REAL_SERVER") is not "1")
     {
-      Assert.Skip("Opt-in: set ETHANG_LSP_REAL_SERVER=1 with a built daemon and a resolvable OmniSharp.");
+      Assert.Skip("Opt-in: set ETHANG_LSP_REAL_SERVER=1 with a built daemon and a resolvable Roslyn server.");
     }
 
     string ws = Directory.CreateTempSubdirectory("ethang-lsp-real").FullName;
@@ -157,15 +157,49 @@ public class DiagnosticsEndToEndE2ETests
       await File.WriteAllTextAsync(Path.Combine(ws, "a.cs"), "class A\n{\n  int x = 1;\n}\n", Ct).ConfigureAwait(true);
       await File.WriteAllTextAsync(Path.Combine(ws, "a.csproj"),
           "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n", Ct).ConfigureAwait(true);
+      // A solution file, not just a project: the server's solution/open request rejects a
+      // project path, and only a loaded compilation produces COMPILER diagnostics.
+      await File.WriteAllTextAsync(Path.Combine(ws, "a.slnx"),
+          "<Solution>\n  <Project Path=\"a.csproj\" />\n</Solution>\n", Ct).ConfigureAwait(true);
 
       using E2E.HostHarness host = new();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
+      // The FIRST edit starts the daemon, which must load the solution before it can report
+      // anything, so that edit honestly carries a Starting note rather than a false clean.
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("r1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "a.cs"), "int x = 1;", "int x = \"one\";"))),
           E2E.RawCompletion("edited"));
       await host.Vm.RunTurnAsync("introduce a type error").WaitAsync(TimeSpan.FromSeconds(120), Ct).ConfigureAwait(true);
 
-      string toolResult = E2E.GetLastToolMessage(host.Mock.RequestBodies[^1]);
+      string firstResult = E2E.GetLastToolMessage(host.Mock.RequestBodies[^1]);
+      Assert.Contains("[diagnostics]", firstResult, StringComparison.Ordinal);
+
+      // The type error stays in the file, so a later edit is answered from the compilation
+      // the first turn caused to exist. The load runs dotnet restore and a build host, which
+      // outlasts one edit, so the file is touched again until the server has a compilation -
+      // a Starting note means it does not yet, which is the honest answer at that moment.
+      string toolResult = string.Empty;
+      string current = "one";
+      for (int attempt = 0; attempt < 10; attempt++)
+      {
+        string next = string.Equals(current, "one", StringComparison.Ordinal) ? "two" : "one";
+        _ = host.Mock.ReturnsForModel(E2E.SessionModel,
+            E2E.ExecToolCall("r2", E2E.ExecProgram(EditProgram(
+                Path.Combine(ws, "a.cs"),
+                "int x = \"" + current + "\";",
+                "int x = \"" + next + "\";"))),
+            E2E.RawCompletion("edited again"));
+        await host.Vm.RunTurnAsync("touch the file again").WaitAsync(TimeSpan.FromSeconds(120), Ct).ConfigureAwait(true);
+        current = next;
+        toolResult = AllToolOutputs(host.Mock.RequestBodies[^1])[^1];
+        if (toolResult.Contains("CS0029", StringComparison.Ordinal))
+        {
+          break;
+        }
+
+        await Task.Delay(2000, Ct).ConfigureAwait(true);
+      }
+
       Assert.Contains("[diagnostics]", toolResult, StringComparison.Ordinal);
       Assert.Contains("CS0029", toolResult, StringComparison.Ordinal);
       Assert.Contains("3:", toolResult, StringComparison.Ordinal);

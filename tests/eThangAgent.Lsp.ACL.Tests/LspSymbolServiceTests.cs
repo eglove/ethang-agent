@@ -72,7 +72,7 @@ public class LspSymbolServiceTests
     string refs = "[" + LocationJson(uri, 0, 5) + "," + LocationJson(uri, 10, 2) + "]";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + docSym + "}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + refs + "}");
-    LspCapabilities caps = new(true, true, true, true, true, false, true);
+    LspCapabilities caps = new(true, true, true, true, true, false, true, false);
     LspSymbolService service = new(transport, caps);
     LspSymbolResult result = await service.ReferencesAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Ready, result.State);
@@ -107,7 +107,7 @@ public class LspSymbolServiceTests
     string def = LocationJson(uri, 0, 5);
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + docSym + "}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + def + "}");
-    LspCapabilities caps = new(true, true, true, true, true, false, true);
+    LspCapabilities caps = new(true, true, true, true, true, false, true, false);
     LspSymbolService service = new(transport, caps);
     LspSymbolResult result = await service.DefinitionAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Ready, result.State);
@@ -123,7 +123,7 @@ public class LspSymbolServiceTests
     string uri = "file:///C:/ws/A.cs";
     string docSym = DocSymbolsJsonMulti(("Foo", 0, 5));
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + docSym + "}");
-    LspCapabilities caps = new(true, true, true, true, true, false, true);
+    LspCapabilities caps = new(true, true, true, true, true, false, true, false);
     LspSymbolService service = new(transport, caps);
     LspSymbolResult result = await service.ReferencesAsync(uri, "Bar", 0);
     Assert.Equal(LspSymbolState.Unsupported, result.State);

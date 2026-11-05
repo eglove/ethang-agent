@@ -9,7 +9,7 @@ public sealed record LspCapabilities(
     bool WorkspaceSymbolProvider,
     bool CallHierarchyProvider,
     bool ImplementationProvider,
-    bool DiagnosticPullProvider = false)
+    bool DiagnosticPullProvider)
 {
   public static LspCapabilities None => new(false, false, false, false, false, false, false, false);
 

@@ -98,7 +98,7 @@ public class AdvisoryDiagnosticsTests
     ToolResult result = await EditToolWith(new SlowSource()).ExecuteAsync(new RawToolInput("edit", EditArgs), ct: TestContext.Current.CancellationToken);
     TimeSpan elapsed = DateTimeOffset.UtcNow - start;
     Assert.False(result.IsError);
-    Assert.True(elapsed < TimeSpan.FromSeconds(5), $"elapsed {elapsed}");
+    Assert.True(elapsed < AdvisoryDiagnosticsAppender.Budget + TimeSpan.FromSeconds(2), $"elapsed {elapsed}");
     Assert.Contains("stale", result.Content, StringComparison.Ordinal);
   }
 

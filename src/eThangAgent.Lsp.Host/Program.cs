@@ -28,35 +28,41 @@ if (LspLanguageDetector.DetectLanguage(workspaceRoot) == "csharp")
 }
 Process? serverProcess = null;
 LspJsonRpcTransport? transport = null;
-LspDiagnosticStore store = new();
-LspDiagnosticsService diagnosticsService = new(null, store);
-LspSymbolService symbolService = new(null, LspCapabilities.None);
-LspClient? lspClient = null;
-
 if (launch is not null)
 {
   ProcessStartInfo psi = LspServerLauncher.BuildStartInfo(launch);
   serverProcess = Process.Start(psi);
   if (serverProcess is not null)
   {
-    transport = new LspJsonRpcTransport(serverProcess.StandardOutput.BaseStream, serverProcess.StandardInput.BaseStream, TimeSpan.FromSeconds(5));
-    LspNotificationRouter router = new(store);
-    transport.OnNotification(_ => router.HandleNotification(_));
-    LspServerConfig config = LspLanguageDetector.CSharpConfig(launch.ServerPath);
-    LspClient client = new(transport, config);
-    lspClient = client;
-    string wsUri = LspUriMapper.ToUri(workspaceRoot);
-    _ = await client.InitializeAsync(wsUri);
-    diagnosticsService = new LspDiagnosticsService(transport, store, client.Capabilities);
-    symbolService = new LspSymbolService(transport, client.Capabilities);
+    transport = new LspJsonRpcTransport(serverProcess.StandardOutput.BaseStream, serverProcess.StandardInput.BaseStream, TimeSpan.FromSeconds(30));
   }
 }
 
-ILspDocumentSync sink = transport is null ? new NoOpDocumentSync() : new LspTransportDocumentSync(transport);
+LspDiagnosticStore store = new();
+LspDiagnosticsService diagnosticsService = new(null, store);
+LspSymbolService symbolService = new(null, LspCapabilities.None);
 LspServerConfig syncConfig = launch is null
   ? new LspServerConfig("csharp", "", [], [".cs"])
   : LspLanguageDetector.CSharpConfig(launch.ServerPath);
+ILspDocumentSync sink = transport is null ? new NoOpDocumentSync() : new LspTransportDocumentSync(transport);
 LspDocumentSync forwarder = new(workspaceId, workspaceRoot, syncConfig.LanguageId, syncConfig.Extensions, sink);
+
+if (transport is not null)
+{
+  LspNotificationRouter router = new(store);
+  LspRoslynWorkspaceModel workspace = new(transport, forwarder, workspaceRoot);
+  transport.OnNotification(json =>
+  {
+    _ = router.HandleNotification(json);
+    _ = workspace.HandleNotification(json);
+  });
+  LspServerConfig config = LspLanguageDetector.CSharpConfig(launch!.ServerPath);
+  LspClient client = new(transport, config);
+  string wsUri = LspUriMapper.ToUri(workspaceRoot);
+  _ = await client.InitializeAsync(wsUri);
+  diagnosticsService = new LspDiagnosticsService(transport, store, client.Capabilities, workspace);
+  symbolService = new LspSymbolService(transport, client.Capabilities);
+}
 
 using LspDaemonServer server = new(pipeName, workspaceId, () => Task.CompletedTask);
 server.AttachForwarder(forwarder);

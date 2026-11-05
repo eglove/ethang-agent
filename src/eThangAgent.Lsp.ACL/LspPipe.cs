@@ -152,13 +152,11 @@ public sealed class LspPipeClient : IDisposable
     return result["released"]?.GetValue<bool>() ?? false;
   }
 
-  /// <summary>Queries advisory diagnostics for one file from the daemon. The caller
-  ///     states the watcher generation it last applied so the daemon can label a
-  ///     result computed before a correction as Stale.</summary>
-  public async Task<AdvisoryDiagnosticsResult> GetDiagnosticsAsync(string path, long knownGeneration = 0, CancellationToken ct = default)
+  /// <summary>Queries advisory diagnostics for one file from the daemon.</summary>
+  public async Task<AdvisoryDiagnosticsResult> GetDiagnosticsAsync(string path, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(path);
-    JsonObject result = await RequestAsync("lsp.diagnostics", new JsonObject { ["path"] = path, ["knownGeneration"] = knownGeneration }, ct).ConfigureAwait(false);
+    JsonObject result = await RequestAsync("lsp.diagnostics", new JsonObject { ["path"] = path }, ct).ConfigureAwait(false);
     string stateText = result["state"]?.GetValue<string>() ?? nameof(AdvisoryDiagnosticsState.Unavailable);
     AdvisoryDiagnosticsState state = Enum.TryParse(stateText, out AdvisoryDiagnosticsState parsed)
       ? parsed
@@ -413,7 +411,6 @@ public sealed class LspDaemonServer : IDisposable
       if (_forwarder is not null)
       {
         await _forwarder.ApplyAsync(announcement, ct).ConfigureAwait(false);
-        _diagnosticsService?.LastAppliedGeneration = _forwarder.LastAppliedGeneration;
       }
 
       return;
@@ -476,11 +473,10 @@ public sealed class LspDaemonServer : IDisposable
       if (!root.TryGetProperty("id", out JsonElement idEl)) return;
       if (!root.TryGetProperty("params", out JsonElement p)) return;
       string path = p.GetProperty("path").GetString() ?? string.Empty;
-      long knownGeneration = p.TryGetProperty("knownGeneration", out JsonElement g) ? g.GetInt64() : 0;
       string uri = LspUriMapper.ToUri(path);
       LspDiagnosticsResult result = _diagnosticsService is null
         ? new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, [])
-        : await _diagnosticsService.PullAsync(uri, knownGeneration, ct).ConfigureAwait(false);
+        : await _diagnosticsService.PullAsync(uri, ct).ConfigureAwait(false);
       JsonArray diagnostics = [];
       foreach (LspDiagnostic d in result.Diagnostics)
       {

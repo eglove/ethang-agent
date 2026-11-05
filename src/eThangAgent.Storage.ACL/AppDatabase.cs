@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 33;
+  public const int LatestSchemaVersion = 34;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -141,6 +141,7 @@ public sealed class AppDatabase
     (31, ApplyV31),
     (32, ApplyV32),
     (33, ApplyV33),
+    (34, ApplyV34),
   ];
 
   private void Migrate()
@@ -1472,6 +1473,22 @@ public sealed class AppDatabase
     {
       Execute(connection, "PRAGMA foreign_keys = ON;");
     }
+  }
+
+  /// <summary>The shared file-claim table (issue #363): one row per claimed file per
+  ///     workspace, read and written by every conversation host in that workspace.</summary>
+  private static void ApplyV34(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS file_claims (
+            workspace_id TEXT NOT NULL,
+            path         TEXT NOT NULL,
+            session_id   TEXT NOT NULL,
+            expiry       TEXT NOT NULL,
+            PRIMARY KEY (workspace_id, path)
+        );
+        """;
+    Execute(connection, sql);
   }
 
   private static void ApplyV32(SqliteConnection connection)
