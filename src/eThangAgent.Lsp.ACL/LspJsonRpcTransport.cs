@@ -25,6 +25,12 @@ public sealed class LspJsonRpcTransport
   private readonly TimeSpan _timeout;
   private readonly SemaphoreSlim _writeLock = new(1, 1);
   private readonly Queue<string> _incoming = new();
+  private readonly HashSet<string> _registrations = new(StringComparer.Ordinal);
+  private readonly System.Collections.Concurrent.ConcurrentDictionary<int, TaskCompletionSource<string>> _pending = new();
+  private readonly Lock _readerLock = new();
+  private readonly CancellationTokenSource _readerCts;
+  private Task? _reader;
+  private volatile bool _closed;
   private int _nextId = 1;
   private bool _useQueue;
   private Action<string>? _notificationHandler;
@@ -34,6 +40,15 @@ public sealed class LspJsonRpcTransport
     _input = input ?? throw new ArgumentNullException(nameof(input));
     _output = output ?? throw new ArgumentNullException(nameof(output));
     _timeout = timeout;
+    _readerCts = new CancellationTokenSource();
+  }
+
+  /// <summary>The methods the server registered dynamically after initialize. A server
+  /// that registers textDocument/diagnostic here advertises no static diagnosticProvider,
+  /// so the registration is the only evidence the method is available.</summary>
+  public IReadOnlyCollection<string> DynamicRegistrations
+  {
+    get { lock (_registrations) { return [.. _registrations]; } }
   }
 
   /// <summary>Registers a handler for server-to-client notifications (e.g. publishDiagnostics).</summary>
@@ -43,7 +58,7 @@ public sealed class LspJsonRpcTransport
   public void EnqueueIncomingForTest(string json)
   {
     _useQueue = true;
-    _incoming.Enqueue(json);
+    lock (_incoming) { _incoming.Enqueue(json); }
   }
 
   public async Task WriteMessageAsync(string json, CancellationToken ct = default)
@@ -65,7 +80,7 @@ public sealed class LspJsonRpcTransport
   {
     if (_useQueue)
     {
-      return _incoming.Count > 0 ? _incoming.Dequeue() : null;
+      lock (_incoming) { return _incoming.Count > 0 ? _incoming.Dequeue() : null; }
     }
     string? header = await ReadHeaderAsync(ct).ConfigureAwait(false);
     if (header is null) return null;
@@ -108,24 +123,22 @@ public sealed class LspJsonRpcTransport
   }
 
   /// <summary>Reads until a response (id + result/error) arrives, answering
-  /// server-to-client requests with method-not-found and skipping notifications.</summary>
+  /// server-to-client requests and skipping notifications.</summary>
   public async Task<string?> ReadResponseAsync(CancellationToken ct = default)
   {
     while (true)
     {
       string? msg = await ReadMessageAsync(ct).ConfigureAwait(false);
       if (msg is null) return null;
-      using JsonDocument doc = JsonDocument.Parse(msg);
-      JsonElement root = doc.RootElement;
-      bool hasMethod = root.TryGetProperty("method", out JsonElement _);
-      bool hasId = root.TryGetProperty("id", out JsonElement idEl);
-      if (hasMethod && hasId)
+      string? reply = BuildServerRequestReply(msg);
+      if (reply is not null)
       {
-        string reply = "{\"jsonrpc\":\"2.0\",\"id\":" + idEl.GetRawText() + ",\"error\":{\"code\":-32601,\"message\":\"method not found\"}}";
         await WriteMessageAsync(reply, ct).ConfigureAwait(false);
         continue;
       }
-      if (hasMethod && !hasId)
+      using JsonDocument doc = JsonDocument.Parse(msg);
+      JsonElement root = doc.RootElement;
+      if (root.TryGetProperty("method", out JsonElement _))
       {
         _notificationHandler?.Invoke(msg);
         continue;
@@ -134,7 +147,205 @@ public sealed class LspJsonRpcTransport
     }
   }
 
+  /// <summary>Answers a server-to-client request, or null when the message is not one.
+  /// workspace/configuration is answered with one null per requested item; every other
+  /// method with a null result, except a method this client does not know, which keeps
+  /// the JSON-RPC method-not-found reply.</summary>
+  private string? BuildServerRequestReply(string msg)
+  {
+    using JsonDocument doc = JsonDocument.Parse(msg);
+    JsonElement root = doc.RootElement;
+    if (!root.TryGetProperty("method", out JsonElement methodEl)) return null;
+    if (!root.TryGetProperty("id", out JsonElement idEl)) return null;
+    string method = methodEl.GetString() ?? string.Empty;
+    string id = idEl.GetRawText();
+    if (string.Equals(method, "workspace/configuration", StringComparison.Ordinal))
+    {
+      int items = root.TryGetProperty("params", out JsonElement p)
+          && p.TryGetProperty("items", out JsonElement array)
+          && array.ValueKind == JsonValueKind.Array
+              ? array.GetArrayLength()
+              : 0;
+      string nulls = string.Join(",", Enumerable.Repeat("null", items));
+      return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":[" + nulls + "]}";
+    }
+    if (string.Equals(method, "client/registerCapability", StringComparison.Ordinal))
+    {
+      RecordRegistrations(root);
+      return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":null}";
+    }
+    if (string.Equals(method, "client/unregisterCapability", StringComparison.Ordinal)
+        || string.Equals(method, "window/workDoneProgress/create", StringComparison.Ordinal)
+        || string.Equals(method, "workspace/workspaceFolders", StringComparison.Ordinal))
+    {
+      return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":null}";
+    }
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":-32601,\"message\":\"method not found\"}}";
+  }
+
+  private void RecordRegistrations(JsonElement root)
+  {
+    if (!root.TryGetProperty("params", out JsonElement p)) return;
+    if (!p.TryGetProperty("registrations", out JsonElement regs)) return;
+    if (regs.ValueKind != JsonValueKind.Array) return;
+    lock (_registrations)
+    {
+      foreach (JsonElement reg in regs.EnumerateArray())
+      {
+        if (reg.TryGetProperty("method", out JsonElement m) && m.GetString() is string name)
+        {
+          _ = _registrations.Add(name);
+        }
+      }
+    }
+  }
+
+  /// <summary>Starts the single reader that owns the input stream for the rest of the
+  /// session. Every inbound message is dispatched from here: responses complete the
+  /// request that is waiting on them, server requests are answered, notifications reach
+  /// the handler. A server registers capabilities and publishes diagnostics at times of
+  /// its choosing, so reading only while a request is in flight misses both.</summary>
+  public void StartReader(CancellationToken ct = default)
+  {
+    lock (_readerLock)
+    {
+      _reader ??= Task.Run(() => ReaderLoopAsync(ct), CancellationToken.None);
+    }
+  }
+
+  /// <summary>Stops the reader and fails every request still waiting on a response.</summary>
+  public void Close()
+  {
+    if (_closed) return;
+    _closed = true;
+    _readerCts.Cancel();
+    foreach (KeyValuePair<int, TaskCompletionSource<string>> entry in _pending)
+    {
+      _ = entry.Value.TrySetResult(string.Empty);
+    }
+    _pending.Clear();
+  }
+
+  /// <summary>Starts the reader once, on the first request that needs one. A transport in
+  /// queue mode is driven inline by <see cref="ReadResponseAsync"/> instead, so the queued
+  /// messages a test supplies are consumed in the order the test supplies them.</summary>
+  private void EnsureReaderStarted()
+  {
+    if (!_useQueue)
+    {
+      StartReader();
+    }
+  }
+
+  private async Task ReaderLoopAsync(CancellationToken ct)
+  {
+    using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _readerCts.Token);
+    while (!_closed && !linked.IsCancellationRequested)
+    {
+      string? msg;
+      try
+      {
+        msg = await ReadMessageAsync(linked.Token).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        return;
+      }
+      catch (IOException)
+      {
+        return;
+      }
+      if (msg is null) return;
+      try
+      {
+        await DispatchAsync(msg, linked.Token).ConfigureAwait(false);
+      }
+      catch (JsonException)
+      {
+      }
+      catch (OperationCanceledException)
+      {
+        return;
+      }
+      catch (IOException)
+      {
+        return;
+      }
+    }
+  }
+
+  private async Task DispatchAsync(string msg, CancellationToken ct)
+  {
+    string? reply = BuildServerRequestReply(msg);
+    if (reply is not null)
+    {
+      await WriteMessageAsync(reply, ct).ConfigureAwait(false);
+      return;
+    }
+    using JsonDocument doc = JsonDocument.Parse(msg);
+    JsonElement root = doc.RootElement;
+    if (root.TryGetProperty("method", out JsonElement _))
+    {
+      _notificationHandler?.Invoke(msg);
+      return;
+    }
+    if (root.TryGetProperty("id", out JsonElement idEl)
+        && idEl.ValueKind == JsonValueKind.Number
+        && idEl.TryGetInt32(out int id)
+        && _pending.TryRemove(id, out TaskCompletionSource<string>? waiter))
+    {
+      waiter.TrySetResult(msg);
+    }
+  }
+
   public async Task<LspRequestResult> SendRequestAsync(string method, string paramsJson, CancellationToken ct = default)
+  {
+    if (_useQueue)
+    {
+      return await SendRequestInlineAsync(method, paramsJson, ct).ConfigureAwait(false);
+    }
+    if (_closed)
+    {
+      return LspRequestResult.Error("Closed", "the language server connection is closed");
+    }
+    EnsureReaderStarted();
+    int id = _nextId++;
+    string request = "{\"jsonrpc\":\"2.0\",\"id\":" + id.ToString(CultureInfo.InvariantCulture) + ",\"method\":\"" + method + "\",\"params\":" + paramsJson + "}";
+    TaskCompletionSource<string> waiter = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    _pending[id] = waiter;
+    await WriteMessageAsync(request, ct).ConfigureAwait(false);
+    using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    cts.CancelAfter(_timeout);
+    try
+    {
+      string? response;
+      try
+      {
+        response = await waiter.Task.WaitAsync(cts.Token).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+      {
+        return LspRequestResult.Timeout(method);
+      }
+      if (response is null) return LspRequestResult.Timeout(method);
+      using JsonDocument doc = JsonDocument.Parse(response);
+      JsonElement root = doc.RootElement;
+      if (root.TryGetProperty("error", out JsonElement err))
+      {
+        string code = err.TryGetProperty("code", out JsonElement c) ? c.GetRawText() : "Error";
+        string message = err.TryGetProperty("message", out JsonElement m) ? m.GetString() ?? "" : "";
+        return LspRequestResult.Error(code, message);
+      }
+      string result = root.TryGetProperty("result", out JsonElement r) ? r.GetRawText() : "null";
+      return LspRequestResult.Success(result);
+    }
+    finally
+    {
+      _ = _pending.TryRemove(id, out _);
+    }
+  }
+
+  private async Task<LspRequestResult> SendRequestInlineAsync(string method, string paramsJson, CancellationToken ct)
   {
     int id = _nextId++;
     string request = "{\"jsonrpc\":\"2.0\",\"id\":" + id.ToString(CultureInfo.InvariantCulture) + ",\"method\":\"" + method + "\",\"params\":" + paramsJson + "}";

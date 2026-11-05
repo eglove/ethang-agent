@@ -29,12 +29,12 @@ public class LspClientTests
   }
 
   [Fact]
-  public async Task ServerRequest_Unimplemented_ReturnsMethodNotFoundAndContinues()
+  public async Task ServerRequest_UnknownMethod_ReturnsMethodNotFoundAndContinues()
   {
     using MemoryStream input = new();
     using MemoryStream output = new();
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
-    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"workspace/configuration\",\"params\":{}}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"custom/unknown\",\"params\":{}}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"method\":\"window/logMessage\",\"params\":{}}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}");
     string? result = await transport.ReadResponseAsync(TestContext.Current.CancellationToken);
@@ -42,6 +42,61 @@ public class LspClientTests
     string written = Encoding.UTF8.GetString(output.ToArray());
     Assert.Contains("-32601", written);
     Assert.Contains("99", written);
+  }
+
+  [Fact]
+  public async Task ServerRequest_WorkspaceConfiguration_AnsweredWithOneNullPerItem()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest(
+        "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"workspace/configuration\",\"params\":{\"items\":[{},{}]}}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}");
+    _ = await transport.ReadResponseAsync(TestContext.Current.CancellationToken);
+    string written = Encoding.UTF8.GetString(output.ToArray());
+    Assert.Contains("\"id\":7", written);
+    Assert.Contains("\"result\":[null,null]", written);
+    Assert.DoesNotContain("-32601", written);
+  }
+
+  [Fact]
+  public async Task ServerRequest_RegisterCapability_AnsweredWithNullResultAndCapabilityRaised()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest(
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"client/registerCapability\",\"params\":{\"registrations\":[{\"id\":\"a\",\"method\":\"textDocument/diagnostic\",\"registerOptions\":{}}]}}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}");
+    _ = await transport.ReadResponseAsync(TestContext.Current.CancellationToken);
+    string written = Encoding.UTF8.GetString(output.ToArray());
+    Assert.Contains("\"id\":3", written);
+    Assert.Contains("\"result\":null", written);
+    Assert.DoesNotContain("-32601", written);
+    Assert.Contains("textDocument/diagnostic", transport.DynamicRegistrations);
+  }
+
+  [Fact]
+  public async Task Client_DynamicallyRegisteredDiagnostic_BecomesSupported()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}");
+    transport.EnqueueIncomingForTest(
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"client/registerCapability\",\"params\":{\"registrations\":[{\"id\":\"a\",\"method\":\"textDocument/diagnostic\",\"registerOptions\":{}}]}}");
+    LspClient client = new(transport, new LspServerConfig("csharp", "srv", [], [".cs"]));
+    _ = await client.InitializeAsync("file:///ws", TestContext.Current.CancellationToken);
+    // The registration is queued behind the initialize response; draining it is what the
+    // production reader does continuously.
+    _ = await transport.ReadResponseAsync(TestContext.Current.CancellationToken);
+    Assert.False(client.Capabilities.DiagnosticPullProvider);
+    LspRequestResult pull = await client.SendRequestAsync(
+        "textDocument/diagnostic",
+        "{\"textDocument\":{\"uri\":\"file:///ws/a.cs\"}}",
+        TestContext.Current.CancellationToken);
+    Assert.NotEqual("Unsupported", pull.ErrorCode);
   }
 
   [Fact]

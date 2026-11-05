@@ -18,13 +18,29 @@ public sealed class LspClient
     Capabilities = LspCapabilities.None;
   }
 
+  /// <summary>The capabilities this client advertises. A server decides what to register
+  /// from this document: a server that sees no textDocument.diagnostic support registers
+  /// no diagnostic handler, so pull diagnostics stay unreachable however the request is
+  /// framed.</summary>
+  internal const string ClientCapabilitiesJson =
+      "{\"workspace\":{\"workspaceFolders\":true,\"configuration\":true,\"workspaceEdit\":{\"documentChanges\":true}},"
+      + "\"textDocument\":{\"synchronization\":{\"didSave\":true},"
+      + "\"publishDiagnostics\":{\"relatedInformation\":true,\"versionSupport\":true},"
+      + "\"diagnostic\":{\"dynamicRegistration\":true,\"relatedDocumentSupport\":true},"
+      + "\"definition\":{\"linkSupport\":true},\"references\":{},"
+      + "\"hover\":{\"contentFormat\":[\"markdown\",\"plaintext\"]},"
+      + "\"documentSymbol\":{\"hierarchicalDocumentSymbolSupport\":true},"
+      + "\"callHierarchy\":{},\"implementation\":{}}}";
+
   public LspCapabilities Capabilities { get; private set; }
   public LspServerConfig Config => _config;
 
   public async Task<LspRequestResult> InitializeAsync(string workspaceUri, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(workspaceUri);
-    string paramsJson = "{\"processId\":null,\"rootUri\":\"" + workspaceUri + "\",\"capabilities\":{}}";
+    string paramsJson = "{\"processId\":null,\"rootUri\":\"" + workspaceUri
+        + "\",\"capabilities\":" + ClientCapabilitiesJson
+        + ",\"workspaceFolders\":[{\"uri\":\"" + workspaceUri + "\",\"name\":\"workspace\"}]}";
     LspRequestResult result = await _transport.SendRequestAsync("initialize", paramsJson, ct).ConfigureAwait(false);
     if (!result.IsSuccess) return result;
     Capabilities = ParseCapabilities(result.ResultJson);
@@ -35,11 +51,25 @@ public sealed class LspClient
 
   public async Task<LspRequestResult> SendRequestAsync(string method, string paramsJson, CancellationToken ct = default)
   {
-    if (_initialized && !Capabilities.Supports(method))
+    if (_initialized && !Capabilities.Supports(method) && !IsDynamicallyRegistered(method))
     {
       return LspRequestResult.Unsupported(method);
     }
     return await _transport.SendRequestAsync(method, paramsJson, ct).ConfigureAwait(false);
+  }
+
+  /// <summary>A method the server registered after initialize is available even when the
+  /// static capability record does not advertise it.</summary>
+  private bool IsDynamicallyRegistered(string method)
+  {
+    foreach (string registered in _transport.DynamicRegistrations)
+    {
+      if (string.Equals(registered, method, StringComparison.Ordinal))
+      {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static LspCapabilities ParseCapabilities(string? resultJson)
