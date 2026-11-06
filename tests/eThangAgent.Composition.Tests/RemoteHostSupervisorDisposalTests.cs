@@ -107,6 +107,26 @@ public class RemoteHostSupervisorDisposalTests : SessionOwningTest
         + "distinguish that from a leak");
   }
 
+  /// <summary>Issue #367: a host that exits within the supervisor's bound is NOT recorded.
+  ///     <para>The ledger exists to explain a host still present after the kill, so recording
+  ///     every disposal would make it useless - the guard reads it to separate a slow reap from
+  ///     a leak, and a record for a host that is already gone would excuse nothing. This pins
+  ///     the condition rather than the timeout path, which no test can produce: Windows
+  ///     termination is forceful, so a real host cannot ignore a kill.</para></summary>
+  [Fact]
+  public async Task DisposeAsync_WhenTheHostExitsWithinTheBound_RecordsNothing()
+  {
+    AgentSession session = await CreateSessionAsync(Settings()).ConfigureAwait(true);
+    RemoteHostSupervisor supervisor = SupervisorOf(session);
+
+    int pid = supervisor.HostProcessId
+        ?? throw new InvalidOperationException("the session must own a live host process");
+
+    await session.Services.DisposeAsync().ConfigureAwait(true);
+
+    Assert.DoesNotContain(HostProcessLedger.Snapshot(), fact => fact.ProcessId == pid && fact.Waited is not null);
+  }
+
   /// <summary>Is this pid in the process table at all? A presence question, deliberately
   ///     NOT a liveness one: the leak guard (and any caller asking 'is it still here?')
   ///     enumerates processes, so a terminated-but-present process still costs it an

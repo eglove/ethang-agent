@@ -55,6 +55,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   }
   private readonly string _settingsPath;
   private readonly string _databasePath;
+  private readonly string _workspaceRoot;
   // The host process's working directory: its scratch folder, under the temp root.
   private readonly string _hostWorkingDirectory;
   private readonly Func<string> _hostExePath;
@@ -97,6 +98,8 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       throw new InvalidOperationException(
           "the host settings must carry an absolute WorkspaceRoot; the supervisor cannot infer it from the conversation id.");
     }
+
+    _workspaceRoot = settings.WorkspaceRoot;
 
     // The host's WORKING DIRECTORY is its own SCRATCH folder, never the workspace: a
     // child process whose working directory sits INSIDE the workspace pins that
@@ -357,6 +360,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     }
 
     Host = started;
+    HostProcessLedger.Record(new HostProcessRecord(HostPipeName, _workspaceRoot, started.Id, Waited: null));
     HostOutputTail tail = new();
     _hostOutputTail = tail;
     _ = started.WaitForExitAsync(ct).ContinueWith((t, state) =>
@@ -485,18 +489,26 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   ///     makes that contract true: a running host is killed, an already-exited one is
   ///     tolerated, and the Process handle is DISPOSED in both cases - leaving an exited
   ///     host's handle open was the second half of that defect.</para></summary>
-  private static void KillQuietly(Process process)
+  private void KillQuietly(Process process)
   {
+    int pid = 0;
+    TimeSpan waited = TimeSpan.Zero;
+    bool unreaped = false;
     try
     {
       if (!process.HasExited)
       {
+        pid = process.Id;
         process.Kill(entireProcessTree: true);
         // Kill() only ASKS. Waiting for the exit here is what makes 'disposal' mean
         // 'the host is gone' rather than 'the kill was requested' - see DisposeAsync.
         // Bounded so a wedged host cannot hang teardown; a timeout is not a failure,
         // because the kill-on-close job still reaps it with this process.
-        _ = process.WaitForExit((int)ExitWaitTimeout.TotalMilliseconds);
+        Stopwatch clock = Stopwatch.StartNew();
+        bool exited = process.WaitForExit((int)ExitWaitTimeout.TotalMilliseconds);
+        clock.Stop();
+        waited = clock.Elapsed;
+        unreaped = !exited;
       }
     }
     // Named decision (CA1031, S108, S2486): the process is already written off, so a
@@ -507,7 +519,19 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     }
 #pragma warning restore CA1031, S108, S2486
     process.Dispose();
+    // Recorded OUTSIDE the catch: a host that outlived its kill is the fact this method
+    // exists to keep, and a best-effort cleanup path must not be what discards it.
+    if (unreaped)
+    {
+      RecordUnreapedHost(pid, waited);
+    }
   }
+
+  /// <summary>Keeps the fact that this conversation's host was still in the process table
+  ///     when the bounded exit wait elapsed. A caller that later finds the process can then
+  ///     name it by session instead of inferring a cause from the process table.</summary>
+  private void RecordUnreapedHost(int processId, TimeSpan waited) =>
+      HostProcessLedger.Record(new HostProcessRecord(HostPipeName, _workspaceRoot, processId, waited));
 
   /// <summary>Default exe resolution: the locator picks the host that ships NEXT TO
   ///     the app (the same build, which the wire protocol requires), and falls back to

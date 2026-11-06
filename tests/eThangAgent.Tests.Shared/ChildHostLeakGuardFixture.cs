@@ -1,3 +1,4 @@
+using eThangAgent.Composition;
 using Xunit;
 
 namespace eThangAgent.TestSupport;
@@ -10,11 +11,14 @@ namespace eThangAgent.TestSupport;
 ///     wall-clock time, because the survivor holds its SQLite file. Measured during
 ///     #271: the composition suite took over 4 minutes with a leaked host alive and 1
 ///     minute 15 seconds once the orphan was killed.</para>
-///     <para>IT CANNOT PROVE THAT IS WHAT HAPPENED. The check sees a pid still present; it
-///     does not see why. A session whose container WAS disposed can leave its host alive
-///     past the supervisor's bounded teardown wait on a loaded machine, and that reads
-///     exactly like a test that never disposed. The message therefore names the pids and
-///     both causes, and never instructs a kill: a host process is a live session.</para>
+///     <para>IT DISTINGUISHES A LEAK FROM A SLOW REAP (issue #367). A host still in the
+///     process table at teardown is either one nothing asked to exit or one whose kill had
+///     not completed; the supervisor knows which and records it in
+///     <see cref="HostProcessLedger"/>, so the guard reads that fact instead of inferring
+///     a cause from a presence. A host the supervisor recorded is reported as a slow reap
+///     and does not fail the run; a host nothing recorded is a leak and does. The grace
+///     period below removes the other half of the false positive: the process table is
+///     re-read before failing, so a host reaped microseconds earlier is never blamed.</para>
 ///     <para>WHY THIS SHAPE. Detecting leaks means asking the OS which processes are
 ///     children of THIS process, because that is what a session's host is: the
 ///     supervisor starts it directly. Ancestry gives exact attribution, so the guard
@@ -29,6 +33,15 @@ public sealed class ChildHostLeakGuardFixture : IAsyncLifetime
   /// <summary>The host image name without its extension: what
   ///     <see cref="System.Diagnostics.Process.ProcessName"/> reports.</summary>
   internal const string HostImageName = "eThangAgent.ChildHost";
+
+  /// <summary>How long the guard keeps re-reading the process table before it fails. A
+  ///     host whose kill was requested can still be present for a moment afterwards, and
+  ///     the supervisor's own wait is bounded - so a single read at teardown would blame a
+  ///     host that was already on its way out.</summary>
+  internal static readonly TimeSpan ReapGracePeriod = TimeSpan.FromSeconds(10);
+
+  /// <summary>How often the process table is re-read during the grace period.</summary>
+  internal static readonly TimeSpan ReapPollInterval = TimeSpan.FromMilliseconds(250);
 
   private readonly IProcessAncestry _ancestry;
   private readonly HashSet<int> _baselinePids;
@@ -55,18 +68,45 @@ public sealed class ChildHostLeakGuardFixture : IAsyncLifetime
   ///     once, before any test runs - a baseline taken later could absorb a leak.</summary>
   public IReadOnlyCollection<int> BaselinePids => _baselinePids;
 
-  /// <summary>The guard's whole decision, exposed so a test can pin it against fakes.
-  ///     Returns the leaked processes (empty when the run was clean).</summary>
-  public IReadOnlyList<LiveProcess> FindLeaks() =>
-      ChildHostLeakGuard.FindLeaks(_ancestry.ChildrenOf(ParentProcessId), HostImageName, _baselinePids);
+  /// <summary>What the supervisors recorded about the hosts they started and waited for.</summary>
+  internal static IReadOnlyList<HostProcessRecord> HostFacts() => HostProcessLedger.Snapshot();
+
+  /// <summary>The guard's decision at this instant: the leaked processes (empty when the run
+  ///     was clean).</summary>
+  internal IReadOnlyList<LiveProcess> FindLeaks() =>
+      ChildHostLeakGuard.FindLeaks(_ancestry.ChildrenOf(ParentProcessId), HostImageName,
+          _baselinePids, HostFacts());
 
   public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
-  public ValueTask DisposeAsync()
+  /// <summary>Fails the assembly when a host outlived its session with nothing having asked
+  ///     it to exit. The process table is re-read until the grace period elapses, so a host
+  ///     that is merely still being reaped is not reported as a leak.</summary>
+  public async ValueTask DisposeAsync()
   {
-    string? message = ChildHostLeakGuard.Describe(FindLeaks(), HostImageName);
-    return message is null
-        ? ValueTask.CompletedTask
-        : throw new InvalidOperationException(message);
+    IReadOnlyList<LiveProcess> leaks = await FindLeaksAfterGraceAsync().ConfigureAwait(false);
+    string? message = ChildHostLeakGuard.Describe(leaks, HostImageName, HostFacts());
+    if (message is not null)
+    {
+      throw new InvalidOperationException(message);
+    }
+  }
+
+  /// <summary>Re-reads the process table until nothing leaked, or until the grace period
+  ///     elapses - then answers what is still there. The bound is a clock, so a host that
+  ///     never leaves cannot hold teardown open.</summary>
+  private async Task<IReadOnlyList<LiveProcess>> FindLeaksAfterGraceAsync()
+  {
+    System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+    while (true)
+    {
+      IReadOnlyList<LiveProcess> leaks = FindLeaks();
+      if (leaks.Count == 0 || clock.Elapsed >= ReapGracePeriod)
+      {
+        return leaks;
+      }
+
+      await Task.Delay(ReapPollInterval).ConfigureAwait(false);
+    }
   }
 }
