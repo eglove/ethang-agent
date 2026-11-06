@@ -9,6 +9,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -204,8 +205,8 @@ internal static class E2E
     // SubmitAsync RETURNS the running turn task, so awaiting it covers the whole turn
     // including DrainUntilIdleAsync — it must carry its own bound, otherwise a wedged
     // drain hangs before the WaitForTurnAsync timeout below is ever reached.
-    await vm.SubmitAsync(input).WaitAsync(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
-    await vm.WaitForTurnAsync().WaitAsync(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
+    await vm.SubmitAsync(input).WaitAsync(TestCeiling.Value).ConfigureAwait(false);
+    await vm.WaitForTurnAsync().WaitAsync(TestCeiling.Value).ConfigureAwait(false);
   }
 
 

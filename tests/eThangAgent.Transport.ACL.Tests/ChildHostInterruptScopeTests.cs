@@ -4,6 +4,8 @@ using eThangAgent.ChildHost;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Scoped stop (issue #334): a record-id interrupt cancels EXACTLY the named agent
@@ -202,7 +204,7 @@ public class ChildHostInterruptScopeTests
 
     public CancellationToken ObservedToken { get; private set; }
 
-    public Task FirstCall => _first.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+    public Task FirstCall => _first.Task.WaitAsync(TestCeiling.Value, CancellationToken.None);
 
     public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
     {
@@ -276,9 +278,9 @@ public class ChildHostInterruptScopeTests
     string pipeName = "ethang-interruptrig-" + Guid.NewGuid().ToString("N");
     Task<NamedPipeChildTransport> accept = NamedPipeChildTransport.AcceptAppAsync(pipeName, TestContext.Current.CancellationToken);
     NamedPipeChildTransport app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10),
+        TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
-    NamedPipeChildTransport hostSide = await accept.WaitAsync(TimeSpan.FromSeconds(10),
+    NamedPipeChildTransport hostSide = await accept.WaitAsync(TestCeiling.Value,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     server.AttachTransport(hostSide);
     Task serve = server.ServeAsync();

@@ -4,6 +4,8 @@ using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Invocation channel end-to-end (plan #30 task 6): over the real
@@ -151,8 +153,7 @@ public class SkillSlashE2ETests
           E2E.ExecToolCall("invoke_1", E2E.ExecProgram(invokeProgram)),
           RawCompletion("skill loaded, proceeding"));
 
-      await vm.RunTurnAsync("invoke my deploy skill").WaitAsync(
-          TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+      await vm.RunTurnAsync("invoke my deploy skill").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
       // The tool result is the one-line confirmation — never the body.
       string toolResult = E2E.WithoutExecAnnotations(
@@ -171,8 +172,7 @@ public class SkillSlashE2ETests
 
       // ── Turn 2: the DESKTOP reference path at the view-model seam. ────────
       _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletion("reference done"));
-      await vm.RunTurnAsync($"run @{SkillName}").WaitAsync(
-          TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+      await vm.RunTurnAsync($"run @{SkillName}").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
       last = MessagesOf(host.Mock.LastChatRequestBody!);
       int slashInvocation = last.FindLastIndex(IsInvocationSystem);
@@ -183,8 +183,7 @@ public class SkillSlashE2ETests
 
       // ── Turn 3: an unknown slash name is a plain message — no injection. ──
       _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletion("plain"));
-      await vm.RunTurnAsync("/zzz-not-a-skill").WaitAsync(
-          TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+      await vm.RunTurnAsync("/zzz-not-a-skill").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
       last = MessagesOf(host.Mock.LastChatRequestBody!);
       Assert.Equal(("user", "/zzz-not-a-skill"), last[^1]);

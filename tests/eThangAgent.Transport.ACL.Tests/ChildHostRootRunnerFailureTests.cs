@@ -2,6 +2,7 @@ using System.Globalization;
 using eThangAgent.ChildHost;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -13,9 +14,10 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     host could not open (locked), and the reader was left hunting a wiring fault
 ///     that did not exist (2026-10-22). These tests pin the two distinct causes: no
 ///     session id, and a container that cannot be built.</summary>
+[Trait("Category", "LatencyContract")]
 public class ChildHostRootRunnerFailureTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task NoSessionId_SettlesWithTheBindingReason()

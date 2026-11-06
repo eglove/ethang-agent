@@ -2,6 +2,8 @@ using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The host's DECLARED LIVE SET is ownership (review finding 1 on commit 63a034b):
@@ -29,9 +31,9 @@ public class RemoteRuntimeReAttachOwnershipTests
     Task<NamedPipeChildTransport> serverTask = NamedPipeChildTransport.AcceptAppAsync(
         pipeName, TestContext.Current.CancellationToken);
     NamedPipeChildTransport app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10),
+        TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value,
             TestContext.Current.CancellationToken).ConfigureAwait(true);
-    NamedPipeChildTransport host = await serverTask.WaitAsync(TimeSpan.FromSeconds(10),
+    NamedPipeChildTransport host = await serverTask.WaitAsync(TestCeiling.Value,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     return (app, host);
   }
@@ -65,7 +67,7 @@ public class RemoteRuntimeReAttachOwnershipTests
     _ = firstRuntime.RunReceiveLoopAsync(firstLoop.Token);
     Result<AgentId> started = await firstRuntime.Start(
         AgentRecord.Started(child, "m/sub", "reattach", "task", DateTimeOffset.UtcNow),
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10),
+        TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value,
             TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(started.IsSuccess, started.Error?.Message);
     Assert.Contains(child.Value, firstRuntime.OwnedChildren);

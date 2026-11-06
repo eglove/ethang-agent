@@ -9,6 +9,7 @@ namespace eThangAgent.Agent.Application.Tests.Memory;
 /// <summary>Recall query handler over a seeded branched fake store: every validation
 ///     string verbatim, browse ordering, literal AND semantics, bounded regex modes,
 ///     active-vs-all branch resolution through an orphan fixture, and paging math.</summary>
+[Trait("Category", "LatencyContract")]
 public class RecallQueryHandlerTests
 {
   private static readonly DateTimeOffset Base =

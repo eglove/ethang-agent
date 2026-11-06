@@ -5,6 +5,8 @@ using eThangAgent.SharedKernel;
 
 #pragma warning disable CA2007 // test code does not need ConfigureAwait
 #pragma warning disable CA2000 // HttpClient owns the handler; test lifetime bounds it
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.OpenRouter.ACL.Tests;
 
 /// <summary>In-memory stand-in for the persisted catalog cache: seeds snapshots, records
@@ -82,7 +84,7 @@ public class OpenRouterCatalogClientCacheTests
       _ = gate.TrySetResult();
       if (client.PendingRefresh is { } refresh)
       {
-        await refresh.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await refresh.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
       }
     }
   }
@@ -231,7 +233,7 @@ public class OpenRouterCatalogClientCacheTests
       _ = gate.TrySetResult();
       if (client.PendingRefresh is { } refresh)
       {
-        await refresh.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await refresh.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
       }
     }
     Result<IReadOnlyList<ModelProviderEntry>> updated = await client.GetAsync(TestContext.Current.CancellationToken);
@@ -252,7 +254,7 @@ public class OpenRouterCatalogClientCacheTests
     using OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
     _ = await client.GetAsync(TestContext.Current.CancellationToken);
     Assert.NotNull(client.PendingRefresh);
-    await client.PendingRefresh.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    await client.PendingRefresh.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
     Assert.Equal(0, cache.WriteCount); // failed refresh did not replace disk or memory
     Result<IReadOnlyList<ModelProviderEntry>> cached = await client.GetAsync(TestContext.Current.CancellationToken);
     Assert.True(cached.IsSuccess);
@@ -284,7 +286,7 @@ public class OpenRouterCatalogClientCacheTests
     Task<Result<IReadOnlyList<ModelProviderEntry>>> second = client.RefreshAsync(TestContext.Current.CancellationToken);
     try
     {
-      await started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      await started.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
       await cancelled.CancelAsync();
       _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
       Assert.False(second.IsCompleted);
@@ -293,7 +295,7 @@ public class OpenRouterCatalogClientCacheTests
     finally
     {
       _ = gate.TrySetResult();
-      _ = await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      _ = await second.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
     }
     Assert.True((await second).IsSuccess);
   }
@@ -308,14 +310,14 @@ public class OpenRouterCatalogClientCacheTests
     Task<Result<IReadOnlyList<ModelProviderEntry>>> refresh = client.RefreshAsync(TestContext.Current.CancellationToken);
     try
     {
-      await started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      await started.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
       client.Dispose();
       Assert.True(handler.Token.IsCancellationRequested);
     }
     finally
     {
       _ = release.TrySetResult();
-      _ = await refresh.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      _ = await refresh.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
     }
   }
 

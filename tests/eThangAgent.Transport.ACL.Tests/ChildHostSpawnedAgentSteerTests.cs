@@ -8,6 +8,7 @@ using eThangAgent.ChildHost;
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -34,7 +35,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     the run actually uses would satisfy an ack and fail this.</para></summary>
 public class ChildHostSpawnedAgentSteerTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(120);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   private const string ChildModel = "mock/spawned-agent";
 

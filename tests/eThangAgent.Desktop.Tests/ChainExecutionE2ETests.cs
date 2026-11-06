@@ -8,6 +8,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -56,9 +57,9 @@ public class ChainExecutionE2ETests
   /// <summary>How long one step's turn may take. Generous because <c>chain.start</c> BLOCKS
   ///     while the app builds a container and launches a host process for the step's session.
   ///     </summary>
-  private static readonly TimeSpan StepLimit = TimeSpan.FromSeconds(180);
+  private static readonly TimeSpan StepLimit = TestCeiling.Value;
 
-  private static readonly TimeSpan SwapLimit = TimeSpan.FromSeconds(120);
+  private static readonly TimeSpan SwapLimit = TestCeiling.Value;
 
   /// <summary>The creating session's turn: plan, then the explicit plan-to-execution
   ///     transition. <c>chain.start</c> blocks until the app answers with step 1's session id.

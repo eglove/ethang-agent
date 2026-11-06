@@ -35,6 +35,21 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@"ListRecentAsync|CountKindForAgentAsync")]
   private static partial Regex AuditReadPattern();
 
+  [GeneratedRegex(@"Assert\.Skip\s*\(")]
+  private static partial Regex SkipCallPattern();
+
+  [GeneratedRegex(@"Trait\s*\(\s*""Category""\s*,\s*""OptIn""\s*\)")]
+  private static partial Regex OptInTraitPattern();
+
+  [GeneratedRegex(@"Trait\s*\(\s*""Category""\s*,\s*""LatencyContract""\s*\)")]
+  private static partial Regex LatencyContractTraitPattern();
+
+  [GeneratedRegex(@"static\s+readonly\s+TimeSpan\s+(Limit|TestTimeout|WaitLimit|Timeout)\s*=\s*TimeSpan\.From")]
+  private static partial Regex LocalCeilingPattern();
+
+  [GeneratedRegex(@"Assert\.\w+\s*\([^;]*?\.Elapsed\s*<=")]
+  private static partial Regex ElapsedAssertionPattern();
+
   /// <summary>R5.1: no NEW polling. Wait idioms are event-driven (WhenSettledAsync,
   ///     push delivery); timed waits appear only in the named allowlist — the
   ///     watchdog's bounded settle poll, transport/retry ACLs owning real backoff
@@ -130,6 +145,103 @@ public sealed partial class DoctrineTests
 
     Assert.True(violations.Count == 0,
         "enforcement/runtime paths reading the audit trail (audit is a record, never a state source): "
+        + string.Join(", ", violations));
+  }
+
+  /// <summary>Issue #366: a test that does not run is not a test. Every test either runs or is
+  ///     deleted; the one exception is an opt-in test, which is marked by its class-level
+  ///     <c>Category=OptIn</c> trait and skipped through <c>OptInTest.SkipUnlessEnabled</c>, so the
+  ///     skip names the switch that turns it on and the default run reports it as a skip rather
+  ///     than a silent pass.</summary>
+  [Fact]
+  public void NoSkippedTests_EveryTestRunsOrIsDeleted()
+  {
+    // The helper is where the one permitted skip lives; it is not a test file.
+    string[] allowlist = ["tests/eThangAgent.Tests.Shared/OptInTest.cs"];
+
+    List<string> violations = [];
+    foreach (string file in SourceFiles("tests"))
+    {
+      string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
+      if (allowlist.Contains(relative))
+      {
+        continue;
+      }
+
+      string text = File.ReadAllText(file);
+      if (SkipCallPattern().IsMatch(text) && !OptInTraitPattern().IsMatch(text))
+      {
+        violations.Add(relative);
+      }
+    }
+
+    Assert.True(violations.Count == 0,
+        "tests skipped without an opt-in trait (a test either runs or is deleted; an opt-in test carries "
+        + "[Trait(\"Category\", \"OptIn\")] and skips through OptInTest.SkipUnlessEnabled): "
+        + string.Join(", ", violations));
+  }
+
+  /// <summary>Issue #366: a wall-clock bound is a CEILING, not a latency contract. Under full-suite
+  ///     load the machine is saturated by the suite's own child-host processes, so a bound tuned to
+  ///     an idle machine expires before the work settles and the assertion proves nothing about the
+  ///     code. Ceilings have one source of truth (<c>TestCeiling</c> in Tests.Shared); a test that
+  ///     genuinely measures latency declares it with <c>Category=LatencyContract</c>.</summary>
+  [Fact]
+  public void NoWallClockLatencyBounds_EveryWaitIsACeilingOrDeclaresLatency()
+  {
+    List<string> violations = [];
+    foreach (string file in SourceFiles("tests"))
+    {
+      string text = File.ReadAllText(file);
+      if (LatencyContractTraitPattern().IsMatch(text))
+      {
+        continue;
+      }
+
+      string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
+      if (LocalCeilingPattern().IsMatch(text))
+      {
+        violations.Add(relative + " (local wall-clock ceiling constant)");
+      }
+
+      if (ElapsedAssertionPattern().IsMatch(text))
+      {
+        violations.Add(relative + " (asserts elapsed time)");
+      }
+    }
+
+    Assert.True(violations.Count == 0,
+        "wall-clock latency bounds outside a declared latency contract (use TestCeiling, or mark the "
+        + "class [Trait(\"Category\", \"LatencyContract\")] when latency IS the contract): "
+        + string.Join(", ", violations));
+  }
+
+  /// <summary>Issue #366: every test assembly takes its ceiling from Tests.Shared. A project that
+  ///     does not reference it can only express a bound by writing its own, which is the shape the
+  ///     ceiling rule exists to prevent.</summary>
+  [Fact]
+  public void TestCeilings_HaveOneSourceOfTruth()
+  {
+    List<string> violations = [];
+    foreach (string project in Directory.EnumerateFiles(Path.Combine(RepoRoot(), "tests"), "*.csproj",
+        SearchOption.AllDirectories))
+    {
+      string relative = Path.GetRelativePath(RepoRoot(), project).Replace('\\', '/');
+      if (relative.EndsWith("eThangAgent.Tests.Shared/eThangAgent.Tests.Shared.csproj", StringComparison.Ordinal)
+          || relative.EndsWith("eThangAgent.TestSupport/eThangAgent.TestSupport.csproj", StringComparison.Ordinal)
+          || relative.Contains("/Stub", StringComparison.Ordinal))
+      {
+        continue;
+      }
+
+      if (!File.ReadAllText(project).Contains("eThangAgent.TestSupport.csproj", StringComparison.Ordinal))
+      {
+        violations.Add(relative);
+      }
+    }
+
+    Assert.True(violations.Count == 0,
+        "test projects without a Tests.Shared reference (the ceiling has one source of truth): "
         + string.Join(", ", violations));
   }
 }

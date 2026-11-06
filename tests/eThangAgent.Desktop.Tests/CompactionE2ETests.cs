@@ -1,5 +1,7 @@
 using System.Text.Json;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Full-vertical E2E: a scripted usage frame pushes the real accountant past
@@ -36,22 +38,18 @@ public class CompactionE2ETests
     // Turn 1: 3.4M chars of assistant bulk makes eviction possible; usage crosses 85%.
     _ = host.Mock.ReturnsForModel(E2E.SessionModel,
         RawCompletionWithUsage(new string('h', 3_400_000), 1_700_000, 64));
-    await host.Vm.RunTurnAsync("start some work").WaitAsync(
-        TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
+    await host.Vm.RunTurnAsync("start some work").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
     // Turns 2-3 build groups; each turn's usage re-crosses the threshold so the
     // trigger keeps firing every iteration boundary.
     _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletionWithUsage("t2", 1_700_000, 32));
-    await host.Vm.RunTurnAsync("continue the work").WaitAsync(
-        TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
+    await host.Vm.RunTurnAsync("continue the work").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
     _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletionWithUsage("t3", 1_700_000, 32));
-    await host.Vm.RunTurnAsync("keep going").WaitAsync(
-        TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
+    await host.Vm.RunTurnAsync("keep going").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
     _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletionWithUsage("t4", 1_700_000, 32));
-    await host.Vm.RunTurnAsync("and again").WaitAsync(
-        TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
+    await host.Vm.RunTurnAsync("and again").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
     IReadOnlyList<string> bodies = host.Mock.RequestBodies;
     bool failNotice = bodies.Any(b => b.Contains("Context compaction failed", StringComparison.Ordinal));

@@ -1,6 +1,8 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Agent.Application.Tests;
 
 /// <summary>The governor's fast clock: it ticks the governor once per fired beat, absorbs a
@@ -19,7 +21,7 @@ public sealed class ResourceGovernorLoopTests
 
     Task run = loop.RunAsync(cts.Token);
 
-    await run.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken).ConfigureAwait(true); // a clean end is the contract
+    await run.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true); // a clean end is the contract
     Assert.True(run.IsCompletedSuccessfully); // returned, never faulted - the governor was never touched
   }
 
@@ -54,7 +56,7 @@ public sealed class ResourceGovernorLoopTests
     _ = Assert.Single(enactment.Calls); // exactly the fired beat drove one governor decision
 
     await cts.CancelAsync().ConfigureAwait(true);
-    await run.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await run.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
   }
 
   [Fact]
@@ -76,7 +78,7 @@ public sealed class ResourceGovernorLoopTests
     _ = Assert.Single(enactment.Calls);
 
     await cts.CancelAsync().ConfigureAwait(true);
-    await run.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await run.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
   }
 
   /// <summary>Bounded scheduling grace for a fired beat to reach the governor - a deadline,

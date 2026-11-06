@@ -1,5 +1,7 @@
 using System.Text;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>The mock serves requests CONCURRENTLY: a delayed in-flight response must
@@ -32,7 +34,7 @@ public class MockConcurrencyTests
       Task<string> fast = PostResponsesAsync(fastUrl, E2E.RawCompletionBody("fast/model"));
 
       // The fast request must complete WELL before the slow one's delay elapses.
-      _ = await fast.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      _ = await fast.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       fastBody = await fast.ConfigureAwait(true);
       slowBody = await slow.ConfigureAwait(true);
     }

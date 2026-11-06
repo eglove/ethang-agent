@@ -1,6 +1,8 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Issue #253 B1: user steering must reach the ROOT conversation, which lives in
@@ -12,7 +14,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     container's inbox with the sender's message identity intact.</para></summary>
 public class ChildHostRootSteerWireTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task DeliverToLiveRootTurn_ReachesTheRootInbox()

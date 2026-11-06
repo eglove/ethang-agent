@@ -5,6 +5,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -131,8 +132,13 @@ public sealed class ResourceIndicatorFeedTests
     // never progresses and the failure reads as 'the feed never completed its publish' -
     // a lie about the code under test. A real await hands the thread back, which is what
     // production does.
+    // The bound is a CEILING, not a schedule: 500 one-millisecond turns is a fixed
+    // half-second of wall clock, which a loaded machine can spend without the pool ever
+    // resuming the store read. The loop runs until the ceiling, so the machine's speed
+    // decides how many turns it gets rather than how long it is allowed.
+    System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
     bool updated = false;
-    for (int i = 0; i < 500 && !updated; i++)
+    while (!updated && elapsed.Elapsed < TestCeiling.Value)
     {
       Dispatcher.UIThread.RunJobs();
       updated = onUiThread is not null || publish.IsCompleted;

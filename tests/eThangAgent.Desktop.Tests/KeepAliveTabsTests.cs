@@ -5,6 +5,7 @@ using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -88,11 +89,20 @@ public class KeepAliveTabsTests
     string frameBefore = one.Status.Spinner;
     Assert.NotEqual(string.Empty, frameBefore);
 
-    // Advance well past the 80 ms timer interval; the keep-alive view's timer must
-    // still tick the background tab's spinner.
-    await Task.Delay(200).ConfigureAwait(true);
-    Dispatcher.UIThread.RunJobs();
-    string frameAfter = one.Status.Spinner;
+    // The keep-alive view's timer must still tick the background tab's spinner. The
+    // assertion is that the frame MOVED, so the loop waits for a frame that differs
+    // rather than for a duration: a fixed delay can land on a frame count that wraps the
+    // ten-frame cycle back to where it started, and on a loaded machine it can land
+    // before the timer has fired at all.
+    System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+    string frameAfter = frameBefore;
+    while (frameAfter == frameBefore && elapsed.Elapsed < TestCeiling.Value)
+    {
+      await Task.Delay(20).ConfigureAwait(true);
+      Dispatcher.UIThread.RunJobs();
+      frameAfter = one.Status.Spinner;
+    }
+
     Assert.NotEqual(frameBefore, frameAfter);
   }
 }

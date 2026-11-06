@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Reflection;
 using eThangAgent.Composition;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>CONTAINMENT, not re-attach (issue #274). A REAL ChildHost process serves ONE
@@ -138,7 +140,7 @@ public class ReAttachE2ETests
     try
     {
       app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-          TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15),
+          TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value,
               TestContext.Current.CancellationToken).ConfigureAwait(true);
     }
     catch (Exception ex) when (ex is IOException or TimeoutException)
@@ -151,7 +153,7 @@ public class ReAttachE2ETests
     // host's own confirmation that a connection exists to drop. The host also EXITS on a
     // disturbed accept, so a host that died here is reported as such instead of being waited on.
     Stopwatch waited = Stopwatch.StartNew();
-    while (waited.Elapsed < TimeSpan.FromSeconds(15))
+    while (waited.Elapsed < TestCeiling.Value)
     {
       if (hostLog.Any(line => line.Contains("app-connected", StringComparison.Ordinal)))
       {

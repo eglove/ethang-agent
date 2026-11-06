@@ -1,4 +1,6 @@
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Real named-pipe round trips over a unique pipe name per test: envelopes
@@ -71,14 +73,14 @@ public class NamedPipeChildTransportTests
           _ = reArmed.TrySetResult();
         }, TestContext.Current.CancellationToken);
 
-    await reArmed.Task.WaitAsync(TimeSpan.FromSeconds(15),
+    await reArmed.Task.WaitAsync(TestCeiling.Value,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     // The accept must survive the disturbance and serve a REAL client.
     NamedPipeChildTransport app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15),
+        TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value,
             TestContext.Current.CancellationToken).ConfigureAwait(true);
-    NamedPipeChildTransport host = await serverTask.WaitAsync(TimeSpan.FromSeconds(15),
+    NamedPipeChildTransport host = await serverTask.WaitAsync(TestCeiling.Value,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     try

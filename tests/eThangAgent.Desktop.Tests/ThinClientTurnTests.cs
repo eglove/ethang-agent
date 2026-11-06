@@ -8,6 +8,7 @@ using eThangAgent.FileSystem.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
 
@@ -45,7 +46,7 @@ public sealed class ThinClientTurnTests
     FakeHostSession session = await FakeHostSession.StartAsync(["he"], holdOpen: true).ConfigureAwait(true);
 
     Task send = session.ViewModel.SubmitAsync("hi");
-    await session.Host.TurnStarted.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await session.Host.TurnStarted.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     session.ViewModel.RequestStop();
     await send.ConfigureAwait(true);
 
@@ -192,7 +193,7 @@ public sealed class ThinClientTurnTests
     FakeHostSession session = await FakeHostSession.StartAsync(["he"], holdOpen: true).ConfigureAwait(true);
 
     Task send = session.ViewModel.SubmitAsync("hi");
-    await session.Host.TurnStarted.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await session.Host.TurnStarted.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     session.ViewModel.RequestStop();
     await send.ConfigureAwait(true);
 
@@ -472,7 +473,7 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
 
   /// <summary>Completes once a turn is in flight — the deterministic 'busy' signal a
   ///     stop test needs instead of a sleep.</summary>
-  public Task TurnStarted => _started.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+  public Task TurnStarted => _started.Task.WaitAsync(TestCeiling.Value, CancellationToken.None);
 
   /// <summary>Turn ids the app interrupted IN THE HOST. This is the distinction the stop
   ///     test turns on: a fake that merely honors its token cannot tell 'the host turn was
@@ -517,7 +518,7 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
   /// <summary>Completes once the app has answered its first session-request — the
   ///     deterministic 'the answer landed' signal a pending-window test needs instead of a
   ///     sleep.</summary>
-  public Task FirstSessionResponse => _firstSessionResponse.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+  public Task FirstSessionResponse => _firstSessionResponse.Task.WaitAsync(TestCeiling.Value, CancellationToken.None);
 
   public void SendSessionResponse(string requestId, string? sessionId, string? errorCode, string? errorMessage)
   {

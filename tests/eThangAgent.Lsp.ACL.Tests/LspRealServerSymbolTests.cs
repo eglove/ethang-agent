@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
@@ -6,7 +7,10 @@ namespace eThangAgent.Lsp.ACL.Tests;
 /// executable and the production pipe protocol to prove symbol navigation resolves
 /// members that a server reports with their signature attached. Opt-in by trait - it
 /// needs a built daemon and a machine where Roslyn can load the workspace - and out of
-/// the default suite. Run it with --filter-trait "Category=RealLspServer".</summary>
+/// the default suite. Run it with --filter-trait "Category=OptIn" and
+/// ETHANG_LSP_REAL_SERVER=1.</summary>
+[Trait("Category", "OptIn")]
+[Trait("Category", "RealLspServer")]
 public class LspRealServerSymbolTests
 {
   private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -33,13 +37,10 @@ public class LspRealServerSymbolTests
       "}\n";
 
   [Fact]
-  [Trait("Category", "RealLspServer")]
   public async Task MemberSymbols_ResolveAgainstTheRealServer()
   {
-    if (Environment.GetEnvironmentVariable("ETHANG_LSP_REAL_SERVER") is not "1")
-    {
-      Assert.Skip("Opt-in: set ETHANG_LSP_REAL_SERVER=1 with a built daemon and a resolvable Roslyn server.");
-    }
+    OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
+        "with a built daemon and a resolvable Roslyn server.");
 
     string daemonExe = LspDaemonExeLocator.CreateDefault().Resolve();
     Assert.True(File.Exists(daemonExe), "the language-server daemon must be built first: " + daemonExe);
@@ -198,13 +199,10 @@ public class LspRealServerSymbolTests
   }
 
   [Fact]
-  [Trait("Category", "RealLspServer")]
   public async Task ColdWorkspace_ReportsStarting_ThenWorkspaceLoadAnswers()
   {
-    if (Environment.GetEnvironmentVariable("ETHANG_LSP_REAL_SERVER") is not "1")
-    {
-      Assert.Skip("Opt-in: set ETHANG_LSP_REAL_SERVER=1 with a built daemon and a resolvable Roslyn server.");
-    }
+    OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
+        "with a built daemon and a resolvable Roslyn server.");
 
     string daemonExe = LspDaemonExeLocator.CreateDefault().Resolve();
     Assert.True(File.Exists(daemonExe), "the language-server daemon must be built first: " + daemonExe);
@@ -273,13 +271,10 @@ public class LspRealServerSymbolTests
   }
 
   [Fact]
-  [Trait("Category", "RealLspServer")]
   public async Task RealServer_Rename_ReturnsEditsCoveringEveryUsage()
   {
-    if (Environment.GetEnvironmentVariable("ETHANG_LSP_REAL_SERVER") is not "1")
-    {
-      Assert.Skip("Opt-in: set ETHANG_LSP_REAL_SERVER=1 with a built daemon and a resolvable Roslyn server.");
-    }
+    OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
+        "with a built daemon and a resolvable Roslyn server.");
 
     string daemonExe = LspDaemonExeLocator.CreateDefault().Resolve();
     Assert.True(File.Exists(daemonExe), "the language-server daemon must be built first: " + daemonExe);

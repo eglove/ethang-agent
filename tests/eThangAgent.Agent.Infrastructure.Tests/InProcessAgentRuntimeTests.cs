@@ -1,6 +1,8 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.AgentInfrastructure.Tests;
 
 /// <summary>Unit tests for the in-process actor runtime: immediate start, terminal persistence,
@@ -77,7 +79,7 @@ public class InProcessAgentRuntimeTests
     public bool GetAsyncCalled { get; private set; }
 
     /// <summary>Completes when the first update lands; times out loudly instead of hanging.</summary>
-    public Task<AgentRecord> FirstUpdate => _firstUpdate.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    public Task<AgentRecord> FirstUpdate => _firstUpdate.Task.WaitAsync(TestCeiling.Value);
 
     /// <summary>When set, every update fails with this error - the shape a contended or
     ///     broken store presents to the terminal write.</summary>
@@ -191,7 +193,7 @@ public class InProcessAgentRuntimeTests
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public CancellationToken ObservedToken { get; private set; }
-    public Task FirstCall => _firstCall.Task.WaitAsync(TimeSpan.FromSeconds(10), ObservedToken);
+    public Task FirstCall => _firstCall.Task.WaitAsync(TestCeiling.Value, ObservedToken);
 
     public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
     {

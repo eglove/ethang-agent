@@ -2,6 +2,8 @@ using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The remote runtime's settle-retention contract (W1.1 prerequisite): a
@@ -18,8 +20,8 @@ public class RemoteRuntimeSettleRetentionTests
     string pipeName = "ethang-settle-" + Guid.NewGuid().ToString("N");
     Task<NamedPipeChildTransport> serverTask = NamedPipeChildTransport.AcceptAppAsync(pipeName, TestContext.Current.CancellationToken);
     NamedPipeChildTransport app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
-    NamedPipeChildTransport host = await serverTask.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    NamedPipeChildTransport host = await serverTask.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     return (app, host);
   }
 
@@ -34,7 +36,7 @@ public class RemoteRuntimeSettleRetentionTests
     _ = runtime.RunReceiveLoopAsync(loop.Token);
     Result<AgentId> started = await runtime.Start(
         AgentRecord.Started(child, "m/sub", "hung", "task", DateTimeOffset.UtcNow),
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(started.IsSuccess, started.Error?.Message);
     return runtime;
   }
@@ -52,7 +54,7 @@ public class RemoteRuntimeSettleRetentionTests
         JsonSerializer.Serialize(new SettleNotice(child.Value, "Interrupted", "Interrupted", "attempt cut")), 1),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Result<AgentRunOutcome> first = await runtime.WhenSettledAsync(child, TestContext.Current.CancellationToken)
-        .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(first.IsSuccess, first.Error?.Message);
     Assert.Equal(AgentStatus.Interrupted, first.Value.Status);
 

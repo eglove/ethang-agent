@@ -1,6 +1,8 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.AgentInfrastructure.Tests;
 
 /// <summary>Integration proof for the full resume cycle (start -> settle -> resume -> settle) over a REAL
@@ -77,7 +79,7 @@ public class InProcessAgentRuntimeResumeTests
     public Dictionary<Guid, AgentRecord> Records { get; } = [];
 
     /// <summary>Completes when the first update lands; times out loudly instead of hanging.</summary>
-    public Task<AgentRecord> FirstUpdate => _firstUpdate.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    public Task<AgentRecord> FirstUpdate => _firstUpdate.Task.WaitAsync(TestCeiling.Value);
 
     public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
     {
@@ -203,7 +205,7 @@ public class InProcessAgentRuntimeResumeTests
 
     // 2. WhenSettledAsync returns the first outcome.
     Result<AgentRunOutcome> firstSettle = await runtime.WhenSettledAsync(child.Id, TestContext.Current.CancellationToken)
-        .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(firstSettle.IsSuccess, firstSettle.Error?.Message);
     Assert.Equal("first report", firstSettle.Value.Report);
 
@@ -213,7 +215,7 @@ public class InProcessAgentRuntimeResumeTests
 
     // 3. Resume succeeds on the SAME id.
     Result<AgentId> resumed = await runtime.Resume(child.Id, "fix the failing tests", TestContext.Current.CancellationToken)
-        .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(resumed.IsSuccess, resumed.Error?.Message);
     Assert.Equal(child.Id, resumed.Value);
 
@@ -234,7 +236,7 @@ public class InProcessAgentRuntimeResumeTests
 
     // 6. WhenSettledAsync returns the SECOND report (fresh settle source for the resumed run).
     Result<AgentRunOutcome> secondSettle = await runtime.WhenSettledAsync(child.Id, TestContext.Current.CancellationToken)
-        .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(secondSettle.IsSuccess, secondSettle.Error?.Message);
     Assert.Equal("second report", secondSettle.Value.Report);
 
@@ -247,7 +249,7 @@ public class InProcessAgentRuntimeResumeTests
 
     // 8. messages appended between rounds survive: first-round + appended + second-round, in order, no duplication.
     Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(child.Id, TestContext.Current.CancellationToken)
-        .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(transcript.IsSuccess, transcript.Error?.Message);
     Assert.Equal(4, transcript.Value.Count);
     Assert.Equal("round-one prompt", transcript.Value[0].Content);

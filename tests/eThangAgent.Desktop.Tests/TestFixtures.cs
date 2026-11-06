@@ -8,6 +8,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -171,7 +172,7 @@ runner,
 
     public CancellationToken ObservedToken { get; private set; }
 
-    public Task Started => _started.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+    public Task Started => _started.Task.WaitAsync(TestCeiling.Value, CancellationToken.None);
 
     public void Release() => _release.TrySetResult();
 

@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -112,7 +113,7 @@ public class WorkspaceFileWatcherPollingTests
       watcher.Start();
       Write(root, "after-overflow.cs", "y");
       watcher.SimulateBufferOverflow();
-      await tcs.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+      await tcs.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
       Assert.NotNull(received);
       Assert.Contains("after-overflow.cs", received.Added);
     }
@@ -140,7 +141,7 @@ public class WorkspaceFileWatcherPollingTests
           pollingInterval: TimeSpan.FromMilliseconds(50));
       watcher.Start();
       Write(root, "polled.cs", "z");
-      await tcs.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+      await tcs.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
       Assert.NotNull(received);
       Assert.Contains("polled.cs", received.Added);
     }

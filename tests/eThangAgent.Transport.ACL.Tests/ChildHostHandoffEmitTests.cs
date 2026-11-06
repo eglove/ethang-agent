@@ -6,6 +6,7 @@ using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 using Ag = eThangAgent.AgentDomain.Agent;
@@ -23,7 +24,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     makes a tool call whose usage report drives iteration 2 over the ceiling).</para></summary>
 public class ChildHostHandoffEmitTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   private static readonly ModelConfig Config =
       ModelConfig.Create("scripted/model", 4096, 0f, 1000).Value!;

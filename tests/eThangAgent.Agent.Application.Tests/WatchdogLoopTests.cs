@@ -1,5 +1,7 @@
 using eThangAgent.AgentDomain;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Agent.Application.Tests;
 
 /// <summary>The loop ticks every attached watchdog once per fired clock beat, ends cleanly on
@@ -95,7 +97,7 @@ public class WatchdogLoopTests
     Assert.Equal(2, b.Ticks);
 
     await cts.CancelAsync().ConfigureAwait(true);
-    await run.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken).ConfigureAwait(true); // bounded: a clean end is the contract
+    await run.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true); // bounded: a clean end is the contract
   }
 
   [Fact]
@@ -129,7 +131,7 @@ public class WatchdogLoopTests
     Assert.Equal(2, good.Ticks);
 
     await cts.CancelAsync().ConfigureAwait(true);
-    await run.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken).ConfigureAwait(true); // must complete without faulting or cancelling
+    await run.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true); // must complete without faulting or cancelling
   }
 
   /// <summary>Bounded scheduling grace for a fired beat to reach its ticker — a deadline,

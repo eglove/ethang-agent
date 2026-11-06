@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.Lsp.ACL.Tests;
@@ -8,19 +9,18 @@ namespace eThangAgent.Lsp.ACL.Tests;
 /// end to end: connect cold, ask for diagnostics, announce a changed file, ask again.
 /// Opt-in by trait - it needs a built daemon and a machine where Roslyn can load the
 /// workspace - and out of the default suite. Run it with
-/// --filter-trait "Category=RealLspServer".</summary>
+/// --filter-trait "Category=OptIn" with ETHANG_LSP_REAL_SERVER=1.</summary>
+[Trait("Category", "OptIn")]
+[Trait("Category", "RealLspServer")]
 public class LspRealServerDiagnosticsTests
 {
   private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
   [Fact]
-  [Trait("Category", "RealLspServer")]
   public async Task AdvisoryDiagnostics_ColdQueryThenAnnouncement_ReturnsTheTypeError()
   {
-    if (Environment.GetEnvironmentVariable("ETHANG_LSP_REAL_SERVER") is not "1")
-    {
-      Assert.Skip("Opt-in: set ETHANG_LSP_REAL_SERVER=1 with a built daemon and a resolvable Roslyn server.");
-    }
+    OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
+        "with a built daemon and a resolvable Roslyn server.");
 
     string daemonExe = LspDaemonExeLocator.CreateDefault().Resolve();
     Assert.True(File.Exists(daemonExe), "the language-server daemon must be built first: " + daemonExe);
@@ -116,7 +116,7 @@ public class LspRealServerDiagnosticsTests
   {
     AdvisoryDiagnosticsResult result = new(AdvisoryDiagnosticsState.Starting, []);
     System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
-    while (elapsed.Elapsed < TimeSpan.FromSeconds(90))
+    while (elapsed.Elapsed < TestCeiling.Value)
     {
       result = await client.GetDiagnosticsAsync(file, Ct).ConfigureAwait(true);
       if (result.Diagnostics.Count > 0)

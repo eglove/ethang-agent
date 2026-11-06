@@ -8,6 +8,8 @@ using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>W1.1: the hung-remote-child E2E through the REAL host process. The host is
@@ -223,7 +225,7 @@ public class HungRemoteChildE2ETests
     {
       // The APP side: a real RemoteAgentRuntime over the wire (the ReAttach pattern).
       NamedPipeChildTransport appTransport = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-          TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+          TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       RemoteAgentRuntime runtime = new(appTransport);
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
@@ -239,14 +241,14 @@ public class HungRemoteChildE2ETests
       Result<AgentRecord> loadedChild = await bootstrap.GetAsync(child, TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(loadedChild.IsSuccess, loadedChild.Error?.Message);
       Result<AgentId> start = await runtime.Start(loadedChild.Value, TestContext.Current.CancellationToken)
-          .WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken).ConfigureAwait(true);
+          .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(start.IsSuccess, start.Error?.Message);
       // The run's first provider call is answered; the second HANGS. The host watchdog
       // must act: idle past the 2-second threshold -> interrupt -> wrap-up retry, which
       // hangs again -> terminal Failed(Hung). The WhenSettledAsync await resolves only
       // when the app's pump receives the FINAL settle envelope (never a poll).
       Result<AgentRunOutcome> outcome = await runtime.WhenSettledAsync(child, TestContext.Current.CancellationToken)
-          .WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken).ConfigureAwait(true);
+          .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(outcome.IsSuccess, "the final settle envelope never reached the app runtime");
       Assert.Equal(AgentStatus.Failed, outcome.Value.Status);
       // The envelope carries the run's HONEST classification: the host watchdog's

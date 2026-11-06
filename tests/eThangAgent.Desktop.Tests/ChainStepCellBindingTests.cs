@@ -7,6 +7,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -40,7 +41,7 @@ public class ChainStepCellBindingTests
 
   /// <summary>How long a step's launch or turn may take before the test calls it wedged.
   ///     Generous: the launch builds a container and the turn crosses a fake host.</summary>
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(30);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   /// <summary>A three-step chain whose earlier steps are already claimed: step 1 by
   ///     <paramref name="step1SessionId"/>, and step 2 by <paramref name="step2SessionId"/>

@@ -2,6 +2,8 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ChildHost;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The app-side root-turn path over a real named pipe (spec D6): the app sends
@@ -14,9 +16,10 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     RootTurnProtocol) and never uses RemoteAgentRuntime, so these tests fail if the
 ///     production client's send, routing, or settlement is broken. The Received
 ///     assertions prove the request actually crossed the pipe.</summary>
+[Trait("Category", "LatencyContract")]
 public class ChildHostRootTurnTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   /// <summary>A deliberately short root-turn budget for the never-settles test: the
   ///     production default is far longer, but the CONTRACT under test is that a bound

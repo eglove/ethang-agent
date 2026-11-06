@@ -13,6 +13,11 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   private readonly Queue<string> _scriptedResponses = new();
   private readonly Dictionary<string, Queue<string>> _modelScripts = [];
   private readonly Dictionary<string, TimeSpan> _modelDelays = [];
+  // Dispatch runs every request on its own task, so these are written from more than one
+  // thread while the test thread reads them. The snapshots below hand out copies taken under
+  // the lock: a live List handed to the test thread throws 'Collection was modified' whenever
+  // the server happens to be recording another request at that moment.
+  private readonly Lock _gate = new();
   private readonly List<string> _requestBodies = [];
   private readonly string _responsesPath = responsesPath;
   private readonly List<string> _responsesRequestPaths = [];
@@ -23,7 +28,16 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   public int CatalogStatusCode { get; set; } = 200;
   private int _port;
 
-  public IReadOnlyList<string> RequestBodies => _requestBodies;
+  public IReadOnlyList<string> RequestBodies
+  {
+    get
+    {
+      lock (_gate)
+      {
+        return [.. _requestBodies];
+      }
+    }
+  }
 
   public Uri BaseUrl { get; private set; } = null!;
 
@@ -31,7 +45,16 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   public string? LastChatRequestBody { get; private set; }
 
   /// <summary>Absolute path of every responses request the server served.</summary>
-  public IReadOnlyList<string> ChatRequestPaths => _responsesRequestPaths;
+  public IReadOnlyList<string> ChatRequestPaths
+  {
+    get
+    {
+      lock (_gate)
+      {
+        return [.. _responsesRequestPaths];
+      }
+    }
+  }
 
   public void Start()
   {
@@ -43,7 +66,11 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
 
   public MockOpenRouterServer Returns(string responseJson)
   {
-    _scriptedResponses.Enqueue(responseJson);
+    lock (_gate)
+    {
+      _scriptedResponses.Enqueue(responseJson);
+    }
+
     return this;
   }
 
@@ -60,13 +87,19 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   public MockOpenRouterServer DelayResponsesForModel(string model, TimeSpan delay)
   {
     ArgumentNullException.ThrowIfNull(model);
-    _modelDelays[model] = delay;
+    lock (_gate)
+    {
+      _modelDelays[model] = delay;
+    }
     return this;
   }
   public MockOpenRouterServer ReturnsCatalog(string catalogJson)
   {
     ArgumentNullException.ThrowIfNull(catalogJson);
-    _catalogResponse = catalogJson;
+    lock (_gate)
+    {
+      _catalogResponse = catalogJson;
+    }
     return this;
   }
 
@@ -78,14 +111,17 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
       throw new ArgumentException("model is required.", nameof(model));
     }
 
-    if (!_modelScripts.TryGetValue(model, out Queue<string>? queue))
+    lock (_gate)
     {
-      queue = _modelScripts[model] = new Queue<string>();
-    }
+      if (!_modelScripts.TryGetValue(model, out Queue<string>? queue))
+      {
+        queue = _modelScripts[model] = new Queue<string>();
+      }
 
-    foreach (string response in responseJsons)
-    {
-      queue.Enqueue(response);
+      foreach (string response in responseJsons)
+      {
+        queue.Enqueue(response);
+      }
     }
 
     return this;
@@ -211,11 +247,16 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   private string NextScriptedBody(string requestBody)
   {
     string? model = TryGetRequestModel(requestBody);
-    string body = model is not null
-        && _modelScripts.TryGetValue(model, out Queue<string>? scripted)
-        && scripted.Count > 0
-        ? scripted.Dequeue()
-        : NextDefaultScriptedBody();
+    string body;
+    lock (_gate)
+    {
+      body = model is not null
+          && _modelScripts.TryGetValue(model, out Queue<string>? scripted)
+          && scripted.Count > 0
+          ? scripted.Dequeue()
+          : NextDefaultScriptedBody();
+    }
+
     return SubstituteAgentId(body, requestBody);
   }
 
@@ -330,7 +371,11 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
       await gate.WaitAsync(_cts.Token).ConfigureAwait(false);
     }
 
-    string body = _catalogResponse ?? /*lang=json,strict*/ """{"data":[]}""";
+    string body;
+    lock (_gate)
+    {
+      body = _catalogResponse ?? /*lang=json,strict*/ """{"data":[]}""";
+    }
     byte[] bytes = Encoding.UTF8.GetBytes(body);
     ctx.Response.StatusCode = CatalogStatusCode;
     ctx.Response.ContentType = "application/json";
@@ -345,9 +390,12 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   {
     using StreamReader reader = new(ctx.Request.InputStream);
     string requestBody = await reader.ReadToEndAsync(_cts.Token).ConfigureAwait(false);
-    LastChatRequestBody = requestBody;
-    _requestBodies.Add(requestBody);
-    _responsesRequestPaths.Add(ctx.Request.Url!.AbsolutePath);
+    lock (_gate)
+    {
+      LastChatRequestBody = requestBody;
+      _requestBodies.Add(requestBody);
+      _responsesRequestPaths.Add(ctx.Request.Url!.AbsolutePath);
+    }
 
     try
     {
@@ -367,10 +415,19 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
 
   private async Task ApplyModelDelayAsync(string requestBody)
   {
-    if (TryGetRequestModel(requestBody) is { } requestModel
-        && _modelDelays.TryGetValue(requestModel, out TimeSpan delay))
+    TimeSpan? delay = null;
+    lock (_gate)
     {
-      await Task.Delay(delay, _cts.Token).ConfigureAwait(false);
+      if (TryGetRequestModel(requestBody) is { } requestModel
+          && _modelDelays.TryGetValue(requestModel, out TimeSpan configured))
+      {
+        delay = configured;
+      }
+    }
+
+    if (delay is { } span)
+    {
+      await Task.Delay(span, _cts.Token).ConfigureAwait(false);
     }
   }
 

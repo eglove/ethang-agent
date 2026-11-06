@@ -8,6 +8,7 @@ using eThangAgent.Desktop.Views;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -216,7 +217,7 @@ public sealed class NewAgentLaunchGuardTests
     failure.Close();
     Dispatcher.UIThread.RunJobs();
 
-    await open.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await open.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     // The handler completed without faulting - the process is intact, and the
     // launch was REFUSED (nothing was persisted under a garbage root).

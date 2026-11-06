@@ -1,6 +1,7 @@
 using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.Transport.ACL;
 
 namespace eThangAgent.Composition.Tests;
@@ -95,7 +96,7 @@ public class WireAgentLaunchPortTests
 
     Result<AgentId> started = await port
         .StartAsync(new AgentLaunchRequest("go"), TestContext.Current.CancellationToken)
-        .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)
+        .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken)
         .ConfigureAwait(true);
 
     Assert.False(started.IsSuccess);

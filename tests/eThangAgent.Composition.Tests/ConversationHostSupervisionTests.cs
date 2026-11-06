@@ -17,6 +17,7 @@ namespace eThangAgent.Composition.Tests;
 ///     writer): the supervisor stamps the conversation id into the settings JSON, because
 ///     the host resolves its root runner ONLY when SessionId is set - without the stamp
 ///     every root turn answers RootTurnUnavailable.</summary>
+[Trait("Category", "LatencyContract")]
 public class ConversationHostSupervisionTests
 {
   private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);

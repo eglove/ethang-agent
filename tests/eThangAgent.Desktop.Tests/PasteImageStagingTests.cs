@@ -1,5 +1,7 @@
 using eThangAgent.Desktop.ViewModels;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Paste staging (issue #20): images attach to the view model, ride the next
@@ -80,7 +82,7 @@ public class PasteImageStagingTests
     AgentSessionViewModel vm = MakeVm();
     _ = vm.AttachImageBytes(TinyPng, "shot.png");
 
-    await vm.SubmitAsync("what is this").WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    await vm.SubmitAsync("what is this").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
     UserMessageEntry entry = Assert.IsType<UserMessageEntry>(Assert.Single(
         vm.Transcript.Entries.OfType<UserMessageEntry>()));
@@ -93,7 +95,7 @@ public class PasteImageStagingTests
   public async Task Submit_WithoutImages_UserEntryHasNoImages()
   {
     AgentSessionViewModel vm = MakeVm();
-    await vm.SubmitAsync("plain").WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    await vm.SubmitAsync("plain").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
     Assert.Null(Assert.IsType<UserMessageEntry>(Assert.Single(
         vm.Transcript.Entries.OfType<UserMessageEntry>())).Images);
   }

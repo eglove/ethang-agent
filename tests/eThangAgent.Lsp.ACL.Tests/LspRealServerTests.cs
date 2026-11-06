@@ -1,19 +1,18 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
-/// <summary>Exercises the real downloaded server, opt-in by trait so the default suite
-/// stays deterministic. Run with --filter-trait "Category=RealLspServer".</summary>
+/// <summary>Exercises the real downloaded server, opt-in so the default suite stays
+/// deterministic. Run with --filter-trait "Category=OptIn" and ETHANG_LSP_REAL_SERVER=1.</summary>
+[Trait("Category", "OptIn")]
+[Trait("Category", "RealLspServer")]
 public class LspRealServerTests
 {
   [Fact]
-  [Trait("Category", "RealLspServer")]
   public async Task InstalledServer_AnswersInitializeOverStdio()
   {
-    if (Environment.GetEnvironmentVariable("ETHANG_LSP_REAL_SERVER") is not "1")
-    {
-      Assert.Skip("Opt-in: set ETHANG_LSP_REAL_SERVER=1 to run against the real server.");
-    }
+    OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER", "to run against the real server.");
 
     LspServerInstaller installer = new(
         LspServerInstaller.DefaultRoot,

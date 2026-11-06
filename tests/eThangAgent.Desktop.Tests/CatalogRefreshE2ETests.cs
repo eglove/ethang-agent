@@ -12,6 +12,8 @@ using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 #pragma warning disable CA2007 // Headless UI test continuations stay on the dispatcher.
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 public class CatalogRefreshE2ETests
@@ -50,7 +52,7 @@ public class CatalogRefreshE2ETests
     Task load = vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     try
     {
-      await server.CatalogRequested.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      await server.CatalogRequested.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
       // Drain UI continuations, not elapsed-time polling. HTTP is held until assertions finish.
       await Dispatcher.UIThread.InvokeAsync(() => { });
       Assert.Contains(vm.ModelSection!.FilteredRows, row => row.ModelId == "old/model");
@@ -60,7 +62,7 @@ public class CatalogRefreshE2ETests
     finally
     {
       _ = gate.TrySetResult();
-      await load.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      await load.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
     }
     if (status == 200)
     {

@@ -3,6 +3,8 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The host's ROOT turn runner (spec D6, task 9): the conversation's own agent runs
@@ -22,7 +24,7 @@ public sealed class ChildHostRootRunTests
   // processes and that build can exceed a tight window (issue #324).
   // The bound below is generous on purpose: it asserts the settle ARRIVES
   // and is typed, not that the build is fast.
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(60);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   /// <summary>Stands up the REAL <see cref="ChildHostServer"/> over a real pipe and returns
   ///     the app side. <paramref name="runner"/> is attached through the server's own seam

@@ -9,6 +9,8 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 public class AgentViewTests
@@ -46,7 +48,7 @@ public class AgentViewTests
 
     // Bounded await: before the handler exists (RED) nothing settles the turn, and a
     // wiring regression in GREEN must fail, never hang the suite.
-    await vm.WaitForTurnAsync().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(true);
+    await vm.WaitForTurnAsync().WaitAsync(TestCeiling.Value).ConfigureAwait(true);
     Assert.False(vm.IsBusy);
     Assert.True(park.ObservedToken.IsCancellationRequested);
     AgentId interruptedRoot = Assert.Single(runtime.SubtreeInterrupts);
@@ -66,7 +68,7 @@ public class AgentViewTests
     await park.Started.ConfigureAwait(true);
 
     park.Release();
-    await turnTask.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(true);
+    await turnTask.WaitAsync(TestCeiling.Value).ConfigureAwait(true);
     await vm.WaitForTurnAsync().ConfigureAwait(true);
     Assert.False(vm.IsBusy);
 
@@ -147,7 +149,7 @@ public class AgentViewTests
     view.DataContext = vm;
 
     Task turnTask = vm.SubmitAsync("hello");
-    await turnTask.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(true);
+    await turnTask.WaitAsync(TestCeiling.Value).ConfigureAwait(true);
 
     Assert.False(vm.IsBusy);
     Assert.Contains(vm.Transcript.Entries,

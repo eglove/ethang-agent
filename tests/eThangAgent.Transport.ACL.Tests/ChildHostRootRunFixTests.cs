@@ -3,6 +3,8 @@ using eThangAgent.ChildHost;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Fix round 1's findings, each pinned by a test that fails against the first
@@ -11,7 +13,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     settings-to-container resolution must actually produce a runner.</summary>
 public sealed class ChildHostRootRunFixTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task RootTurnEnvelope_MalformedInput_DoesNotKillTheHost()

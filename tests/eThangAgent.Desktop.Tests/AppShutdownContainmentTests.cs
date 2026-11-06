@@ -5,6 +5,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -73,7 +74,7 @@ public class AppShutdownContainmentTests
       MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, Sink);
       vmRef = shell.Tabs[0].ViewModel;
 
-      await shell.ShutdownAllAsync().WaitAsync(TimeSpan.FromSeconds(60),
+      await shell.ShutdownAllAsync().WaitAsync(TestCeiling.Value,
           TestContext.Current.CancellationToken).ConfigureAwait(true);
 
       // The host is gone. This is the assertion the issue asks for, at the seam that

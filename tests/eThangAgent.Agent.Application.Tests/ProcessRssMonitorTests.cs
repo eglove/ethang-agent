@@ -1,6 +1,8 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Agent.Application.Tests;
 
 /// <summary>The process-RSS monitor: a breach row is appended when the working set is
@@ -207,7 +209,7 @@ public class ProcessRssMonitorTests
     await TicksDeliveredAsync(events, 1).ConfigureAwait(true); // breach reported on the first completed tick
 
     await cts.CancelAsync().ConfigureAwait(true);
-    await run.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken).ConfigureAwait(true); // bounded: clean end is the contract
+    await run.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true); // bounded: clean end is the contract
     _ = Assert.Single(events.Appended, e => e.Kind == WatchdogEventKind.RssBreached); // rate-limited: exactly one report for all three ticks
   }
 

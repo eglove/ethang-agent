@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.ChildHost;
 using eThangAgent.Composition;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -25,7 +26,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     that substituted any of them could pass while the production path stayed broken.</para></summary>
 public class ChildHostRootChildEventForwardingTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task RootContainerChildStarted_ReachesTheAppWithoutAnySteer()
@@ -173,10 +174,10 @@ public class ChildHostRootChildEventForwardingTests
           TestContext.Current.CancellationToken);
       NamedPipeChildTransport app = await NamedPipeChildTransport
           .ConnectToHostAsync(pipeName, TestContext.Current.CancellationToken)
-          .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)
+          .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken)
           .ConfigureAwait(true);
       NamedPipeChildTransport hostSide = await accept
-          .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)
+          .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken)
           .ConfigureAwait(true);
       server.AttachTransport(hostSide);
       _ = server.ServeAsync();

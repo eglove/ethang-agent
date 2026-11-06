@@ -1,6 +1,8 @@
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Fix round 3: the defects round 2 introduced. A cancelled turn must still settle,
@@ -9,7 +11,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     test that fails without it.</summary>
 public sealed class ChildHostRootRunGateTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(30);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task RunTurnAsync_CancelledDuringHydration_StillSettles()

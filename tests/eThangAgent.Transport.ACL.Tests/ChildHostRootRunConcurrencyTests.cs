@@ -2,6 +2,8 @@ using eThangAgent.ChildHost;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Fix round 2: the defects the round-1 hydration fix introduced or left. Concurrent
@@ -10,7 +12,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     concurrency, and a buffering host must be detectable at the wire.</summary>
 public sealed class ChildHostRootRunConcurrencyTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(30);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task RunTurnAsync_ConcurrentTurns_BothSeeTheStoredHistory()

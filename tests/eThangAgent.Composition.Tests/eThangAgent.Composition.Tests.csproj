@@ -11,4 +11,8 @@
          run, naming the pids, when a host outlives the tests. -->
     <ProjectReference Include="../eThangAgent.Tests.Shared/eThangAgent.Tests.Shared.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Issue #366: the ceiling and the opt-in skip have one source of truth. -->
+    <ProjectReference Include="../eThangAgent.TestSupport/eThangAgent.TestSupport.csproj" />
+  </ItemGroup>
 </Project>

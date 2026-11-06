@@ -2,6 +2,8 @@ using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.ChildHost;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Issue #330: a cell's chat input must reach an agent that runs in its OWN host.
@@ -20,7 +22,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     slow agent, which is the whole reason this path exists.</para></summary>
 public class ChildHostAgentSteerWireTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(15);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   /// <summary>A steer addressed by AGENT ID lands in that agent's own mailbox, under the
   ///     identity the app pinned its echo to, and the host answers that it was accepted.

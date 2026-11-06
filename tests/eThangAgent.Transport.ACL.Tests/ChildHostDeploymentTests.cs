@@ -1,6 +1,8 @@
 using eThangAgent.ChildHost;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The conversation host is a SIDECAR APP: it ships next to the app and runs as
@@ -16,7 +18,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     behind a wrapper exception.</para></summary>
 public class ChildHostDeploymentTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(30);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task AHostWithoutItsDependencyManifest_NamesTheDeploymentFault()

@@ -6,4 +6,8 @@
          two agree, so the test that proves it needs both sides. -->
     <ProjectReference Include="../../src/eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Issue #366: the ceiling and the opt-in skip have one source of truth. -->
+    <ProjectReference Include="../eThangAgent.TestSupport/eThangAgent.TestSupport.csproj" />
+  </ItemGroup>
 </Project>

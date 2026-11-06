@@ -1,4 +1,6 @@
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>End-to-end proof of the deterministic verification gates (spec #24):
@@ -32,7 +34,7 @@ public class VerificationGateE2ETests
           E2E.ExecToolCall("vg1", E2E.ExecProgram(
               "File.WriteAllText(Path.Combine(Workspace, \"note.txt\"), \"v1\");")),
           RawCompletion("wrote the file"));
-      await host.Vm.RunTurnAsync("edit a file").WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+      await host.Vm.RunTurnAsync("edit a file").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
       // The nudge persists as a System message in the transcript.
       List<string> messages = await ReadAllMessagesAsync(host.DatabasePath).ConfigureAwait(true);

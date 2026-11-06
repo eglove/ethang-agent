@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -94,7 +95,7 @@ public class DiagnosticsEndToEndE2ETests
     public void Dispose()
     {
       _cts.Cancel();
-      _serve.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+      _serve.WaitAsync(TestCeiling.Value, CancellationToken.None).GetAwaiter().GetResult();
       _server.Dispose();
       _cts.Dispose();
     }
@@ -123,7 +124,7 @@ public class DiagnosticsEndToEndE2ETests
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("e1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "a.cs"), "int x = 1;", "int x = \"one\";"))),
           E2E.RawCompletion("edited"));
-      await host.Vm.RunTurnAsync("introduce a type error").WaitAsync(TimeSpan.FromSeconds(90), Ct).ConfigureAwait(true);
+      await host.Vm.RunTurnAsync("introduce a type error").WaitAsync(TestCeiling.Value, Ct).ConfigureAwait(true);
 
       string toolResult = E2E.GetLastToolMessage(host.Mock.RequestBodies[^1]);
       Assert.Contains("[diagnostics]", toolResult, StringComparison.Ordinal);
@@ -142,13 +143,12 @@ public class DiagnosticsEndToEndE2ETests
   ///     machine where the server can analyze a workspace. Run it with
   ///     --filter-trait "Category=RealLspServer".</summary>
   [Fact]
+  [Trait("Category", "OptIn")]
   [Trait("Category", "RealLspServer")]
   public async Task RealBundledServer_EditIntroducingTypeError_ReturnsScopedDiagnostic()
   {
-    if (Environment.GetEnvironmentVariable("ETHANG_LSP_REAL_SERVER") is not "1")
-    {
-      Assert.Skip("Opt-in: set ETHANG_LSP_REAL_SERVER=1 with a built daemon and a resolvable Roslyn server.");
-    }
+    OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
+        "with a built daemon and a resolvable Roslyn server.");
 
     string ws = Directory.CreateTempSubdirectory("ethang-lsp-real").FullName;
     string wsId = "real-" + Guid.NewGuid().ToString("N");
@@ -169,7 +169,7 @@ public class DiagnosticsEndToEndE2ETests
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("r1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "a.cs"), "int x = 1;", "int x = \"one\";"))),
           E2E.RawCompletion("edited"));
-      await host.Vm.RunTurnAsync("introduce a type error").WaitAsync(TimeSpan.FromSeconds(120), Ct).ConfigureAwait(true);
+      await host.Vm.RunTurnAsync("introduce a type error").WaitAsync(TestCeiling.Value, Ct).ConfigureAwait(true);
 
       string firstResult = E2E.GetLastToolMessage(host.Mock.RequestBodies[^1]);
       Assert.Contains("[diagnostics]", firstResult, StringComparison.Ordinal);
@@ -189,7 +189,7 @@ public class DiagnosticsEndToEndE2ETests
                 "int x = \"" + current + "\";",
                 "int x = \"" + next + "\";"))),
             E2E.RawCompletion("edited again"));
-        await host.Vm.RunTurnAsync("touch the file again").WaitAsync(TimeSpan.FromSeconds(120), Ct).ConfigureAwait(true);
+        await host.Vm.RunTurnAsync("touch the file again").WaitAsync(TestCeiling.Value, Ct).ConfigureAwait(true);
         current = next;
         toolResult = AllToolOutputs(host.Mock.RequestBodies[^1])[^1];
         if (toolResult.Contains("CS0029", StringComparison.Ordinal))
@@ -254,8 +254,8 @@ public class DiagnosticsEndToEndE2ETests
           E2E.RawCompletion("edited"),
           E2E.ToolCall("p3", "exec", E2E.ExecProgram("return \"ok\";")),
           E2E.RawCompletion("done"));
-      await host.Vm.RunTurnAsync("edit and run").WaitAsync(TimeSpan.FromSeconds(90), Ct).ConfigureAwait(true);
-      await host.Vm.RunTurnAsync("verify").WaitAsync(TimeSpan.FromSeconds(90), Ct).ConfigureAwait(true);
+      await host.Vm.RunTurnAsync("edit and run").WaitAsync(TestCeiling.Value, Ct).ConfigureAwait(true);
+      await host.Vm.RunTurnAsync("verify").WaitAsync(TestCeiling.Value, Ct).ConfigureAwait(true);
 
       List<string> messages = await ReadAllMessagesAsync(host.DatabasePath).ConfigureAwait(true);
       int gateMessages = messages.Count(m => m.Contains("[verification gate]", StringComparison.Ordinal));
@@ -288,7 +288,7 @@ public class DiagnosticsEndToEndE2ETests
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("s1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "a.cs"), "int x = 1;", "int x = 2;"))),
           E2E.RawCompletion("edited"));
-      await host.Vm.RunTurnAsync("edit the file").WaitAsync(TimeSpan.FromSeconds(120), Ct).ConfigureAwait(true);
+      await host.Vm.RunTurnAsync("edit the file").WaitAsync(TestCeiling.Value, Ct).ConfigureAwait(true);
 
       int after = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
       Assert.True(after > before, "the edit did not start the workspace's language-server daemon");
@@ -314,7 +314,7 @@ public class DiagnosticsEndToEndE2ETests
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("n1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "notes.md"), "old line", "new line"))),
           E2E.RawCompletion("edited"));
-      await host.Vm.RunTurnAsync("edit the note").WaitAsync(TimeSpan.FromSeconds(90), Ct).ConfigureAwait(true);
+      await host.Vm.RunTurnAsync("edit the note").WaitAsync(TestCeiling.Value, Ct).ConfigureAwait(true);
 
       string toolResult = E2E.GetLastToolMessage(host.Mock.RequestBodies[^1]);
       Assert.DoesNotContain("[diagnostics]", toolResult, StringComparison.Ordinal);

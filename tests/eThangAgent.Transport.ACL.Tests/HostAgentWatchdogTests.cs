@@ -139,9 +139,12 @@ public class HostChildWatchdogTests
     supervisor.OnStart(0);
     supervisors.Register(child, supervisor);
 
+    // NO Start(): the background ticker runs on REAL time against a stub clock, so it
+    // ticks the same watchdog this test ticks by hand - and it mutates the runtime's
+    // interrupt list from another thread while the assertion enumerates it. The tick
+    // under test is the one the test drives.
     HostAgentWatchdog watchdog = new(new AgentId(Guid.NewGuid()), Services(clock, store, runtime, new FakeHeartbeat(), new FakeAudit(), stream, supervisors),
         tickInterval: TimeSpan.FromMilliseconds(20));
-    watchdog.Start();
 
     clock.Now = clock.Now.AddMinutes(2); // silent the whole time: past the 1m threshold
     await watchdog.TickOnceAsync();
@@ -164,9 +167,10 @@ public class HostChildWatchdogTests
     supervisor.OnStart(0);
     supervisors.Register(child, supervisor);
 
+    // NO Start(): see the sibling test - a background ticker on real time races the
+    // explicit ticks below and mutates the interrupt list the assertions read.
     HostAgentWatchdog watchdog = new(new AgentId(Guid.NewGuid()), Services(clock, store, runtime, new FakeHeartbeat(), new FakeAudit(), stream, supervisors),
         tickInterval: TimeSpan.FromMilliseconds(20));
-    watchdog.Start();
 
     // Alive at +30s (fed by a progress event), then silent: acted on only after silence.
     clock.Now = clock.Now.AddSeconds(30);

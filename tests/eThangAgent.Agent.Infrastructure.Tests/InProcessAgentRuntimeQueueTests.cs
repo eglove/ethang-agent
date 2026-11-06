@@ -3,6 +3,8 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.AgentInfrastructure.Tests;
 
 /// <summary>Issue #238: the concurrency-boundary queue is first-class. A spawn past
@@ -33,7 +35,7 @@ public class InProcessAgentRuntimeQueueTests
     public async Task<AgentRecord> DispatchedAsync(AgentId id)
     {
       TaskCompletionSource<AgentRecord> source = _dispatched.GetOrAdd(id.Value, _ => NewSource<AgentRecord>());
-      return await source.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)
+      return await source.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken)
           .ConfigureAwait(true);
     }
 
@@ -155,7 +157,7 @@ public class InProcessAgentRuntimeQueueTests
     _ = await runner.DispatchedAsync(queued.Id).ConfigureAwait(true); // the freed slot admitted it
     runner.Complete(queued.Id, "second done");
 
-    Result<AgentRunOutcome> outcome = await waiting.WaitAsync(TimeSpan.FromSeconds(10),
+    Result<AgentRunOutcome> outcome = await waiting.WaitAsync(TestCeiling.Value,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(outcome.IsSuccess, outcome.Error?.Message);
     Assert.Equal(AgentStatus.Completed, outcome.Value.Status);
@@ -236,7 +238,7 @@ public class InProcessAgentRuntimeQueueTests
 
     runtime.Interrupt(queued.Id);
 
-    Result<AgentRunOutcome> outcome = await waiting.WaitAsync(TimeSpan.FromSeconds(10),
+    Result<AgentRunOutcome> outcome = await waiting.WaitAsync(TestCeiling.Value,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(outcome.IsSuccess, outcome.Error?.Message);
     Assert.Equal(AgentStatus.Failed, outcome.Value.Status);
@@ -298,7 +300,7 @@ public class InProcessAgentRuntimeQueueTests
     _ = await runtime.Start(child, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Task<Result<AgentRunOutcome>> waiting = runtime.WhenSettledAsync(child.Id, TestContext.Current.CancellationToken);
 
-    Result<AgentRunOutcome> outcome = await waiting.WaitAsync(TimeSpan.FromSeconds(10),
+    Result<AgentRunOutcome> outcome = await waiting.WaitAsync(TestCeiling.Value,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(outcome.IsSuccess, outcome.Error?.Message);
     Assert.Equal(AgentStatus.Failed, outcome.Value.Status);

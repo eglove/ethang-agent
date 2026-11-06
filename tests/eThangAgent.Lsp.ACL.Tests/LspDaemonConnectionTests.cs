@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.Lsp.ACL.Tests;
@@ -37,7 +38,7 @@ public class LspDaemonConnectionTests
     Assert.Null(connection.DaemonProcessId);
     Assert.False(started);
     await cts.CancelAsync().ConfigureAwait(true);
-    await serve.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(true);
+    await serve.WaitAsync(TestCeiling.Value, CancellationToken.None).ConfigureAwait(true);
   }
 
   [Fact]
@@ -85,7 +86,7 @@ public class LspDaemonConnectionTests
       Assert.Equal(AdvisoryDiagnosticsState.Ready, result.State);
       Assert.Equal("CS1002", Assert.Single(result.Diagnostics).Code);
       await cts.CancelAsync().ConfigureAwait(true);
-      await serve.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(true);
+      await serve.WaitAsync(TestCeiling.Value, CancellationToken.None).ConfigureAwait(true);
     }
     finally
     {
@@ -132,7 +133,7 @@ public class LspDaemonConnectionTests
     Assert.Contains("\"newName\":\"Bar\"", languageServerWire, StringComparison.Ordinal);
 
     await cts.CancelAsync();
-    await serve.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
+    await serve.WaitAsync(TestCeiling.Value, CancellationToken.None);
   }
 
   /// <summary>A rename the server answers with a file move is reported as unsupported: a
@@ -166,7 +167,7 @@ public class LspDaemonConnectionTests
     Assert.Contains("file", unsupported.Message, StringComparison.OrdinalIgnoreCase);
 
     await cts.CancelAsync();
-    await serve.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
+    await serve.WaitAsync(TestCeiling.Value, CancellationToken.None);
   }
 
   private static string ResponseJson(int id, JsonNode result)

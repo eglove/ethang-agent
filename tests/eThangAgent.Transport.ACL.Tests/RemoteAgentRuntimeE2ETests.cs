@@ -3,6 +3,8 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Wire-level E2E against a REAL ChildHost process: connect over the named pipe,
@@ -46,7 +48,7 @@ public class RemoteAgentRuntimeE2ETests
     try
     {
       Task<NamedPipeChildTransport> connected = NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-          TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10),
+          TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value,
           TestContext.Current.CancellationToken);
       NamedPipeChildTransport transport = await connected.ConfigureAwait(true);
 
@@ -180,8 +182,8 @@ public class RemoteAgentRuntimeE2ETests
     string pipeName = "ethang-settle-" + Guid.NewGuid().ToString("N");
     Task<NamedPipeChildTransport> serverTask = NamedPipeChildTransport.AcceptAppAsync(pipeName, TestContext.Current.CancellationToken);
     NamedPipeChildTransport app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
-        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
-    NamedPipeChildTransport host = await serverTask.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+        TestContext.Current.CancellationToken).WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    NamedPipeChildTransport host = await serverTask.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     return (app, host);
   }
 

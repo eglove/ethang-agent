@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Shared test SUPPORT with no product reference, deliberately not a test project.
+       Tests.Shared targets net10.0-windows because it owns session disposal and therefore
+       references the composition; the ceiling and the opt-in skip have no such dependency
+       and must reach the plain net10.0 domain suites too, so they live here instead.
+       tests/Directory.Build.props marks everything under tests/ as a test project and adds
+       xunit.v3, whose MTP targets demand an executable and would turn this into a phantom
+       zero-test module. Both are undone here, exactly as Tests.Shared does. -->
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Remove="xunit.v3" />
+    <PackageReference Remove="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Remove="Microsoft.Testing.Extensions.HangDump" />
+    <PackageReference Remove="xunit.analyzers" />
+    <PackageReference Include="xunit.v3.extensibility.core" Version="3.2.*" />
+    <PackageReference Include="xunit.v3.assert" Version="3.2.*" />
+  </ItemGroup>
+</Project>

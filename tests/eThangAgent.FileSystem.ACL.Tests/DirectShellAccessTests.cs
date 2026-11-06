@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -10,7 +11,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 
 public sealed class DirectShellAccessTests : IDisposable
 {
-  private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(30);
+  private static readonly TimeSpan TestTimeout = TestCeiling.Value;
 
   private readonly string _workDir;
 

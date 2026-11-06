@@ -1,6 +1,8 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.AgentInfrastructure.Tests;
 
 /// <summary>WhenSettledAsync contract: pre-start NotFound, completion on settle, waiter
@@ -42,7 +44,7 @@ public class InProcessAgentRuntimeSettleTests
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public List<AgentRecord> Updates { get; } = [];
-    public Task<AgentRecord> FirstUpdate => _firstUpdate.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    public Task<AgentRecord> FirstUpdate => _firstUpdate.Task.WaitAsync(TestCeiling.Value);
 
     public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
     {

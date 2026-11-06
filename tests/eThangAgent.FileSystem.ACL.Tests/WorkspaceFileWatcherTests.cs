@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -73,7 +74,7 @@ public class WorkspaceFileWatcherTests
           });
       watcher.Start();
       Write(root, "new.cs", "content");
-      await tcs.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      await tcs.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.NotNull(received);
       Assert.Contains("new.cs", received.Added);
     }
@@ -106,7 +107,7 @@ public class WorkspaceFileWatcherTests
         Write(root, $"f{i}.cs", "x");
       }
 
-      await tcs.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      await tcs.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       await Task.Delay(600, TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.Equal(1, passes);
       Assert.NotNull(last);
@@ -185,7 +186,7 @@ public class WorkspaceFileWatcherTests
           });
       watcher.Start();
       File.Delete(Path.Combine(root, "gone.cs"));
-      await tcs.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      await tcs.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.NotNull(received);
       Assert.Contains("gone.cs", received.Removed);
     }
@@ -213,7 +214,7 @@ public class WorkspaceFileWatcherTests
           });
       watcher.Start();
       File.Move(Path.Combine(root, "old.cs"), Path.Combine(root, "new.cs"));
-      await tcs.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      await tcs.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.NotNull(received);
       Assert.Contains("old.cs", received.Removed);
       Assert.Contains("new.cs", received.Added);

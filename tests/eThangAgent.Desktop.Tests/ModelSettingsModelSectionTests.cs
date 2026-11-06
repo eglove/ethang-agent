@@ -2,6 +2,8 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Grand-plan items 116-117: the Model and Effort rail entries fold into
@@ -204,7 +206,7 @@ public class ModelSettingsModelSectionTests
               return refresh.Task.WaitAsync(ct);
             }));
     Task load = vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
-    await ready.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await ready.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     if (changeSelection)
     {
       vm.ModelSection!.SelectedRow = vm.ModelSection.FilteredRows.First(row => row.ModelId == "beta/model");

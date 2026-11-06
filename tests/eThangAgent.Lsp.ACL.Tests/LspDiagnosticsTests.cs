@@ -252,11 +252,6 @@ public class LspDiagnosticsTests
     Assert.Contains("\"ok\":true", response);
     Assert.Empty(store.Get(uri).Diagnostics);
   }
-
-  [Fact]
-  public void RealServer_BundledOmniSharp_ReturnsDiagnosticWithMatchingRange()
-    => Assert.Skip("Real-server test deferred: OmniSharp initialize hangs under testhost; verified separately in #355 smoke.");
-
 }
 
 #pragma warning restore JSON002

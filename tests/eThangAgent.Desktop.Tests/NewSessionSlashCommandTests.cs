@@ -5,6 +5,8 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>The /new slash command (issue #234): the one entry in the closed command
@@ -110,7 +112,7 @@ public class NewSessionSlashCommandTests
     // whole turn, and a parking turn would never return. Start it, wait for the
     // runner's own started signal, then submit the command while busy.
     Task turn = vm.SubmitAsync("start a long turn");
-    await park.Started.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await park.Started.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(vm.IsBusy);
 
     await vm.SubmitAsync("/new explore the auth module").ConfigureAwait(true);

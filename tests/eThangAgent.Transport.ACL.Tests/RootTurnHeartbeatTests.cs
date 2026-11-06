@@ -3,6 +3,8 @@
 using eThangAgent.ChildHost;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The host's LIVENESS HEARTBEAT (2026-10-22) and the app's release of an
@@ -23,7 +25,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     quiet window a long tool call really produces.</para></summary>
 public sealed class RootTurnHeartbeatTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(30);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task RunTurnAsync_AQuietTurn_HeartbeatsSoTheAppNeverCallsItUnaddressable()

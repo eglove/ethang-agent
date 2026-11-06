@@ -1,6 +1,8 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Turns must execute on the worker pool without flowing the caller's context:
@@ -30,7 +32,7 @@ public class TurnRunnerThreadingTests
       })(new SendMessageCommand("hi"), CancellationToken.None, null, null);
 
       SynchronizationContext.SetSynchronizationContext(previous);
-      result = await task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      result = await task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
     }
     finally
     {

@@ -3,6 +3,7 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.MemoryDomain.Tests;
 
+[Trait("Category", "LatencyContract")]
 public class BoundedRegexTests
 {
   private static string Rendered(Result<IReadOnlyList<int>> result)

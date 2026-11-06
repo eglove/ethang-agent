@@ -1,6 +1,8 @@
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>Fix round 4: the two defects round 3 left. A refused seed must not brick the
@@ -8,7 +10,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     STORE path too - not just the seed path.</summary>
 public sealed class ChildHostRootRunRefusalTests
 {
-  private static readonly TimeSpan Limit = TimeSpan.FromSeconds(30);
+  private static readonly TimeSpan Limit = TestCeiling.Value;
 
   [Fact]
   public async Task RunTurnAsync_RefusedLongSeed_ThenASeedlessTurn_Succeeds()
