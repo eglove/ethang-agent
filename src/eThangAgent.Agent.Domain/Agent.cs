@@ -91,6 +91,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
   private readonly IContextMonitor? _contextMonitor = options?.ContextMonitor;
+  private readonly IServerToolImageStore? _serverToolImages = options?.ServerToolImages;
   private readonly IContextCompactor? _contextCompactor = options?.ContextCompactor;
   private readonly IAgentHeartbeat? _heartbeat = options?.Heartbeat;
   private readonly IAgentEvents? _events = options?.Events;
@@ -406,7 +407,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // (retries, logging, tests) read messages added by later iterations.
     ReportUsage(new ModelRequest([.. Conversation.Messages], _turnPrefix.Tools,
         _turnPrefix.SystemPrompt, _sessionId), response, callbacks);
-    SurfaceServerToolCalls(response, callbacks);
+    await SurfaceServerToolCallsAsync(response, callbacks, ct).ConfigureAwait(false);
     if (response.ToolCalls.Count == 0)
     {
       return FinishWithoutToolCalls(response, state, callbacks, inbox);
@@ -1198,18 +1199,22 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     action.sources). Server calls execute inside the provider's response and never
   ///     enter the message history; without this the user's transcript shows nothing.
   ///     The lines also land in the conversation so a resumed session sees them.
-  ///     <para>An image-generation call's artifact is DELIVERED, never written: the bytes
-  ///     ride the tool-result callback, so the transcript renders the picture. Nothing is
-  ///     saved to the user's directory, and the conversation records that the image was
-  ///     generated without carrying its bytes.</para></summary>
-  private void SurfaceServerToolCalls(ModelResponse response, TurnCallbacks? callbacks)
+  ///     <para>An image-generation call's artifact is PERSISTED first: the bytes go to the
+  ///     session's scratch store, the surfaced line NAMES the absolute path, and the image
+  ///     rides the tool-result callback so the Desktop renders it. The path is what lets the
+  ///     model pull the artifact on a later turn with read_image, and what lets a model that
+  ///     wants it kept copy it into the workspace. A store failure is a TYPED error on the
+  ///     line — the user must learn the artifact could not be saved, never see a silent
+  ///     skip.</para></summary>
+  private async Task SurfaceServerToolCallsAsync(ModelResponse response, TurnCallbacks? callbacks,
+      CancellationToken ct)
   {
     ArgumentNullException.ThrowIfNull(response);
     foreach (ServerToolCall call in response.ServerToolCalls)
     {
       if (call.Image is { } image)
       {
-        SurfaceImage(call, image, callbacks);
+        await SurfaceImageAsync(call, image, callbacks, ct).ConfigureAwait(false);
         continue;
       }
 
@@ -1219,17 +1224,36 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
   }
 
-  /// <summary>Surfaces one generated image: the bytes ride the tool-result callback so the
-  ///     transcript renders the picture, and the conversation records the line. Nothing is
-  ///     written to disk, so a resumed session shows the line and not the picture - the
-  ///     artifact exists only in the session that generated it.</summary>
-  private void SurfaceImage(ServerToolCall call, ServerToolCallImage image, TurnCallbacks? callbacks)
+  /// <summary>Persists one generated image and surfaces its line. The ABSOLUTE path is the
+  ///     artifact's identity in the transcript: the model reaches the bytes with read_image
+  ///     on a later turn, and a model that wants the image kept copies it into the workspace.
+  ///     The bytes also ride the tool-result callback so the transcript renders the picture.
+  ///     A failed save renders the typed error on the same line, so the transcript records
+  ///     WHY the artifact is missing.</summary>
+  private async Task SurfaceImageAsync(ServerToolCall call, ServerToolCallImage image,
+      TurnCallbacks? callbacks, CancellationToken ct)
   {
-    string line = $"[{call.Tool}] image generated ({image.MediaType})";
+    if (_serverToolImages is null)
+    {
+      string bare = RenderServerToolCall(call);
+      Conversation.AddSystemMessage(bare);
+      callbacks?.OnSystemMessage?.Invoke(bare);
+      return;
+    }
+
+    Result<SavedServerToolImage> saved = await _serverToolImages
+        .SaveAsync(image.MediaType, image.Base64Data, ct).ConfigureAwait(false);
+    string line = saved.IsSuccess
+        ? $"[{call.Tool}] {saved.Value.FullPath}"
+        : $"[{call.Tool}] Error [{saved.Error.Code}]: {saved.Error.Message}";
     Conversation.AddSystemMessage(line);
     callbacks?.OnSystemMessage?.Invoke(line);
-    callbacks?.OnToolResult?.Invoke(call.Tool, line, line, false,
-        new ToolResult(line, false, call.Tool, [new ToolResultImage(image.MediaType, image.Base64Data)]));
+    if (saved.IsSuccess)
+    {
+      callbacks?.OnToolResult?.Invoke(call.Tool, saved.Value.FullPath, saved.Value.FullPath, false,
+          new ToolResult($"saved to {saved.Value.FullPath}", false, call.Tool,
+              [new ToolResultImage(image.MediaType, image.Base64Data)]));
+    }
   }
 
   /// <summary>One surfaced line: "[&lt;tool&gt;] &lt;detail&gt;" plus one line per result URL.

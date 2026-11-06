@@ -1,3 +1,5 @@
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.AgentDomain.Tests;
 
 /// <summary>Issue #303 D1/D2/D7: the retry rule and the aggregate's re-entry of a failed step.
@@ -10,26 +12,11 @@ public class ChainRetryPolicyTests
       "session-root", positions.Length == 0 ? [1] : positions, T0);
 
   /// <summary>A chain whose step 1 was claimed by session-a <paramref name="attempts"/> times
-  ///     and then failed. A held claim is released between attempts, which is how a step that
-  ///     never ran reaches a second attempt.</summary>
+  ///     and then failed.</summary>
   private static Chain Failed(int attempts = 1)
-  {
-    Chain chain = NewChain(1, 2);
-    DateTimeOffset at = T0;
-    for (int i = 0; i < attempts; i++)
-    {
-      chain = chain.ClaimStep(1, "session-a", at);
-      at += TimeSpan.FromMinutes(1);
-      if (i < attempts - 1)
-      {
-        chain = chain.ReleaseStep(1, ChainActor.Harness, at);
-        at += TimeSpan.FromMinutes(1);
-      }
-    }
-
-    return chain.SettleStep(1, ChainStepStatus.Failed, ChainActor.Session("session-a"),
-        "provider blip", at);
-  }
+      => ChainAttempts.WithAttempts(NewChain(1, 2), 1, "session-a", attempts, T0)
+          .SettleStep(1, ChainStepStatus.Failed, ChainActor.Session("session-a"),
+              "provider blip", T0);
 
   [Fact]
   public void MaxAttempts_IsThree_AndIsANamedConstantNotASetting()

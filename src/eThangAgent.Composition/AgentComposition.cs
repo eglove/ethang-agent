@@ -134,6 +134,11 @@ public static class AgentComposition
         .AddSingleton<IFileSearchAccess, DirectFileSearchAccess>()
         .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
+        // The generated-image artifact store: a server-side image tool's output is persisted
+        // under the OS temp directory, one folder per session, so the model can read_image it
+        // on a later turn. It is scratch, never a workspace file and never a database row.
+        .AddSingleton<IServerToolImageStore>(sp => new ServerToolImageStore(
+            sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()))
 
         .AddSingleton<DirectGitAccess>()
         .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
@@ -302,7 +307,7 @@ public static class AgentComposition
   ///     is never a change for sessions that approve no root.</summary>
   private static TrustedDirectoryPathResolver Resolver(IServiceProvider sp) =>
       new(sp.GetRequiredService<IPathResolver>(),
-          sp.GetRequiredService<ResolvedTrustedDirectories>().List);
+          sp.GetRequiredService<ResolvedTrustedDirectories>().WithGeneratedArtifacts().List);
 
   /// <summary>The READ view of <see cref="Resolver(IServiceProvider)"/>: the same roots with the write policy
   ///     switched off. Read-only tools pass here so an approved read-only root is
@@ -952,6 +957,9 @@ public static class AgentComposition
             AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>(),
             Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>(),
             SupervisorFor: id => sp.GetRequiredService<AgentSupervisorRegistry>().Find(id),
+            // A child's generated images land in its OWN session folder, so two runs never
+            // overwrite each other's artifacts.
+            ServerToolImagesFor: sessionId => new ServerToolImageStore(sessionId),
 
             // Spawn-boundary invariant (issue #124): production wiring demands a provider
             // binding on every begin-run — an unbound record fails loudly (Failed + audit

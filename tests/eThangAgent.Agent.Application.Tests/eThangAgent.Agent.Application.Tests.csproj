@@ -3,6 +3,13 @@
     <ProjectReference Include="../../src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- One source of truth for building a chain step with N attempts: a claim has no time
+         limit, so that state is reached by claiming and releasing, never by advancing a clock.
+         Linked rather than project-referenced because this suite targets plain net10.0 and the
+         support projects do not. -->
+    <Compile Include="../Shared/ChainAttempts.cs" Link="ChainAttempts.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Issue #366: the ceiling and the opt-in skip have one source of truth. -->
     <ProjectReference Include="../eThangAgent.TestSupport/eThangAgent.TestSupport.csproj" />
   </ItemGroup>

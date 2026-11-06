@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Agent.Application.Tests;
 
@@ -83,22 +84,8 @@ public class ChainLifecycleServiceTests
     Chain chain = Must(await chains.CreateAsync(ChainCreation.Implementing("C:\\ws", 3, 1, "t",
         "session-root", positions.Length == 0 ? [1] : positions), T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
-    DateTimeOffset at = T0;
-    for (int i = 0; i < attempts; i++)
-    {
-      chain = Must(await chains.ClaimStepAsync(chain.Id, 1, "session-a", at,
-          TestContext.Current.CancellationToken).ConfigureAwait(true));
-      at += TimeSpan.FromMinutes(1);
-      if (i < attempts - 1)
-      {
-        // A claim is held until it is settled or released, so building up attempts means
-        // releasing the step between them - which is how a launch that never ran a session
-        // reaches a second attempt.
-        chain = Must(await chains.ReleaseStepAsync(chain.Id, 1, ChainActor.Harness, at,
-            TestContext.Current.CancellationToken).ConfigureAwait(true));
-        at += TimeSpan.FromMinutes(1);
-      }
-    }
+    chain = await ChainAttempts.WithAttemptsAsync(chains, chain.Id, 1, "session-a", attempts, T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     return (new ChainLifecycleService(chains, host), store, host, chain);
   }
