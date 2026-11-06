@@ -2,6 +2,8 @@ using eThangAgent.AgentDomain;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.StateDomain;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Composition;
 
@@ -12,7 +14,7 @@ namespace eThangAgent.Composition;
 ///     <para>EVERY READ IS A READ. Nothing here writes, and nothing here renders: the brief's
 ///     text is the Agent Domain's, so a second renderer cannot drift from the first.</para></summary>
 internal sealed class CompositionChainBriefSource(ChainService chains, PlanService plans,
-    ISkillCatalog skills) : IChainBriefSource
+    ISkillCatalog skills, IGitQueryAccess git, IWorkspaceContext workspace) : IChainBriefSource
 {
   /// <summary>The embedded skill that carries the reviewer's rubric (issue #217). Named here
   ///     rather than assumed present: until #217 ships, a review brief says plainly that no
@@ -22,17 +24,84 @@ internal sealed class CompositionChainBriefSource(ChainService chains, PlanServi
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly PlanService _plans = plans ?? throw new ArgumentNullException(nameof(plans));
   private readonly ISkillCatalog _skills = skills ?? throw new ArgumentNullException(nameof(skills));
+  private readonly IGitQueryAccess _git = git ?? throw new ArgumentNullException(nameof(git));
+  private readonly IWorkspaceContext _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
 
   /// <inheritdoc />
   public async Task<Result<ChainBriefChain>> GetChainAsync(int chainId, int position,
       CancellationToken ct = default)
   {
     Result<Chain> chain = await _chains.GetAsync(chainId, ct).ConfigureAwait(false);
-    return chain.IsSuccess
+    if (!chain.IsSuccess)
+    {
+      return Result.Failure<ChainBriefChain>(chain.Error);
+    }
+
+    Result<ChainBriefReconciliation?> reconciliation = await ReconciliationAsync(chain.Value, position, ct)
+        .ConfigureAwait(false);
+    return reconciliation.IsSuccess
       ? Result.Success(new ChainBriefChain(chain.Value.Id, chain.Value.Title, chain.Value.PlanId,
-          Predecessors(chain.Value), RoleOf(chain.Value, position), GroupPositions(chain.Value, position)))
-      : Result.Failure<ChainBriefChain>(chain.Error);
+          Predecessors(chain.Value), RoleOf(chain.Value, position), GroupPositions(chain.Value, position),
+          reconciliation.Value))
+      : Result.Failure<ChainBriefChain>(reconciliation.Error);
   }
+
+  /// <summary>What the step at <paramref name="position"/> must merge, when it is the RECONCILER
+  ///     of a group that already ran, or null for every other step.
+  ///     <para>THE GROUP IS THE ONE AT THE PREVIOUS POSITION (D7): a reconciler is the step
+  ///     immediately after its group's last member, so the group it merges is the one owning the
+  ///     position before it.</para>
+  ///     <para>THE CHECKOUT IS READ HERE because this is the one place that knows both the chain
+  ///     record and the workspace directory, and a failed read is carried as a failed read - an
+  ///     empty dirty list would tell the reconciler the checkout is clean when nobody looked.
+  ///     </para></summary>
+  /// <param name="chain">The chain the step belongs to.</param>
+  /// <param name="position">The 1-based position of the step this brief is for.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<ChainBriefReconciliation?>> ReconciliationAsync(Chain chain, int position,
+      CancellationToken ct)
+  {
+    if (chain.GroupAt(position - 1) is not { } group)
+    {
+      return Result.Success<ChainBriefReconciliation?>(null);
+    }
+
+    Result<CheckoutState> checkout = await CheckoutAsync(ct).ConfigureAwait(false);
+    return checkout.IsSuccess
+      ? Result.Success<ChainBriefReconciliation?>(new ChainBriefReconciliation(
+          [.. chain.GroupMembers(group)
+              .Where(member => member.WorktreePath is not null && member.WorktreeBranch is not null)
+              .Select(member => new ChainBriefBranch(member.Position, member.WorktreeBranch!, member.WorktreePath!))],
+          checkout.Value.DirtyFiles,
+          [.. chain.GroupMembers(group)
+              .Where(member => member.Status is not ChainStepStatus.Done)
+              .Select(member => member.Position)],
+          checkout.Value.Readable))
+      : Result.Failure<ChainBriefReconciliation?>(checkout.Error);
+  }
+
+  /// <summary>The workspace checkout's uncommitted files, or the fact that it could not be read.
+  ///     <para>AN UNREADABLE CHECKOUT IS A RESULT, NOT A FAILURE: the reconciler is told to check
+  ///     the checkout itself, which is a usable instruction, while a failed brief would leave it
+  ///     with no branches at all.</para></summary>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<CheckoutState>> CheckoutAsync(CancellationToken ct)
+  {
+    Result<GitStatus> status = await _git.GetStatusAsync(_workspace.WorkspaceRoot, ct).ConfigureAwait(false);
+    return status.IsSuccess
+      ? Result.Success(new CheckoutState(true,
+          [.. status.Value.Staged.Select(entry => entry.Path)
+              .Concat(status.Value.Unstaged.Select(entry => entry.Path))
+              .Concat(status.Value.Untracked)
+              .Distinct(StringComparer.Ordinal)]))
+      : Result.Success(new CheckoutState(false, []));
+  }
+
+  /// <summary>The checkout as the brief reports it: its dirty files, and whether it could be read
+  ///     at all.</summary>
+  /// <param name="Readable">False when the status query failed.</param>
+  /// <param name="DirtyFiles">The uncommitted files, empty when the checkout is clean.</param>
+  private sealed record CheckoutState(bool Readable, IReadOnlyList<string> DirtyFiles);
 
   /// <summary>Whether the reviewer's rubric skill is installed (issue #306). The catalog is the
   ///     same one this session's listing is built from, so the brief and the skill listing

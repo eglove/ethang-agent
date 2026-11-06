@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 35;
+  public const int LatestSchemaVersion = 36;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -143,6 +143,7 @@ public sealed class AppDatabase
     (33, ApplyV33),
     (34, ApplyV34),
     (35, ApplyV35),
+    (36, ApplyV36),
   ];
 
   private void Migrate()
@@ -1521,6 +1522,33 @@ public sealed class AppDatabase
     }
   }
 
+  /// <summary>V36 adds <c>chain_steps.worktree_branch</c>: the branch checked out in the git
+  ///     worktree the step's session runs in.
+  ///     <para>STORED, NOT DERIVED FROM THE PATH. The reconciler merges the group's branches after
+  ///     every member's session has closed, and a branch name inferred from a directory is a
+  ///     second source of truth that can disagree with what git actually checked out.</para>
+  ///     <para>NULLABLE AND NULL MEANS 'NOT IN A WORKTREE': only a group member gets one, and
+  ///     every step that existed before this migration ran in the workspace checkout, so no
+  ///     backfill is needed and a written guess would fabricate a branch that never existed.
+  ///     </para>
+  ///     <para>A PLAIN COLUMN ADD, unlike the V35 rebuild: this column carries no CHECK
+  ///     constraint, so there is no door to carry forward, and <see cref="AddColumnIfMissing"/>
+  ///     makes the one non-idempotent statement safe to re-run.</para>
+  ///     <para>CONDITIONAL ON <c>chain_steps</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database and one stamped below V23 does not have the table
+  ///     yet.</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV36(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "chain_steps"))
+    {
+      return;
+    }
+
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('chain_steps') WHERE name = 'worktree_branch';",
+        "ALTER TABLE chain_steps ADD COLUMN worktree_branch TEXT NULL;");
+  }
   private static void ApplyV32(SqliteConnection connection)
   {
     if (!TableExists(connection, "agents"))

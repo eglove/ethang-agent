@@ -62,5 +62,5 @@ public class ChainWorktreeCommitPolicyTests
   }
 
   private static ChainStep Step() =>
-      ChainStep.Pending(2, ChainStepRole.Implement, group: 1).WithWorktree(Worktree);
+      ChainStep.Pending(2, ChainStepRole.Implement, group: 1).WithWorktree(Worktree, "chain-1-step-2");
 }

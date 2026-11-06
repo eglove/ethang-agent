@@ -60,26 +60,17 @@ internal static class ChainAdvanceFactory
   }
 
   /// <summary>Provisions one worktree in <paramref name="session"/>'s workspace and reports its
-  ///     directory. A container that wired no provisioner refuses by name rather than launching
-  ///     a group member in the shared checkout: two members writing one directory is the
-  ///     interference the worktrees exist to prevent.</summary>
+  ///     directory and branch. A container that wired no provisioner refuses by name rather than
+  ///     launching a group member in the shared checkout: two members writing one directory is
+  ///     the interference the worktrees exist to prevent.</summary>
   /// <param name="session">The session whose container owns the provisioner.</param>
   /// <param name="name">The worktree name, already in the shape the worktree rule accepts.</param>
-  private static async Task<Result<string>> ProvisionWorktreeAsync(AgentSession session, string name)
-  {
-    if (session.Services.GetService<IWorktreeProvisioner>() is not { } provisioner)
-    {
-      return Result.Failure<string>(new DomainError("WorktreeUnsupported",
+  private static async Task<Result<WorktreeProvision>> ProvisionWorktreeAsync(AgentSession session,
+      string name)
+    => session.Services.GetService<IWorktreeProvisioner>() is { } provisioner
+      ? await provisioner.CreateAsync(session.WorkspaceRoot, name).ConfigureAwait(false)
+      : Result.Failure<WorktreeProvision>(new DomainError("WorktreeUnsupported",
           "this workspace cannot provision a worktree; the group member's session was not started."));
-    }
-
-    Result<WorktreeProvision> created = await provisioner
-        .CreateAsync(session.WorkspaceRoot, name)
-        .ConfigureAwait(false);
-    return created.IsSuccess
-        ? Result.Success(created.Value.Path)
-        : Result.Failure<string>(created.Error);
-  }
 
   /// <summary>True when the checkout at <paramref name="path"/> holds changes nobody committed,
   ///     read through the container's own git query.

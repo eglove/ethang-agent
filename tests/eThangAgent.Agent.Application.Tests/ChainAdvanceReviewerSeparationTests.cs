@@ -73,8 +73,9 @@ public class ChainAdvanceReviewerSeparationTests
       return Task.FromResult(Result.Success("session-next"));
     }
 
-    public Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("C:\\ws\\.worktrees\\" + name));
+    public Task<Result<WorktreeProvision>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(
+            new WorktreeProvision(name, "C:\\ws\\.worktrees\\" + name, name)));
 
     public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
         => Task.FromResult(false);

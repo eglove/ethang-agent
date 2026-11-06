@@ -48,9 +48,14 @@ public interface IChainBriefSource
 ///     <c>position</c> belongs to, including that step, in position order. Empty when the step
 ///     runs alone. The chain record owns group membership; the titles come from the plan, so the
 ///     two are joined where both are held.</param>
+/// <param name="Reconciliation">What the step at <c>position</c> must merge, when it is the
+///     RECONCILER of a group that already ran: the members' branches, the state of the workspace
+///     checkout, and the members that did not succeed. Null for every other step, which merges
+///     nothing.</param>
 public sealed record ChainBriefChain(
     int ChainId, string Title, int PlanId, IReadOnlyList<ChainBriefPredecessor> Predecessors,
-    ChainStepRole? Role = null, IReadOnlyList<int>? GroupPositions = null)
+    ChainStepRole? Role = null, IReadOnlyList<int>? GroupPositions = null,
+    ChainBriefReconciliation? Reconciliation = null)
 {
   /// <summary>The group's member positions, never null.</summary>
   public IReadOnlyList<int> Members => GroupPositions ?? [];

@@ -88,7 +88,7 @@ public class ChainAdvanceGroupTests
     /// <summary>The checkouts that hold uncommitted work.</summary>
     public HashSet<string> Dirty { get; } = new(StringComparer.Ordinal);
 
-    public Result<string>? ProvisionResult { get; set; }
+    public Result<WorktreeProvision>? ProvisionResult { get; set; }
 
     public Task CloseSessionAsync(string sessionId, CancellationToken ct = default)
     {
@@ -96,11 +96,12 @@ public class ChainAdvanceGroupTests
       return Task.CompletedTask;
     }
 
-    public Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
+    public Task<Result<WorktreeProvision>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
     {
       Provisioned.Add(name);
       journal.Add("provision:" + name);
-      return Task.FromResult(ProvisionResult ?? Result.Success(ProvisionedPath));
+      return Task.FromResult(ProvisionResult
+          ?? Result.Success(new WorktreeProvision(name, ProvisionedPath, name)));
     }
 
     public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
@@ -181,6 +182,9 @@ public class ChainAdvanceGroupTests
     Chain stored = Must(await fixture.Store.GetAsync(claimed.Id,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
     Assert.Equal(ProvisionedPath, stored.StepAt(2)!.WorktreePath);
+    // The branch the provisioner checked out is recorded beside the path: the reconciler merges
+    // by branch, and the member's session is closed by the time it reads this.
+    Assert.Equal("chain-1-step-2", stored.StepAt(2)!.WorktreeBranch);
     Assert.Null(stored.StepAt(3)!.WorktreePath);
     Assert.Null(stored.StepAt(1)!.WorktreePath);
   }
@@ -211,7 +215,7 @@ public class ChainAdvanceGroupTests
   public async Task AdvanceIntoAGroup_WhenProvisioningFails_ReleasesTheClaimAndStartsNothing()
   {
     Fixture fixture = await NewAsync();
-    fixture.Host.ProvisionResult = Result.Failure<string>(
+    fixture.Host.ProvisionResult = Result.Failure<WorktreeProvision>(
         new DomainError("WorktreeExists", "chain-1-step-2 already exists"));
     Chain claimed = await SettleStepOneAsync(fixture);
 
@@ -247,7 +251,8 @@ public class ChainAdvanceGroupTests
   {
     Fixture fixture = await NewAsync();
     Chain claimed = await SettleStepOneAsync(fixture);
-    Chain stamped = claimed.WithWorktree(2, "C:\\ws\\.worktrees\\chain-1-step-2", T0);
+    Chain stamped = claimed.WithWorktree(2, "C:\\ws\\.worktrees\\chain-1-step-2",
+        "chain-1-step-2", T0);
     _ = Must(await fixture.Store.SaveAsync(stamped, claimed.Version,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
 

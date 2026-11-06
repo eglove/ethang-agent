@@ -35,6 +35,11 @@ public sealed class ChainBriefRendererTests
         Siblings = siblings ?? [],
       };
 
+  /// <summary>The reconciler's facts: a step's ordinary facts plus what it must merge. Kept as a
+  ///     separate builder so the shared one stays within the parameter bound.</summary>
+  private static ChainBriefFacts ReconcilerFacts(ChainBriefReconciliation reconciliation) =>
+      Facts() with { Reconciliation = reconciliation };
+
   [Fact]
   public void Render_NamesTheAssignedStepThePlanAndTheChain()
   {
@@ -317,5 +322,94 @@ public sealed class ChainBriefRendererTests
     ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
 
     Assert.DoesNotContain("git add -A", brief.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>The reconciler merges the members' branches, so its brief names each one by
+  ///     branch and directory (D7/D14). A branch the brief had to guess is a merge that lands
+  ///     somewhere the member never committed.</summary>
+  [Fact]
+  public void Render_ForAReconciler_NamesEveryBranchItMustMerge()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(ReconcilerFacts(new ChainBriefReconciliation(
+        [
+          new ChainBriefBranch(2, "chain-7-step-2", ".worktrees/chain-7-step-2"),
+          new ChainBriefBranch(3, "chain-7-step-3", ".worktrees/chain-7-step-3"),
+        ],
+        [],
+        []))).Value!;
+
+    Assert.Contains("## You are the RECONCILER", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("- Step 2 — branch `chain-7-step-2` at .worktrees/chain-7-step-2",
+        brief.Content, StringComparison.Ordinal);
+    Assert.Contains("- Step 3 — branch `chain-7-step-3` at .worktrees/chain-7-step-3",
+        brief.Content, StringComparison.Ordinal);
+    Assert.Contains("Nothing else follows until you do", brief.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>The checkout's uncommitted files are TOLD, not refused (D14): git is the model's
+  ///     to handle, and the brief names what is there so it can decide.</summary>
+  [Fact]
+  public void Render_ForAReconciler_NamesTheDirtyFilesInTheWorkspaceCheckout()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(ReconcilerFacts(new ChainBriefReconciliation(
+        [new ChainBriefBranch(2, "chain-7-step-2", ".worktrees/chain-7-step-2")],
+        ["src/A.cs"],
+        []))).Value!;
+
+    Assert.Contains("## The workspace checkout", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("src/A.cs", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("They are not yours", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("The workspace checkout is clean.", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForAReconciler_WithACleanCheckout_SaysSo()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(ReconcilerFacts(new ChainBriefReconciliation(
+        [new ChainBriefBranch(2, "chain-7-step-2", ".worktrees/chain-7-step-2")],
+        [],
+        []))).Value!;
+
+    Assert.Contains("The workspace checkout is clean.", brief.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>A member that failed did not land, and the reconciler is the only session left
+  ///     that can say so: its session is closed by the time the merge runs.</summary>
+  [Fact]
+  public void Render_ForAReconciler_NamesTheStepsThatDidNotSucceed()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(ReconcilerFacts(new ChainBriefReconciliation(
+        [new ChainBriefBranch(2, "chain-7-step-2", ".worktrees/chain-7-step-2")],
+        [],
+        [2]))).Value!;
+
+    Assert.Contains("Step(s) 2 did not succeed", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("the harness parks the chain and names them", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForASequentialStep_IsNotTheReconciler()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
+
+    Assert.DoesNotContain("RECONCILER", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("## The workspace checkout", brief.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>An unreadable checkout is a THIRD answer, distinct from clean: a brief that said
+  ///     'clean' when the status query failed would send the reconciler into a merge it was
+  ///     never told about.</summary>
+  [Fact]
+  public void Render_ForAReconciler_WhenTheCheckoutCouldNotBeRead_SaysSoRatherThanClaimingItIsClean()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(ReconcilerFacts(new ChainBriefReconciliation(
+        [new ChainBriefBranch(2, "chain-7-step-2", ".worktrees/chain-7-step-2")],
+        [],
+        [],
+        CheckoutReadable: false))).Value!;
+
+    Assert.Contains("The workspace checkout could not be read; check it yourself before merging.",
+        brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("The workspace checkout is clean.", brief.Content, StringComparison.Ordinal);
   }
 }

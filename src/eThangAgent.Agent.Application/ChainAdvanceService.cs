@@ -30,15 +30,18 @@ public interface IChainAdvanceHost
   Task<Result<string>> StartSessionAsync(ChainStepAssignment assignment, string predecessorSessionId,
       CancellationToken ct = default);
 
-  /// <summary>Provisions the git worktree named <paramref name="name"/> and returns its
-  ///     directory. A failed provision is a typed error, never an exception.
+  /// <summary>Provisions the git worktree named <paramref name="name"/> and reports its
+  ///     directory and the branch checked out there. A failed provision is a typed error, never
+  ///     an exception.
   ///     <para>A GROUP MEMBER RUNS IN ITS OWN CHECKOUT, so the advance asks for one before the
-  ///     member's session is launched and records the answer on the step. The name is the
+  ///     member's session is launched and records both facts on the step. The name is the
   ///     caller's: <see cref="ChainWorktreeNaming"/> derives it from the chain and the
-  ///     position, so the same member always asks for the same checkout.</para></summary>
+  ///     position, so the same member always asks for the same checkout.</para>
+  ///     <para>THE BRANCH COMES FROM THE PROVISIONER rather than from the name: it is what git
+  ///     actually checked out, and the reconciler merges by it.</para></summary>
   /// <param name="name">The worktree name, already in the shape the worktree rule accepts.</param>
   /// <param name="ct">Cancellation.</param>
-  Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default);
+  Task<Result<WorktreeProvision>> ProvisionWorktreeAsync(string name, CancellationToken ct = default);
 
   /// <summary>True when the checkout at <paramref name="path"/> holds changes nobody committed.
   ///     <para>A MEMBER'S COMPLETION IS REFUSED while its worktree is dirty: the reconciler
@@ -435,7 +438,7 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     // the session is anchored at a directory that already exists. A provision that fails
     // RELEASES the claim: the step is available again rather than held by a session that was
     // never started.
-    Result<string?> worktree = await EnsureWorktreeAsync(chain.Id, position, claimedStep, now, ct)
+    Result<StepWorktree?> worktree = await EnsureWorktreeAsync(chain.Id, position, claimedStep, now, ct)
         .ConfigureAwait(false);
     if (!worktree.IsSuccess)
     {
@@ -449,9 +452,9 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     // resumed or restarted launch also has.
     ChainStepAssignment assignment = new ChainStepAssignment(chain.Id, chain.PlanId, position, null)
         .WithRole(claimedStep.Role);
-    if (worktree.Value is { } path)
+    if (worktree.Value is { } provision)
     {
-      assignment = assignment.WithWorktree(path);
+      assignment = assignment.WithWorktree(provision.Path);
     }
 
     Result<string> started = await _host
@@ -484,38 +487,44 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
   /// <param name="step">The step about to start, as the record stands.</param>
   /// <param name="now">The clock the record write is stamped with.</param>
   /// <param name="ct">Cancellation.</param>
-  private async Task<Result<string?>> EnsureWorktreeAsync(int chainId, int position,
+  private async Task<Result<StepWorktree?>> EnsureWorktreeAsync(int chainId, int position,
       ChainStep step, DateTimeOffset now, CancellationToken ct)
   {
     if (step.Group is null)
     {
-      return Result.Success<string?>(null);
+      return Result.Success<StepWorktree?>(null);
     }
 
     if (step.WorktreePath is { } recorded)
     {
-      return Result.Success<string?>(recorded);
+      return Result.Success<StepWorktree?>(new StepWorktree(recorded, step.WorktreeBranch));
     }
 
-    Result<string> provisioned = await _host
+    Result<WorktreeProvision> provisioned = await _host
         .ProvisionWorktreeAsync(ChainWorktreeNaming.For(chainId, position), ct)
         .ConfigureAwait(false);
     if (!provisioned.IsSuccess)
     {
-      return Result.Failure<string?>(provisioned.Error);
+      return Result.Failure<StepWorktree?>(provisioned.Error);
     }
 
     Result<Chain> stamped = await _chains
-        .WithWorktreeAsync(chainId, position, provisioned.Value, now, ct)
+        .WithWorktreeAsync(chainId, position, provisioned.Value.Path, provisioned.Value.Branch, now, ct)
         .ConfigureAwait(false);
     // THE CHECKOUT EXISTS AND THE RECORD DOES NOT NAME IT, which is a state a reader must be
     // told about: the next attempt asks for the same name and the provisioner refuses a
     // duplicate, so the refusal has to say which directory is already there.
     return stamped.IsSuccess
-        ? Result.Success<string?>(provisioned.Value)
-        : Result.Failure<string?>(new DomainError(stamped.Error.Code,
-            $"the worktree '{provisioned.Value}' was provisioned but could not be recorded: {stamped.Error.Message}"));
+        ? Result.Success<StepWorktree?>(new StepWorktree(provisioned.Value.Path, provisioned.Value.Branch))
+        : Result.Failure<StepWorktree?>(new DomainError(stamped.Error.Code,
+            $"the worktree '{provisioned.Value.Path}' was provisioned but could not be recorded: {stamped.Error.Message}"));
   }
+
+  /// <summary>The checkout a group member's session runs in: its directory, and the branch
+  ///     checked out there when the record carries one.</summary>
+  /// <param name="Path">The worktree directory.</param>
+  /// <param name="Branch">The branch checked out there, or null when the record does not name one.</param>
+  private sealed record StepWorktree(string Path, string? Branch);
 
   /// <summary>The refusal a completion earns when the step's own worktree holds uncommitted
   ///     changes, or null when there is nothing to refuse.

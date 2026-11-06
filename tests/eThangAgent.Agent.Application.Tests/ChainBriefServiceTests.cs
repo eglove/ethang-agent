@@ -235,6 +235,41 @@ public sealed class ChainBriefServiceTests
     Assert.Contains("Completing your step is what starts the next one", message.Content, StringComparison.Ordinal);
   }
 
+
+  /// <summary>The reconciler's facts reach its brief: the source gathers the members' branches and
+  ///     the checkout's state, and the renderer names them. A reconciler that had to guess which
+  ///     branch to merge would merge the wrong one.</summary>
+  [Fact]
+  public async Task BuildSeed_ForAReconciler_NamesEveryBranchAndTheCheckoutState()
+  {
+    ChainBriefService service = new(new FakeSource(
+        chain: Result.Success(new ChainBriefChain(
+            7, "2026-08-24-dashboard-truth", 104, [], null, [],
+            new ChainBriefReconciliation(
+                [new ChainBriefBranch(2, "chain-7-step-2", ".worktrees/chain-7-step-2")],
+                ["src/A.cs"],
+                [3])))));
+
+    Message message = Assert.Single((await service
+        .BuildSeedAsync(Assignment, TestContext.Current.CancellationToken)).Value!);
+
+    Assert.Contains("## You are the RECONCILER", message.Content, StringComparison.Ordinal);
+    Assert.Contains("- Step 2 — branch `chain-7-step-2` at .worktrees/chain-7-step-2",
+        message.Content, StringComparison.Ordinal);
+    Assert.Contains("src/A.cs", message.Content, StringComparison.Ordinal);
+    Assert.Contains("Step(s) 3 did not succeed", message.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task BuildSeed_ForASequentialStep_IsNotToldItIsTheReconciler()
+  {
+    ChainBriefService service = new(new FakeSource());
+
+    Message message = Assert.Single((await service
+        .BuildSeedAsync(Assignment, TestContext.Current.CancellationToken)).Value!);
+
+    Assert.DoesNotContain("RECONCILER", message.Content, StringComparison.Ordinal);
+  }
   private sealed class FakeSource(
       Result<ChainBriefChain>? chain = null,
       Result<ChainBriefPlan>? plan = null,

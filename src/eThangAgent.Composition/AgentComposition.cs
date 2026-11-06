@@ -673,7 +673,11 @@ public static class AgentComposition
             // The reviewer's rubric is a SKILL (issue #306/#217), so the brief asks the same
             // catalog this session's skill listing is built from: the two cannot then disagree
             // about whether a rubric exists.
-            sp.GetRequiredService<ISkillCatalog>()))
+            sp.GetRequiredService<ISkillCatalog>(),
+            // The reconciler is told the state of the workspace checkout it merges into, so the
+            // brief reads the same git seam the status tool does, over the workspace directory.
+            sp.GetRequiredService<IGitQueryAccess>(),
+            sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<ChainBriefService>()
         // THE REVIEW PORT (issue #320): the writer nothing in this harness had. The review
         // record lives in the Plan Domain, so the translation between the two verdict spellings

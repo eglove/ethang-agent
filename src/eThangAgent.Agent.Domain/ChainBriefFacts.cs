@@ -26,6 +26,34 @@ public sealed record ChainBriefPredecessor(int Position, ChainStepStatus Status,
 /// <param name="Title">The sibling's title.</param>
 public sealed record ChainBriefSibling(int Position, string Title);
 
+/// <summary>One group member's branch and the worktree it was committed in, as the reconciler
+///     needs them (D7). The BRANCH IS STORED, never derived from the worktree name: a derived
+///     branch is a second source of truth that can disagree with what git checked out, and the
+///     reconciler merges by branch.</summary>
+/// <param name="Position">1-based chain step position of the member.</param>
+/// <param name="Branch">The branch the member's work is committed on.</param>
+/// <param name="WorktreePath">The worktree directory that branch was checked out in.</param>
+public sealed record ChainBriefBranch(int Position, string Branch, string WorktreePath);
+
+/// <summary>What a RECONCILER must know before it merges (D7/D14): the branches the group left
+///     behind, the state of the workspace checkout it merges into, and which members did not
+///     succeed.
+///     <para>THE CHECKOUT'S STATE IS A FACT, NOT A REFUSAL: git is the model's to handle, so the
+///     reconciler is told what is there and decides. <paramref name="DirtyFiles"/> empty means
+///     the checkout is clean; a read that FAILED is a different fact and is carried by
+///     <paramref name="CheckoutReadable"/> rather than by an empty list, because 'nothing is
+///     there' and 'nobody could look' are not the same answer.</para></summary>
+/// <param name="Branches">The members' branches, in position order.</param>
+/// <param name="DirtyFiles">The checkout's uncommitted files, empty when it is clean.</param>
+/// <param name="FailedPositions">The members whose work did not land, in position order.</param>
+/// <param name="CheckoutReadable">False when the checkout's status could not be read at all.
+///     Defaults to true: a caller that read the status successfully says nothing about it.
+/// </param>
+public sealed record ChainBriefReconciliation(
+    IReadOnlyList<ChainBriefBranch> Branches,
+    IReadOnlyList<string> DirtyFiles,
+    IReadOnlyList<int> FailedPositions,
+    bool CheckoutReadable = true);
 /// <summary>Everything the brief renders, gathered by <see cref="IChainBriefSource"/> and
 ///     turned into text by <see cref="ChainBriefRenderer"/> (issue #302 D1).
 ///     <para>WHY FACTS AND NOT THE RECORDS: the renderer must be a PURE function so the same
@@ -94,6 +122,11 @@ public sealed record ChainBriefFacts(
   /// <summary>True when this step runs as one of a group, so its completion starts nothing on
   ///     its own and its work must be committed before it completes.</summary>
   public bool IsGroupMember => Siblings.Count > 0;
+
+  /// <summary>What this step must merge, when it is the RECONCILER of a group that already ran:
+  ///     the members' branches, the state of the workspace checkout, and the members that did
+  ///     not succeed. Null for every other step, which merges nothing.</summary>
+  public ChainBriefReconciliation? Reconciliation { get; init; }
 }
 
 /// <summary>The rendered brief (issue #302): the first message a chain step's session

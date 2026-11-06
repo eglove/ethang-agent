@@ -202,15 +202,16 @@ public sealed record Chain(
   }
 
   /// <summary>Anchors the step at <paramref name="position"/> to the git worktree its session
-  ///     runs in.</summary>
+  ///     runs in, and to the branch checked out there.</summary>
   /// <param name="position">The 1-based step position.</param>
   /// <param name="path">The worktree directory, or null to clear it.</param>
+  /// <param name="branch">The branch checked out in that worktree, or null to clear it.</param>
   /// <param name="now">The clock.</param>
-  public Chain WithWorktree(int position, string? path, DateTimeOffset now)
+  public Chain WithWorktree(int position, string? path, string? branch, DateTimeOffset now)
   {
     EnsureMutable();
     int index = IndexOf(position);
-    return ReplaceStep(index, Steps[index].WithWorktree(path), now);
+    return ReplaceStep(index, Steps[index].WithWorktree(path, branch), now);
   }
 
   /// <summary>Returns a claimed step to Pending WITHOUT settling it (issue #301): the launch

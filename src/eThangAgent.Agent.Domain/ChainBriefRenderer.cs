@@ -116,6 +116,7 @@ public static class ChainBriefRenderer
 
     AddPredecessors(lines, facts);
     AddSiblings(lines, facts);
+    AddReconciler(lines, facts);
     AddCompletionEvidence(lines);
     // THE ONE BRANCH ON ROLE (issue #306): a reviewer is not asked to finish the work, because
     // a reviewer told to mark the step done would finish it instead of judging it.
@@ -170,6 +171,73 @@ public static class ChainBriefRenderer
     {
       lines.Add($"- Step {sibling.Position} — {sibling.Title}");
     }
+  }
+
+
+  /// <summary>What a RECONCILER must merge (D7/D14): the members' branches, the state of the
+  ///     workspace checkout it merges into, and the members that did not succeed.
+  ///     <para>THE BRANCHES ARE NAMED, NOT SUMMARIZED. The reconciler merges by branch, and a
+  ///     brief that said 'two branches' would leave it to guess which, in which directory.</para>
+  ///     <para>THE CHECKOUT'S STATE IS TOLD, NEVER REFUSED. An uncommitted checkout is the
+  ///     model's to resolve - commit, stash, or work around - so the brief states the fact and
+  ///     leaves the decision; a read that FAILED says so rather than claiming the checkout is
+  ///     clean, because 'nothing is there' and 'nobody could look' are different facts.</para>
+  ///     </summary>
+  private static void AddReconciler(List<string> lines, ChainBriefFacts facts)
+  {
+    if (facts.Reconciliation is not { } reconciliation)
+    {
+      return;
+    }
+
+    lines.Add("");
+    lines.Add("## You are the RECONCILER");
+    lines.Add("");
+    lines.Add("The group before you ran in separate git worktrees. Your job is to merge their branches into");
+    lines.Add("this workspace checkout. Nothing else follows until you do.");
+    lines.Add("");
+    foreach (ChainBriefBranch branch in reconciliation.Branches)
+    {
+      lines.Add($"- Step {branch.Position} — branch `{branch.Branch}` at {branch.WorktreePath}");
+    }
+
+    lines.Add("");
+    lines.Add("## The workspace checkout");
+    lines.Add("");
+    AddCheckoutState(lines, reconciliation);
+    lines.Add("");
+    lines.Add("## How to merge");
+    lines.Add("");
+    lines.Add("Merge each branch in the order listed. A conflict is yours to resolve: resolve it, then record");
+    lines.Add("what you resolved and why in your outcome before you mark this step done. The review step");
+    lines.Add("after you judges the merged result, so an unexplained resolution has nothing behind it.");
+    if (reconciliation.FailedPositions.Count > 0)
+    {
+      lines.Add("");
+      lines.Add($"Step(s) {string.Join(", ", reconciliation.FailedPositions)} did not succeed. Merge the branches");
+      lines.Add("that did, then stop and say so: the harness parks the chain and names them.");
+    }
+  }
+
+  /// <summary>The checkout paragraph: clean, dirty with the files named, or unreadable. The three
+  ///     are distinct answers and the third is never rendered as the first.</summary>
+  private static void AddCheckoutState(List<string> lines, ChainBriefReconciliation reconciliation)
+  {
+    if (!reconciliation.CheckoutReadable)
+    {
+      lines.Add("The workspace checkout could not be read; check it yourself before merging.");
+      return;
+    }
+
+    if (reconciliation.DirtyFiles.Count == 0)
+    {
+      lines.Add("The workspace checkout is clean.");
+      return;
+    }
+
+    lines.Add($"The workspace checkout has uncommitted changes: {string.Join(", ", reconciliation.DirtyFiles)}.");
+    lines.Add("They are not yours. Commit or stash them before you merge, or work around them - the");
+    lines.Add("decision is yours, but do not discard them.");
   }
 
   /// <summary>What backs a done-claim. The workspace declares no command set, so the session

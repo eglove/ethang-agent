@@ -19,17 +19,17 @@ internal sealed class ChainAdvanceHost(
     Func<AgentId, Task> closeSession,
     Func<ChainStepAssignment, string, Task<Result<string>>> startSession,
     Func<Chain, string, Task<Result<string>>>? startFinalSession = null,
-    Func<string, Task<Result<string>>>? provisionWorktree = null,
+    Func<string, Task<Result<WorktreeProvision>>>? provisionWorktree = null,
     Func<string, Task<bool>>? worktreeIsDirty = null) : IChainAdvanceHost
 {
   /// <inheritdoc />
-  public async Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
+  public async Task<Result<WorktreeProvision>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(name);
     _ = ct;
     if (provisionWorktree is null)
     {
-      return Result.Failure<string>(new DomainError("WorktreeUnsupported",
+      return Result.Failure<WorktreeProvision>(new DomainError("WorktreeUnsupported",
           "this host cannot provision a worktree; the group member's session was not started."));
     }
 
@@ -43,7 +43,7 @@ internal sealed class ChainAdvanceHost(
     catch (Exception ex)
 #pragma warning restore CA1031 // Do not catch general exception types
     {
-      return Result.Failure<string>(new DomainError("WorktreeProvisionFailed",
+      return Result.Failure<WorktreeProvision>(new DomainError("WorktreeProvisionFailed",
           "the worktree could not be provisioned: " + ex.Message));
     }
   }

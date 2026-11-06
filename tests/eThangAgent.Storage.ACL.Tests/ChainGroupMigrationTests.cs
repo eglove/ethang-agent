@@ -115,6 +115,58 @@ public sealed class ChainGroupMigrationTests : IDisposable
     Assert.True(created.IsSuccess, created.Error?.Message ?? "fixture chain must be created");
   }
 
+
+  /// <summary>Builds a database at the V35 shape - the current chain_steps table minus
+  ///     <c>worktree_branch</c> - and stamps user_version 35, which is the exact pre-V36 state a
+  ///     shipped database is in.</summary>
+  private void SeedV35()
+    => Execute("""
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE chain_steps_v35b (
+            chain_id INTEGER NOT NULL REFERENCES chains(id),
+            position INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('Pending', 'Running', 'Done', 'Failed', 'Skipped', 'Parked')),
+            session_id TEXT,
+            attempts INTEGER NOT NULL,
+            outcome TEXT,
+            actor TEXT NOT NULL,
+            claimed_at TEXT,
+            completed_at TEXT,
+            role TEXT NOT NULL DEFAULT 'Implement' CHECK (role IN ('Implement', 'Review')),
+            role_model TEXT,
+            served_model TEXT,
+            review_attempts INTEGER NOT NULL DEFAULT 0 CHECK (review_attempts >= 0),
+            invalidated_by TEXT,
+            group_id INTEGER,
+            worktree_path TEXT,
+            PRIMARY KEY (chain_id, position)
+        );
+        INSERT INTO chain_steps_v35b (chain_id, position, status, session_id, attempts, outcome,
+            actor, claimed_at, completed_at, role, role_model, served_model, review_attempts,
+            invalidated_by, group_id, worktree_path)
+            SELECT chain_id, position, status, session_id, attempts, outcome, actor, claimed_at,
+                completed_at, role, role_model, served_model, review_attempts, invalidated_by,
+                group_id, worktree_path FROM chain_steps;
+        DROP TABLE chain_steps;
+        ALTER TABLE chain_steps_v35b RENAME TO chain_steps;
+        PRAGMA user_version = 35;
+        PRAGMA foreign_keys = ON;
+        """);
+
+  /// <summary>V36 stores the branch a member committed on. It is NULL for every row that
+  ///     predates the column, because no step before it ran in a worktree at all.</summary>
+  [Fact]
+  public void V36_AddsTheWorktreeBranchColumn_AndLeavesEveryExistingRowNull()
+  {
+    SeedChainRows();
+    SeedV35();
+
+    _ = new AppDatabase(_dbPath);
+
+    Assert.True(ColumnExists("chain_steps", "worktree_branch"));
+    Assert.Equal(0L, Scalar<long>("SELECT COUNT(*) FROM chain_steps WHERE worktree_branch IS NOT NULL;"));
+    Assert.Equal(2L, Scalar<long>("SELECT COUNT(*) FROM chain_steps;"));
+  }
   [Fact]
   public void Migrate_AddsGroupAndWorktreeColumns()
   {

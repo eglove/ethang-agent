@@ -53,7 +53,7 @@ public sealed class SqliteChainStoreGroupTests : IDisposable
     SqliteChainStore store = NewStore();
     Chain created = Must(await store.CreateAsync(GroupedDraft(),
         TestContext.Current.CancellationToken));
-    Chain withWorktree = created.WithWorktree(1, "C:/ws/.worktrees/chain-1-step-1", T0);
+    Chain withWorktree = created.WithWorktree(1, "C:/ws/.worktrees/chain-1-step-1", "chain-1-step-1", T0);
 
     _ = Must(await store.SaveAsync(withWorktree, created.Version,
         TestContext.Current.CancellationToken));
@@ -61,6 +61,8 @@ public sealed class SqliteChainStoreGroupTests : IDisposable
 
     Assert.Equal(1, reloaded.StepAt(1)!.Group);
     Assert.Equal("C:/ws/.worktrees/chain-1-step-1", reloaded.StepAt(1)!.WorktreePath);
+    // The branch is its own column: the reconciler merges by branch, so a reload must carry it.
+    Assert.Equal("chain-1-step-1", reloaded.StepAt(1)!.WorktreeBranch);
     // The sibling is in the same group and has no worktree recorded yet: the two facts are
     // independent columns, not one group-shaped value.
     Assert.Equal(1, reloaded.StepAt(2)!.Group);
@@ -89,7 +91,7 @@ public sealed class SqliteChainStoreGroupTests : IDisposable
     Chain created = Must(await NewStore().CreateAsync(GroupedDraft(),
         TestContext.Current.CancellationToken));
 
-    Chain stamped = created.WithWorktree(2, "C:/ws/.worktrees/chain-1-step-2", T0);
+    Chain stamped = created.WithWorktree(2, "C:/ws/.worktrees/chain-1-step-2", "chain-1-step-2", T0);
 
     Assert.Equal("C:/ws/.worktrees/chain-1-step-2", stamped.StepAt(2)!.WorktreePath);
     Assert.Null(stamped.StepAt(1)!.WorktreePath);

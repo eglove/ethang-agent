@@ -167,6 +167,7 @@ public sealed class ChainBriefService(IChainBriefSource source)
           rubricAvailable)
       {
         Siblings = Siblings(chain, plan, assignment.Position),
+        Reconciliation = chain.Reconciliation,
       };
 
   /// <summary>The other members of this step's group, named by the plan's titles.
