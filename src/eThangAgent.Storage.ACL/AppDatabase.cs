@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 34;
+  public const int LatestSchemaVersion = 35;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -142,6 +142,7 @@ public sealed class AppDatabase
     (32, ApplyV32),
     (33, ApplyV33),
     (34, ApplyV34),
+    (35, ApplyV35),
   ];
 
   private void Migrate()
@@ -1451,6 +1452,73 @@ public sealed class AppDatabase
         );
         """;
     Execute(connection, sql);
+  }
+
+  /// <summary>V35 adds <c>chain_steps.group_id</c> and <c>chain_steps.worktree_path</c>: the
+  ///     group a step runs in, and the git worktree its session is anchored to.
+  ///     <para>BOTH ARE NULLABLE AND BOTH MEAN 'NOT IN A GROUP' WHEN NULL. Only a group member
+  ///     gets either fact, so a sequential step carries neither - and every step that existed
+  ///     before this migration ran was sequential, which is why no backfill is needed and a
+  ///     written guess would fabricate a group that never ran.</para>
+  ///     <para>THE TABLE IS REBUILT (the V23/V26/V28/V29/V31 idiom) rather than altered in
+  ///     place: the rebuild carries the status, role and non-negative CHECK constraints forward
+  ///     VERBATIM, so the doors those migrations closed against a direct writer stay closed, and
+  ///     rows, positions and every execution column are copied verbatim so no chain changes
+  ///     identity or CAS state.</para>
+  ///     <para>CONDITIONAL ON <c>chain_steps</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database and one stamped below V23 does not have the table yet
+  ///     (the V26/V28/V29/V31 precedent).</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV35(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "chain_steps"))
+    {
+      return;
+    }
+
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE chain_steps_v35 (
+              chain_id INTEGER NOT NULL REFERENCES chains(id),
+              position INTEGER NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('Pending', 'Running', 'Done', 'Failed', 'Skipped', 'Parked')),
+              session_id TEXT,
+              attempts INTEGER NOT NULL,
+              outcome TEXT,
+              actor TEXT NOT NULL,
+              claimed_at TEXT,
+              completed_at TEXT,
+              role TEXT NOT NULL DEFAULT 'Implement' CHECK (role IN ('Implement', 'Review')),
+              role_model TEXT,
+              served_model TEXT,
+              review_attempts INTEGER NOT NULL DEFAULT 0 CHECK (review_attempts >= 0),
+              invalidated_by TEXT,
+              group_id INTEGER,
+              worktree_path TEXT,
+              PRIMARY KEY (chain_id, position)
+          );
+          INSERT INTO chain_steps_v35 (chain_id, position, status, session_id, attempts, outcome,
+              actor, claimed_at, completed_at, role, role_model, served_model, review_attempts,
+              invalidated_by, group_id, worktree_path)
+              SELECT chain_id, position, status, session_id, attempts, outcome, actor,
+                  claimed_at, completed_at, role, role_model, served_model, review_attempts,
+                  invalidated_by, NULL, NULL FROM chain_steps;
+          DROP TABLE chain_steps;
+          ALTER TABLE chain_steps_v35 RENAME TO chain_steps;
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
   }
 
   private static void ApplyV32(SqliteConnection connection)

@@ -201,6 +201,18 @@ public sealed record Chain(
     return ReplaceStep(index, Steps[index].WithServedModel(modelId), now);
   }
 
+  /// <summary>Anchors the step at <paramref name="position"/> to the git worktree its session
+  ///     runs in.</summary>
+  /// <param name="position">The 1-based step position.</param>
+  /// <param name="path">The worktree directory, or null to clear it.</param>
+  /// <param name="now">The clock.</param>
+  public Chain WithWorktree(int position, string? path, DateTimeOffset now)
+  {
+    EnsureMutable();
+    int index = IndexOf(position);
+    return ReplaceStep(index, Steps[index].WithWorktree(path), now);
+  }
+
   /// <summary>Returns a claimed step to Pending WITHOUT settling it (issue #301): the launch
   ///     that claimed it failed, so no session ever existed to run it.
   ///     <para>The ATTEMPT COUNT IS KEPT. A launch that failed is still an attempt the bound

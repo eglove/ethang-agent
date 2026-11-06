@@ -282,9 +282,10 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     insert.CommandText = """
         INSERT INTO chain_steps (chain_id, position, status, session_id, attempts, outcome, actor,
             claimed_at, completed_at, role, role_model, served_model, review_attempts,
-            invalidated_by)
+            invalidated_by, group_id, worktree_path)
         VALUES (@chainId, @position, @status, @session, @attempts, @outcome, @actor, @claimedAt,
-            @completedAt, @role, @roleModel, @servedModel, @reviewAttempts, @invalidatedBy);
+            @completedAt, @role, @roleModel, @servedModel, @reviewAttempts, @invalidatedBy,
+            @groupId, @worktreePath);
         """;
     Add(insert, "@chainId", chainId);
     Add(insert, "@position", step.Position);
@@ -301,6 +302,9 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     Add(insert, "@reviewAttempts", step.ReviewAttempts);
     // NULL is 'not invalidated', the ordinary case (issue #304 D5).
     Add(insert, "@invalidatedBy", step.InvalidatedBy);
+    // NULL is 'runs alone, in the workspace checkout', the ordinary case.
+    Add(insert, "@groupId", step.Group);
+    Add(insert, "@worktreePath", step.WorktreePath);
     _ = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
   }
 
@@ -330,7 +334,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
       SqliteConnection connection, int chainId, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
-    command.CommandText = "SELECT position, status, session_id, attempts, outcome, actor, claimed_at, completed_at, role, role_model, served_model, review_attempts, invalidated_by FROM chain_steps WHERE chain_id=@chainId ORDER BY position;";
+    command.CommandText = "SELECT position, status, session_id, attempts, outcome, actor, claimed_at, completed_at, role, role_model, served_model, review_attempts, invalidated_by, group_id, worktree_path FROM chain_steps WHERE chain_id=@chainId ORDER BY position;";
     Add(command, "@chainId", chainId);
     List<ChainStep> steps = [];
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -409,8 +413,15 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     string? invalidatedBy = await reader.IsDBNullAsync(12, ct).ConfigureAwait(false)
         ? null
         : reader.GetString(12);
+    int? group = await reader.IsDBNullAsync(13, ct).ConfigureAwait(false)
+        ? null
+        : reader.GetInt32(13);
+    string? worktreePath = await reader.IsDBNullAsync(14, ct).ConfigureAwait(false)
+        ? null
+        : reader.GetString(14);
     return new ChainStep(reader.GetInt32(0), stepStatus, sessionId, reader.GetInt32(3),
-        outcome, actor, claimedAt, completedAt, role, servedModel, reviewAttempts, invalidatedBy);
+        outcome, actor, claimedAt, completedAt, role, servedModel, reviewAttempts, invalidatedBy,
+        group, worktreePath);
   }
 
   private async Task<int?> ReadCurrentVersionAsync(SqliteConnection connection, SqliteTransaction transaction,

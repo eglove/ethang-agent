@@ -25,7 +25,8 @@ public sealed record ChainStep(
   string? ServedModel = null,
   int ReviewAttempts = 0,
   string? InvalidatedBy = null,
-  int? Group = null)
+  int? Group = null,
+  string? WorktreePath = null)
 {
   /// <summary>A fresh Pending step with the IMPLEMENTER role (issue #313 D7): the default a
   ///     step takes when nobody assigned one. Use the two-argument overload to assign a
@@ -191,6 +192,13 @@ public sealed record ChainStep(
   /// <param name="modelId">The model id the session served on, or null to clear it.</param>
   public ChainStep WithServedModel(string? modelId) =>
       this with { ServedModel = string.IsNullOrWhiteSpace(modelId) ? null : modelId.Trim() };
+
+  /// <summary>Records the git worktree this step's session runs in, or clears it with null.
+  ///     <para>ONLY A GROUP MEMBER HAS ONE: a sequential step runs in the workspace checkout, so
+  ///     null is the ordinary case and means 'no worktree', never 'not recorded'.</para></summary>
+  /// <param name="path">The worktree directory, or null to clear it.</param>
+  public ChainStep WithWorktree(string? path) =>
+      this with { WorktreePath = string.IsNullOrWhiteSpace(path) ? null : path.Trim() };
 
   /// <summary>True when a later refutation disproved something this step concluded (issue
   ///     #304 D5).
