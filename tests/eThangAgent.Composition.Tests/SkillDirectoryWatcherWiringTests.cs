@@ -1,5 +1,6 @@
 
 using eThangAgent.AgentDomain;
+using eThangAgent.Lsp.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,6 +37,43 @@ public class SkillDirectoryWatcherWiringTests
         {
           // The session OWNS a host process: dispose the container so the host is
           // killed instead of lingering as a stray.
+          await TestSession.DisposeAsync(result);
+        }
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      DeleteDb(db);
+    }
+  }
+
+  [Fact]
+  public async Task CreateAsync_StartsTheLanguageServer()
+  {
+    (AgentSessionFactory factory, string db) = CreateFactory();
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-lsp");
+      try
+      {
+        await File.WriteAllTextAsync(Path.Combine(dir.FullName, "a.cs"), "public class A { }",
+            TestContext.Current.CancellationToken).ConfigureAwait(true);
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter,
+            ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+        Assert.True(result.IsSuccess);
+        try
+        {
+          LspDaemonHost daemon = result.Value.Services.GetRequiredService<LspDaemonHost>();
+          Assert.True(daemon.IsStarted,
+              "the language server must be started at workspace start; an unstarted daemon "
+              + "means the first query pays the full daemon + server start.");
+        }
+        finally
+        {
           await TestSession.DisposeAsync(result);
         }
       }

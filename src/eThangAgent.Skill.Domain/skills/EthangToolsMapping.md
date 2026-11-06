@@ -34,6 +34,7 @@ Discover the surface instead of guessing: `Tools.List()` lists every action, and
 | Read an image | `read_image` (PNG/JPEG, attached to the result as an image part) |
 | Actions gated by host settings | some actions exist only when the host enables them; `Tools.List()` reports what is actually bound in this session |
 | Call a configured MCP server | `mcp` (`list` / `call`) |
+| Language-server symbol navigation | `lsp` (`definition` / `references` / `hover` / `document-symbols` / `workspace-symbols` / `implementation` / `call-hierarchy-incoming` / `call-hierarchy-outgoing` / `workspace-load` / `rename`) |
 
 **Agents are sessions.** Three things start one: the harness starts a session per chain step, a
 person starts one with "+", and a model starts a SIBLING with `agent.launch`. A launched agent is a

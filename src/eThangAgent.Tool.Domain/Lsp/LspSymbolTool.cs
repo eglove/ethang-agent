@@ -75,7 +75,7 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
         + " A symbol that is only referenced (not defined) in the named file returns Unsupported, never a guessed position."
         + " A member resolves by its declared name even when the server reports it with its signature."
         + " hover carries the server's hover text after the site line."
-        + " The first call to a workspace connects to its language server lazily; later calls reuse the session."
+        + " The language server starts when the workspace starts and later calls reuse the session."
         + " A query against a workspace the server has not loaded returns Starting and never an empty Ready, because an unloaded server reports a symbol's own declaration and none of its cross-file uses."
         + " workspace-load requests the load and waits for it, so it is the action to call when a query reports Starting and you need a real answer."
         + " Output: one annotation line '[lsp] <State>: <action>' then one line per site - 'path:line:character symbol' (1-based)."

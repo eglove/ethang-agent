@@ -257,10 +257,10 @@ public static class AgentComposition
     return new LspPipeClaimGate(daemon.EnsureConnectedAsync, sessionId);
   }
 
-  /// <summary>The language-server daemon this container owns: one per workspace, connected
-  ///     lazily on the first advisory query, so a workspace with no code and a session that
-  ///     never edits code start neither a daemon nor a server. Connecting also starts the
-  ///     workspace watcher's forwarding subscription.</summary>
+  /// <summary>The language-server daemon this container owns: one per workspace, started
+  ///     at workspace start (see <see cref="StartLspDaemon"/>), so the language server is
+  ///     already warming before the first query. A workspace with no code starts no daemon.
+  ///     Connecting also starts the workspace watcher's forwarding subscription.</summary>
   private static LspDaemonHost DaemonHost(IServiceProvider sp)
   {
     IWorkspaceContext workspace = sp.GetRequiredService<IWorkspaceContext>();
@@ -417,7 +417,8 @@ public static class AgentComposition
           "Call tools on configured MCP servers through one dispatch surface (list, call)."),
       // LSP symbol navigation (issue #357): single dispatch tool mirroring McpTool;
       // the ACL access is lazy (null service = Unavailable) so registration never
-      // requires a language server to exist.
+      // requires a language server to exist. The daemon itself starts at workspace
+      // start (see StartLspDaemon), so the first query finds the server warming.
       new AgentToolBinding(
           new LspSymbolTool(sp.GetRequiredService<IPathResolver>(),
               new LspDaemonSymbolAccess(ct => sp.GetRequiredService<LspDaemonHost>().EnsureConnectedAsync(ct)),
@@ -1500,6 +1501,27 @@ public static class AgentComposition
     if (services.GetService(typeof(SkillDirectoryWatcher)) is SkillDirectoryWatcher watcher)
     {
       watcher.Start();
+    }
+  }
+
+  /// <summary>Starts this container's language server at workspace start (issue #269
+  ///     pattern): the daemon process and the language server begin warming when the
+  ///     workspace starts, not on the first advisory query, symbol query, or edit.
+  ///     <para>EVERY container that registers the daemon host must call this after
+  ///     building, because the host connects lazily on the first query - an unstarted
+  ///     host means the first query pays the full daemon + server start. The previous
+  ///     single call site was the app factory, which production never reaches: every
+  ///     conversation runs its turns in a ChildHost process that builds its own
+  ///     container.</para>
+  ///     <para>Idempotent (the host's own Start is), and a container without the daemon
+  ///     registrations (a headless test stub) skips silently. A workspace with no code
+  ///     starts no daemon, exactly as before.</para></summary>
+  public static void StartLspDaemon(IServiceProvider services)
+  {
+    ArgumentNullException.ThrowIfNull(services);
+    if (services.GetService(typeof(LspDaemonHost)) is LspDaemonHost daemon)
+    {
+      _ = daemon.StartAsync();
     }
   }
 

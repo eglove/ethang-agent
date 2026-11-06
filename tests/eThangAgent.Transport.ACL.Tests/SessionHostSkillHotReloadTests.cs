@@ -1,5 +1,6 @@
 using eThangAgent.ChildHost;
 using eThangAgent.Composition;
+using eThangAgent.Lsp.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using Microsoft.Extensions.DependencyInjection;
@@ -144,6 +145,45 @@ public class SessionHostSkillHotReloadTests
       Delete(settingsPath);
       Delete(dbPath);
       Delete(skillsRoot, recursive: true);
+    }
+  }
+
+  /// <summary>The language server starts in the container that ACTUALLY serves the model
+  ///     (issue #269 pattern): the ChildHost builds its own container, so the daemon
+  ///     must start there, not only in the app's factory.</summary>
+  [Fact]
+  public async Task HostContainer_StartsTheLanguageServerAtWorkspaceStart()
+  {
+    string workspaceRoot = Directory.CreateTempSubdirectory("ethang-host-lsp").FullName;
+    string settingsPath = Path.Combine(Path.GetTempPath(),
+        "ethang-host-lsp-" + Guid.NewGuid().ToString("N") + ".json");
+    string dbPath = Path.Combine(Path.GetTempPath(),
+        "ethang-host-lsp-" + Guid.NewGuid().ToString("N") + ".db");
+    try
+    {
+      await File.WriteAllTextAsync(Path.Combine(workspaceRoot, "a.cs"), "public class A { }",
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+      WriteSettings(settingsPath, workspaceRoot);
+      SessionHost host = SessionHost.Create(settingsPath, dbPath);
+      try
+      {
+        LspDaemonHost daemon = (LspDaemonHost)host.Services
+            .GetRequiredService(typeof(LspDaemonHost));
+
+        Assert.True(daemon.IsStarted,
+            "the conversation host's language server must be started at workspace start; "
+            + "an unstarted daemon means the first query pays the full daemon + server start.");
+      }
+      finally
+      {
+        await DisposeHostAsync(host).ConfigureAwait(true);
+      }
+    }
+    finally
+    {
+      Delete(settingsPath);
+      Delete(dbPath);
+      Delete(workspaceRoot, recursive: true);
     }
   }
 

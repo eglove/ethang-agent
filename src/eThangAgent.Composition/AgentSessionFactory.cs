@@ -554,6 +554,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     // The ChildHost calls the SAME seam at its own container build, which is the
     // container that actually serves the model in production.
     AgentComposition.StartSkillHotReload(services);
+    // Language server (issue #269 pattern): the same shared seam - the daemon and
+    // server start warming at workspace start, not on the first query. The ChildHost
+    // calls the SAME seam at its own container build.
+    AgentComposition.StartLspDaemon(services);
     return new(
       services,
       rootId,

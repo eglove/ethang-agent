@@ -55,7 +55,7 @@ public class LspSymbolToolTests
       Assert.Contains(label, d, StringComparison.Ordinal);
     }
     Assert.Contains("[lsp]", d, StringComparison.Ordinal);
-    Assert.Contains("lazily", d, StringComparison.Ordinal);
+    Assert.Contains("workspace starts", d, StringComparison.Ordinal);
   }
 
   [Fact]

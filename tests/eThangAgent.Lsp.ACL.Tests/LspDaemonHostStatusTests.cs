@@ -19,6 +19,40 @@ public class LspDaemonHostStatusTests
   }
 
   [Fact]
+  public void TheHost_StartsUnstarted()
+  {
+    using LspDaemonHost host = new("ws-status", Directory.GetCurrentDirectory(), "app-1",
+        () => "C:\\nowhere\\eThangAgent.Lsp.Host.exe");
+
+    Assert.False(host.IsStarted);
+  }
+
+  [Fact]
+  public async Task StartAsync_MarksTheHostStarted_AndIsIdempotent()
+  {
+    string root = Directory.CreateTempSubdirectory("lsp-start").FullName;
+    string workspaceId = "ws-start-" + Guid.NewGuid().ToString("N");
+    try
+    {
+      await File.WriteAllTextAsync(Path.Combine(root, "a.cs"), "public class A { }", TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      using LspDaemonHost host = new(workspaceId, root, "app-1",
+          () => throw new InvalidOperationException("no daemon process to start in this test"));
+
+      Assert.False(host.IsStarted);
+      _ = await host.StartAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(host.IsStarted);
+
+      _ = await host.StartAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(host.IsStarted);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Fact]
   public void TwoHosts_NeverShareAMonitor()
   {
     using LspDaemonHost first = new("ws-a", Directory.GetCurrentDirectory(), "app-1",

@@ -5,8 +5,9 @@ namespace eThangAgent.Lsp.ACL;
 /// <summary>Per-workspace language-server daemon ownership: resolves the daemon
 /// executable, starts it when no daemon is listening, and holds the one connection
 /// every advisory query, symbol query, claim, and watcher announcement rides on.
-/// Connecting starts the workspace watcher's forwarding subscription, so a workspace
-/// whose daemon is never reached also never starts a watcher.</summary>
+/// The daemon starts when the workspace starts (see <see cref="StartAsync"/>), so
+/// the language server is already warming before the first query. Connecting also
+/// starts the workspace watcher's forwarding subscription.</summary>
 public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
 {
   private readonly string _workspaceId;
@@ -50,6 +51,41 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
 
   /// <summary>True once the workspace watcher is publishing to this daemon.</summary>
   public bool IsForwarding => _forwarder?.IsForwarding == true;
+
+  private int _started;
+
+  /// <summary>True once <see cref="StartAsync"/> has run; exposed for wiring tests.</summary>
+  public bool IsStarted => _started != 0;
+
+  /// <summary>Starts the workspace's language server at workspace start: connects to
+  ///     the daemon (starting it when no daemon is listening) so the server is warming
+  ///     before the first query. Idempotent: a second call reuses the live connection.
+  ///     Returns null when the workspace holds no code or no daemon can be reached.
+  ///     <para>THE WORK RUNS OFF THE CALLER'S THREAD, because connecting scans the
+  ///     workspace and then waits up to the daemon start budget: doing that inline
+  ///     would make every workspace open pay it before the session exists. A caller
+  ///     that discards the task gets an instant start; a test awaits it.</para>
+  ///     <para>A daemon that cannot be reached is the Unavailable state, never a
+  ///     failure of the workspace start that asked for it.</para></summary>
+  public Task<LspPipeClient?> StartAsync(CancellationToken ct = default)
+  {
+    _ = Interlocked.Exchange(ref _started, 1);
+    return Task.Run(async () =>
+    {
+      try
+      {
+        return await EnsureConnectedAsync(ct).ConfigureAwait(false);
+      }
+      // Named decision (CA1031): a daemon that cannot be started at workspace start is
+      // the Unavailable state, never a failure of the workspace start that asked for it.
+#pragma warning disable CA1031 // Do not catch general exception types
+      catch (Exception)
+      {
+        return null;
+      }
+#pragma warning restore CA1031
+    }, ct);
+  }
 
   /// <summary>Returns a client for the workspace daemon, connecting when there is no
   /// usable connection. A connection whose daemon has exited is discarded and replaced

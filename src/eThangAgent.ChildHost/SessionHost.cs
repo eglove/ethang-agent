@@ -181,6 +181,11 @@ public sealed class SessionHost
     // skill added mid-session invisible for the session's whole lifetime.
     AgentComposition.StartSkillHotReload(provider);
 
+    // Language server (issue #269 pattern): THIS container serves the model's lsp
+    // queries in every production session, so THIS is where the daemon must be live.
+    // The app-side factory's start never ran here - the host builds its own container.
+    AgentComposition.StartLspDaemon(provider);
+
     return new SessionHost(
         provider,
         provider.GetRequiredService<IAgentStore>(),
