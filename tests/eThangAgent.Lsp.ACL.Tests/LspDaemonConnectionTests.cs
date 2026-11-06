@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json.Nodes;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.ToolDomain.Lsp;
 
@@ -90,6 +92,75 @@ public class LspDaemonConnectionTests
       Directory.Delete(root, recursive: true);
     }
   }
+
+  /// <summary>A rename crosses the pipe as its own action and carries the new name: the
+  ///     daemon routes it to the symbol service, which puts newName on the language-server
+  ///     wire, and the computed edit set comes back in the reply.</summary>
+  [Fact]
+  public async Task Rename_Command_CarriesTheNewNameOnTheWire()
+  {
+    string ws = "ws-rename-" + Guid.NewGuid().ToString("N");
+    string pipe = LspPipeNames.ForWorkspaceId(ws);
+    string uri = LspUriMapper.ToUri("C:\\ws\\A.cs");
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest(ResponseJson(1, DocumentSymbolsJson()));
+    transport.EnqueueIncomingForTest(ResponseJson(2, WorkspaceEditJson(uri)));
+    LspCapabilities capabilities = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
+    using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
+    server.AttachSymbolService(new LspSymbolService(transport, capabilities));
+    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+    Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
+    await Task.Delay(150, cts.Token);
+
+    using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
+#pragma warning disable CA2025 // the client outlives the factory task that hands it back
+    LspDaemonSymbolAccess access = new(_ => Task.FromResult<LspPipeClient?>(client), _ => true);
+#pragma warning restore CA2025
+    LspSymbolOutcome outcome = await access.ExecuteAsync(
+        new LspSymbolCommand.Rename("C:\\ws\\A.cs", "Foo", 0, "Bar"), cts.Token);
+
+    LspSymbolOutcome.Ready ready = Assert.IsType<LspSymbolOutcome.Ready>(outcome);
+    LspRenameEditSet edits = LspRenameEdits.Parse(ready.Message!);
+    Assert.Equal("Bar", Assert.Single(Assert.Single(edits.Documents).Edits).NewText);
+    string languageServerWire = Encoding.UTF8.GetString(output.ToArray());
+    Assert.Contains("textDocument/rename", languageServerWire, StringComparison.Ordinal);
+    Assert.Contains("\"newName\":\"Bar\"", languageServerWire, StringComparison.Ordinal);
+
+    await cts.CancelAsync();
+    await serve.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
+  }
+
+  private static string ResponseJson(int id, JsonNode result)
+    => new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result }.ToJsonString();
+
+  private static JsonArray DocumentSymbolsJson()
+  {
+    JsonObject symbol = new()
+    {
+      ["name"] = "Foo",
+      ["range"] = RangeJson(0, 5, 8),
+      ["selectionRange"] = RangeJson(0, 5, 8),
+    };
+    return new JsonArray(symbol);
+  }
+
+  private static JsonObject WorkspaceEditJson(string uri)
+    => new()
+    {
+      ["changes"] = new JsonObject
+      {
+        [uri] = new JsonArray(new JsonObject { ["range"] = RangeJson(0, 5, 8), ["newText"] = "Bar" }),
+      },
+    };
+
+  private static JsonObject RangeJson(int line, int start, int end)
+    => new()
+    {
+      ["start"] = new JsonObject { ["line"] = line, ["character"] = start },
+      ["end"] = new JsonObject { ["line"] = line, ["character"] = end },
+    };
 
   private sealed class RecordingSync : ILspDocumentSync
   {

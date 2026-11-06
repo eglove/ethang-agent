@@ -20,7 +20,7 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
   public async Task<LspSymbolOutcome> ExecuteAsync(LspSymbolCommand command, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(command);
-    (string action, string? path, string? symbolName, int occurrence, int depth) = Describe(command);
+    (string action, string? path, string? symbolName, int occurrence, int depth, string newName) = Describe(command);
     if (path is not null && !_fileExists(path))
     {
       return new LspSymbolOutcome.Unsupported("the file '" + path + "' does not exist");
@@ -34,22 +34,23 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
 
     string uri = path is null ? string.Empty : LspUriMapper.ToUri(path);
     LspSymbolResult result = await client
-        .SymbolAsync(action, uri, symbolName ?? string.Empty, occurrence, depth, ct)
+        .SymbolAsync(action, uri, symbolName ?? string.Empty, occurrence, depth, newName, ct)
         .ConfigureAwait(false);
     return Map(result);
   }
 
-  private static (string Action, string? Path, string? SymbolName, int Occurrence, int Depth) Describe(LspSymbolCommand command) => command switch
+  private static (string Action, string? Path, string? SymbolName, int Occurrence, int Depth, string NewName) Describe(LspSymbolCommand command) => command switch
   {
-    LspSymbolCommand.Definition c => ("definition", c.Path, c.SymbolName, c.Occurrence, 1),
-    LspSymbolCommand.References c => ("references", c.Path, c.SymbolName, c.Occurrence, 1),
-    LspSymbolCommand.Hover c => ("hover", c.Path, c.SymbolName, c.Occurrence, 1),
-    LspSymbolCommand.DocumentSymbols c => ("document-symbols", c.Path, null, 0, 1),
-    LspSymbolCommand.WorkspaceSymbols c => ("workspace-symbols", null, c.SymbolName, 0, 1),
-    LspSymbolCommand.Implementation c => ("implementation", c.Path, c.SymbolName, c.Occurrence, 1),
-    LspSymbolCommand.CallHierarchyIncoming c => ("call-hierarchy-incoming", c.Path, c.SymbolName, c.Occurrence, c.Depth),
-    LspSymbolCommand.CallHierarchyOutgoing c => ("call-hierarchy-outgoing", c.Path, c.SymbolName, c.Occurrence, c.Depth),
-    LspSymbolCommand.WorkspaceLoad => ("workspace-load", null, null, 0, 1),
+    LspSymbolCommand.Definition c => ("definition", c.Path, c.SymbolName, c.Occurrence, 1, string.Empty),
+    LspSymbolCommand.References c => ("references", c.Path, c.SymbolName, c.Occurrence, 1, string.Empty),
+    LspSymbolCommand.Hover c => ("hover", c.Path, c.SymbolName, c.Occurrence, 1, string.Empty),
+    LspSymbolCommand.DocumentSymbols c => ("document-symbols", c.Path, null, 0, 1, string.Empty),
+    LspSymbolCommand.WorkspaceSymbols c => ("workspace-symbols", null, c.SymbolName, 0, 1, string.Empty),
+    LspSymbolCommand.Implementation c => ("implementation", c.Path, c.SymbolName, c.Occurrence, 1, string.Empty),
+    LspSymbolCommand.CallHierarchyIncoming c => ("call-hierarchy-incoming", c.Path, c.SymbolName, c.Occurrence, c.Depth, string.Empty),
+    LspSymbolCommand.CallHierarchyOutgoing c => ("call-hierarchy-outgoing", c.Path, c.SymbolName, c.Occurrence, c.Depth, string.Empty),
+    LspSymbolCommand.WorkspaceLoad => ("workspace-load", null, null, 0, 1, string.Empty),
+    LspSymbolCommand.Rename c => ("rename", c.Path, c.SymbolName, c.Occurrence, 1, c.NewName),
     _ => throw new InvalidOperationException("unreachable: command is a validated record family"),
   };
 

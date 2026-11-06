@@ -77,10 +77,10 @@ public class LspRealServerSymbolTests
 
         // A cold workspace reports Starting until its load settles, so the load is
         // requested first: an unloaded server answers with declarations only.
-        LspSymbolResult loaded = await client.SymbolAsync("workspace-load", string.Empty, string.Empty, 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult loaded = await client.SymbolAsync("workspace-load", string.Empty, string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, loaded.State);
 
-        LspSymbolResult document = await client.SymbolAsync("document-symbols", uri, string.Empty, 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult document = await client.SymbolAsync("document-symbols", uri, string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, document.State);
         Assert.NotEmpty(document.Sites);
 
@@ -90,11 +90,11 @@ public class LspRealServerSymbolTests
 
         // A member the server reports as 'Bump(int) : int' must still resolve by its
         // declared name - the defect this test exists to prevent.
-        LspSymbolResult definition = await client.SymbolAsync("definition", uri, "Bump", 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult definition = await client.SymbolAsync("definition", uri, "Bump", 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, definition.State);
         Assert.NotEmpty(definition.Sites);
 
-        LspSymbolResult hover = await client.SymbolAsync("hover", uri, "Bump", 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult hover = await client.SymbolAsync("hover", uri, "Bump", 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, hover.State);
         Assert.False(string.IsNullOrWhiteSpace(hover.Message), "hover must carry the server's contents, not a bare position");
 
@@ -104,11 +104,11 @@ public class LspRealServerSymbolTests
 
         // A server reports a type and the primary constructor it declares over one
         // range; the reference answer must not list that declaration twice.
-        LspSymbolResult references = await client.SymbolAsync("references", uri, "Holder", 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult references = await client.SymbolAsync("references", uri, "Holder", 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, references.State);
         Assert.Equal(references.Sites.Count, references.Sites.Distinct().Count());
 
-        LspSymbolResult field = await client.SymbolAsync("definition", uri, "_count", 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult field = await client.SymbolAsync("definition", uri, "_count", 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, field.State);
         Assert.NotEmpty(field.Sites);
 
@@ -212,15 +212,15 @@ public class LspRealServerSymbolTests
         // answered from the file-based project system reports the type's own declaration
         // and none of its cross-file uses - an empty Ready that reads as truth. The state
         // must say Starting instead, whatever the site list happens to contain.
-        LspSymbolResult cold = await client.SymbolAsync("references", uri, "Widget", 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult cold = await client.SymbolAsync("references", uri, "Widget", 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Starting, cold.State);
         Assert.Empty(cold.Sites);
 
         // workspace-load is the action that waits for the load, so the query after it has
         // a compilation to answer from.
-        _ = await client.SymbolAsync("workspace-load", string.Empty, string.Empty, 0, 1, Ct).ConfigureAwait(true);
+        _ = await client.SymbolAsync("workspace-load", string.Empty, string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
 
-        LspSymbolResult warm = await client.SymbolAsync("references", uri, "Widget", 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult warm = await client.SymbolAsync("references", uri, "Widget", 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, warm.State);
         Assert.NotEmpty(warm.Sites);
 

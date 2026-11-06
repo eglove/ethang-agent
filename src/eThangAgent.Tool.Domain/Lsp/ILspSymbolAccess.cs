@@ -37,6 +37,7 @@ public abstract record LspSymbolCommand
   public sealed record CallHierarchyIncoming(string Path, string SymbolName, int Occurrence, int Depth = 1) : LspSymbolCommand;
   public sealed record CallHierarchyOutgoing(string Path, string SymbolName, int Occurrence, int Depth = 1) : LspSymbolCommand;
   public sealed record WorkspaceLoad : LspSymbolCommand;
+  public sealed record Rename(string Path, string SymbolName, int Occurrence, string NewName) : LspSymbolCommand;
 }
 
 /// <summary>Outcomes the seam returns (the closed outcome set).</summary>

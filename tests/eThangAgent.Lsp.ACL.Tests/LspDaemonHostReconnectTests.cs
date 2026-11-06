@@ -109,7 +109,7 @@ public class LspDaemonHostReconnectTests
       first.Dispose();
       await Task.Delay(200, Ct).ConfigureAwait(true);
       await Assert.ThrowsAnyAsync<Exception>(async () =>
-          await live.SymbolAsync("document-symbols", "file:///C:/ws/a.cs", string.Empty, 0, 1, Ct).ConfigureAwait(true)).ConfigureAwait(true);
+          await live.SymbolAsync("document-symbols", "file:///C:/ws/a.cs", string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true)).ConfigureAwait(true);
       Assert.True(live.IsBroken, "a failed request must mark the client broken");
 
       // Nothing is listening now, and no process can be started, so the honest answer is
@@ -145,7 +145,7 @@ public class LspDaemonHostReconnectTests
       first.Dispose();
       await Task.Delay(200, Ct).ConfigureAwait(true);
       await Assert.ThrowsAnyAsync<Exception>(async () =>
-          await live.SymbolAsync("document-symbols", "file:///C:/ws/a.cs", string.Empty, 0, 1, Ct).ConfigureAwait(true)).ConfigureAwait(true);
+          await live.SymbolAsync("document-symbols", "file:///C:/ws/a.cs", string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true)).ConfigureAwait(true);
 
       // A replacement daemon comes up on the same pipe name.
       OneShotDaemon second = await OneShotDaemon.StartAsync(pipeName, workspaceId).ConfigureAwait(true);
@@ -157,7 +157,7 @@ public class LspDaemonHostReconnectTests
 
         // The reconnected client must actually carry a round trip, not merely exist:
         // a reply of any state proves the pipe is live and the daemon answered.
-        LspSymbolResult result = await reconnected.SymbolAsync("document-symbols", "file:///C:/ws/a.cs", string.Empty, 0, 1, Ct).ConfigureAwait(true);
+        LspSymbolResult result = await reconnected.SymbolAsync("document-symbols", "file:///C:/ws/a.cs", string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.NotNull(result);
       }
       finally
