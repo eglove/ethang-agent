@@ -121,12 +121,49 @@ public class LspDaemonConnectionTests
     LspSymbolOutcome outcome = await access.ExecuteAsync(
         new LspSymbolCommand.Rename("C:\\ws\\A.cs", "Foo", 0, "Bar"), cts.Token);
 
-    LspSymbolOutcome.Ready ready = Assert.IsType<LspSymbolOutcome.Ready>(outcome);
-    LspRenameEditSet edits = LspRenameEdits.Parse(ready.Message!);
-    Assert.Equal("Bar", Assert.Single(Assert.Single(edits.Documents).Edits).NewText);
+    LspSymbolOutcome.Renamed renamed = Assert.IsType<LspSymbolOutcome.Renamed>(outcome);
+    LspRenameEdit edit = Assert.Single(renamed.Edits);
+    Assert.Equal("Bar", edit.NewText);
+    Assert.Equal("C:\\ws\\A.cs", edit.Path);
+    Assert.Equal((5, 8), (edit.Character, edit.EndCharacter));
+    Assert.False(renamed.Applied);
     string languageServerWire = Encoding.UTF8.GetString(output.ToArray());
     Assert.Contains("textDocument/rename", languageServerWire, StringComparison.Ordinal);
     Assert.Contains("\"newName\":\"Bar\"", languageServerWire, StringComparison.Ordinal);
+
+    await cts.CancelAsync();
+    await serve.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
+  }
+
+  /// <summary>A rename the server answers with a file move is reported as unsupported: a
+  ///     text-edit applier cannot perform it, and a partial application is never offered.</summary>
+  [Fact]
+  public async Task Rename_WithFileRenames_ReportsUnsupported()
+  {
+    string ws = "ws-rename-move-" + Guid.NewGuid().ToString("N");
+    string pipe = LspPipeNames.ForWorkspaceId(ws);
+    string uri = LspUriMapper.ToUri("C:\\ws\\A.cs");
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest(ResponseJson(1, DocumentSymbolsJson()));
+    transport.EnqueueIncomingForTest(ResponseJson(2, FileRenameWorkspaceEditJson(uri)));
+    LspCapabilities capabilities = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
+    using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
+    server.AttachSymbolService(new LspSymbolService(transport, capabilities));
+    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+    Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
+    await Task.Delay(150, cts.Token);
+
+    using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
+#pragma warning disable CA2025 // the client outlives the factory task that hands it back
+    LspDaemonSymbolAccess access = new(_ => Task.FromResult<LspPipeClient?>(client), _ => true);
+#pragma warning restore CA2025
+    LspSymbolOutcome outcome = await access.ExecuteAsync(
+        new LspSymbolCommand.Rename("C:\\ws\\A.cs", "Foo", 0, "Bar"), cts.Token);
+
+    LspSymbolOutcome.Unsupported unsupported = Assert.IsType<LspSymbolOutcome.Unsupported>(outcome);
+    Assert.Contains("file", unsupported.Message, StringComparison.OrdinalIgnoreCase);
 
     await cts.CancelAsync();
     await serve.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
@@ -153,6 +190,23 @@ public class LspDaemonConnectionTests
       {
         [uri] = new JsonArray(new JsonObject { ["range"] = RangeJson(0, 5, 8), ["newText"] = "Bar" }),
       },
+    };
+
+  private static JsonObject FileRenameWorkspaceEditJson(string uri)
+    => new()
+    {
+      ["documentChanges"] = new JsonArray(
+          new JsonObject
+          {
+            ["kind"] = "rename",
+            ["oldUri"] = uri,
+            ["newUri"] = uri.Replace("A.cs", "B.cs", StringComparison.Ordinal),
+          },
+          new JsonObject
+          {
+            ["textDocument"] = new JsonObject { ["uri"] = uri, ["version"] = 1 },
+            ["edits"] = new JsonArray(new JsonObject { ["range"] = RangeJson(0, 5, 8), ["newText"] = "Bar" }),
+          }),
     };
 
   private static JsonObject RangeJson(int line, int start, int end)
