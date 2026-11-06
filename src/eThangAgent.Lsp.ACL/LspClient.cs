@@ -88,7 +88,8 @@ public sealed class LspClient
         Get("workspaceSymbolProvider"),
         Get("callHierarchyProvider"),
         Get("implementationProvider"),
-        Get("diagnosticProvider"));
+        Get("diagnosticProvider"),
+        Get("renameProvider"));
     }
     catch (JsonException) { return LspCapabilities.None; }
   }

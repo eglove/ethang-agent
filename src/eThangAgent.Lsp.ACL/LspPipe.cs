@@ -213,7 +213,7 @@ public sealed class LspPipeClient : IDisposable
   }
 
   /// <summary>Issues one lsp.symbol query and returns the daemon's answer.</summary>
-  public async Task<LspSymbolResult> SymbolAsync(string action, string uri, string symbolName, int occurrence, int depth, CancellationToken ct = default)
+  public async Task<LspSymbolResult> SymbolAsync(string action, string uri, string symbolName, int occurrence, int depth, string newName = "", CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(action);
     JsonObject parameters = new()
@@ -223,6 +223,7 @@ public sealed class LspPipeClient : IDisposable
       ["symbolName"] = symbolName,
       ["occurrence"] = occurrence,
       ["depth"] = depth,
+      ["newName"] = newName,
     };
     JsonObject result = await RequestAsync("lsp.symbol", parameters, ct).ConfigureAwait(false);
     return MapSymbol(result);
@@ -480,6 +481,7 @@ public sealed class LspDaemonServer : IDisposable
       string symbolName = p.TryGetProperty("symbolName", out JsonElement s) ? s.GetString() ?? string.Empty : string.Empty;
       int occurrence = p.TryGetProperty("occurrence", out JsonElement o) ? o.GetInt32() : 0;
       int depth = p.TryGetProperty("depth", out JsonElement d) ? d.GetInt32() : 1;
+      string newName = p.TryGetProperty("newName", out JsonElement n) ? n.GetString() ?? string.Empty : string.Empty;
       LspSymbolResult result = action switch
       {
         "definition" => await _symbolService.DefinitionAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
@@ -491,6 +493,7 @@ public sealed class LspDaemonServer : IDisposable
         "call-hierarchy-incoming" => await _symbolService.CallHierarchyIncomingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
         "call-hierarchy-outgoing" => await _symbolService.CallHierarchyOutgoingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
         "workspace-load" => await _symbolService.LoadWorkspaceAsync(ct).ConfigureAwait(false),
+        "rename" => await _symbolService.RenameAsync(uri, symbolName, occurrence, newName, ct).ConfigureAwait(false),
         _ => new LspSymbolResult(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action),
       };
       JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["occurrenceUsed"] = result.OccurrenceUsed, ["totalOccurrences"] = result.TotalOccurrences, ["message"] = result.Message ?? string.Empty, ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()) } };

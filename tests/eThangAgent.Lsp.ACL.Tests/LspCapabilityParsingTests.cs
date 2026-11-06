@@ -39,6 +39,36 @@ public class LspCapabilityParsingTests
   }
 
   [Fact]
+  public async Task Initialize_AdvertisedRenameProvider_EnablesRename()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{\"renameProvider\":true}}}");
+    LspClient client = new(transport, new LspServerConfig("csharp", "srv", [], [".cs"]));
+    _ = await client.InitializeAsync("file:///ws", Ct);
+    Assert.True(client.Capabilities.RenameProvider);
+    Assert.True(client.Capabilities.Supports("textDocument/rename"));
+  }
+
+  [Fact]
+  public async Task Initialize_NoRenameProvider_LeavesRenameUnsupported()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{\"hoverProvider\":true}}}");
+    LspClient client = new(transport, new LspServerConfig("csharp", "srv", [], [".cs"]));
+    _ = await client.InitializeAsync("file:///ws", Ct);
+    Assert.False(client.Capabilities.RenameProvider);
+    Assert.False(client.Capabilities.Supports("textDocument/rename"));
+  }
+
+  [Fact]
+  public void Supports_UnknownMethod_IsNotAssumed() =>
+    Assert.False(LspCapabilities.None.Supports("textDocument/someFutureThing"));
+  [Fact]
   public async Task DiagnosticsService_DynamicallyRegisteredPull_IsAttempted()
   {
     using MemoryStream input = new();

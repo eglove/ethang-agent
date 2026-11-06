@@ -73,7 +73,7 @@ public class LspSymbolServiceTests
     string refs = "[" + LocationJson(uri, 0, 5) + "," + LocationJson(uri, 10, 2) + "]";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + docSym + "}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + refs + "}");
-    LspCapabilities caps = new(true, true, true, true, true, false, true, false);
+    LspCapabilities caps = new(true, true, true, true, true, false, true, false, false);
     LspSymbolService service = new(transport, caps);
     LspSymbolResult result = await service.ReferencesAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Ready, result.State);
@@ -108,7 +108,7 @@ public class LspSymbolServiceTests
     string def = LocationJson(uri, 0, 5);
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + docSym + "}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + def + "}");
-    LspCapabilities caps = new(true, true, true, true, true, false, true, false);
+    LspCapabilities caps = new(true, true, true, true, true, false, true, false, false);
     LspSymbolService service = new(transport, caps);
     LspSymbolResult result = await service.DefinitionAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Ready, result.State);
@@ -124,7 +124,7 @@ public class LspSymbolServiceTests
     string uri = "file:///C:/ws/A.cs";
     string docSym = DocSymbolsJsonMulti(("Foo", 0, 5));
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + docSym + "}");
-    LspCapabilities caps = new(true, true, true, true, true, false, true, false);
+    LspCapabilities caps = new(true, true, true, true, true, false, true, false, false);
     LspSymbolService service = new(transport, caps);
     LspSymbolResult result = await service.ReferencesAsync(uri, "Bar", 0);
     Assert.Equal(LspSymbolState.Unsupported, result.State);
@@ -161,7 +161,7 @@ public class LspSymbolServiceTests
     };
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + hover + "}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false));
     LspSymbolResult result = await service.HoverAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Ready, result.State);
     Assert.Contains("class Foo", result.Message, StringComparison.Ordinal);
@@ -218,7 +218,7 @@ public class LspSymbolServiceTests
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
     string uri = "file:///C:/ws/A.cs";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false));
     LspSymbolResult result = await service.DocumentSymbolsAsync(uri);
     Assert.Equal(LspSymbolState.Ready, result.State);
     Assert.Equal(uri, Assert.Single(result.Sites).Uri);
@@ -233,7 +233,7 @@ public class LspSymbolServiceTests
     string uri = "file:///C:/ws/A.cs";
     string payload = "[{\"name\":\"Baz\",\"kind\":12,\"location\":" + LocationJson(uri, 4, 6) + "}]";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + payload + "}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false));
     LspSymbolResult result = await service.WorkspaceSymbolsAsync("Baz");
     Assert.Equal(LspSymbolState.Ready, result.State);
     LspSymbolSite site = Assert.Single(result.Sites);
@@ -249,7 +249,7 @@ public class LspSymbolServiceTests
     using MemoryStream output = new();
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
     transport.EnqueueIncomingForTest(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 1, ["result"] = new JsonArray() }.ToJsonString());
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false));
     LspSymbolResult result = await service.WorkspaceSymbolsAsync("Nothing");
     Assert.NotEqual(LspSymbolState.Ready, result.State);
     Assert.False(string.IsNullOrWhiteSpace(result.Message));
@@ -283,7 +283,7 @@ public class LspSymbolServiceTests
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
     string uri = "file:///C:/ws/A.cs";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false), new ScriptedWorkspaceModel(false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false), new ScriptedWorkspaceModel(false));
     LspSymbolResult result = await service.ReferencesAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Starting, result.State);
     Assert.Empty(result.Sites);
@@ -300,7 +300,7 @@ public class LspSymbolServiceTests
     string uri = "file:///C:/ws/A.cs";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":[" + LocationJson(uri, 0, 5) + "]}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false), new ScriptedWorkspaceModel(true));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false), new ScriptedWorkspaceModel(true));
     LspSymbolResult result = await service.ReferencesAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Ready, result.State);
     Assert.Single(result.Sites);
@@ -312,7 +312,7 @@ public class LspSymbolServiceTests
     using MemoryStream input = new();
     using MemoryStream output = new();
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false), new ScriptedWorkspaceModel(false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false), new ScriptedWorkspaceModel(false));
     LspSymbolResult result = await service.WorkspaceSymbolsAsync("Foo");
     Assert.Equal(LspSymbolState.Starting, result.State);
   }
@@ -323,7 +323,7 @@ public class LspSymbolServiceTests
     using MemoryStream input = new();
     using MemoryStream output = new();
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false), new ScriptedWorkspaceModel(false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false), new ScriptedWorkspaceModel(false));
     LspSymbolResult result = await service.DocumentSymbolsAsync("file:///C:/ws/A.cs");
     Assert.Equal(LspSymbolState.Starting, result.State);
   }
@@ -335,7 +335,7 @@ public class LspSymbolServiceTests
     using MemoryStream output = new();
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
     ScriptedWorkspaceModel model = new(false);
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false), model);
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false), model);
     LspSymbolResult result = await service.LoadWorkspaceAsync();
     Assert.Equal(LspSymbolState.Starting, result.State);
     Assert.Equal(1, model.EnsureLoadedCalls);
@@ -348,7 +348,7 @@ public class LspSymbolServiceTests
     using MemoryStream output = new();
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
     ScriptedWorkspaceModel model = new(true);
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false), model);
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false), model);
     LspSymbolResult result = await service.LoadWorkspaceAsync();
     Assert.Equal(LspSymbolState.Ready, result.State);
   }
@@ -369,7 +369,7 @@ public class LspSymbolServiceTests
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
     string uri = "file:///C:/ws/A.cs";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5), ("Foo", 3, 2)) + "}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false));
     LspSymbolResult result = await service.DefinitionAsync(uri, "Foo", 9);
     Assert.Equal(LspSymbolState.Unsupported, result.State);
     Assert.Contains("occurrence 9", result.Message, StringComparison.Ordinal);
@@ -385,7 +385,7 @@ public class LspSymbolServiceTests
     LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
     string uri = "file:///C:/ws/A.cs";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false));
     LspSymbolResult result = await service.DefinitionAsync(uri, "Bar", 0);
     Assert.Equal(LspSymbolState.Unsupported, result.State);
     Assert.Contains("only referenced", result.Message, StringComparison.Ordinal);
@@ -409,7 +409,7 @@ public class LspSymbolServiceTests
     };
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + hover + "}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false));
     LspSymbolResult result = await service.HoverAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Ready, result.State);
     LspSymbolSite site = Assert.Single(result.Sites);
@@ -417,6 +417,77 @@ public class LspSymbolServiceTests
     Assert.Equal(7, site.Line);
     Assert.Equal(5, site.Character);
     Assert.Equal("Foo", site.SymbolName);
+  }
+
+  [Fact]
+  public async Task Rename_UnadvertisedCapability_ReturnsUnsupported_WithoutTouchingTheWire()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    LspSymbolService service = new(transport, LspCapabilities.None);
+    LspSymbolResult r = await service.RenameAsync("file:///ws/A.cs", "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Unsupported, r.State);
+    Assert.Contains("textDocument/rename", r.Message, StringComparison.Ordinal);
+    Assert.DoesNotContain("textDocument/rename", Encoding.UTF8.GetString(output.ToArray()), StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_SymbolOnlyReferenced_ReturnsUnsupported()
+  {
+    // documentSymbols advertises a different name, so resolution fails.
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Other", 0, 0)) + "}");
+    LspCapabilities caps = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
+    LspSymbolService service = new(transport, caps);
+    LspSymbolResult r = await service.RenameAsync("file:///ws/A.cs", "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Unsupported, r.State);
+    Assert.Contains("only referenced", r.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_WithCapability_CarriesTheWorkspaceEditJsonInMessage()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    string edit = "{\"changes\":{\"" + uri + "\":[{\"range\":{\"start\":{\"line\":0,\"character\":5},\"end\":{\"line\":0,\"character\":8}},\"newText\":\"Bar\"}]}}";
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + edit + "}");
+    LspCapabilities caps = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
+    LspSymbolService service = new(transport, caps);
+    LspSymbolResult r = await service.RenameAsync(uri, "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Ready, r.State);
+    Assert.Empty(r.Sites);
+    Assert.Equal(0, r.OccurrenceUsed);
+    Assert.Equal(1, r.TotalOccurrences);
+    LspRenameEditSet parsed = LspRenameEdits.Parse(r.Message!);
+    LspTextDocumentEdit document = Assert.Single(parsed.Documents);
+    Assert.Equal(uri, document.Uri);
+    Assert.Equal("Bar", Assert.Single(document.Edits).NewText);
+    string written = Encoding.UTF8.GetString(output.ToArray());
+    Assert.Contains("textDocument/rename", written, StringComparison.Ordinal);
+    Assert.Contains("newName", written, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_ServerReturnsNoEdits_ReturnsReadyWithEmptySites()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
+    transport.EnqueueIncomingForTest(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 2, ["result"] = new JsonObject() }.ToJsonString());
+    LspCapabilities caps = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
+    LspSymbolService service = new(transport, caps);
+    LspSymbolResult r = await service.RenameAsync(uri, "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Ready, r.State);
+    Assert.Empty(r.Sites);
+    Assert.Contains("no edits", r.Message, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -430,7 +501,7 @@ public class LspSymbolServiceTests
     string refs = "[" + dup + "," + dup + "," + LocationJson(uri, 9, 4) + "]";
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
     transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + refs + "}");
-    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false));
+    LspSymbolService service = new(transport, new LspCapabilities(true, true, true, true, true, false, true, false, false));
     LspSymbolResult result = await service.ReferencesAsync(uri, "Foo", 0);
     Assert.Equal(LspSymbolState.Ready, result.State);
     Assert.Equal(2, result.Sites.Count);

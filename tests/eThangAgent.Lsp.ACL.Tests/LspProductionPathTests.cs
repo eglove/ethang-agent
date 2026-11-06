@@ -134,7 +134,7 @@ public class LspProductionPathTests
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[{\"name\":\"Foo\",\"kind\":12,\"range\":{\"start\":{\"line\":2,\"character\":2},\"end\":{\"line\":2,\"character\":9}},\"selectionRange\":{\"start\":{\"line\":2,\"character\":2},\"end\":{\"line\":2,\"character\":5}}}]}");
     transport.EnqueueIncomingForTest(
         "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":[{\"uri\":\"" + uri + "\",\"range\":{\"start\":{\"line\":2,\"character\":2},\"end\":{\"line\":2,\"character\":5}}}]}");
-    LspCapabilities caps = new(false, true, false, true, false, false, false, false);
+    LspCapabilities caps = new(false, true, false, true, false, false, false, false, false);
     LspSymbolService service = new(transport, caps);
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
     server.AttachSymbolService(service);
