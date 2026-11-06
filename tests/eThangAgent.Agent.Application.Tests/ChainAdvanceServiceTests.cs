@@ -131,6 +131,12 @@ public class ChainAdvanceServiceTests
       FinalStarted.Add(predecessorSessionId);
       return Task.FromResult(Result.Success("session-final"));
     }
+
+    public Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
+        => Task.FromResult(Result.Success("C:\\ws\\.worktrees\\" + name));
+
+    public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
+        => Task.FromResult(false);
   }
 
   private static T Must<T>(Result<T> result)

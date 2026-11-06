@@ -18,8 +18,47 @@ namespace eThangAgent.Desktop;
 internal sealed class ChainAdvanceHost(
     Func<AgentId, Task> closeSession,
     Func<ChainStepAssignment, string, Task<Result<string>>> startSession,
-    Func<Chain, string, Task<Result<string>>>? startFinalSession = null) : IChainAdvanceHost
+    Func<Chain, string, Task<Result<string>>>? startFinalSession = null,
+    Func<string, Task<Result<string>>>? provisionWorktree = null,
+    Func<string, Task<bool>>? worktreeIsDirty = null) : IChainAdvanceHost
 {
+  /// <inheritdoc />
+  public async Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(name);
+    _ = ct;
+    if (provisionWorktree is null)
+    {
+      return Result.Failure<string>(new DomainError("WorktreeUnsupported",
+          "this host cannot provision a worktree; the group member's session was not started."));
+    }
+
+    // Named decision (CA1031): the provisioner reports its own typed failures; a thrown fault
+    // is converted here so the advance releases the claim instead of leaking it.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      return await provisionWorktree(name).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return Result.Failure<string>(new DomainError("WorktreeProvisionFailed",
+          "the worktree could not be provisioned: " + ex.Message));
+    }
+  }
+
+  /// <inheritdoc />
+  public async Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(path);
+    _ = ct;
+    // A host that wires no dirtiness check reports the checkout clean, which is exactly what
+    // every step did before a group existed: nothing refuses a completion over a worktree this
+    // host cannot read.
+    return worktreeIsDirty is not null && await worktreeIsDirty(path).ConfigureAwait(false);
+  }
+
   /// <inheritdoc />
   public async Task CloseSessionAsync(string sessionId, CancellationToken ct = default)
   {

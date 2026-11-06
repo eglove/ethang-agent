@@ -30,6 +30,23 @@ public interface IChainAdvanceHost
   Task<Result<string>> StartSessionAsync(ChainStepAssignment assignment, string predecessorSessionId,
       CancellationToken ct = default);
 
+  /// <summary>Provisions the git worktree named <paramref name="name"/> and returns its
+  ///     directory. A failed provision is a typed error, never an exception.
+  ///     <para>A GROUP MEMBER RUNS IN ITS OWN CHECKOUT, so the advance asks for one before the
+  ///     member's session is launched and records the answer on the step. The name is the
+  ///     caller's: <see cref="ChainWorktreeNaming"/> derives it from the chain and the
+  ///     position, so the same member always asks for the same checkout.</para></summary>
+  /// <param name="name">The worktree name, already in the shape the worktree rule accepts.</param>
+  /// <param name="ct">Cancellation.</param>
+  Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default);
+
+  /// <summary>True when the checkout at <paramref name="path"/> holds changes nobody committed.
+  ///     <para>A MEMBER'S COMPLETION IS REFUSED while its worktree is dirty: the reconciler
+  ///     merges branches, so work that was never committed is work the merge cannot land.</para></summary>
+  /// <param name="path">The worktree directory.</param>
+  /// <param name="ct">Cancellation.</param>
+  Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default);
+
   /// <summary>Starts the FINAL agent for a completed chain and returns its id. A failed start is
   ///     a typed error, never an exception. The final agent summarizes the work done and hands
   ///     control back to the user; it executes no step.</summary>
@@ -403,11 +420,31 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       return ChainAdvance.Refused(claimed.Error.Code, claimed.Error.Message);
     }
 
+    ChainStep claimedStep = claimed.Value.Steps.First(step => step.Position == position);
+
+    // A GROUP MEMBER RUNS IN ITS OWN CHECKOUT, and the checkout is made BEFORE the launch so
+    // the session is anchored at a directory that already exists. A provision that fails
+    // RELEASES the claim: the step is available again rather than held by a session that was
+    // never started.
+    Result<string?> worktree = await EnsureWorktreeAsync(chain.Id, position, claimedStep, now, ct)
+        .ConfigureAwait(false);
+    if (!worktree.IsSuccess)
+    {
+      _ = await _chains.ReleaseStepAsync(chain.Id, position, ChainActor.Harness, now, ct)
+          .ConfigureAwait(false);
+      return ChainAdvance.Refused(worktree.Error.Code, worktree.Error.Message);
+    }
+
     // THE ROLE TRAVELS FROM THE RECORD (issue #313 D7): the step's assigned role is what
     // #218's separation rule reads at session start, and the record is the only source a
     // resumed or restarted launch also has.
     ChainStepAssignment assignment = new ChainStepAssignment(chain.Id, chain.PlanId, position, null)
-        .WithRole(claimed.Value.Steps.First(step => step.Position == position).Role);
+        .WithRole(claimedStep.Role);
+    if (worktree.Value is { } path)
+    {
+      assignment = assignment.WithWorktree(path);
+    }
+
     Result<string> started = await _host
         .StartSessionAsync(assignment, predecessorSessionId, ct)
         .ConfigureAwait(false);
@@ -426,6 +463,49 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     _ = await _chains.ReassignStepAsync(chain.Id, position, started.Value, now, ct)
         .ConfigureAwait(false);
     return new ChainAdvance(ChainAdvanceKind.StartStep, position, null, started.Value);
+  }
+
+  /// <summary>The worktree the step at <paramref name="step"/> runs in, provisioned when it
+  ///     has none yet: null for a sequential step, which runs in the workspace checkout.
+  ///     <para>A PATH ALREADY ON THE RECORD IS REUSED, never re-provisioned. A member whose
+  ///     launch is retried must land in the checkout that already holds its work, and asking
+  ///     for the same name twice would either duplicate it or fail on it.</para></summary>
+  /// <param name="chainId">The chain the step belongs to.</param>
+  /// <param name="position">The step's 1-based position.</param>
+  /// <param name="step">The step about to start, as the record stands.</param>
+  /// <param name="now">The clock the record write is stamped with.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<string?>> EnsureWorktreeAsync(int chainId, int position,
+      ChainStep step, DateTimeOffset now, CancellationToken ct)
+  {
+    if (step.Group is null)
+    {
+      return Result.Success<string?>(null);
+    }
+
+    if (step.WorktreePath is { } recorded)
+    {
+      return Result.Success<string?>(recorded);
+    }
+
+    Result<string> provisioned = await _host
+        .ProvisionWorktreeAsync(ChainWorktreeNaming.For(chainId, position), ct)
+        .ConfigureAwait(false);
+    if (!provisioned.IsSuccess)
+    {
+      return Result.Failure<string?>(provisioned.Error);
+    }
+
+    Result<Chain> stamped = await _chains
+        .WithWorktreeAsync(chainId, position, provisioned.Value, now, ct)
+        .ConfigureAwait(false);
+    // THE CHECKOUT EXISTS AND THE RECORD DOES NOT NAME IT, which is a state a reader must be
+    // told about: the next attempt asks for the same name and the provisioner refuses a
+    // duplicate, so the refusal has to say which directory is already there.
+    return stamped.IsSuccess
+        ? Result.Success<string?>(provisioned.Value)
+        : Result.Failure<string?>(new DomainError(stamped.Error.Code,
+            $"the worktree '{provisioned.Value}' was provisioned but could not be recorded: {stamped.Error.Message}"));
   }
 
   /// <summary>Runs the reviewer-separation rule for the step about to start (issue #218), and

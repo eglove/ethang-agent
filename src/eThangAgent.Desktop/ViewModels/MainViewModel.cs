@@ -44,7 +44,8 @@ internal delegate Task<Result<AgentSession>> SeededSessionCreator(
     string workspaceRoot,
     string providerName,
     IReadOnlyList<Message>? seed,
-    ChainContract? chainContract);
+    ChainContract? chainContract,
+    string? anchorRoot = null);
 
 /// <summary>Optional shell configuration for <see cref="MainViewModel"/>. Every member
 ///     is an optional seam or default override whose null behaves exactly as the
@@ -470,8 +471,8 @@ internal sealed partial class MainViewModel : ObservableObject
       => options?.SeededSessionCreator
           ?? (createSession is not null
               ? null
-              : (root, provider, seed, chainContract) =>
-                  _sessionFactory!.CreateAsync(root, provider, seed, chainContract, default));
+              : (root, provider, seed, chainContract, anchorRoot) =>
+                  _sessionFactory!.CreateAsync(root, provider, seed, chainContract, anchorRoot, default));
 
   /// <summary>The resume delegate: the factory's resume, read at invocation so a
   ///     settings-save rebind reaches future resumes. A host composing sessions itself
@@ -1109,9 +1110,16 @@ internal sealed partial class MainViewModel : ObservableObject
       // alongside the thread switch, same reasoning as for OffUiThread in DesktopHost:
       // Task.Run alone still flows the caller's SynchronizationContext.
       Task<Result<AgentSession>> scheduled;
+      // THE HOST'S OWNER CROSSES THE CUT BY HAND: suppression drops an AsyncLocal as well as
+      // the framework's context, so a claim left ambient would read null inside the build.
+      OwnerScope? owner = HostProcessLedger.CaptureOwner();
       using (ExecutionContext.SuppressFlow())
       {
-        scheduled = Task.Run(() => _createSession(full, providerName));
+        scheduled = Task.Run(() =>
+        {
+          HostProcessLedger.RestoreOwner(owner);
+          return _createSession(full, providerName);
+        });
       }
 
       Result<AgentSession> created = await scheduled;
@@ -1300,9 +1308,14 @@ internal sealed partial class MainViewModel : ObservableObject
       // Container build + transcript hydration — off the UI thread, context flow
       // suppressed, exactly like a fresh open.
       Task<Result<AgentSession>> scheduled;
+      OwnerScope? owner = HostProcessLedger.CaptureOwner();
       using (ExecutionContext.SuppressFlow())
       {
-        scheduled = Task.Run(() => _resumeSession(sessionId));
+        scheduled = Task.Run(() =>
+        {
+          HostProcessLedger.RestoreOwner(owner);
+          return _resumeSession(sessionId);
+        });
       }
 
       Result<AgentSession> resumed = await scheduled;
@@ -1380,26 +1393,19 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="role">The chain step's assigned role, or null.</param>
   /// <param name="placement">Where the new session sits in its chain, or null when it is not a
   ///     chain step.</param>
-  /// <param name="predecessorId">The session this launch retires - the one that completed the
-  ///     previous chain step - or null when the launch replaces the primary cell.</param>
+  /// <param name="launch">How this launch sits in its chain: where it retires from, and which
+  ///     checkout it works in.</param>
   private async Task<Result<StartedSession>> StartSessionAsync(AgentTabViewModel tab,
       string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract,
-      ChainStepRole? role, ChainPlacement? placement, AgentId? predecessorId = null)
+      ChainStepRole? role, ChainPlacement? placement, LaunchSlot? launch = null)
   {
+    AgentId? predecessorId = launch?.PredecessorId;
+    string? anchorRoot = launch?.AnchorRoot;
     ArgumentNullException.ThrowIfNull(tab);
-    if (!Tabs.Contains(tab))
+    Result<StartedSession>? refusal = RefuseUnlaunchable(tab, predecessorId);
+    if (refusal is not null)
     {
-      return Result.Failure<StartedSession>(new DomainError("TabClosed",
-          "that tab is no longer open; no session was started."));
-    }
-
-    // THE BUSY SESSION IS THE ONE BEING RETIRED (issue #329), not the tab's primary: a chain
-    // step occupies its own cell, so the cell that must be idle is the predecessor's. Checking
-    // the primary there would test an agent the launch does not touch.
-    if (SessionViewModelOf(tab, predecessorId).IsBusy)
-    {
-      return Result.Failure<StartedSession>(new DomainError("TurnBusy",
-          "a turn is running in that tab; stop it before starting a new session."));
+      return refusal;
     }
 
     if (seed is { Count: 0 })
@@ -1412,10 +1418,10 @@ internal sealed partial class MainViewModel : ObservableObject
     // a session that would otherwise be created by the plain delegate, so a host that cannot
     // take it would start a chain step with no idea which step it is.
     bool seeded = seed is not null || chainContract is not null;
-    if (seeded && creator is null)
+    refusal = RefuseUnseedable(seeded, creator);
+    if (refusal is not null)
     {
-      return Result.Failure<StartedSession>(new DomainError("SeedUnsupported",
-          "this host cannot seed a new session's conversation; the handoff summary would be lost."));
+      return refusal;
     }
 
     string workspaceRoot = tab.Container.WorkspaceRoot;
@@ -1431,11 +1437,19 @@ internal sealed partial class MainViewModel : ObservableObject
       // Container build + root-row persistence — core work that never belongs on the UI
       // thread, exactly like a fresh open (context flow suppressed for the same reason).
       Task<Result<AgentSession>> scheduled;
+      // THE HOST'S OWNER CROSSES THE CUT BY HAND: suppression drops an AsyncLocal as well as the
+      // framework's context, so a claim left ambient would read null inside the build and every
+      // fact would lose the test that caused it. Captured here, restored there.
+      OwnerScope? owner = HostProcessLedger.CaptureOwner();
       using (ExecutionContext.SuppressFlow())
       {
-        scheduled = Task.Run(() => creator is not null && seeded
-            ? creator(workspaceRoot, providerName, seed, chainContract)
-            : _createSession(workspaceRoot, providerName));
+        scheduled = Task.Run(() =>
+        {
+          HostProcessLedger.RestoreOwner(owner);
+          return creator is not null && seeded
+              ? creator(workspaceRoot, providerName, seed, chainContract, anchorRoot)
+              : _createSession(workspaceRoot, providerName);
+        });
       }
 
       Result<AgentSession> created;
@@ -1493,6 +1507,43 @@ internal sealed partial class MainViewModel : ObservableObject
         ?? tab.LiveViewModel
         ?? tab.Cells[0].ViewModel;
 
+  /// <summary>The refusal a launch earns when the tab cannot receive it, or null when it can:
+  ///     a closed tab has nowhere to put the session, and a busy cell is a turn in flight that
+  ///     replacing would tear down mid-stream.
+  ///     <para>THE BUSY SESSION IS THE ONE BEING RETIRED (issue #329), not the tab's primary: a
+  ///     chain step occupies its own cell, so the cell that must be idle is the predecessor's.
+  ///     Checking the primary there would test an agent the launch does not touch.</para></summary>
+  /// <param name="tab">The tab the launch lands in.</param>
+  /// <param name="predecessorId">The session this launch retires, or null for the primary cell.</param>
+  private Result<StartedSession>? RefuseUnlaunchable(AgentTabViewModel tab, AgentId? predecessorId) =>
+      Tabs.Contains(tab) ? RefuseBusyCell(tab, predecessorId) : TabClosed();
+
+  /// <summary>The refusal for a tab that is no longer open: the session has nowhere to land.</summary>
+  private static Result<StartedSession> TabClosed() =>
+      Result.Failure<StartedSession>(new DomainError("TabClosed",
+          "that tab is no longer open; no session was started."));
+
+  /// <summary>The refusal for a cell with a turn in flight: replacing it would tear the running
+  ///     turn down mid-stream, so the launch is refused instead of racing it.</summary>
+  /// <param name="tab">The tab the launch lands in.</param>
+  /// <param name="predecessorId">The session this launch retires, or null for the primary cell.</param>
+  private static Result<StartedSession>? RefuseBusyCell(AgentTabViewModel tab, AgentId? predecessorId) =>
+      SessionViewModelOf(tab, predecessorId).IsBusy
+          ? Result.Failure<StartedSession>(new DomainError("TurnBusy",
+              "a turn is running in that tab; stop it before starting a new session."))
+          : null;
+
+  /// <summary>The refusal a launch earns when its seed cannot be carried, or null when it can
+  ///     be: a host with no seeded creator would silently drop the brief or the handoff summary
+  ///     the seed exists to carry.</summary>
+  /// <param name="seeded">Whether this launch carries a seed or a chain contract.</param>
+  /// <param name="creator">The host's seeded creator, or null.</param>
+  private static Result<StartedSession>? RefuseUnseedable(bool seeded, SeededSessionCreator? creator)
+    => seeded && creator is null
+        ? Result.Failure<StartedSession>(new DomainError("SeedUnsupported",
+            "this host cannot seed a new session's conversation; the handoff summary would be lost."))
+        : null;
+
   /// <summary>What one start produced: the tab it landed in, and the id of the session it
   ///     started.
   ///     <para>THE ID IS THE NEW CELL'S, NEVER THE TAB'S FIRST. Every start appends (issue
@@ -1502,6 +1553,16 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="Tab">The tab the session landed in.</param>
   /// <param name="RootId">The session that was started.</param>
   private sealed record StartedSession(AgentTabViewModel Tab, AgentId RootId);
+
+  /// <summary>Where a launch lands and what it works on: the session it retires, and the
+  ///     checkout its work happens in.
+  ///     <para>BOTH ARE NULL FOR THE ORDINARY LAUNCH. <paramref name="PredecessorId"/> null
+  ///     means the launch replaces the tab's primary cell; <paramref name="AnchorRoot"/> null
+  ///     means the session works in the workspace itself, which is every session but a group
+  ///     member's.</para></summary>
+  /// <param name="PredecessorId">The session this launch retires, or null.</param>
+  /// <param name="AnchorRoot">The checkout the session works in, or null for the workspace.</param>
+  private sealed record LaunchSlot(AgentId? PredecessorId, string? AnchorRoot);
 
   /// <summary>What a model's own launch tells the app about the cell it produces (issue
   ///     #338): the caption the caller named, and the model it asked to serve that agent.
@@ -1742,8 +1803,8 @@ internal sealed partial class MainViewModel : ObservableObject
     return !launch.IsSuccess
       ? Result.Failure<string>(launch.Error)
       : await StartSessionInTabAsync(tab, launch.Value, predecessorSessionId, ChainKickoff.Line,
-        assignment.Role, await ReadPlacementAsync(tab, assignment).ConfigureAwait(true))
-        .ConfigureAwait(true);
+        assignment.Role, await ReadPlacementAsync(tab, assignment).ConfigureAwait(true),
+        assignment.WorktreePath).ConfigureAwait(true);
   }
 
   /// <summary>Starts the FINAL agent for a completed chain: a new agent seeded with the final
@@ -1782,8 +1843,21 @@ internal sealed partial class MainViewModel : ObservableObject
         null, placement).ConfigureAwait(true);
   }
 
+  /// <summary>Starts one chain step's session in <paramref name="tab"/>, once the session that
+  ///     completed the previous step has gone idle.
+  ///     <para><paramref name="anchorRoot"/> IS THE CHECKOUT THE STEP WORKS IN, which is the
+  ///     workspace for every sequential step and the member's own worktree for a group member.
+  ///     Null means the workspace, so an ordinary step launches exactly as it always did.</para></summary>
+  /// <param name="tab">The tab the new session lands in.</param>
+  /// <param name="launch">The rendered brief and the contract it implies.</param>
+  /// <param name="predecessorSessionId">The session whose cell this launch retires.</param>
+  /// <param name="prompt">The first turn's text.</param>
+  /// <param name="role">The step's assigned role, or null.</param>
+  /// <param name="placement">Where the new session sits in its chain.</param>
+  /// <param name="anchorRoot">The checkout the step works in, or null for the workspace.</param>
   private async Task<Result<string>> StartSessionInTabAsync(AgentTabViewModel tab, ChainBriefLaunch launch,
-      string predecessorSessionId, string prompt, ChainStepRole? role, ChainPlacement placement)
+      string predecessorSessionId, string prompt, ChainStepRole? role, ChainPlacement placement,
+      string? anchorRoot = null)
   {
 
     // THE COMPLETING TURN MUST FINISH FIRST (issue #322), for the reason in the summary above:
@@ -1825,7 +1899,7 @@ internal sealed partial class MainViewModel : ObservableObject
         : null;
     Result<StartedSession> started = await StartSessionAsync(tab, prompt: prompt,
         seed: launch.Seed, chainContract: launch.Contract,
-        role: role, placement: placement, predecessorId: previousStep)
+        role: role, placement: placement, launch: new LaunchSlot(previousStep, anchorRoot))
         .ConfigureAwait(true);
     return started.IsSuccess
         ? Result.Success(started.Value.RootId.ToString())
@@ -3155,12 +3229,23 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Adapts the session's event stream to the advance subscriber: the stream is
   ///     synchronous and the advance is async, so each fact is dispatched and its task
-  ///     observed. A fault is contained by the subscriber itself.</summary>
+  ///     observed. A fault is contained by the subscriber itself.
+  ///     <para>THE HOST'S OWNER RIDES THE DISPATCH. The advance starts the next step's session,
+  ///     and it runs on a thread-pool flow that never carried the claim made where the session
+  ///     was attached - so a host spawned by an advance would be recorded with no owner and a
+  ///     leak would name a pid and nothing a reader could act on. The claim is captured on the
+  ///     flow that wires the sink and restored inside the dispatch.</para></summary>
   private sealed class ChainAdvanceEventSink(ChainAdvanceSubscriber subscriber, string workspaceId)
       : IAgentEventSubscriber
   {
+    private readonly OwnerScope? _owner = HostProcessLedger.CaptureOwner();
+
     public void OnEvent(AgentEvent evt)
-      => _ = Task.Run(() => subscriber.OnEventAsync(evt, workspaceId, CancellationToken.None));
+      => _ = Task.Run(() =>
+      {
+        HostProcessLedger.RestoreOwner(_owner);
+        return subscriber.OnEventAsync(evt, workspaceId, CancellationToken.None);
+      });
   }
 
   /// <summary>Menu-bar entry point: raises the Sessions request. The view shows the

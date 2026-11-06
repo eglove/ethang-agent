@@ -67,8 +67,29 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     unconfigured, or when bootstrap persistence fails.</summary>
   public async Task<Result<AgentSession>> CreateAsync(string workspaceRoot, string providerName,
       IReadOnlyList<Message>? conversationSeed = null, CancellationToken ct = default)
-    => await CreateAsync(workspaceRoot, providerName, conversationSeed, chainContract: null, ct)
-        .ConfigureAwait(false);
+    => await CreateCoreAsync(workspaceRoot, providerName, conversationSeed, chainContract: null,
+        anchorRoot: null, ct).ConfigureAwait(false);
+
+  /// <summary>The same creation, told which directory the session's work happens in when that
+  ///     is not the workspace itself (a group member runs in its own git worktree).
+  ///     <para>TWO FACTS, DELIBERATELY. <paramref name="workspaceRoot"/> is the workspace the
+  ///     session BELONGS to - its identity, its durable records, its tab - and
+  ///     <paramref name="anchorRoot"/> is the checkout its scripts and tools resolve against.
+  ///     A member's worktree is a second checkout OF THE SAME WORKSPACE, so collapsing the two
+  ///     would either fork the workspace's records onto a scratch path or leave the member
+  ///     writing into the shared checkout its siblings are also writing into.</para>
+  ///     <para>NULL IS THE ORDINARY LAUNCH and behaves exactly as before this overload existed:
+  ///     the session resolves against its workspace root.</para></summary>
+  /// <param name="workspaceRoot">The workspace directory the session belongs to.</param>
+  /// <param name="providerName">The provider id.</param>
+  /// <param name="conversationSeed">The seeded prefix, or null.</param>
+  /// <param name="chainContract">The chain this session executes a step of, or null.</param>
+  /// <param name="anchorRoot">The checkout the session works in, or null for the workspace.</param>
+  /// <param name="ct">Cancellation.</param>
+  public Task<Result<AgentSession>> CreateAsync(string workspaceRoot, string providerName,
+      IReadOnlyList<Message>? conversationSeed, ChainContract? chainContract, string? anchorRoot,
+      CancellationToken ct)
+    => CreateCoreAsync(workspaceRoot, providerName, conversationSeed, chainContract, anchorRoot, ct);
 
   /// <summary>The same creation, carrying the chain contract the session runs under (issue
   ///     #311).
@@ -84,16 +105,25 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   /// <param name="conversationSeed">The seeded prefix, or null.</param>
   /// <param name="chainContract">The chain this session executes a step of, or null.</param>
   /// <param name="ct">Cancellation.</param>
-  public async Task<Result<AgentSession>> CreateAsync(string workspaceRoot, string providerName,
+  public Task<Result<AgentSession>> CreateAsync(string workspaceRoot, string providerName,
       IReadOnlyList<Message>? conversationSeed, ChainContract? chainContract, CancellationToken ct)
+    => CreateCoreAsync(workspaceRoot, providerName, conversationSeed, chainContract, anchorRoot: null, ct);
+
+  /// <summary>The creation itself, over both directories: the workspace the session belongs to
+  ///     and the checkout it works in. <paramref name="anchorRoot"/> null means the workspace
+  ///     root.</summary>
+  private async Task<Result<AgentSession>> CreateCoreAsync(string workspaceRoot, string providerName,
+      IReadOnlyList<Message>? conversationSeed, ChainContract? chainContract, string? anchorRoot,
+      CancellationToken ct)
   {
-    Result<string> validated = ValidateProvider(workspaceRoot, providerName);
+    Result<LaunchPaths> validated = ValidateLaunch(workspaceRoot, providerName, anchorRoot);
     if (!validated.IsSuccess)
     {
       return Result.Failure<AgentSession>(validated.Error);
     }
 
-    string full = validated.Value;
+    string full = validated.Value.WorkspaceRoot;
+    string anchor = validated.Value.AnchorRoot;
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
@@ -102,7 +132,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     // identify it, so the identity is derived rather than resolved.
     string workspaceId = WorkspaceIdentity.For(full);
 
-    ServiceProvider services = BuildContainer(workspaceId, full, providerName, conversationSeed,
+    ServiceProvider services = BuildContainer(workspaceId, anchor, providerName, conversationSeed,
         ResolveBootstrapModel(providerName),
         new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories,
             trustedDirectories));
@@ -111,6 +141,16 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     // provider reads it at construction, so a fill after the first turn would leave the prompt
     // silent for exactly the session it describes.
     services.GetService<ChainContractCarrier>()?.Fill(chainContract);
+    // THE SESSION'S CHECKOUT IS AMBIENT FOR ITS WHOLE LIFETIME when it is not the workspace: the
+    // exec engine, the completion gate, and every path-rooted tool read the anchor scope first,
+    // so setting it once here is what makes a group member's scripts run in its own worktree
+    // rather than in the checkout its siblings are also writing into. An ordinary launch leaves
+    // the scope untouched, which is the behaviour every session had before this existed.
+    if (!string.Equals(anchor, full, StringComparison.OrdinalIgnoreCase)
+        && services.GetService<IWorkspaceAnchorScope>() is { } scope)
+    {
+      scope.Current = anchor;
+    }
     try
     {
       IAgentStore store = services.GetRequiredService<IAgentStore>();
@@ -184,7 +224,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
       // Provider lineups are no longer published at session open: the model picker
       // (host UI) fetches the catalog lazily when shown, for either provider.
-      return Result.Success(BuildSession(services, bootstrapped.Value, full, providerName, []));
+      return Result.Success(BuildSession(services, bootstrapped.Value, anchor, providerName, []));
     }
     catch
     {
@@ -304,6 +344,49 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       throw;
     }
   }
+
+  /// <summary>The two directories a launch is rooted at, validated together: the workspace the
+  ///     session belongs to and the checkout its work happens in.</summary>
+  /// <param name="WorkspaceRoot">The full workspace directory.</param>
+  /// <param name="AnchorRoot">The checkout the session works in; the workspace when none was
+  ///     asked for.</param>
+  private sealed record LaunchPaths(string WorkspaceRoot, string AnchorRoot);
+
+  /// <summary>Validates a launch's provider, workspace, and checkout in one step, so the
+  ///     creation path states one refusal instead of three.</summary>
+  /// <param name="workspaceRoot">The workspace directory the session belongs to.</param>
+  /// <param name="providerName">The provider id.</param>
+  /// <param name="anchorRoot">The checkout the session works in, or null for the workspace.</param>
+  private Result<LaunchPaths> ValidateLaunch(string workspaceRoot, string providerName,
+      string? anchorRoot)
+  {
+    Result<string> validated = ValidateProvider(workspaceRoot, providerName);
+    if (!validated.IsSuccess)
+    {
+      return Result.Failure<LaunchPaths>(validated.Error);
+    }
+
+    Result<string> anchor = ResolveAnchor(anchorRoot, validated.Value);
+    return anchor.IsSuccess
+        ? Result.Success(new LaunchPaths(validated.Value, anchor.Value))
+        : Result.Failure<LaunchPaths>(anchor.Error);
+  }
+
+  /// <summary>The checkout a session works in: the workspace itself when none was asked for, and
+  ///     a directory that must exist - a session whose every tool path fails is worse than a
+  ///     refused launch.</summary>
+  /// <param name="anchorRoot">The requested checkout, or null.</param>
+  /// <param name="workspaceRoot">The full workspace directory.</param>
+  private static Result<string> ResolveAnchor(string? anchorRoot, string workspaceRoot) =>
+      anchorRoot is null
+          ? Result.Success(workspaceRoot)
+          : ExistingDirectory(anchorRoot);
+
+  private static Result<string> ExistingDirectory(string path) =>
+      Directory.Exists(path)
+          ? Result.Success(Path.GetFullPath(path))
+          : Result.Failure<string>(new DomainError("AnchorNotFound",
+              $"the checkout this session would work in does not exist: '{path}'."));
 
   /// <summary>Guard-style validation shared by create and resume: provider known and
   ///     configured, workspace non-empty and existing. Returns the full workspace path.</summary>
@@ -492,7 +575,16 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     }
   }
 
-  private ServiceProvider BuildContainer(string workspaceId, string workspaceRoot, string providerName,
+  /// <summary>Builds one session container rooted at <paramref name="anchorRoot"/> - the
+  ///     directory this session's work happens in, which is the workspace root for every
+  ///     session but a group member.</summary>
+  /// <param name="workspaceId">The stable workspace identity every durable row keys on.</param>
+  /// <param name="anchorRoot">The checkout the session works in.</param>
+  /// <param name="providerName">The provider id.</param>
+  /// <param name="conversationSeed">The seeded prefix, or null.</param>
+  /// <param name="defaultModel">The bootstrap model.</param>
+  /// <param name="stored">The raw stored preference lists.</param>
+  private ServiceProvider BuildContainer(string workspaceId, string anchorRoot, string providerName,
       IReadOnlyList<Message>? conversationSeed,
       ModelConfig defaultModel,
       StoredPreferenceLists stored)
@@ -502,15 +594,16 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
             new AgentHostOptions(
                 // The IDENTITY and the ROOT are two facts since #317: durable rows scope on the
                 // id (which survives a move) and path-rooted seams take the directory.
-                new FixedWorkspaceContext(workspaceId, workspaceRoot),
-                new WorkspacePathResolver(workspaceRoot),
-                [new SessionFilesPromptProvider(workspaceRoot, stored.GlobalSessionFiles, stored.WorkspaceSessionFiles)]),
+                new FixedWorkspaceContext(workspaceId, anchorRoot),
+                new WorkspacePathResolver(anchorRoot),
+                [new SessionFilesPromptProvider(anchorRoot, stored.GlobalSessionFiles, stored.WorkspaceSessionFiles)]),
             _database,
             new CompositionOverrides
             {
               ConversationSeed = conversationSeed,
               ComputerAccessProvider = ResolveComputerAccessProvider(),
               HostExePath = _hostExePath,
+
             })
         // Skill directories resolve HERE - the resolution site. The parse validates
         // shape only; a workspace path equal (case-insensitive, full-path normalized)
@@ -520,7 +613,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         // carrier filled below is the core-registered singleton the RemoteHost block
         // overlays onto the settings JSON.
         .AddSingleton(new ResolvedSkillDirectories(
-            ResolveSkillDirectories(stored.GlobalSkillDirectories, stored.WorkspaceSkillDirectories, workspaceRoot)))
+            ResolveSkillDirectories(stored.GlobalSkillDirectories, stored.WorkspaceSkillDirectories, anchorRoot)))
         // Trusted directories (issue #96) override the core's settings-sourced
         // registration for the same reason the skill directories do above: the value was
         // just READ from the store here, and this is the site that owns preference

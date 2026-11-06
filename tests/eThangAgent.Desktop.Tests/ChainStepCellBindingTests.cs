@@ -147,6 +147,10 @@ public class ChainStepCellBindingTests
     /// <summary>Every host channel the shell's containers resolved.</summary>
     public List<FakeRootTurnChannel> Channels { get; } = [];
 
+    /// <summary>The checkout each launched session was told to work in, in launch order: null
+    ///     is the workspace itself, which is every step but a group member's.</summary>
+    public List<string?> Anchors { get; } = [];
+
     /// <summary>Whether a turn holds open until it is stopped. A FLAG, not a pass over the
     ///     channels already built: a step's container - and so its channel - is created by the
     ///     launch, which happens AFTER the test decides to hold turns open.</summary>
@@ -166,8 +170,8 @@ public class ChainStepCellBindingTests
             // every turn would wedge inside its own drain. These tests never read a transcript,
             // so the events are dropped.
             UiStreamSink = _ => Task.CompletedTask,
-            SeededSessionCreator = (root, provider, seed, contract) =>
-                Create(root, provider, seed, contract),
+            SeededSessionCreator = (root, provider, seed, contract, anchorRoot) =>
+                Create(root, provider, seed, contract, anchorRoot),
             // ROOT SUPERVISION IS WIRED, which is what makes the sink assertion mean
             // something: with no loop there is no watchdog and no sink at all.
             WatchdogLoop = Loop,
@@ -185,9 +189,10 @@ public class ChainStepCellBindingTests
     }
 
     private Task<Result<AgentSession>> Create(string root, string provider,
-        IReadOnlyList<Message>? seed, ChainContract? contract)
+        IReadOnlyList<Message>? seed, ChainContract? contract, string? anchorRoot = null)
     {
       _ = seed;
+      Anchors.Add(anchorRoot);
       ServiceProvider services = new ServiceCollection()
           .AddSingleton<IAgentEvents>(new InProcessAgentEvents())
           .AddSingleton<IAgentStore>(new TestFixtures.StubStore())
@@ -274,6 +279,46 @@ public class ChainStepCellBindingTests
     Assert.NotNull(step3.ViewModel.RootActivityObserver);
     Assert.Same(step2Sink, step2.ViewModel.RootActivityObserver);
     Assert.Null(primary.RootActivityObserver);
+  }
+
+  /// <summary>A GROUP MEMBER'S SESSION IS ANCHORED AT ITS OWN CHECKOUT.
+  ///     <para>THE ANCHOR IS THE WHOLE POINT OF THE WORKTREE: two members writing one checkout
+  ///     invalidate each other's completion gates continuously, so a member launched without its
+  ///     anchor is a member running in the shared directory the worktree exists to keep it out
+  ///     of.</para></summary>
+  [Fact]
+  public async Task AGroupMembersSessionIsAnchoredAtItsWorktree()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync().ConfigureAwait(true);
+    AgentId primaryId = tab.Container.RootId;
+    shell.Chains.Chain = ThreeSteps(primaryId.ToString());
+    string worktree = Path.Combine(Path.GetTempPath(), "chain-1-step-2");
+
+    Result<string> started = await shell.ViewModel.StartChainStepSessionAsync(
+        new ChainStepAssignment(1, 1, 2, null).WithWorktree(worktree), primaryId.ToString())
+        .ConfigureAwait(true);
+
+    Assert.True(started.IsSuccess, started.Error?.Message);
+    Assert.Equal(worktree, shell.Anchors[^1]);
+  }
+
+  /// <summary>A SEQUENTIAL STEP IS ANCHORED AT NOTHING, which is the workspace it already works
+  ///     in: the launch passes no anchor, so the session behaves exactly as it did before a group
+  ///     existed.</summary>
+  [Fact]
+  public async Task ASequentialStepsSessionCarriesNoAnchor()
+  {
+    Shell shell = new();
+    AgentTabViewModel tab = await shell.OpenAsync().ConfigureAwait(true);
+    AgentId primaryId = tab.Container.RootId;
+    shell.Chains.Chain = ThreeSteps(primaryId.ToString());
+
+    Result<string> started = await shell.ViewModel.StartChainStepSessionAsync(
+        new ChainStepAssignment(1, 1, 2, null), primaryId.ToString()).ConfigureAwait(true);
+
+    Assert.True(started.IsSuccess, started.Error?.Message);
+    Assert.Null(shell.Anchors[^1]);
   }
 
   /// <summary>REGRESSION B: the advance waits for the PREDECESSOR's turn, not for whichever

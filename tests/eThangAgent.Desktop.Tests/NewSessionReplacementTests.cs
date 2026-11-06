@@ -57,6 +57,10 @@ public class NewSessionReplacementTests
   {
     public List<(string Root, string Provider, IReadOnlyList<Message>? Seed, ChainContract? Contract)> Created { get; } = [];
 
+    /// <summary>The checkout each creation was told to work in, in call order: null is the
+    ///     workspace itself, which is every launch but a group member's.</summary>
+    public List<string?> Anchors { get; } = [];
+
     /// <summary>Creation calls from this index onward (0-based) fail.</summary>
     public int? FailFromCall { get; set; }
 
@@ -72,15 +76,16 @@ public class NewSessionReplacementTests
           (root, provider) => Create(root, provider, seed: null),
           new MainViewModelOptions
           {
-            SeededSessionCreator = (root, provider, seed, chainContract) =>
-                Create(root, provider, seed, chainContract),
+            SeededSessionCreator = (root, provider, seed, chainContract, anchorRoot) =>
+                Create(root, provider, seed, chainContract, anchorRoot),
           });
     }
 
     private Task<Result<AgentSession>> Create(string root, string provider, IReadOnlyList<Message>? seed,
-        ChainContract? chainContract = null)
+        ChainContract? chainContract = null, string? anchorRoot = null)
     {
       Created.Add((root, provider, seed, chainContract));
+      Anchors.Add(anchorRoot);
       return Task.FromResult(FailFromCall is { } from && Created.Count > from
           ? Result.Failure<AgentSession>(new DomainError("HostUnavailable", "no host"))
           : Result.Success(FakeSession(root, provider, Host)));

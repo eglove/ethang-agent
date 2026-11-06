@@ -140,6 +140,14 @@ public sealed class ChainService(IChainStore store)
     => MutateAsync(id, chain => chain.RecordServedModel(position, modelId, now), now,
         (_, _) => { }, ct);
 
+  /// <summary>Records the git worktree the step's session runs in (issue #301's group rule).
+  ///     <para>WRITTEN BEFORE THE LAUNCH, so the path is on the record for the whole life of the
+  ///     session and survives it: the reconciler reads every member's worktree after the members'
+  ///     sessions have closed.</para></summary>
+  public Task<Result<Chain>> WithWorktreeAsync(int id, int position, string? path,
+      DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.WithWorktree(position, path, now), now, (_, _) => { }, ct);
+
   /// <summary>Releases a claim whose launch failed, leaving the step available (issue #301).
   ///     The attempt count is kept: the launch was an attempt even though nothing ran.</summary>
   public Task<Result<Chain>> ReleaseStepAsync(int id, int position, ChainActor actor,

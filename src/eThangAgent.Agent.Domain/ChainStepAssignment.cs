@@ -26,12 +26,29 @@ public sealed record ChainStepAssignment(int ChainId, int PlanId, int Position, 
   ///     it at session start.</para></summary>
   public ChainStepRole? Role { get; init; }
 
+  /// <summary>The git worktree this step's session runs in, or null when it runs in the
+  ///     workspace checkout.
+  ///     <para>A GROUP MEMBER RUNS IN ITS OWN CHECKOUT and a sequential step does not, so this
+  ///     is the one fact that tells the launch which directory to anchor the session at. It is
+  ///     read from the chain record, which already carries the path for every step that has
+  ///     one, rather than re-derived at launch time.</para></summary>
+  public string? WorktreePath { get; init; }
+
   /// <summary>This assignment with <paramref name="role"/> attached.</summary>
   /// <param name="role">The step's assigned role.</param>
   public ChainStepAssignment WithRole(ChainStepRole role)
   {
     ArgumentNullException.ThrowIfNull(role);
     return this with { Role = role };
+  }
+
+  /// <summary>This assignment with <paramref name="path"/> as the worktree its session runs
+  ///     in.</summary>
+  /// <param name="path">The provisioned worktree directory.</param>
+  public ChainStepAssignment WithWorktree(string path)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(path);
+    return this with { WorktreePath = path };
   }
 
   /// <summary>True when this assignment names a position - the only shape a launcher can act on.</summary>

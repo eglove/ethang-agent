@@ -39,7 +39,11 @@ internal static class ChainAdvanceFactory
           startFinalSession: (chain, predecessor) => shell() is { } live
               ? live.StartFinalSessionAsync(chain, predecessor)
               : Task.FromResult(Result.Failure<string>(new DomainError("TabClosed",
-                  "the shell is not ready; the final agent was not started.")))),
+                  "the shell is not ready; the final agent was not started."))),
+          // A GROUP MEMBER'S CHECKOUT: the provisioner is the session container's own, so the
+          // worktree is made in the workspace that container is bound to - the same directory
+          // the member's session would otherwise have run in.
+          provisionWorktree: name => ProvisionWorktreeAsync(session, name)),
           // The separation rule and the implementer's recorded model (issue #218): the gate parks
           // a review step whose reviewer matches the implementer, and the agent store is where the
           // durable record of what actually served lives.
@@ -50,6 +54,28 @@ internal static class ChainAdvanceFactory
           // is the silent discard this issue closes.
           reviews: session.Services.GetService<IChainReviewSource>())
       : null;
+  }
+
+  /// <summary>Provisions one worktree in <paramref name="session"/>'s workspace and reports its
+  ///     directory. A container that wired no provisioner refuses by name rather than launching
+  ///     a group member in the shared checkout: two members writing one directory is the
+  ///     interference the worktrees exist to prevent.</summary>
+  /// <param name="session">The session whose container owns the provisioner.</param>
+  /// <param name="name">The worktree name, already in the shape the worktree rule accepts.</param>
+  private static async Task<Result<string>> ProvisionWorktreeAsync(AgentSession session, string name)
+  {
+    if (session.Services.GetService<IWorktreeProvisioner>() is not { } provisioner)
+    {
+      return Result.Failure<string>(new DomainError("WorktreeUnsupported",
+          "this workspace cannot provision a worktree; the group member's session was not started."));
+    }
+
+    Result<WorktreeProvision> created = await provisioner
+        .CreateAsync(session.WorkspaceRoot, name)
+        .ConfigureAwait(false);
+    return created.IsSuccess
+        ? Result.Success(created.Value.Path)
+        : Result.Failure<string>(created.Error);
   }
 
   /// <summary>The floor service for <paramref name="session"/> (issue #304): park the chain when

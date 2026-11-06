@@ -67,6 +67,12 @@ public class ChainAdvanceReviewTests
       return Task.FromResult(Result.Success("session-fix-" + assignment.Position));
     }
 
+    public Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
+        => Task.FromResult(Result.Success("C:\\ws\\.worktrees\\" + name));
+
+    public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
+        => Task.FromResult(false);
+
     public Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId, CancellationToken ct = default)
       => Task.FromResult(Result.Success("session-final"));
   }
