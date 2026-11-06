@@ -4,3 +4,7 @@
 // ancestry-based: it examines THIS process's children only, so the harness's own host
 // (a different process tree) can never trip it.
 [assembly: AssemblyFixture(typeof(eThangAgent.TestSupport.ChildHostLeakGuardFixture))]
+// The same guard for the language-server daemon (issue #361). A daemon is a child of the
+// process that started it and serves a named pipe until it is stopped, so a test that
+// opens a code workspace and never disposes its host strands one per run.
+[assembly: AssemblyFixture(typeof(eThangAgent.TestSupport.LspDaemonLeakGuardFixture))]

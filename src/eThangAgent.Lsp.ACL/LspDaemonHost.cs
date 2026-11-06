@@ -19,6 +19,7 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   private LspDaemonConnection? _connection;
   private LspWatcherForwarder? _forwarder;
   private bool? _hasCode;
+  private bool _disposed;
 
   public LspDaemonHost(
       string workspaceId,
@@ -69,6 +70,11 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   ///     failure of the workspace start that asked for it.</para></summary>
   public Task<LspPipeClient?> StartAsync(CancellationToken ct = default)
   {
+    if (_disposed)
+    {
+      return Task.FromResult<LspPipeClient?>(null);
+    }
+
     _ = Interlocked.Exchange(ref _started, 1);
     return Task.Run(async () =>
     {
@@ -96,6 +102,11 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   /// re-scanned, so a vault or document workspace never starts a daemon.</summary>
   public async Task<LspPipeClient?> EnsureConnectedAsync(CancellationToken ct = default)
   {
+    if (_disposed)
+    {
+      return null;
+    }
+
     _hasCode ??= CodeDetector.Detect(_workspaceRoot) != CodeDetectionResult.NotFound;
     if (_hasCode == false)
     {
@@ -185,6 +196,12 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   ///     announcements to it.</summary>
   public void Dispose()
   {
+    if (_disposed)
+    {
+      return;
+    }
+
+    _disposed = true;
     _forwarder?.Dispose();
     _forwarder = null;
     _connection?.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -194,6 +211,12 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
 
   public async ValueTask DisposeAsync()
   {
+    if (_disposed)
+    {
+      return;
+    }
+
+    _disposed = true;
     _forwarder?.Dispose();
     _forwarder = null;
     if (_connection is not null)
