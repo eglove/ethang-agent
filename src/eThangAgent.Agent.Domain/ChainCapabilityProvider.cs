@@ -53,11 +53,12 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private const string PositionParam = "position";
   private const string RoleParam = "role";
   private const string ModelParam = "model";
+  private const string GroupParam = "group";
   private const string ImplementRole = "implement";
   private const string ReviewRole = "review";
 
   private static readonly HashSet<string> StepAllowed =
-      new(StringComparer.Ordinal) { PositionParam, RoleParam, ModelParam };
+      new(StringComparer.Ordinal) { PositionParam, RoleParam, ModelParam, GroupParam };
 
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly IChainPlanSource _plans = plans ?? throw new ArgumentNullException(nameof(plans));
@@ -75,6 +76,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             Converts an existing plan into a chain the HARNESS executes: it claims step 1, starts a session for it seeded with the rendered brief, and returns. No session decides when the next step begins - completing a step is what advances the chain.
             A plan does NOT become a chain on its own. This action is the explicit statement 'execute this', so a plan can stay a design artifact indefinitely.
             'steps' names which plan steps execute and in what role. Only steps you name become chain steps, so design and informational steps are simply left out. Roles are exactly implement | review; a step that names none is an implementer step. A review step may name the reviewer's model with 'model'.
+            'group' marks a step as a member of a parallel group: every member of one group starts at the same moment and runs in its own git worktree, and nothing after the group starts until every member has settled. A group needs at least two members, may not contain a review step, and must be followed immediately by a step with no group - that next step is the RECONCILER, which merges the members' branches into the workspace checkout. The workspace must be a git repository to declare a group. Refusals: ChainGroupTooSmall, ChainGroupReviewMember, ChainReconcilerMissing, ChainReconcilerNotAdjacent.
             Validation is total and refuses before anything is created: a plan with no executable step (ChainNoExecutableSteps), a position the plan does not have (ChainStepMissing), one position declared with two roles (ChainStepRoleConflict), an unreadable plan (ChainPlanUnreadable). A session that is itself executing a chain step may not create a chain (ChainStepCannotCreateChain).
             Output contract:
             [chain] created #<id> from plan #<planId> v<version>: <n> step(s), step 1 started as session <sessionId>
@@ -82,7 +84,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             """,
             [
                 new ActionParameter(PlanIdParam, ActionParameterTypes.IntegerType, "Required. The plan to execute, >= 1."),
-                new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|review, default implement), 'model' (optional reviewer model) }]. Omit to execute EVERY plan step as an implementer step."),
+                new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|review, default implement), 'model' (optional reviewer model), 'group' (optional parallel group id, >= 1) }]. Omit to execute EVERY plan step as an implementer step."),
             ],
             [PlanIdParam]),
   ];
@@ -364,10 +366,35 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
     }
 
     Result<ChainStepRole> role = ParseRole(step, index);
-    return role.IsSuccess
-        ? Result.Success(new ChainStepSeed(position, role.Value))
-        : Result.Failure<ChainStepSeed>(role.Error);
+    if (!role.IsSuccess)
+    {
+      return Result.Failure<ChainStepSeed>(role.Error);
+    }
+
+    Result<int?> group = OptGroup(step, index);
+    return group.IsSuccess
+        ? Result.Success(new ChainStepSeed(position, role.Value, group.Value))
+        : Result.Failure<ChainStepSeed>(group.Error);
   }
+
+  /// <summary>The step's group id, or null when it runs alone.
+  ///     <para>A GROUP ID IS AN IDENTIFIER, NOT AN ORDER. It groups the steps that share
+  ///     it and carries no ordering meaning, so any integer >= 1 is legal and nothing
+  ///     requires the ids to be contiguous.</para></summary>
+  private static Result<int?> OptGroup(Dictionary<string, JsonElement> step, int index) =>
+      !step.TryGetValue(GroupParam, out JsonElement element)
+          || element.ValueKind == JsonValueKind.Null
+        ? Result.Success<int?>(null)
+        : ValidateGroup(element, index);
+
+  /// <summary>A present group id, refused when it is not an integer >= 1.</summary>
+  private static Result<int?> ValidateGroup(JsonElement element, int index) =>
+      element.ValueKind == JsonValueKind.Number
+          && element.TryGetInt32(out int group)
+          && group >= 1
+        ? Result.Success<int?>(group)
+        : Result.Failure<int?>(new DomainError("InvalidActionInput",
+            $"'{StepsParam}[{index}].{GroupParam}' must be an integer >= 1 when present."));
 
   /// <summary>The step's role: exactly implement | review, defaulting to implement.
   ///     <para>THE VOCABULARY IS CLOSED (D7). An unknown token is refused by name rather

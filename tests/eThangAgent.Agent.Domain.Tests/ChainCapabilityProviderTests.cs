@@ -111,11 +111,14 @@ public class ChainCapabilityProviderTests
     return "{" + members + "}";
   }
 
-  /// <summary>One step object: the position, and optionally a role and a reviewer model.</summary>
+  /// <summary>One step object: the position, and optionally a role, a reviewer model,
+  ///     and a parallel group.</summary>
   /// <param name="position">The 1-based plan step position.</param>
   /// <param name="role">The role token, when the case states one.</param>
   /// <param name="model">The reviewer model, when the case states one.</param>
-  private static string Step(int position, string? role = null, string? model = null)
+  /// <param name="group">The parallel group id, when the case states one.</param>
+  private static string Step(int position, string? role = null, string? model = null,
+      int? group = null)
   {
     string members = $"\"position\": {position.ToString(CultureInfo.InvariantCulture)}";
     if (role is not null)
@@ -126,6 +129,11 @@ public class ChainCapabilityProviderTests
     if (model is not null)
     {
       members += $", \"model\": \"{model}\"";
+    }
+
+    if (group is { } id)
+    {
+      members += $", \"group\": {id.ToString(CultureInfo.InvariantCulture)}";
     }
 
     return "{" + members + "}";
@@ -340,6 +348,53 @@ public class ChainCapabilityProviderTests
 
     Assert.True(result.IsError);
     Assert.Contains("UnknownAction", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Create_WithAGroup_RecordsTheGroupOnEveryMemberAndStartsStepOne()
+  {
+    (ChainCapabilityProvider provider, FakeStore store, _, _) = New(1, 2, 3);
+
+    CapabilityInvocationResult result = await InvokeAsync(provider,
+        Plan(7, Step(1, group: 4) + ", " + Step(2, group: 4) + ", " + Step(3)))
+        .ConfigureAwait(true);
+
+    Assert.False(result.IsError);
+    Chain stored = Must(await store.GetAsync(1, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true));
+    Assert.Equal(4, stored.Steps.Single(step => step.Position == 1).Group);
+    Assert.Equal(4, stored.Steps.Single(step => step.Position == 2).Group);
+    Assert.Null(stored.Steps.Single(step => step.Position == 3).Group);
+  }
+
+  [Fact]
+  public async Task Create_WithAGroupOfOne_IsRefusedBeforeAnythingIsCreated()
+  {
+    (ChainCapabilityProvider provider, FakeStore store, _, FakeStart start) = New(1, 2);
+
+    CapabilityInvocationResult result = await InvokeAsync(provider,
+        Plan(7, Step(1, group: 1) + ", " + Step(2))).ConfigureAwait(true);
+
+    Assert.True(result.IsError);
+    Assert.Contains(ChainCreationCode.GroupTooSmall, result.Content, StringComparison.Ordinal);
+    Assert.Empty(start.Started);
+    ChainCatalog listed = Must(await store.ListAsync(null, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true));
+    Assert.Empty(listed.Chains);
+  }
+
+  [Fact]
+  public async Task Create_WithAGroupBelowOne_IsRefusedByName()
+  {
+    (ChainCapabilityProvider provider, _, _, FakeStart start) = New(1, 2);
+
+    CapabilityInvocationResult result = await InvokeAsync(provider,
+        Plan(7, Step(1, group: 0) + ", " + Step(2))).ConfigureAwait(true);
+
+    Assert.True(result.IsError);
+    Assert.Contains("'steps[1].group' must be an integer >= 1", result.Content,
+        StringComparison.Ordinal);
+    Assert.Empty(start.Started);
   }
 
   [Fact]

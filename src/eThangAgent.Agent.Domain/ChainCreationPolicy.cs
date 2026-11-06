@@ -34,6 +34,23 @@ public static class ChainCreationCode
   ///     not start a chain, and the way to know a session IS a chain step's session is the
   ///     chain record's own claim.</para></summary>
   public const string AlreadyExecuting = "ChainStepCannotCreateChain";
+
+  /// <summary>A group with fewer than two members. A group exists to run work
+  ///     CONCURRENTLY, and one member has nothing to run beside.</summary>
+  public const string GroupTooSmall = "ChainGroupTooSmall";
+
+  /// <summary>A group contains a review step. A reviewer judges a step that has
+  ///     already settled, and a member settles only when the whole group does.</summary>
+  public const string GroupReviewMember = "ChainGroupReviewMember";
+
+  /// <summary>The position after a group's last member is not a declared step. A
+  ///     group's members work in separate worktrees and something must merge them
+  ///     back into the workspace checkout.</summary>
+  public const string GroupWithoutReconciler = "ChainGroupReconcilerMissing";
+
+  /// <summary>The position after a group's last member is itself a group member, so
+  ///     the step that would merge the group is still inside it.</summary>
+  public const string GroupReconcilerNotAdjacent = "ChainReconcilerNotAdjacent";
 }
 
 /// <summary>What a plan must be for a chain to execute it (issue #313 D4). PURE: facts in,
@@ -61,7 +78,104 @@ public static class ChainCreationPolicy
     return NoExecutableSteps(steps)
         ?? StepMissing(steps, planStepPositions)
         ?? ConflictingRole(steps)
-        ?? ReviewerWithoutModel(steps);
+        ?? ReviewerWithoutModel(steps)
+        ?? GroupTooSmall(steps)
+        ?? GroupReviewMember(steps)
+        ?? GroupWithoutReconciler(steps)
+        ?? GroupReconcilerNotAdjacent(steps);
+  }
+
+  /// <summary>Every group a declaration names, in ascending id order.</summary>
+  /// <param name="steps">The declared steps.</param>
+  private static int[] GroupIds(IReadOnlyList<ChainStepSeed> steps) =>
+      [.. steps.Where(step => step.Group is not null)
+            .Select(step => step.Group!.Value)
+            .Distinct()
+            .Order()];
+
+  /// <summary>A group needs at least two members: a group of one runs nothing beside
+  ///     anything, so its worktree and its reconciler would be pure cost.
+  ///     <para>THE MESSAGE NAMES THE GROUP AND ITS MEMBER, because a caller with
+  ///     several groups cannot tell which one to widen from the code alone.</para></summary>
+  private static DomainError? GroupTooSmall(IReadOnlyList<ChainStepSeed> steps)
+  {
+    foreach (int group in GroupIds(steps))
+    {
+      ChainStepSeed[] members = [.. steps.Where(step => step.Group == group)];
+      if (members.Length < 2)
+      {
+        return new DomainError(ChainCreationCode.GroupTooSmall,
+            $"group {group} has one member (step {members[0].Position}); "
+            + "a group runs its members at the same moment, so it needs at least two. "
+            + "Give the group another member or drop its 'group'.");
+      }
+    }
+
+    return null;
+  }
+
+  /// <summary>A group may not contain a review step. A reviewer judges work that has
+  ///     already settled, and a member settles only when its whole group does.
+  ///     <para>A REVIEW STEP AFTER THE GROUP IS LEGAL and is the ordinary shape: it
+  ///     judges the merged result of the reconciler.</para></summary>
+  private static DomainError? GroupReviewMember(IReadOnlyList<ChainStepSeed> steps)
+  {
+    ChainStepSeed? review = steps
+        .Where(step => step.Group is not null && step.Role.IsReview)
+        .OrderBy(step => step.Position)
+        .FirstOrDefault();
+    return review is null
+        ? null
+        : new DomainError(ChainCreationCode.GroupReviewMember,
+            $"step {review.Position} is a review step in group {review.Group}, and a group "
+            + "may not contain one: a reviewer judges work that has already settled, and a "
+            + "member settles only when its whole group does. "
+            + "Put the review step after the group's reconciler.");
+  }
+
+  /// <summary>The position immediately after a group's last member must be a declared
+  ///     step: that step is the group's RECONCILER, which merges the members' branches
+  ///     into the workspace checkout.
+  ///     <para>THE PLAN'S POSITION, NOT THE DECLARED NEXT ONE. A declaration may skip
+  ///     plan steps it does not execute, and a reconciler picked from the declaration
+  ///     would let a group's merge drift arbitrarily far from its members.</para></summary>
+  private static DomainError? GroupWithoutReconciler(IReadOnlyList<ChainStepSeed> steps)
+  {
+    foreach (int group in GroupIds(steps))
+    {
+      int last = steps.Where(step => step.Group == group).Max(step => step.Position);
+      if (!steps.Any(step => step.Position == last + 1))
+      {
+        return new DomainError(ChainCreationCode.GroupWithoutReconciler,
+            $"group {group} ends at step {last} and step {last + 1} is not a chain step, "
+            + "so nothing merges the group's branches back into the workspace. "
+            + $"Declare step {last + 1} as the group's reconciler.");
+      }
+    }
+
+    return null;
+  }
+
+  /// <summary>The reconciler must stand OUTSIDE the group it reconciles. A step in the
+  ///     group starts with the members, so it cannot merge work that has not settled
+  ///     yet.</summary>
+  private static DomainError? GroupReconcilerNotAdjacent(IReadOnlyList<ChainStepSeed> steps)
+  {
+    foreach (int group in GroupIds(steps))
+    {
+      int last = steps.Where(step => step.Group == group).Max(step => step.Position);
+      ChainStepSeed? next = steps.FirstOrDefault(step => step.Position == last + 1);
+      if (next is not null && next.Group is not null)
+      {
+        return new DomainError(ChainCreationCode.GroupReconcilerNotAdjacent,
+            $"the step after group {group} is step {next.Position}, which belongs to group "
+            + $"{next.Group}; a group's reconciler must be a step with no group, so it can "
+            + "run once every member has settled. "
+            + $"Declare step {last + 1} without a group.");
+      }
+    }
+
+    return null;
   }
 
   /// <summary>D1/B1 (issue #218): a review step must NAME its reviewer model, refused at the
