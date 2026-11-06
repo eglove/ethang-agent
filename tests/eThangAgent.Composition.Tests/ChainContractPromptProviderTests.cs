@@ -108,9 +108,12 @@ public sealed class ChainContractPromptProviderTests
         new StaticPromptProvider(
             "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
             "workspace, prefer the provided tools over guessing, and keep responses tight."),
+        new StakeholderVoicePromptProvider(),
         new ExecGuidePromptProvider(
             new Lazy<ICapabilityRegistry>(services.GetRequiredService<ICapabilityRegistry>)),
         new ContextHygienePromptProvider(),
+        new ComputedValuesPromptProvider(),
+        new RetrospectivePromptProvider(),
         new TrustedDirectoriesPromptProvider(services.GetRequiredService<ResolvedTrustedDirectories>().List),
     ]).Build();
 

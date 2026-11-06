@@ -1163,8 +1163,10 @@ public static class AgentComposition
             new ToolRegistry([sp.GetRequiredService<ITool>()]));
   }
 
-  /// <summary>The composite system prompt: skills bootstrap and listing, the static identity, the
-  ///     exec guide, the memory guide, context hygiene, and any frontend-appended providers.
+  /// <summary>The composite system prompt: skills bootstrap and listing, the static identity and
+  ///     stakeholder-voice guidance, the exec guide, context hygiene, computed values, the
+  ///     closing retrospective, trusted directories, the chain contract, and any
+  ///     frontend-appended providers.
   /// </summary>
   private static IServiceCollection AddSystemPrompts(IServiceCollection wired, AgentHostOptions host)
   {
@@ -1179,9 +1181,16 @@ public static class AgentComposition
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),
+                // The voice guidance sits next to the identity it qualifies: it governs how
+                // every answer is addressed, so it precedes the operating guidance below.
+                new StakeholderVoicePromptProvider(),
                 new ExecGuidePromptProvider(
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
                 new ContextHygienePromptProvider(),
+                // Computed values and the closing retrospective are operating rules like
+                // hygiene: always on, for root and children alike.
+                new ComputedValuesPromptProvider(),
+                new RetrospectivePromptProvider(),
                  // Trusted directories (issue #96): renders EMPTY when nothing is approved,
                  // so a session with no approvals keeps a byte-identical prompt.
                  new TrustedDirectoriesPromptProvider(
