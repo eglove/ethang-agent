@@ -39,6 +39,9 @@ public static class ChainAdvancePolicy
   ///     completion when nothing is left to run. A chain with a PARKED or FAILED step is
   ///     NOT complete - it is blocked, and #303 owns what happens then (this issue refuses
   ///     to guess).</summary>
+  ///     <para>A GROUP IS A BARRIER: every member of a group is offered while the group is
+  ///     unsettled, so the members run together, and nothing after the group is offered until
+  ///     every member has settled. NextAvailableStep owns that rule.</para>
   public static ChainAdvance Next(Chain chain)
   {
     ArgumentNullException.ThrowIfNull(chain);
