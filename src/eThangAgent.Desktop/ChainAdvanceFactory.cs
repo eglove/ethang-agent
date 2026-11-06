@@ -43,7 +43,10 @@ internal static class ChainAdvanceFactory
           // A GROUP MEMBER'S CHECKOUT: the provisioner is the session container's own, so the
           // worktree is made in the workspace that container is bound to - the same directory
           // the member's session would otherwise have run in.
-          provisionWorktree: name => ProvisionWorktreeAsync(session, name)),
+          provisionWorktree: name => ProvisionWorktreeAsync(session, name),
+          // A MEMBER'S UNCOMMITTED WORKTREE: the same read-only git seam the status tool uses,
+          // asked about the member's own checkout rather than the workspace.
+          worktreeIsDirty: path => WorktreeIsDirtyAsync(session, path)),
           // The separation rule and the implementer's recorded model (issue #218): the gate parks
           // a review step whose reviewer matches the implementer, and the agent store is where the
           // durable record of what actually served lives.
@@ -76,6 +79,27 @@ internal static class ChainAdvanceFactory
     return created.IsSuccess
         ? Result.Success(created.Value.Path)
         : Result.Failure<string>(created.Error);
+  }
+
+  /// <summary>True when the checkout at <paramref name="path"/> holds changes nobody committed,
+  ///     read through the container's own git query.
+  ///     <para>AN UNREADABLE CHECKOUT READS AS CLEAN, and so does a container that wired no git
+  ///     access: the refusal exists to nudge a member that forgot to commit, and a git query that
+  ///     failed says nothing about the checkout. Refusing a finished step over it would block a
+  ///     completion on an infrastructure fault.</para></summary>
+  /// <param name="session">The session whose container owns the git query.</param>
+  /// <param name="path">The worktree directory.</param>
+  private static async Task<bool> WorktreeIsDirtyAsync(AgentSession session, string path)
+  {
+    if (session.Services.GetService<IGitQueryAccess>() is not { } git)
+    {
+      return false;
+    }
+
+    Result<GitStatus> status = await git.GetStatusAsync(path).ConfigureAwait(false);
+    return status.IsSuccess
+      && (status.Value.Staged.Count > 0 || status.Value.Unstaged.Count > 0
+          || status.Value.Untracked.Count > 0);
   }
 
   /// <summary>The floor service for <paramref name="session"/> (issue #304): park the chain when

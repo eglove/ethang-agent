@@ -56,7 +56,26 @@ internal sealed class ChainAdvanceHost(
     // A host that wires no dirtiness check reports the checkout clean, which is exactly what
     // every step did before a group existed: nothing refuses a completion over a worktree this
     // host cannot read.
-    return worktreeIsDirty is not null && await worktreeIsDirty(path).ConfigureAwait(false);
+    if (worktreeIsDirty is null)
+    {
+      return false;
+    }
+
+    // Named decision (CA1031): A BROKEN CHECK READS AS CLEAN. The refusal exists to nudge a
+    // member that forgot to commit, and a git query that threw says nothing about the checkout -
+    // refusing a finished step over it would block a completion on an infrastructure fault.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      return await worktreeIsDirty(path).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      await Console.Error.WriteLineAsync(
+          $"chain advance: reading worktree {path} failed: {ex.Message}").ConfigureAwait(false);
+      return false;
+    }
   }
 
   /// <inheritdoc />

@@ -83,9 +83,18 @@ public class ChainAdvanceGroupTests
 
     public List<ChainStepAssignment> Started { get; } = [];
 
+    public List<string> Closed { get; } = [];
+
+    /// <summary>The checkouts that hold uncommitted work.</summary>
+    public HashSet<string> Dirty { get; } = new(StringComparer.Ordinal);
+
     public Result<string>? ProvisionResult { get; set; }
 
-    public Task CloseSessionAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task CloseSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+      Closed.Add(sessionId);
+      return Task.CompletedTask;
+    }
 
     public Task<Result<string>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
     {
@@ -95,7 +104,7 @@ public class ChainAdvanceGroupTests
     }
 
     public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
-        => Task.FromResult(false);
+        => Task.FromResult(Dirty.Contains(path));
 
     public Task<Result<string>> StartSessionAsync(ChainStepAssignment assignment,
         string predecessorSessionId, CancellationToken ct = default)
@@ -248,6 +257,49 @@ public class ChainAdvanceGroupTests
     Assert.Empty(fixture.Host.Provisioned);
     Assert.Equal("C:\\ws\\.worktrees\\chain-1-step-2",
         Assert.Single(fixture.Host.Started).WorktreePath);
+  }
+
+  [Fact]
+  public async Task AdvanceFromAMember_WithADirtyWorktree_IsRefusedAndSettlesNothing()
+  {
+    Fixture fixture = await NewAsync();
+    Chain claimed = await SettleStepOneAsync(fixture);
+    _ = Must(await fixture.Service.AdvanceAsync(claimed, 1, "session-a", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    Chain afterFirst = Must(await fixture.Store.GetAsync(claimed.Id,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    _ = fixture.Host.Dirty.Add(ProvisionedPath);
+
+    Result<ChainAdvance> second = await fixture.Service.AdvanceAsync(afterFirst, 2, "session-2", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(second.IsSuccess, second.Error?.Message ?? "a refusal is a value, not a failure");
+    Assert.Equal(ChainAdvanceKind.Refused, second.Value.Kind);
+    Assert.Equal("ChainWorktreeDirty", second.Value.Code);
+    Assert.Contains(ProvisionedPath, second.Value.Reason!, StringComparison.Ordinal);
+    Assert.Contains("git commit -m", second.Value.Reason!, StringComparison.Ordinal);
+    Chain stored = Must(await fixture.Store.GetAsync(claimed.Id,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    Assert.Equal(ChainStepStatus.Running, stored.StepAt(2)!.Status);
+    Assert.Empty(fixture.Host.Closed);
+  }
+
+  [Fact]
+  public async Task AdvanceFromAMember_WithACleanWorktree_SettlesTheStep()
+  {
+    Fixture fixture = await NewAsync();
+    Chain claimed = await SettleStepOneAsync(fixture);
+    _ = Must(await fixture.Service.AdvanceAsync(claimed, 1, "session-a", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    Chain afterFirst = Must(await fixture.Store.GetAsync(claimed.Id,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    _ = Must(await fixture.Service.AdvanceAsync(afterFirst, 2, "session-2", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Chain stored = Must(await fixture.Store.GetAsync(claimed.Id,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    Assert.Equal(ChainStepStatus.Done, stored.StepAt(2)!.Status);
   }
 
   [Fact]

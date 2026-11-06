@@ -146,6 +146,15 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       return Result.Failure<ChainAdvance>(review.Error);
     }
 
+    // A MEMBER'S WORKTREE MUST BE COMMITTED BEFORE ITS COMPLETION SETTLES (D9): the reconciler
+    // merges branches, so work that was never committed cannot land. The refusal is a NUDGE - it
+    // reaches the session while it is still alive, and the step stays Running so the same session
+    // can commit and complete again.
+    if (await DirtyWorktreeRefusalAsync(chain, position, ct).ConfigureAwait(false) is { } dirty)
+    {
+      return Result.Success(dirty);
+    }
+
     // THE OUTCOME CARRIES THE VERDICT for a review step and stays NULL for an implementer
     // step, which is byte-identical to the pre-#320 behaviour (#306 pins that text).
     string? outcome = review.Value is { } recorded ? ChainReviewNotes.Render(recorded.Findings) : null;
@@ -506,6 +515,30 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
         ? Result.Success<string?>(provisioned.Value)
         : Result.Failure<string?>(new DomainError(stamped.Error.Code,
             $"the worktree '{provisioned.Value}' was provisioned but could not be recorded: {stamped.Error.Message}"));
+  }
+
+  /// <summary>The refusal a completion earns when the step's own worktree holds uncommitted
+  ///     changes, or null when there is nothing to refuse.
+  ///     <para>THE CHECKOUT IS READ HERE AND THE RULE IS <see cref="ChainWorktreeCommitPolicy"/>,
+  ///     the same split the advance itself uses: one place decides, one place reads.
+  ///     </para>
+  ///     <para>A STEP WITH NO WORKTREE IS NOT ASKED ABOUT, so a sequential step spends no git
+  ///     query and is never refused over a checkout it does not own.</para></summary>
+  /// <param name="chain">The chain the step belongs to.</param>
+  /// <param name="position">The 1-based step position being completed.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<ChainAdvance?> DirtyWorktreeRefusalAsync(Chain chain, int position,
+      CancellationToken ct)
+  {
+    if (chain.StepAt(position) is not { WorktreePath: { } path } step)
+    {
+      return null;
+    }
+
+    bool dirty = await _host.WorktreeIsDirtyAsync(path, ct).ConfigureAwait(false);
+    return ChainWorktreeCommitPolicy.RefusalFor(step, dirty) is { } refusal
+      ? ChainAdvance.Refused(refusal.Code, refusal.Message)
+      : null;
   }
 
   /// <summary>Runs the reviewer-separation rule for the step about to start (issue #218), and
