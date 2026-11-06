@@ -1,3 +1,4 @@
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.ToolDomain.Tests;
@@ -68,7 +69,7 @@ public class LspSymbolToolTests
   [Fact]
   public async Task UnknownAction_Fails_InvalidAction()
   {
-    ToolResult r = await Call(new ScriptedSymbolAccess(), "\"action\": \"rename\"").ConfigureAwait(true);
+    ToolResult r = await Call(new ScriptedSymbolAccess(), "\"action\": \"notAnAction\"").ConfigureAwait(true);
     Assert.True(r.IsError);
     Assert.Contains("Error [InvalidAction]:", r.Content, StringComparison.Ordinal);
   }
@@ -241,5 +242,178 @@ public class LspSymbolToolTests
   {
     string d = new LspSymbolTool(new WorkspacePathResolver("C:\\ws"), new ScriptedSymbolAccess()).Definition.Description;
     Assert.Contains("workspace-load", d, StringComparison.Ordinal);
+  }
+
+  private sealed class RecordingApplier : ILspRenameApplier
+  {
+    public int Calls { get; private set; }
+
+    public IReadOnlyList<LspRenameEdit> Edits { get; private set; } = [];
+
+    public Task<Result<LspRenameApplied>> ApplyAsync(IReadOnlyList<LspRenameEdit> edits, CancellationToken ct = default)
+    {
+      Calls++;
+      Edits = edits;
+      IReadOnlyList<string> files = [.. edits.Select(e => e.Path).Distinct(StringComparer.Ordinal)];
+      return Task.FromResult(Result.Success(new LspRenameApplied(files, edits.Count)));
+    }
+  }
+
+  private static async Task<ToolResult> CallWithApplier(ScriptedSymbolAccess access, RecordingApplier applier, string inner)
+  {
+    LspSymbolTool tool = new(new WorkspacePathResolver("C:\\ws"), access, applier);
+    return await tool.ExecuteAsync(new RawToolInput("lsp", Args(inner)),
+        ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+  }
+
+  [Fact]
+  public async Task Rename_WithoutNewName_Fails_MissingParameter()
+  {
+    ToolResult r = await Call(new ScriptedSymbolAccess(), "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\"").ConfigureAwait(true);
+    Assert.True(r.IsError);
+    Assert.Contains("Error [MissingParameter]:", r.Content, StringComparison.Ordinal);
+    Assert.Contains("newName", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_DefaultReportsWithoutApplying()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+    };
+    RecordingApplier applier = new();
+    ToolResult r = await CallWithApplier(access, applier, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\"").ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.Contains("1 edit", r.Content, StringComparison.Ordinal);
+    Assert.Contains("A.cs:4:11", r.Content, StringComparison.Ordinal);
+    Assert.Contains("not applied", r.Content, StringComparison.Ordinal);
+    Assert.Equal(0, applier.Calls);
+    LspSymbolCommand.Rename cmd = Assert.IsType<LspSymbolCommand.Rename>(Assert.Single(access.Commands));
+    Assert.Equal("C:\\ws\\A.cs", cmd.Path);
+    Assert.Equal("Foo", cmd.SymbolName);
+    Assert.Equal("Bar", cmd.NewName);
+    Assert.Equal(0, cmd.Occurrence);
+  }
+
+  [Fact]
+  public async Task Rename_ApplyTrue_InvokesTheApplier()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+    };
+    RecordingApplier applier = new();
+    ToolResult r = await CallWithApplier(access, applier,
+        "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\", \"apply\": true").ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.Equal(1, applier.Calls);
+    _ = Assert.Single(applier.Edits);
+    Assert.Contains("applied", r.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("not applied", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_ApplyTrue_WithoutApplier_Fails_Unavailable()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+    };
+    ToolResult r = await Call(access,
+        "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\", \"apply\": true").ConfigureAwait(true);
+    Assert.True(r.IsError);
+    Assert.Contains("Error [Unavailable]:", r.Content, StringComparison.Ordinal);
+    Assert.Contains("apply", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_ApplyTrue_ApplierFailure_SurfacesTheError()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+    };
+    LspSymbolTool tool = new(new WorkspacePathResolver("C:\\ws"), access, new FailingApplier());
+    ToolResult r = await tool.ExecuteAsync(new RawToolInput("lsp",
+        Args("\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\", \"apply\": true")),
+        ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(r.IsError);
+    Assert.Contains("PathOutsideWorkspace", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_ReportsTheEditCountAndEveryEdit()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Renamed(
+          [
+            new LspRenameEdit(@"C:\ws\A.cs", 0, 4, 0, 7, "Bar"),
+            new LspRenameEdit(@"C:\ws\B.cs", 9, 2, 9, 5, "Bar"),
+          ],
+          "Foo",
+          Applied: false),
+    };
+    ToolResult r = await Call(access, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\"").ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.Contains("2 edits", r.Content, StringComparison.Ordinal);
+    Assert.Contains("A.cs:1:5", r.Content, StringComparison.Ordinal);
+    Assert.Contains("B.cs:10:3", r.Content, StringComparison.Ordinal);
+    Assert.Contains("Bar", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_NoEdits_IsReadyAndSaysSo()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Renamed([], "Foo", Applied: false, Message: "the server returned no edits"),
+    };
+    ToolResult r = await Call(access, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\"").ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.Contains("0 edits", r.Content, StringComparison.Ordinal);
+    Assert.Contains("no edits", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_Unsupported_Renders_UnsupportedLabel()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Unsupported("capability not advertised for textDocument/rename"),
+    };
+    ToolResult r = await Call(access, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\"").ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.Contains("Unsupported", r.Content, StringComparison.Ordinal);
+    Assert.Contains("not advertised", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_RejectsUnknownParameter()
+  {
+    ScriptedSymbolAccess access = new();
+    ToolResult r = await Call(access, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\", \"line\": 3").ConfigureAwait(true);
+    Assert.True(r.IsError);
+    Assert.Contains("UnknownParameter", r.Content, StringComparison.Ordinal);
+    Assert.Empty(access.Commands);
+  }
+
+  [Fact]
+  public void Definition_DescriptionDocumentsRename()
+  {
+    string d = new LspSymbolTool(new WorkspacePathResolver("C:\\ws"), new ScriptedSymbolAccess()).Definition.Description;
+    Assert.Contains("rename", d, StringComparison.Ordinal);
+    Assert.Contains("newName", d, StringComparison.Ordinal);
+    Assert.Contains("apply", d, StringComparison.Ordinal);
+    Assert.Contains("not applied", d, StringComparison.Ordinal);
+    Assert.Contains("file renames", d, StringComparison.Ordinal);
+  }
+
+  private sealed class FailingApplier : ILspRenameApplier
+  {
+    public Task<Result<LspRenameApplied>> ApplyAsync(IReadOnlyList<LspRenameEdit> edits, CancellationToken ct = default)
+      => Task.FromResult(Result.Failure<LspRenameApplied>(new DomainError("PathOutsideWorkspace",
+          "'C:\\other\\A.cs' is outside the workspace.")));
   }
 }

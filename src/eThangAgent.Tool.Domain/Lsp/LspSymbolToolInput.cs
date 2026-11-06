@@ -15,6 +15,7 @@ public enum LspSymbolAction
   CallHierarchyIncoming,
   CallHierarchyOutgoing,
   WorkspaceLoad,
+  Rename,
 }
 
 /// <summary>Strictly parsed arguments for the 'lsp' symbol tool (issue #357): a required
@@ -22,7 +23,7 @@ public enum LspSymbolAction
 ///     path alone for document symbols, symbolName alone for workspace symbols. No
 ///     line/column is ever accepted from the caller.</summary>
 #pragma warning disable IDE0046 // Named decision: guard+return names each validation step; the ternary form hides it.
-public sealed record LspSymbolToolInput(LspSymbolAction Action, string? Path, string? SymbolName, int Occurrence, int Depth = 1)
+public sealed record LspSymbolToolInput(LspSymbolAction Action, string? Path, string? SymbolName, int Occurrence, int Depth = 1, string? NewName = null, bool Apply = false)
 {
   /// <summary>One row per action: its wire name, the arguments it accepts beyond action and
   ///     timeoutSeconds, and the parser that validates them. Adding an action is a row here,
@@ -44,6 +45,7 @@ public sealed record LspSymbolToolInput(LspSymbolAction Action, string? Path, st
     new(LspSymbolAction.CallHierarchyIncoming, "call-hierarchy-incoming", ["path", "symbolName", "occurrence", "depth"], ParseCallHierarchy),
     new(LspSymbolAction.CallHierarchyOutgoing, "call-hierarchy-outgoing", ["path", "symbolName", "occurrence", "depth"], ParseCallHierarchy),
     new(LspSymbolAction.WorkspaceLoad, "workspace-load", [], NoArguments),
+    new(LspSymbolAction.Rename, "rename", ["path", "symbolName", "occurrence", "newName", "apply"], ParseRename),
   ];
 
   private static readonly string[] ActionNames = BuildActionNames();
@@ -165,6 +167,39 @@ public sealed record LspSymbolToolInput(LspSymbolAction Action, string? Path, st
     }
 
     return Result.Success(pos.Value with { Depth = depth });
+  }
+
+  /// <summary>A rename is a position query plus the replacement name and the apply switch:
+  ///     the same path/symbolName/occurrence addressing, then 'newName' (required) and
+  ///     'apply' (optional, false).</summary>
+  private static Result<LspSymbolToolInput> ParseRename(JsonElement json, LspSymbolAction action)
+  {
+    Result<LspSymbolToolInput> pos = ParsePositionQuery(json, action);
+    if (!pos.IsSuccess)
+    {
+      return pos;
+    }
+
+    Result<string> newName = ToolArguments.RequireString(json, "newName",
+        "For rename, 'newName' is the name to replace the symbol with.");
+    if (!newName.IsSuccess)
+    {
+      return Result.Failure<LspSymbolToolInput>(newName.Error);
+    }
+
+    if (string.IsNullOrWhiteSpace(newName.Value))
+    {
+      return Result.Failure<LspSymbolToolInput>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'newName' must not be empty."));
+    }
+
+    Result<bool?> apply = ToolArguments.OptionalBool(json, "apply");
+    if (!apply.IsSuccess)
+    {
+      return Result.Failure<LspSymbolToolInput>(apply.Error);
+    }
+
+    return Result.Success(pos.Value with { NewName = newName.Value, Apply = apply.Value ?? false });
   }
 
   private static Result<LspSymbolToolInput> ParseDocumentSymbols(JsonElement json, LspSymbolAction action)
