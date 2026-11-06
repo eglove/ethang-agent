@@ -229,6 +229,28 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     session orphaned in no tab at all).</summary>
   private readonly Dictionary<AgentTabViewModel, AgentSession> _pendingReplacements = [];
 
+  /// <summary>How many session starts this shell has begun and not yet either attached or
+  ///     disposed (issue #368).
+  ///     <para>A START OWNS A HOST PROCESS FROM THE MOMENT ITS CONTAINER EXISTS, and that is
+  ///     BEFORE any cell names it. A start's container build runs off the UI thread while the
+  ///     shell can already be shutting down, so a shutdown that walked only the tabs would
+  ///     return with a host nothing had asked to exit - the leak the guard reports. The count
+  ///     is what lets shutdown WAIT for those starts rather than race them.</para></summary>
+  private int _startsInFlight;
+
+  /// <summary>Completes when the last in-flight start has attached or disposed its session, so
+  ///     a shutdown can wait for it. Null when nothing is in flight.</summary>
+  private TaskCompletionSource? _startsSettled;
+
+  /// <summary>Guards the in-flight start count and its settle source. A start settles on the
+  ///     thread that finished it, which is never the UI thread a shutdown runs on.</summary>
+  private readonly Lock _startsGate = new();
+
+  /// <summary>True once <see cref="ShutdownAllAsync"/> has begun (issue #368). A start that
+  ///     finishes after that point is disposed instead of appended: the shutdown has already
+  ///     walked its tabs, so a cell added afterwards would hold a host nothing disposes.</summary>
+  private bool _shuttingDown;
+
   /// <summary>Resume hook mirroring the creation delegate: derived from the factory so
   ///     saved keys rebind future resumes; a host without a factory gets a structured
   ///     ResumeUnavailable failure instead of a crash.</summary>
@@ -1077,6 +1099,9 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     IsOpeningAgent = true;
+    // COUNTED AS A START (issue #368): an open in flight holds a host process before its tab
+    // exists, so a shutdown begun meanwhile must wait for it rather than walk past it.
+    BeginStart();
     try
     {
       // Session construction builds a DI container and persists the root row —
@@ -1090,9 +1115,21 @@ internal sealed partial class MainViewModel : ObservableObject
       }
 
       Result<AgentSession> created = await scheduled;
-      return created.IsSuccess
-          ? Result.Success(await AttachSessionAsync(created.Value))
-          : Result.Failure<AgentTabViewModel>(created.Error);
+      if (!created.IsSuccess)
+      {
+        return Result.Failure<AgentTabViewModel>(created.Error);
+      }
+
+      // AN OPEN THAT OUTLIVED THE SHUTDOWN IS NOT ATTACHED (issue #368): a tab added after the
+      // walk would hold a host nothing disposes, so the session is disposed instead.
+      if (_shuttingDown)
+      {
+        await DisposeOrphanedSessionAsync(created.Value).ConfigureAwait(true);
+        return Result.Failure<AgentTabViewModel>(new DomainError("ShellClosing",
+            "the app is shutting down; the workspace was not opened."));
+      }
+
+      return Result.Success(await AttachSessionAsync(created.Value));
     }
     // Named decision (CA1031): a failed open is INFORMATION, not a crash. This method
     // runs on the UI dispatcher, where an escaping exception tears the whole process
@@ -1109,6 +1146,7 @@ internal sealed partial class MainViewModel : ObservableObject
     finally
     {
       IsOpeningAgent = false;
+      EndStart();
     }
   }
 
@@ -1384,41 +1422,52 @@ internal sealed partial class MainViewModel : ObservableObject
     string providerName = tab.Container.ProviderName;
     int index = Tabs.IndexOf(tab);
 
-    // Container build + root-row persistence — core work that never belongs on the UI
-    // thread, exactly like a fresh open (context flow suppressed for the same reason).
-    Task<Result<AgentSession>> scheduled;
-    using (ExecutionContext.SuppressFlow())
-    {
-      scheduled = Task.Run(() => creator is not null && seeded
-          ? creator(workspaceRoot, providerName, seed, chainContract)
-          : _createSession(workspaceRoot, providerName));
-    }
-
-    Result<AgentSession> created;
+    // THE START OWNS A HOST FROM HERE (issue #368): counted BEFORE the container is built, so
+    // a shutdown that begins while this one is in flight waits for it instead of returning
+    // over a host process no cell names yet.
+    BeginStart();
     try
     {
-      created = await scheduled;
-    }
-    // Named decision (CA1031): a failed launch is INFORMATION, not a crash — this path is
-    // reached from the UI dispatcher and from the host's session-request path, where an
-    // escaping exception has no handler at all.
+      // Container build + root-row persistence — core work that never belongs on the UI
+      // thread, exactly like a fresh open (context flow suppressed for the same reason).
+      Task<Result<AgentSession>> scheduled;
+      using (ExecutionContext.SuppressFlow())
+      {
+        scheduled = Task.Run(() => creator is not null && seeded
+            ? creator(workspaceRoot, providerName, seed, chainContract)
+            : _createSession(workspaceRoot, providerName));
+      }
+
+      Result<AgentSession> created;
+      try
+      {
+        created = await scheduled;
+      }
+      // Named decision (CA1031): a failed launch is INFORMATION, not a crash — this path is
+      // reached from the UI dispatcher and from the host's session-request path, where an
+      // escaping exception has no handler at all.
 #pragma warning disable CA1031, S2486 // Do not catch general exception types
-    catch (Exception ex)
+      catch (Exception ex)
 #pragma warning restore CA1031, S2486
-    {
-      return Result.Failure<StartedSession>(new DomainError("SessionLaunchFailed",
-          "the new session could not be started: " + ex.Message));
-    }
+      {
+        return Result.Failure<StartedSession>(new DomainError("SessionLaunchFailed",
+            "the new session could not be started: " + ex.Message));
+      }
 
-    if (!created.IsSuccess)
-    {
-      // The factory's own typed code travels through verbatim (SessionLaunchFailed only
-      // wraps a thrown fault, never a refused Result).
-      return Result.Failure<StartedSession>(created.Error);
-    }
+      if (!created.IsSuccess)
+      {
+        // The factory's own typed code travels through verbatim (SessionLaunchFailed only
+        // wraps a thrown fault, never a refused Result).
+        return Result.Failure<StartedSession>(created.Error);
+      }
 
-    return Result.Success(await AppendSessionAsync(tab, created.Value, index, prompt,
-        new AppendOptions(Role: role, ChainStep: placement, PredecessorId: predecessorId)));
+      return Result.Success(await AppendSessionAsync(tab, created.Value, index, prompt,
+          new AppendOptions(Role: role, ChainStep: placement, PredecessorId: predecessorId)));
+    }
+    finally
+    {
+      EndStart();
+    }
   }
 
   /// <summary>The view-model of the session a request NAMES - its own cell, or the tab's live
@@ -1556,6 +1605,15 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       AgentTabViewModel attached = await AttachSessionAsync(session, Math.Clamp(index, 0, Tabs.Count));
       return new StartedSession(attached, session.RootId);
+    }
+
+    // A START THAT OUTLIVED THE SHUTDOWN IS NOT APPENDED INTO A CLOSING SHELL (issue #368):
+    // the shell has already walked its tabs and will not walk them again, so a cell added here
+    // would hold a container nothing would ever dispose - a host process outliving the app.
+    if (_shuttingDown)
+    {
+      await DisposeOrphanedSessionAsync(session).ConfigureAwait(true);
+      return new StartedSession(tab, session.RootId);
     }
 
     AgentCellViewModel? retiredCell = SupersededCell(tab, options ??= new AppendOptions());
@@ -1919,58 +1977,77 @@ internal sealed partial class MainViewModel : ObservableObject
 
     string workspaceRoot = tab.Container.WorkspaceRoot;
     string providerName = tab.Container.ProviderName;
-    Task<Result<AgentSession>> scheduled;
-    using (ExecutionContext.SuppressFlow())
-    {
-      scheduled = Task.Run(() => _createSession(workspaceRoot, providerName));
-    }
-
-    Result<AgentSession> created;
+    // COUNTED AS A START (issue #368): the container this builds owns a host process before the
+    // cell that will name it exists, so a shutdown begun meanwhile waits for it.
+    BeginStart();
     try
     {
-      created = await scheduled;
-    }
-    // Named decision (CA1031): a failed launch is INFORMATION, not a crash - the same rule the
-    // replace path follows, for the same reason (the UI dispatcher has no handler).
+      Task<Result<AgentSession>> scheduled;
+      using (ExecutionContext.SuppressFlow())
+      {
+        scheduled = Task.Run(() => _createSession(workspaceRoot, providerName));
+      }
+
+      Result<AgentSession> created;
+      try
+      {
+        created = await scheduled;
+      }
+      // Named decision (CA1031): a failed launch is INFORMATION, not a crash - the same rule the
+      // replace path follows, for the same reason (the UI dispatcher has no handler).
 #pragma warning disable CA1031, S2486 // Do not catch general exception types
-    catch (Exception ex)
+      catch (Exception ex)
 #pragma warning restore CA1031, S2486
-    {
-      return Result.Failure<AgentCellViewModel>(new DomainError("SessionLaunchFailed",
-          "the new agent could not be started: " + ex.Message));
+      {
+        return Result.Failure<AgentCellViewModel>(new DomainError("SessionLaunchFailed",
+            "the new agent could not be started: " + ex.Message));
+      }
+
+      if (!created.IsSuccess)
+      {
+        return Result.Failure<AgentCellViewModel>(created.Error);
+      }
+
+      AgentSession session = created.Value;
+      // A CELL IS NOT ADDED TO A CLOSING SHELL (issue #368): the shutdown has already walked its
+      // tabs, so a cell added here would hold a host nothing would ever dispose.
+      if (_shuttingDown)
+      {
+        await DisposeOrphanedSessionAsync(session).ConfigureAwait(true);
+        return Result.Failure<AgentCellViewModel>(new DomainError("ShellClosing",
+            "the app is shutting down; no agent was added."));
+      }
+
+      WorkbenchViewModel workbench = tab.Workbench;
+      AgentSessionViewModel? cellVmRef = null;
+      AgentSessionViewModel cellVm = BuildSessionViewModel(session, workbench,
+          () => cellVmRef ??
+              throw new InvalidOperationException("session view-model not initialized"),
+          id => cellVmRef!.Status.ModelId = id,
+          () => tab);
+      cellVmRef = cellVm;
+      session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
+          () => cellVmRef?.AddSystemNotice(message));
+      session.DeliverPendingNotices();
+      await RestorePinnedModelAsync(session, cellVm);
+      await RestoreSessionPreferencesAsync(session, cellVm);
+      await cellVm.SeedUsageAsync().ConfigureAwait(true);
+      cellVm.Transcript.Restore(session.Conversation.Messages);
+
+      AgentCellViewModel cell = tab.AddCell(session, cellVm);
+      AttachTabWiring(session, tab, cellVm);
+
+      if (!string.IsNullOrWhiteSpace(prompt))
+      {
+        _ = cellVm.SubmitAsync(prompt);
+      }
+
+      return Result.Success(cell);
     }
-
-    if (!created.IsSuccess)
+    finally
     {
-      return Result.Failure<AgentCellViewModel>(created.Error);
+      EndStart();
     }
-
-    AgentSession session = created.Value;
-    WorkbenchViewModel workbench = tab.Workbench;
-    AgentSessionViewModel? cellVmRef = null;
-    AgentSessionViewModel cellVm = BuildSessionViewModel(session, workbench,
-        () => cellVmRef ??
-            throw new InvalidOperationException("session view-model not initialized"),
-        id => cellVmRef!.Status.ModelId = id,
-        () => tab);
-    cellVmRef = cellVm;
-    session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
-        () => cellVmRef?.AddSystemNotice(message));
-    session.DeliverPendingNotices();
-    await RestorePinnedModelAsync(session, cellVm);
-    await RestoreSessionPreferencesAsync(session, cellVm);
-    await cellVm.SeedUsageAsync().ConfigureAwait(true);
-    cellVm.Transcript.Restore(session.Conversation.Messages);
-
-    AgentCellViewModel cell = tab.AddCell(session, cellVm);
-    AttachTabWiring(session, tab, cellVm);
-
-    if (!string.IsNullOrWhiteSpace(prompt))
-    {
-      _ = cellVm.SubmitAsync(prompt);
-    }
-
-    return Result.Success(cell);
   }
 
   /// <summary>The tab's "+" control (issue #333): starts one more agent in that workspace and
@@ -2013,7 +2090,7 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Named decision: a disposed container must not fail the new session.
     try
     {
-      await retired.Services.DisposeAsync();
+      _ = await retired.TryDisposeContainerAsync().ConfigureAwait(true);
     }
     catch
     {
@@ -2157,6 +2234,16 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
+    // A LAUNCH INTO A CLOSING SHELL STARTS NOTHING (issue #368): the shutdown has already walked
+    // its tabs, so a session started here would hold a host nothing would ever dispose. The
+    // caller is a blocked tool, so it is ANSWERED rather than left waiting.
+    if (_shuttingDown)
+    {
+      Answer(channel, request, failure: new DomainError("ShellClosing",
+          "the app is shutting down; no agent was started."));
+      return;
+    }
+
     // THE WORKSPACE IS CHECKED BEFORE ANYTHING IS CREATED. A request naming a workspace this
     // tab does not own cannot be placed here without guessing, and a guessed placement is a
     // cell in the wrong workspace - which reads as a launch that went somewhere else.
@@ -2229,12 +2316,23 @@ internal sealed partial class MainViewModel : ObservableObject
     string workspaceRoot = tab.Container.WorkspaceRoot;
     string providerName = tab.Container.ProviderName;
     Task<Result<AgentSession>> scheduled;
-    using (ExecutionContext.SuppressFlow())
+    // COUNTED FOR THE BUILD ONLY (issue #368): this path hands the session back to its caller,
+    // which appends it under its own claim, so the count here covers the container build and
+    // nothing more. A shutdown waits for the build, and the caller's claim covers the rest.
+    BeginStart();
+    try
     {
-      scheduled = Task.Run(() => _createSession(workspaceRoot, providerName));
-    }
+      using (ExecutionContext.SuppressFlow())
+      {
+        scheduled = Task.Run(() => _createSession(workspaceRoot, providerName));
+      }
 
-    return await scheduled.ConfigureAwait(true);
+      return await scheduled.ConfigureAwait(true);
+    }
+    finally
+    {
+      EndStart();
+    }
   }
   /// <summary>The tab's session-request creation: seeded when the request carries a
   ///     handoff summary OR a chain step assignment, plain otherwise. Runs off the UI thread
@@ -2385,7 +2483,7 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Named decision: an orphan's teardown must not fault the caller.
     try
     {
-      await session.Services.DisposeAsync();
+      _ = await session.TryDisposeContainerAsync().ConfigureAwait(true);
     }
     catch
     {
@@ -3493,6 +3591,53 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
+  /// <summary>Counts one session start as in flight (issue #368). Every start claims a slot
+  ///     BEFORE its container is built and settles it once the session is attached or disposed,
+  ///     so a shutdown can wait for the starts it can see instead of racing them.</summary>
+  private void BeginStart()
+  {
+    lock (_startsGate)
+    {
+      _startsInFlight++;
+    }
+  }
+
+  /// <summary>Settles one counted start (issue #368). The last one releases every shutdown
+  ///     waiting on <see cref="StartsSettledAsync"/>.</summary>
+  private void EndStart()
+  {
+    TaskCompletionSource? settled;
+    lock (_startsGate)
+    {
+      _startsInFlight--;
+      settled = _startsInFlight == 0 ? _startsSettled : null;
+      if (settled is not null)
+      {
+        _startsSettled = null;
+      }
+    }
+
+    _ = settled?.TrySetResult();
+  }
+
+  /// <summary>Completes when no session start is in flight (issue #368): immediately when none
+  ///     is, otherwise when the last one settles. A caller about to dispose the containers this
+  ///     shell owns awaits this first, because a start holds a host process before any cell
+  ///     names it.</summary>
+  private Task StartsSettledAsync()
+  {
+    lock (_startsGate)
+    {
+      if (_startsInFlight == 0)
+      {
+        return Task.CompletedTask;
+      }
+
+      _startsSettled ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+      return _startsSettled.Task;
+    }
+  }
+
   /// <summary>Closes a tab: completes EVERY cell's root session gracefully (best effort),
   ///     then removes the tab and disposes every container. Selection falls to the last
   ///     remaining tab; closing the final tab leaves the empty shell with the menu bar.
@@ -3549,7 +3694,9 @@ internal sealed partial class MainViewModel : ObservableObject
       if (cell.Container is { } container)
       {
         cell.RetireContainer();
-        await container.Services.DisposeAsync();
+        // ONE DISPOSAL PER SESSION (issue #368): a start that outlived the shutdown disposes
+        // its own container, and this walk reaches the same session through its tab.
+        _ = await container.TryDisposeContainerAsync().ConfigureAwait(true);
       }
     }
   }
@@ -3634,7 +3781,7 @@ internal sealed partial class MainViewModel : ObservableObject
     tab.RetireCell(cell);
     if (container is not null)
     {
-      await container.Services.DisposeAsync().ConfigureAwait(true);
+      _ = await container.TryDisposeContainerAsync().ConfigureAwait(true);
     }
   }
 
@@ -3655,10 +3802,20 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     long turn reads as a hang. The transcript up to the last safe point is already
   ///     persisted, and the root row is still completed gracefully, so the conversation
   ///     stays resumable from the Sessions catalog.</para>
+  ///     <para>NO START OUTLIVES THE SHUTDOWN (issue #368). A session start owns a host process
+  ///     from the moment its container exists, which is BEFORE any cell names it: a chain step
+  ///     or a model's launch builds its container off the UI thread while this walk is already
+  ///     running. The walk therefore marks the shell closing, waits for every counted start to
+  ///     settle, and only then disposes the tabs - so 'shutdown returned' means no host this
+  ///     shell started is still alive. A start that finishes after the mark disposes its own
+  ///     session instead of appending a cell into a shell nobody will walk again.</para>
   ///     <para>Best effort per tab, matching every other teardown path: one session's
   ///     failure must never leave the others running. Must run on the UI thread.</para></summary>
   public async Task ShutdownAllAsync()
   {
+    _shuttingDown = true;
+    await StartsSettledAsync().ConfigureAwait(true);
+
     List<AgentTabViewModel> tabs = [.. Tabs];
     foreach (AgentTabViewModel tab in tabs)
     {

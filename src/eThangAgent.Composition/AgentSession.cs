@@ -88,6 +88,26 @@ public sealed record AgentSession(
   /// <summary>Posts one out-of-band notice to the session surface.</summary>
   public void PostNotice(string message) => NoticeSink?.Invoke(message);
 
+  /// <summary>Disposes this session's container exactly once, whoever asks first.
+  ///     <para>THE CONTAINER IS THE HOST PROCESS'S OWNER: disposing it kills the conversation
+  ///     host this session launched. Two callers can reach that act for one session - the
+  ///     shell that retires a tab's cell, and the shell's app-wide shutdown - so the act is
+  ///     idempotent here rather than repeated there: a second disposal is a no-op instead of a
+  ///     read through a disposed provider.</para></summary>
+  /// <returns>True when this call performed the disposal, false when it had already run.</returns>
+  public async Task<bool> TryDisposeContainerAsync()
+  {
+    if (Interlocked.Exchange(ref _disposed, 1) != 0)
+    {
+      return false;
+    }
+
+    await Services.DisposeAsync().ConfigureAwait(false);
+    return true;
+  }
+
+  private int _disposed;
+
   /// <summary>Delivers every notice held from construction, then clears the list so a second
   ///     call cannot repeat them. Safe with no sink: the notices are KEPT (not dropped) so a
   ///     later delivery still shows them.</summary>

@@ -50,6 +50,16 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
   // talks to it. Both are created together and disposed together.
   private readonly Dictionary<Guid, LaunchedAgent> _live = [];
 
+  // Launches and retires that have not finished yet. A host process exists BEFORE its entry
+  // reaches _live (the supervisor spawns it, then attaches) and outlives the entry's removal
+  // (the retire disposes it after taking it out), so neither half is visible in _live alone.
+  // Teardown awaits these, which is what makes 'disposed' mean 'no host of mine is alive'.
+  private readonly HashSet<Task> _inFlight = [];
+
+  // True once teardown has begun. A start is refused rather than admitted into a runtime that
+  // will never dispose the host it launches.
+  private bool _disposed;
+
   // Every start owns its settle source BEFORE admission, so a parked agent is awaitable and
   // steerable from the moment its caller is told it started (the #238 rule, at host granularity).
   private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentRunOutcome>> _settling = [];
@@ -84,9 +94,50 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
   public int ParkedAgents => _admission.ParkedCount;
 
   /// <inheritdoc />
-  public async Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
+  public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(record);
+    // REFUSED ONCE TEARDOWN HAS BEGUN: a host launched now would be spawned after the walk that
+    // disposes hosts, so nothing would ever ask it to exit.
+    lock (_gate)
+    {
+      if (_disposed)
+      {
+        return Task.FromResult(Result.Failure<AgentId>(new DomainError("RuntimeDisposed",
+            "this container is being disposed; the agent was not started.")));
+      }
+    }
+
+    return TrackedAsync(() => StartCoreAsync(record, ct));
+  }
+
+  /// <summary>Runs one start with a place in the in-flight set, so teardown waits for it.</summary>
+  private async Task<Result<AgentId>> TrackedAsync(Func<Task<Result<AgentId>>> start)
+  {
+    TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    lock (_gate)
+    {
+      _ = _inFlight.Add(finished.Task);
+    }
+
+    try
+    {
+      return await start().ConfigureAwait(false);
+    }
+    finally
+    {
+      lock (_gate)
+      {
+        _ = _inFlight.Remove(finished.Task);
+      }
+
+      _ = finished.TrySetResult();
+    }
+  }
+
+  /// <summary>The start itself: admission, then a launch when a slot is free.</summary>
+  private async Task<Result<AgentId>> StartCoreAsync(AgentRecord record, CancellationToken ct)
+  {
     // The settle source exists from the moment the caller is told the agent started, whether it
     // runs now or parks — that is what makes a parked agent awaitable instead of a NotFound.
     _ = _settling.AddOrUpdate(record.Id.Value,
@@ -192,34 +243,71 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
   }
 
   /// <summary>Disposes one agent's host and releases its slot to the park head. Idempotent: a
-  ///     second retire for the same id finds nothing and releases nothing.</summary>
-  private async Task RetireAsync(AgentId id)
+  ///     second retire for the same id finds nothing and releases nothing.
+  ///     <para>THE RETIRE IS VISIBLE TO TEARDOWN FROM ITS FIRST INSTRUCTION (issue #368). Taking
+  ///     the entry out of the live set and disposing the supervisor are two steps, and a teardown
+  ///     that snapshotted between them would return with the host still inside its bounded exit
+  ///     wait - the leak the suite's guard reports. Registering the retire in the in-flight set
+  ///     before the entry moves is what makes teardown wait for it.</para></summary>
+  private Task RetireAsync(AgentId id)
   {
-    LaunchedAgent? launched;
+    TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
     lock (_gate)
     {
-      if (!_live.TryGetValue(id.Value, out launched))
+      if (!_live.TryGetValue(id.Value, out LaunchedAgent? launched))
       {
-        return;
+        return Task.CompletedTask;
       }
 
+      _ = _inFlight.Add(finished.Task);
       _ = _live.Remove(id.Value);
-    }
-
-    await launched.Supervisor.DisposeAsync().ConfigureAwait(false);
-
-    // Release hands the slot DIRECTLY to the park head inside the admission gate, so a fresh
-    // start can neither starve a parked agent nor push the live count past the cap.
-    HostAdmission? next = _admission.Release();
-    if (next is { IsAdmitted: true })
-    {
-      await AdmitParkedAsync(next.RecordId).ConfigureAwait(false);
+      return RetireCoreAsync(launched, finished);
     }
   }
 
-  /// <summary>Starts a previously parked agent once a slot reaches it.</summary>
+  /// <summary>Disposes one retired host, releases its slot, and settles the in-flight entry.
+  ///     Runs OUTSIDE the gate: disposal is a bounded process wait, and holding the lock across
+  ///     it would serialize every other start and teardown behind it.</summary>
+  private async Task RetireCoreAsync(LaunchedAgent launched, TaskCompletionSource finished)
+  {
+    try
+    {
+      await launched.Supervisor.DisposeAsync().ConfigureAwait(false);
+
+      // Release hands the slot DIRECTLY to the park head inside the admission gate, so a fresh
+      // start can neither starve a parked agent nor push the live count past the cap.
+      HostAdmission? next = _admission.Release();
+      if (next is { IsAdmitted: true })
+      {
+        await AdmitParkedAsync(next.RecordId).ConfigureAwait(false);
+      }
+    }
+    finally
+    {
+      lock (_gate)
+      {
+        _ = _inFlight.Remove(finished.Task);
+      }
+
+      _ = finished.TrySetResult();
+    }
+  }
+
+  /// <summary>Starts a previously parked agent once a slot reaches it.
+  ///     <para>NOTHING IS LAUNCHED ONCE TEARDOWN HAS BEGUN (issue #368): a slot released during
+  ///     the walk would otherwise admit a park head whose host is spawned after the walk that
+  ///     disposes hosts, which is a process nothing would ever ask to exit. The parked agent's
+  ///     row stays as it was, so it is still resumable.</para></summary>
   private async Task AdmitParkedAsync(Guid recordId)
   {
+    lock (_gate)
+    {
+      if (_disposed)
+      {
+        return;
+      }
+    }
+
     Result<AgentRecord> loaded = await _store.GetAsync(new AgentId(recordId), CancellationToken.None).ConfigureAwait(false);
     if (!loaded.IsSuccess)
     {
@@ -343,19 +431,41 @@ public sealed class HostLaunchingRuntime : IAgentRuntime, IAsyncDisposable
           AppContext.BaseDirectory);
 
   /// <summary>Disposes every host this runtime launched (container teardown). Each disposal
-  ///     kills the agent's process and closes its job, so nothing outlives the container.</summary>
+  ///     kills the agent's process and closes its job, so nothing outlives the container.
+  ///     <para>TEARDOWN WAITS FOR THE WORK IT CAN SEE (issue #368). A host process exists before
+  ///     its entry reaches the live set (a launch spawns it, then attaches) and outlives the
+  ///     entry's removal (a retire disposes it after taking it out), so the live set alone is
+  ///     not the whole answer: a launch or retire in flight is awaited here, and the live set is
+  ///     re-read until nothing is left to dispose. Without that, teardown returned while a host
+  ///     was still alive and the suite's leak guard found a process nothing had asked to exit.</para>
+  ///     <para>NEW STARTS ARE REFUSED once this begins, so the loop cannot chase work that keeps
+  ///     arriving.</para></summary>
   public async ValueTask DisposeAsync()
   {
-    LaunchedAgent[] launched;
-    lock (_gate)
+    while (true)
     {
-      launched = [.. _live.Values];
-      _live.Clear();
-    }
+      Task[] inFlight;
+      LaunchedAgent[] launched;
+      lock (_gate)
+      {
+        _disposed = true;
+        inFlight = [.. _inFlight];
+        launched = [.. _live.Values];
+        _live.Clear();
+      }
 
-    foreach (LaunchedAgent agent in launched)
-    {
-      await agent.Supervisor.DisposeAsync().ConfigureAwait(false);
+      foreach (LaunchedAgent agent in launched)
+      {
+        await agent.Supervisor.DisposeAsync().ConfigureAwait(false);
+      }
+
+      if (inFlight.Length == 0)
+      {
+        return;
+      }
+
+      // Awaited OUTSIDE the gate: the work being awaited takes the gate to settle itself.
+      await Task.WhenAll(inFlight).ConfigureAwait(false);
     }
   }
 
