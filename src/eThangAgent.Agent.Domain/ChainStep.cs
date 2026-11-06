@@ -24,24 +24,28 @@ public sealed record ChainStep(
   ChainStepRole Role,
   string? ServedModel = null,
   int ReviewAttempts = 0,
-  string? InvalidatedBy = null)
+  string? InvalidatedBy = null,
+  int? Group = null)
 {
   /// <summary>A fresh Pending step with the IMPLEMENTER role (issue #313 D7): the default a
   ///     step takes when nobody assigned one. Use the two-argument overload to assign a
   ///     review step.</summary>
   public static ChainStep Pending(int position) => Pending(position, ChainStepRole.Implement);
 
-  /// <summary>A fresh Pending step in <paramref name="role"/>. The actor starts as the
-  ///     harness: nothing has run yet.
+  /// <summary>A fresh Pending step in <paramref name="role"/>, optionally in a group. The
+  ///     actor starts as the harness: nothing has run yet.
   ///     <para>THE ROLE IS PART OF THE RECORD, not a creation-time decoration: a resumed step
   ///     must still know whether it is reviewing or implementing, and a restart reads the row
   ///     rather than a caller's memory.</para></summary>
-  public static ChainStep Pending(int position, ChainStepRole role)
+  /// <param name="position">The 1-based plan step position.</param>
+  /// <param name="role">The role assigned to the session that runs it.</param>
+  /// <param name="group">The group the step runs in, or null when it runs alone.</param>
+  public static ChainStep Pending(int position, ChainStepRole role, int? group = null)
   {
     ArgumentOutOfRangeException.ThrowIfLessThan(position, 1);
     ArgumentNullException.ThrowIfNull(role);
     return new ChainStep(position, ChainStepStatus.Pending, null, 0, null, ChainActor.Harness,
-        null, null, role, ServedModel: null, ReviewAttempts: 0);
+        null, null, role, ServedModel: null, ReviewAttempts: 0, InvalidatedBy: null, Group: group);
   }
 
   /// <summary>True when the step may be claimed: only a Pending step is. A Running step is

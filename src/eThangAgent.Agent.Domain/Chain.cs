@@ -74,7 +74,7 @@ public sealed record Chain(
         ? throw new ChainInputException("a chain needs at least one executable step position.")
         : new Chain(0, workspaceId.Trim(), planId, planVersion, title.Trim(), ChainStatus.Running,
             null, null, sessionId, now, now, 0,
-            [.. ordered.Select(seed => ChainStep.Pending(seed.Position, seed.Role))]);
+            [.. ordered.Select(seed => ChainStep.Pending(seed.Position, seed.Role, seed.Group))]);
   }
 
   /// <summary>One seed per position: a duplicate that agrees collapses to one, and a
@@ -313,8 +313,28 @@ public sealed record Chain(
   public IReadOnlyList<ChainStep> InvalidatedSteps =>
       [.. Steps.Where(step => step.IsInvalidated).OrderBy(step => step.Position)];
 
-  /// <summary>The first step a session may claim, or null when none is available.</summary>
-  public ChainStep? NextAvailableStep() => Steps.FirstOrDefault(step => step.IsAvailable);
+  /// <summary>The first step a session may claim, or null when none is available.
+  ///     <para>A GROUP IS A BARRIER: every member of a group is offered while the group is
+  ///     unsettled, so the members run together, and a step is offered only once every group
+  ///     that owns an earlier position has settled.</para></summary>
+  public ChainStep? NextAvailableStep() => Steps.FirstOrDefault(step =>
+      step.IsAvailable && !HasUnsettledGroupBefore(step));
+
+  /// <summary>The steps of <paramref name="group"/> in position order.</summary>
+  /// <param name="group">The group id.</param>
+  public IReadOnlyList<ChainStep> GroupMembers(int group) =>
+      [.. Steps.Where(step => step.Group == group).OrderBy(step => step.Position)];
+
+  /// <summary>True when no member of <paramref name="group"/> is Pending or Running. A group
+  ///     with no members is settled.</summary>
+  /// <param name="group">The group id.</param>
+  public bool GroupIsSettled(int group) =>
+      !GroupMembers(group).Any(step => step.Status is ChainStepStatus.Pending or ChainStepStatus.Running);
+
+  /// <summary>The group the step at <paramref name="position"/> belongs to, or null when it
+  ///     runs alone.</summary>
+  /// <param name="position">The 1-based step position.</param>
+  public int? GroupAt(int position) => StepAt(position)?.Group;
 
   /// <summary>True when no step is Pending or Running: a claimed step keeps the chain
   ///     unfinished however long its session takes.</summary>
@@ -341,6 +361,15 @@ public sealed record Chain(
     => target == ChainStatus.Parked
       ? chain
       : chain with { ParkReason = null, ParkedAtPosition = null };
+
+  /// <summary>True when a group OTHER than the step's own owns a position earlier than the
+  ///     step's and has not settled. A member's own group is not a barrier to itself: that is
+  ///     what lets the members of a group start together.</summary>
+  private bool HasUnsettledGroupBefore(ChainStep step) =>
+      Steps.Any(candidate => candidate.Position < step.Position
+          && candidate.Group is { } group
+          && group != step.Group
+          && !GroupIsSettled(group));
 
   private Chain ReplaceStep(int index, ChainStep step, DateTimeOffset now)
   {

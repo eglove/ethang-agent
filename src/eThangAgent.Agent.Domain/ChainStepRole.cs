@@ -98,7 +98,10 @@ public sealed record ChainStepRole(ChainStepRoleKind Kind, string? Model = null)
 ///     creation call states the two facts it actually knows.</para></summary>
 /// <param name="Position">The 1-based plan step position this chain step executes.</param>
 /// <param name="Role">The role assigned to the session that runs it.</param>
-public sealed record ChainStepSeed(int Position, ChainStepRole Role)
+/// <param name="Group">The group the step runs in, or null when it runs alone. A group id is
+///     an integer of at least 1, assigned by the caller; it is not a position and carries no
+///     ordering meaning.</param>
+public sealed record ChainStepSeed(int Position, ChainStepRole Role, int? Group = null)
 {
   /// <summary>An implementer seed for <paramref name="position"/>: the common case, stated
   ///     once so a caller that assigns no role does not re-derive the default.</summary>
