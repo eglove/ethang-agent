@@ -79,6 +79,7 @@ public class ChainExecutionE2ETests
   public async Task ChainStart_LaunchesStepOneSession_OverTheWire_AndRecordsIt()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync().ConfigureAwait(true);
     string workspace = Directory.CreateTempSubdirectory("ethang-chain-e2e").FullName;
     MainViewModel? shell = null;
@@ -161,6 +162,7 @@ public class ChainExecutionE2ETests
   public async Task Chain_FromStartToCompleted_RunsEveryStepInItsOwnHostedSession()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync().ConfigureAwait(true);
     string workspace = Directory.CreateTempSubdirectory("ethang-chain-e2e").FullName;
     MainViewModel? shell = null;
@@ -204,8 +206,13 @@ public class ChainExecutionE2ETests
       Assert.True(shell.Tabs[0].FindCell(step1Id)!.IsFinished);
 
       // ---- BOUNDARY 5: step 2 completes and the chain is Completed, not merely Running ----
+      // THE FINAL AGENT IS WAITED FOR, NOT RACED. Completion starts the final agent BEFORE it
+      // closes the step's session, so the completion record can be durable while that launch is
+      // still building a container. Tearing down on the record alone disposes a session whose
+      // successor has not been named yet, and the host that launch spawned outlives the run.
       Chain finished = await WaitForRecordAsync(host.DatabasePath, workspaceId,
-          c => c.Status == ChainStatus.Completed, StepLimit).ConfigureAwait(true);
+          c => c.Status == ChainStatus.Completed && c.FinalSessionId is not null, StepLimit)
+          .ConfigureAwait(true);
       Assert.Equal(ChainStatus.Completed, finished.Status);
       Assert.Equal(ChainStepStatus.Done, finished.StepAt(1)!.Status);
       Assert.Equal(ChainStepStatus.Done, finished.StepAt(2)!.Status);

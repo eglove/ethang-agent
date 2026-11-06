@@ -17,6 +17,7 @@ public class RemoteHostScratchIsolationTests
   public async Task RemoteSessionOpen_NeverWritesHostSettingsIntoTheWorkspace()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
     string ws = Directory.CreateTempSubdirectory("ethang-scratch-iso").FullName;
     try

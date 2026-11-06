@@ -27,6 +27,7 @@ public sealed class TrustedDirectoryE2ETests
           TestContext.Current.CancellationToken);
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 
       // Configure the approval exactly the way the launch dialog persists it: the
@@ -77,6 +78,7 @@ public sealed class TrustedDirectoryE2ETests
           TestContext.Current.CancellationToken);
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 
       AgentSessionFactory factory = host.CreateResumeFactory();

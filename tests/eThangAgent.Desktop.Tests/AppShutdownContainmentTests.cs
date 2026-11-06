@@ -49,6 +49,7 @@ public class AppShutdownContainmentTests
   public async Task ShutdownAll_KillsEverySessionsHostProcess()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
     string ws = Directory.CreateTempSubdirectory("ethang-shutdown-ws").FullName;
     AgentSession? session = null;

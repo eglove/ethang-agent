@@ -77,14 +77,19 @@ public static class ChildHostLeakGuard
         + "image name takes all of them. Surface the pids above to the user, who decides.";
   }
 
-  /// <summary>The session and workspace each leaked host belongs to, as the supervisors
-  ///     recorded them - so the failure names what leaked instead of only which pid did.</summary>
+  /// <summary>The session, workspace, and TEST each leaked host belongs to, as the
+  ///     supervisors recorded them - so the failure names what leaked instead of only which pid
+  ///     did, and names the test a reader has to go and fix.
+  ///     <para>THE TEST IS THE ACTIONABLE PART. A pid and a session id say what leaked; only the
+  ///     test name says where the missing disposal is, and without it the reader works backwards
+  ///     through a suite to find it - the investigation this guard exists to prevent.</para></summary>
   private static string DescribeOwners(IReadOnlyList<LiveProcess> leaks, IReadOnlyList<HostProcessRecord> hostFacts)
   {
     string[] owners = [.. leaks
         .Select(leak => hostFacts.LastOrDefault(fact => fact.ProcessId == leak.ProcessId))
         .OfType<HostProcessRecord>()
-        .Select(fact => $"pid {fact.ProcessId} (session {fact.SessionId}, workspace {fact.Workspace})")];
+        .Select(fact => $"pid {fact.ProcessId} (session {fact.SessionId}, workspace {fact.Workspace})"
+            + (fact.TestOwner is { } test ? $", opened by {test}" : string.Empty))];
     return owners.Length == 0
         ? "No supervisor recorded starting these, so nothing in this run owns them. "
         : "The supervisors recorded these hosts as: " + string.Join("; ", owners) + ". ";

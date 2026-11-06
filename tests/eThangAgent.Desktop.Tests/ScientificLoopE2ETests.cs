@@ -21,6 +21,7 @@ public class ScientificLoopE2ETests
   public async Task Agent_DrivesScientificLoop_AndFinishGateBlocksOnOpenPrediction()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     // Step 1: one hypothesis, one prediction naming the check that would refute it, then

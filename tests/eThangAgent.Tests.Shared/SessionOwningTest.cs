@@ -25,6 +25,7 @@ public abstract class SessionOwningTest : IAsyncLifetime
 {
   private readonly List<AgentSession> _sessions = [];
   private readonly List<string> _tempPaths = [];
+  private IDisposable? _owner;
 
   /// <summary>Creates a session rooted at a fresh temp workspace over a fresh temp
   ///     database, and registers it for disposal. Throws when creation fails, so a test
@@ -74,7 +75,16 @@ public abstract class SessionOwningTest : IAsyncLifetime
     return path;
   }
 
-  public ValueTask InitializeAsync() => ValueTask.CompletedTask;
+  /// <summary>Claims every host this test opens, so a leak the suite guard reports names this
+  ///     test instead of only a pid. The owner is ambient for the test's whole async flow, which
+  ///     is what survives the suppressed execution context a session's container is built on.</summary>
+  /// <returns>Nothing.</returns>
+  public ValueTask InitializeAsync()
+  {
+    _owner = HostProcessLedger.OwnedBy(TestContext.Current.Test?.TestDisplayName
+        ?? GetType().Name);
+    return ValueTask.CompletedTask;
+  }
 
   /// <summary>Disposes every tracked session, then deletes the tracked temp paths - even
   ///     when a test threw, which is the whole point of putting it here. Temp deletion is
@@ -87,6 +97,10 @@ public abstract class SessionOwningTest : IAsyncLifetime
     }
 
     _sessions.Clear();
+    // The claim is released after the sessions it covered are gone, so a host spawned during
+    // teardown is still attributed to the test that caused it.
+    _owner?.Dispose();
+    _owner = null;
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
 
     foreach (string path in _tempPaths)

@@ -45,6 +45,7 @@ public class SkillDirectoryE2ETests
         TestContext.Current.CancellationToken);
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 
       // Configure the directory exactly the way the settings surface persists it:
@@ -99,6 +100,7 @@ public class SkillDirectoryE2ETests
     try
     {
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 
       // No skill-directory preference written anywhere: the composite must be

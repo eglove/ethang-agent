@@ -31,6 +31,10 @@ internal static class E2E
   {
     private ServiceProvider? _services;
 
+    /// <summary>The claim this harness holds over the hosts its sessions spawn, released on
+    ///     disposal.</summary>
+    private IDisposable? _hostOwner;
+
     public MockOpenRouterServer Mock { get; } = new();
 
     internal string DatabasePath { get; private set; } = "";
@@ -179,8 +183,19 @@ internal static class E2E
     internal AgentSessionFactory CreateResumeFactory() =>
         new(BuildSettings(), new AppDatabase(DatabasePath));
 
+    /// <summary>Claims every host this harness's sessions spawn, so a leak the suite guard
+    ///     reports names the test that opened the session instead of only a pid.
+    ///     <para>THE HARNESS IS THE OWNER because it is the only thing in scope when a session is
+    ///     opened: the test's own name is stated here once, and every host spawned under it - the
+    ///     creator's, each step's, each replacement's - carries it onto its ledger fact.</para></summary>
+    public void ClaimHostsForCurrentTest() =>
+        _hostOwner = HostProcessLedger.OwnedBy(TestContext.Current.Test?.TestDisplayName
+            ?? GetType().Name);
+
     public void Dispose()
     {
+      _hostOwner?.Dispose();
+      _hostOwner = null;
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
       // Named decision (CA1031): temp-db cleanup is best effort.
 #pragma warning disable CA1031 // Do not catch general exception types

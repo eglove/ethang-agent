@@ -176,6 +176,27 @@ public class ChildHostLeakGuardTests
   }
 
   [Fact]
+  public void Describe_NamesTheTestThatOpenedALeakedHost()
+  {
+    // A pid and a session say WHAT leaked; only the test says WHERE the missing disposal is.
+    // Without it the reader works backwards through a suite to find the culprit.
+    HostProcessRecord owned = Spawn(4242) with { TestOwner = "Suite.SomeTest" };
+
+    string message = ChildHostLeakGuard.Describe([new(4242, Host)], Host, [owned])!;
+
+    Assert.Contains("opened by Suite.SomeTest", message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Describe_OmitsTheOwnerClause_WhenNoTestClaimedTheHost()
+  {
+    // A host recorded outside a test scope has no owner, and the message must not invent one.
+    string message = ChildHostLeakGuard.Describe([new(4242, Host)], Host, [Spawn(4242)])!;
+
+    Assert.DoesNotContain("opened by", message, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void Describe_ReportsWaitedHostsAsSlowReaps_NotAsLeaks()
   {
     // A waited host is reported for what it is: killed, still being reaped, and named by

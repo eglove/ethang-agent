@@ -18,6 +18,7 @@ public class SessionResumeE2ETests
   public async Task Resume_Replays_Transcript_And_Carries_History_Into_Next_Turn()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     // Turn one lands in the persisted transcript through the normal lifecycle.

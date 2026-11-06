@@ -19,6 +19,7 @@ public class DesktopStateCapabilityE2ETests
   public async Task StateDisciplineLoop_Certifies()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     string program = """
@@ -43,6 +44,7 @@ public class DesktopStateCapabilityE2ETests
   public async Task StateDisciplineLoop_Violated_OnFailingEvidence()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     string program = """
@@ -73,6 +75,7 @@ public class DesktopStateCapabilityE2ETests
   public async Task RetiredTodoAction_IsUnknown_AndItsNamespaceIsNoLongerReserved()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     _ = host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("Tools.Invoke(\"todo\", new { timeoutSeconds = 120, action = \"Add\", description = \"ship it\" })")));

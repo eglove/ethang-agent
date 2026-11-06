@@ -81,6 +81,85 @@ public sealed class HostProcessLedgerTests : IDisposable
   }
 
   [Fact]
+  public void Record_StampsTheAmbientTestOwner_WhenTheFactNamesNone()
+  {
+    // The call site cannot know the test: a session's container is built on a thread whose
+    // execution context was suppressed, so the test framework's own ambient context is null
+    // there. The owner therefore travels as ambient state, and the record picks it up.
+    using (HostProcessLedger.OwnedBy("Suite.SomeTest"))
+    {
+      HostProcessLedger.Record(new HostProcessRecord("s", @"C:\w", 1, Waited: null));
+    }
+
+    Assert.Equal("Suite.SomeTest", Assert.Single(HostProcessLedger.Snapshot()).TestOwner);
+  }
+
+  [Fact]
+  public void Record_KeepsTheOwnersName_WhenTheFactNamesOne()
+  {
+    // An explicit owner wins: a caller that knows whose host it is must not be overwritten by
+    // whatever scope happens to be ambient.
+    using (HostProcessLedger.OwnedBy("Suite.Ambient"))
+    {
+      HostProcessLedger.Record(new HostProcessRecord("s", @"C:\w", 1, Waited: null,
+          TestOwner: "Suite.Explicit"));
+    }
+
+    Assert.Equal("Suite.Explicit", Assert.Single(HostProcessLedger.Snapshot()).TestOwner);
+  }
+
+  [Fact]
+  public void Record_LeavesTheOwnerNull_OutsideATestScope()
+  {
+    HostProcessLedger.Record(new HostProcessRecord("s", @"C:\w", 1, Waited: null));
+
+    Assert.Null(Assert.Single(HostProcessLedger.Snapshot()).TestOwner);
+  }
+
+  [Fact]
+  public void OwnedBy_RestoresThePreviousOwner_WhenTheScopeEnds()
+  {
+    using (HostProcessLedger.OwnedBy("Suite.Outer"))
+    {
+      using (HostProcessLedger.OwnedBy("Suite.Inner"))
+      {
+        Assert.Equal("Suite.Inner", HostProcessLedger.TestOwner);
+      }
+
+      Assert.Equal("Suite.Outer", HostProcessLedger.TestOwner);
+    }
+
+    Assert.Null(HostProcessLedger.TestOwner);
+  }
+
+  [Fact]
+  public async Task Record_StampsTheOwner_CarriedIntoASuppressedFlow()
+  {
+    // THE CUT IS THE WHOLE PROBLEM: a session's container is built on a thread whose execution
+    // context was suppressed, and suppression drops an AsyncLocal as well as the framework's
+    // context - so a claim left ambient reads null inside the build and every fact loses the
+    // test that caused it. Captured before the cut and restored inside it, the owner survives.
+    using (HostProcessLedger.OwnedBy("Suite.SomeTest"))
+    {
+      OwnerScope? carried = HostProcessLedger.CaptureOwner();
+      Task<string?> scheduled;
+      using (ExecutionContext.SuppressFlow())
+      {
+        scheduled = Task.Run(() =>
+        {
+          HostProcessLedger.RestoreOwner(carried);
+          HostProcessLedger.Record(new HostProcessRecord("s", @"C:\w", 1, Waited: null));
+          return HostProcessLedger.TestOwner;
+        });
+      }
+
+      Assert.Equal("Suite.SomeTest", await scheduled.ConfigureAwait(true));
+    }
+
+    Assert.Equal("Suite.SomeTest", Assert.Single(HostProcessLedger.Snapshot()).TestOwner);
+  }
+
+  [Fact]
   public void Clear_DropsEveryFact()
   {
     HostProcessLedger.Record(new HostProcessRecord("s", @"C:\w", 1, Waited: null));

@@ -120,6 +120,7 @@ public class DiagnosticsEndToEndE2ETests
       await daemon.WaitUntilListeningAsync().ConfigureAwait(true);
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("e1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "a.cs"), "int x = 1;", "int x = \"one\";"))),
@@ -163,6 +164,7 @@ public class DiagnosticsEndToEndE2ETests
           "<Solution>\n  <Project Path=\"a.csproj\" />\n</Solution>\n", Ct).ConfigureAwait(true);
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
       // The FIRST edit starts the daemon, which must load the solution before it can report
       // anything, so that edit honestly carries a Starting note rather than a false clean.
@@ -243,6 +245,7 @@ public class DiagnosticsEndToEndE2ETests
       }
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(
           workspaceRoot: ws,
           workspaceId: wsId,
@@ -284,6 +287,7 @@ public class DiagnosticsEndToEndE2ETests
       int before = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("s1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "a.cs"), "int x = 1;", "int x = 2;"))),
@@ -310,6 +314,7 @@ public class DiagnosticsEndToEndE2ETests
       int daemonsBefore = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
           E2E.ExecToolCall("n1", E2E.ExecProgram(EditProgram(Path.Combine(ws, "notes.md"), "old line", "new line"))),

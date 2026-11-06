@@ -18,6 +18,7 @@ public class DesktopE2ETests
   public async Task Turn_SendsConfiguredDefaultModel_ToProvider()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     await host.Vm.RunTurnAsync("hi");
@@ -30,6 +31,7 @@ public class DesktopE2ETests
   public async Task Turn_InjectsSkillsBootstrap_OncePerSession()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     await host.Vm.RunTurnAsync("hi");
@@ -57,6 +59,7 @@ public class DesktopE2ETests
   public async Task ModelToolsContainOnlyExec()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     await host.Vm.RunTurnAsync("hi");
@@ -70,6 +73,7 @@ public class DesktopE2ETests
   public async Task SendsExecGuide_InSystemPrompt()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     await host.Vm.RunTurnAsync("hi");
@@ -102,6 +106,7 @@ public class DesktopE2ETests
   public async Task ExecutesExecTool_EndToEnd()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     string tempFile = Path.Combine(Path.GetTempPath(), $"ethang-exec-{Guid.NewGuid():N}.txt");
@@ -135,6 +140,7 @@ public class DesktopE2ETests
   public async Task Exec_ParseErrorFeedsBack_AndCorrectedProgramSucceeds()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     string broken = JsonSerializer.Serialize(new { program = "if (x {" });

@@ -71,6 +71,7 @@ public class SkillListingE2ETests
     try
     {
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
 
       string prompt = await OpenedSystemPromptAsync(host, ws.FullName).ConfigureAwait(true);
@@ -91,6 +92,7 @@ public class SkillListingE2ETests
     try
     {
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
 
       string prompt = await OpenedSystemPromptAsync(host, ws.FullName).ConfigureAwait(true);
@@ -133,6 +135,7 @@ public class SkillListingE2ETests
     try
     {
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
 
       // Seed ONE learned skill with a distinctive body token through the REAL
@@ -186,6 +189,7 @@ public class SkillListingE2ETests
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
 
       // The preference is written BEFORE the session opens, exactly the way the
@@ -239,6 +243,7 @@ public class SkillListingE2ETests
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
       _ = await host.Store.SetAsync(
         SkillDirectoryPreferences.WorkspaceKey(ws.FullName),
@@ -268,6 +273,7 @@ public class SkillListingE2ETests
       WriteFileSkill(second.FullName, "e2e-second-dir-skill");
 
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
       _ = await host.Store.SetAsync(
         SkillDirectoryPreferences.WorkspaceKey(ws.FullName),

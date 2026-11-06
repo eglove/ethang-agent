@@ -27,6 +27,7 @@ public class VerificationGateE2ETests
       using System.Diagnostics.Process proc = System.Diagnostics.Process.Start(psi)!;
       await proc.WaitForExitAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws);
 
       // Turn 1: the model writes a file through exec - a real changed file.

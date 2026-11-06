@@ -16,6 +16,7 @@ public class PlanCapabilityE2ETests
   public async Task Agent_DrivesPlanLifecycle_ThroughCapabilityDispatch()
   {
     using E2E.HostHarness host = new();
+    host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
     string program = """

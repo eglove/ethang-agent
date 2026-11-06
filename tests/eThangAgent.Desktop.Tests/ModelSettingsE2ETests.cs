@@ -31,6 +31,7 @@ public class ModelSettingsE2ETests
     try
     {
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
       string workspaceRoot = ws.FullName;
 
@@ -92,6 +93,7 @@ public class ModelSettingsE2ETests
     try
     {
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
       string workspaceRoot = ws.FullName;
 
@@ -150,6 +152,7 @@ public class ModelSettingsE2ETests
     try
     {
       using E2E.HostHarness host = new();
+      host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
       string workspaceRoot = ws.FullName;
 
