@@ -128,7 +128,7 @@ public class ScriptToolsWrapperCoverageTests
     using ServiceProvider services = Build();
     HashSet<string> wrappers = WrapperNames();
 
-    // Dotted/hyphenated actions (state.set, agent.spawn, plan.create, memory.recall)
+    // Dotted/hyphenated actions (state.set, agent.spawn, plan.create)
     // cannot bind as C# identifiers; a wrapper claiming one would shadow the Invoke
     // form with a name the model cannot actually call.
     List<string> shadowed = [.. ActionNames(services)

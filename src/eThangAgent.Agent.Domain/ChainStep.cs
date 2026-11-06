@@ -7,10 +7,10 @@ namespace eThangAgent.AgentDomain;
 /// <para>A plan step says what should be true; a chain step says what happened. A <c>Done</c>
 /// plan step with three failed chain attempts is a coherent, truthful state, and collapsing
 /// the two would lose it.</para>
-/// <para>Immutable: every mutation returns a copy. <see cref="ClaimedAt"/> is the claim
-/// clock <see cref="ChainClaimPolicy"/> reads; a Running step whose claim has lapsed reads
-/// as available through <see cref="EffectiveStatus"/> rather than being rewritten by a
-/// sweeper.</para>
+/// <para>Immutable: every mutation returns a copy. A claim has NO time limit: a Running
+/// step holds its claim until it is settled, released, or reassigned, and nothing expires
+/// it on a clock. <see cref="ClaimedAt"/> records when the claim started, for the record
+/// and for telemetry durations.</para>
 /// </summary>
 public sealed record ChainStep(
   int Position,
@@ -44,28 +44,14 @@ public sealed record ChainStep(
         null, null, role, ServedModel: null, ReviewAttempts: 0);
   }
 
-  /// <summary>True while this step's Running claim is still live. A Running step with NO
-  ///     claim clock is treated as LAPSED, not as an eternal claim: the TTL exists so a
-  ///     claim cannot outlive its process, and a missing clock is exactly that case.</summary>
-  public bool IsClaimLive(DateTimeOffset now)
-    => Status == ChainStepStatus.Running
-        && ClaimedAt is { } claimed
-        && now - claimed < ChainClaimPolicy.ClaimTtl;
+  /// <summary>True when the step may be claimed: only a Pending step is. A Running step is
+  ///     held by its claimant however long it takes; Done, Failed, Skipped and Parked steps
+  ///     are not claimable at all.</summary>
+  public bool IsAvailable => Status == ChainStepStatus.Pending;
 
-  /// <summary>The status a reader should act on: a Running step whose claim lapsed reads as
-  ///     <see cref="ChainStepStatus.Pending"/> (available again), every other status is
-  ///     itself. Computed on read, never persisted — the stored row keeps the truth about
-  ///     what was attempted.</summary>
-  public ChainStepStatus EffectiveStatus(DateTimeOffset now)
-    => Status == ChainStepStatus.Running && !IsClaimLive(now) ? ChainStepStatus.Pending : Status;
-
-  /// <summary>True when the step may be claimed now: Pending, or a Running step whose claim
-  ///     has lapsed. Done, Failed, Skipped and Parked steps are not claimable.</summary>
-  public bool IsAvailable(DateTimeOffset now) => EffectiveStatus(now) == ChainStepStatus.Pending;
-
-  /// <summary>Claims this step for a session: Pending (or a lapsed claim) becomes Running,
-  ///     the attempt count increments, and the claim clock starts. A claim is an ATTEMPT —
-  ///     that is what makes the count bound a session that keeps failing the same way.</summary>
+  /// <summary>Claims this step for a session: Pending becomes Running, the attempt count
+  ///     increments, and the claim clock starts. A claim is an ATTEMPT — that is what makes
+  ///     the count bound a session that keeps failing the same way.</summary>
   public ChainStep Claim(string sessionId, DateTimeOffset now)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);

@@ -3,7 +3,7 @@ namespace eThangAgent.ToolDomain.FileClaims;
 /// <summary>The file-claim contract (issue #363): the Tool Domain owns this
 /// contract; the daemon owns the shared store. Claims are session-keyed,
 /// file-granular, and held under a short TTL with expiry computed on read
-/// (the ChainClaimPolicy pattern) - never swept, so a dead holder self-clears
+/// - never swept, so a dead holder self-clears
 /// and no deadlock is possible. Renewal happens only on mutating-tool calls
 /// (edit/write) by the holder; there is no background timer. Shell() bypasses
 /// the file seam entirely and is out of scope: claims are a cooperative guard

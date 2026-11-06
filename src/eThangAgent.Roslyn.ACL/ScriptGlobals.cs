@@ -916,7 +916,7 @@ public sealed class ScriptTools
 
   /// <summary>Convenience one-liners for the ITool-backed actions whose names are valid
   ///     C# identifiers — the full catalog is also reachable through Invoke (state.*,
-  ///     agent.*, plan.*, and memory.* stay Invoke-only: dots and hyphens do not bind).
+  ///     agent.*, and plan.* stay Invoke-only: dots and hyphens do not bind).
   ///     Every wrapper is Invoke(name, args) verbatim; nothing dispatches differently.</summary>
   public string read(object? args = null) => Invoke("read", args);
   public string write(object? args = null) => Invoke("write", args);

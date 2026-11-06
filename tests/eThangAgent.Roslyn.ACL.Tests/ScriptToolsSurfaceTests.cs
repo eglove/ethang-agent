@@ -7,7 +7,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 /// <summary>The Tools.* convenience surface must cover every ITool-backed action whose
 ///     name is a valid C# identifier — a model calling Tools.command_output(...) must
 ///     not hit a compile error for a tool that exists (a real session lost turns to
-///     exactly that). Dot/hyphen actions (state.*, agent.*, plan.*, memory.*) stay
+///     exactly that). Dot/hyphen actions (state.*, agent.*, plan.*) stay
 ///     Invoke-only: they are not identifiers.</summary>
 public class ScriptToolsSurfaceTests
 {

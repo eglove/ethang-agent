@@ -84,7 +84,6 @@ public class CompositionGuardTests
             services.GetRequiredService<IModelProvider>(),
             services.GetRequiredService<IModelProviderFactory>(),
             services.GetRequiredService<IAgentRuntime>(),
-            services.GetRequiredService<IMemoryRecallQuery>(),
             services.GetRequiredService<ISystemPromptProvider>(),
             services.GetRequiredService<AgentRunLoop>(),
             services.GetRequiredService<RootSessionLifecycle>(),

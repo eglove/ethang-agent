@@ -1,5 +1,4 @@
 using eThangAgent.AgentDomain;
-using eThangAgent.FileSystem.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.TestSupport;
@@ -34,21 +33,16 @@ public class SessionOpenOrphanRepairTests : SessionOwningTest
         "ethang-orphan-" + Guid.NewGuid().ToString("N") + ".db"));
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
 
-    // The row must be stamped with the workspace IDENTITY the session will scope to, not the
-    // path (issue #317 D5): repair filters on the id, and since #317 that is a stable identity
-    // the resolver mints rather than the directory. Resolving it here is exactly what session
-    // open does, and the marker file makes the second resolution return the same id.
+    // The row must be stamped with the workspace IDENTITY the session will scope to: a
+    // workspace is its directory path, so deriving it here is exactly what session open does.
     AppDatabase seedDatabase = new(dbPath);
-    Result<WorkspaceIdentityResolution> identity = await new WorkspaceIdentityResolver(
-        new SqliteWorkspaceIdentityStore(seedDatabase)).ResolveAsync(ws, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(identity.IsSuccess, identity.Error?.Message ?? "the workspace identity must resolve");
 
     // Seed an orphaned Running child row IN THE OPENING WORKSPACE (a record the new
     // container cannot own). Same-workspace orphans are still repaired.
     SqliteAgentStore seedStore = new(seedDatabase);
     AgentRecord orphan = AgentRecord.Started(AgentId.NewId(), "m/sub", "orphan",
         "task", DateTimeOffset.UtcNow) with
-    { WorkspaceId = identity.Value.Id };
+    { WorkspaceId = WorkspaceIdentity.For(ws) };
     _ = await seedStore.SaveAsync(orphan, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     // A foreign-workspace Running row (another session's live agent) must survive.

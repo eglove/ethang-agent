@@ -10,8 +10,8 @@ public class ChainRetryPolicyTests
       "session-root", positions.Length == 0 ? [1] : positions, T0);
 
   /// <summary>A chain whose step 1 was claimed by session-a <paramref name="attempts"/> times
-  ///     and then failed. Each re-claim needs a lapsed window, so the clock advances between
-  ///     them - which is also how a real second attempt happens.</summary>
+  ///     and then failed. A held claim is released between attempts, which is how a step that
+  ///     never ran reaches a second attempt.</summary>
   private static Chain Failed(int attempts = 1)
   {
     Chain chain = NewChain(1, 2);
@@ -19,7 +19,12 @@ public class ChainRetryPolicyTests
     for (int i = 0; i < attempts; i++)
     {
       chain = chain.ClaimStep(1, "session-a", at);
-      at += ChainClaimPolicy.ClaimTtl + TimeSpan.FromMinutes(1);
+      at += TimeSpan.FromMinutes(1);
+      if (i < attempts - 1)
+      {
+        chain = chain.ReleaseStep(1, ChainActor.Harness, at);
+        at += TimeSpan.FromMinutes(1);
+      }
     }
 
     return chain.SettleStep(1, ChainStepStatus.Failed, ChainActor.Session("session-a"),
@@ -82,7 +87,7 @@ public class ChainRetryPolicyTests
     Assert.Equal(ChainStepStatus.Running, step.Status);
     Assert.Equal("session-a", step.SessionId);
     Assert.Equal(2, step.Attempts); // a retry is not a new attempt
-    Assert.True(step.ClaimedAt is not null, "a retried step must hold a live claim clock");
+    Assert.True(step.ClaimedAt is not null, "a retried step must hold a claim clock");
     Assert.Null(step.CompletedAt);
   }
 
@@ -116,10 +121,10 @@ public class ChainRetryPolicyTests
   [Fact]
   public void RetriedStep_IsNoLongerAvailableToAnotherSession()
   {
-    // The re-entered step holds a live claim, so the walker will not hand it to anyone else.
+    // The re-entered step holds its claim, so the walker will not hand it to anyone else.
     Chain retried = Failed().RetryStep(1, "session-a", T0.AddMinutes(5));
-    Assert.False(retried.Steps[0].IsAvailable(T0.AddMinutes(6)));
-    Assert.Equal(ChainStepStatus.Pending, retried.NextAvailableStep(T0.AddMinutes(6))?.Status);
-    Assert.Equal(2, retried.NextAvailableStep(T0.AddMinutes(6))?.Position);
+    Assert.False(retried.Steps[0].IsAvailable);
+    Assert.Equal(ChainStepStatus.Pending, retried.NextAvailableStep()?.Status);
+    Assert.Equal(2, retried.NextAvailableStep()?.Position);
   }
 }

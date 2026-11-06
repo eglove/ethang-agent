@@ -265,29 +265,6 @@ public static class ExecGuide
     from you. If you need another agent's outcome, read its record; do not look for a message
     channel, because there is not one.
 
-        ### Recalling earlier work
-
-    Run memory.sessions when resuming work or before duplicating effort —
-    it lists what conversations exist:
-
-        Tools.Invoke("memory.sessions", new { timeoutSeconds = 30 })
-        → session=<guid> label=root entries=42 status=running tier=hot
-
-    memory.recall searches transcripts for earlier decisions, errors, and context:
-
-        Tools.Invoke("memory.recall", new { timeoutSeconds = 30, query = "deploy rollback", scope = "global" })
-
-    - Literal mode is the default — tokens ANDed: every whitespace-separated token must
-      appear in a hit.
-    - queryMode = "regex" switches to bounded regex. Budget errors `regex_pattern_too_large`,
-      `invalid_regex`, `regex_timeout` mean simplify the pattern or use literal mode.
-    - scope is "global" or "session:<id>". branches is "active" (default: only lineages
-      reaching a root) or "all" (every persisted session).
-    - Long result sets are paged: pass page and pageSize (max 200); the footer reports
-      `<total> hits, page <p>/<pages>`.
-
-    Memory is READ-ONLY — nothing to save yet.
-
     ### Errors
 
     Tool failures return error text: `Error [Code]: message`. Wrap risky calls in try/catch:

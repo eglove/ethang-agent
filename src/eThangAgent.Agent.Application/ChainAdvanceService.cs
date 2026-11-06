@@ -147,7 +147,7 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
           .ConfigureAwait(false);
     }
 
-    ChainAdvance decision = ChainAdvancePolicy.Decide(settled.Value, position, sessionId, now);
+    ChainAdvance decision = ChainAdvancePolicy.Decide(settled.Value, position, sessionId);
     if (decision.Kind == ChainAdvanceKind.Blocked)
     {
       // A BLOCKED CHAIN IS PARKED, not left Running (issue #303 D3/D9). Nothing is available to
@@ -266,7 +266,7 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
   private async Task<ChainAdvance> AdvancePastReviewAsync(Chain chain, int position,
       string sessionId, DateTimeOffset now, CancellationToken ct)
   {
-    ChainAdvance next = ChainAdvancePolicy.Decide(chain, position, sessionId, now);
+    ChainAdvance next = ChainAdvancePolicy.Decide(chain, position, sessionId);
     return next.Kind switch
     {
       ChainAdvanceKind.Blocked => await ParkBlockedAsync(chain, next, now, ct).ConfigureAwait(false),

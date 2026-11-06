@@ -11,10 +11,9 @@ namespace eThangAgent.AgentDomain;
 ///     <see cref="ChainRetryPolicy.MaxAttempts"/> bounds failures, this bounds round trips.
 ///     </para>
 ///     <para>WHY A CONSTANT AND NOT A SETTING: the same reason
-///     <see cref="ChainRetryPolicy.MaxAttempts"/> and <see cref="ChainClaimPolicy.ClaimTtl"/>
-///     give — a configurable cap is one that can be set to never fire, which is the same as
-///     having none. Widening it is a product decision that updates this constant and its test
-///     in the same change.</para>
+///     <see cref="ChainRetryPolicy.MaxAttempts"/> gives — a configurable cap is one that can
+///     be set to never fire, which is the same as having none. Widening it is a product
+///     decision that updates this constant and its test in the same change.</para>
 ///     <para>PURE, like <see cref="ChainAdvancePolicy"/>: facts in, decision out, no I/O and no
 ///     clock. The enactment (reopen the step, start the fix session, park the chain) lives in
 ///     the application layer, so the rule is unit-testable with no store and cannot acquire a

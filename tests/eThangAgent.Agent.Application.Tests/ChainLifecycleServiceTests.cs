@@ -88,7 +88,16 @@ public class ChainLifecycleServiceTests
     {
       chain = Must(await chains.ClaimStepAsync(chain.Id, 1, "session-a", at,
           TestContext.Current.CancellationToken).ConfigureAwait(true));
-      at += ChainClaimPolicy.ClaimTtl + TimeSpan.FromMinutes(1);
+      at += TimeSpan.FromMinutes(1);
+      if (i < attempts - 1)
+      {
+        // A claim is held until it is settled or released, so building up attempts means
+        // releasing the step between them - which is how a launch that never ran a session
+        // reaches a second attempt.
+        chain = Must(await chains.ReleaseStepAsync(chain.Id, 1, ChainActor.Harness, at,
+            TestContext.Current.CancellationToken).ConfigureAwait(true));
+        at += TimeSpan.FromMinutes(1);
+      }
     }
 
     return (new ChainLifecycleService(chains, host), store, host, chain);

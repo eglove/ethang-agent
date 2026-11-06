@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using eThangAgent.Agent.Application;
-using eThangAgent.Agent.Application.Memory;
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
@@ -135,12 +134,7 @@ public static class AgentComposition
         .AddSingleton<IFileSearchAccess, DirectFileSearchAccess>()
         .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-        // The generated-image artifact store (issue #230): a server-side image tool's
-        // output is persisted into the workspace so the user can open it and the model can
-        // read_image it later. Workspace-scoped like every other path-rooted seam.
-        .AddSingleton<IServerToolImageStore>(sp => new ServerToolImageStore(
-            new WorkspacePathResolver(sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot),
-            sp.GetRequiredService<IFileWriteAccess>()))
+
         .AddSingleton<DirectGitAccess>()
         .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
         .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
@@ -524,14 +518,11 @@ public static class AgentComposition
         .AddChainServices()
         .AddLedgerViewServices()
         .AddRefutationServices()
-        // Workspace identity (issue #317 D5): the store that maps a stable id to the directory it
-        // currently lives at, and the marker-file resolver over it. Registered UNSCOPED on purpose
-        // - the identity table DEFINES the scopes, so binding it to one workspace would make it
-        // unable to answer the question it exists for.
+        // Workspace identity: the store that maps an identity to the directory it is. Registered
+        // UNSCOPED on purpose - the identity table DEFINES the scopes, so binding it to one
+        // workspace would make it unable to answer the question it exists for.
         .AddSingleton<IWorkspaceIdentityStore>(sp =>
             new SqliteWorkspaceIdentityStore(sp.GetRequiredService<AppDatabase>()))
-        .AddSingleton<IWorkspaceIdentityResolver>(sp =>
-            new WorkspaceIdentityResolver(sp.GetRequiredService<IWorkspaceIdentityStore>()))
         // The orphan check (issue #317 D7): a chain whose workspace directory is gone renders as
         // ORPHANED rather than vanishing. The read crosses workspace boundaries by definition -
         // that is the question - so it is its own read-only port, never a widening of IChainStore.
@@ -667,7 +658,7 @@ public static class AgentComposition
         // The ownership gate (issue #301 D3): what makes a completion the RIGHT one. The Plan
         // Domain reaches it through its own port, so it never references this assembly.
         .AddSingleton<IPlanStepOwnershipGate>(sp => new ChainStepOwnershipGate(
-            sp.GetRequiredService<IChainStore>(), TimeProvider.System))
+            sp.GetRequiredService<IChainStore>()))
         // The brief (issue #302): the port is the Agent Domain's, so the renderer never learns
         // what a plan is; this adapter is the one place that knows both stores.
         .AddSingleton<IChainBriefSource>(sp => new CompositionChainBriefSource(
@@ -961,12 +952,7 @@ public static class AgentComposition
             AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>(),
             Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>(),
             SupervisorFor: id => sp.GetRequiredService<AgentSupervisorRegistry>().Find(id),
-            // The artifact store resolves at the child's ANCHOR when it has one (issue
-            // #230): a generated image belongs beside the work that produced it.
-            ServerToolImagesFor: anchor => anchor is null
-                ? sp.GetRequiredService<IServerToolImageStore>()
-                : new ServerToolImageStore(new WorkspacePathResolver(anchor),
-                    sp.GetRequiredService<IFileWriteAccess>()),
+
             // Spawn-boundary invariant (issue #124): production wiring demands a provider
             // binding on every begin-run — an unbound record fails loudly (Failed + audit
             // row) instead of looping without model calls. The spawn stamp above always
@@ -994,8 +980,6 @@ public static class AgentComposition
   {
     return wired
         .AddSingleton<IAgentQueries, AgentQueries>()
-        .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
-        .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
          // THE LAUNCH PORT (issue #338): the third caller of the session-request channel, wired
          // beside the agent provider that asks through it. A container with no live turn still
          // resolves the port - the channel itself refuses an unreachable request with its own
@@ -1053,8 +1037,7 @@ public static class AgentComposition
             // THE REVIEW WRITER (issue #320): plan.review records a verdict into the review
             // store through the chain's own service, so the record it writes is the one the
             // cursor reads. Null in a container that wired no chain machinery at all.
-            (draft, ct) => RecordReviewAsync(sp, draft, ct)))
-        .AddSingleton<MemoryCapabilityProvider>();
+            (draft, ct) => RecordReviewAsync(sp, draft, ct)));
   }
 
   /// <summary>The capability registry and its deferred factory - the deadlock-safe lazy resolution
@@ -1246,7 +1229,6 @@ public static class AgentComposition
                 SystemPrompt: sp.GetRequiredService<ISystemPromptProvider>(),
                 ContextCompactor: sp.GetRequiredService<DefaultContextCompactor>(),
                 TranscriptSink: sp.GetRequiredService<RootTranscriptSink>(),
-                ServerToolImages: sp.GetRequiredService<IServerToolImageStore>(),
                 EventLog: sp.GetRequiredService<IAgentEventLog>(),
                 // The root loop's mailbox facts (issue #253 B3): the drain naming which
                 // steering messages it consumed is what releases the app's pinned echo.
@@ -1649,7 +1631,7 @@ public static class AgentComposition
 
   /// <summary>The session's child tool surface (R1): the action ids a default child can
   ///     dispatch — the loop registry's tools plus every child-surface capability action
-  ///     (agent tools minus human-facing, agent.* actions, state, memory).
+  ///     (agent tools minus human-facing, agent.* actions, state).
   ///     Built lazily: the surface reaches IExecEngine through the capability closure,
   ///     so eager construction re-enters the container (see the registry-factory
   ///     registration comment).</summary>
@@ -1666,7 +1648,6 @@ public static class AgentComposition
         .Concat(AgentCapabilityProvider.ActionNames)
         .Concat(sp.GetRequiredService<StateCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<PlanCapabilityProvider>().Actions.Select(a => a.Name))
-        .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<ChainCapabilityProvider>().Actions.Select(a => a.Name));
     // THE DOOR (issue #288): exec is the only top-level tool, so it rides the surface the
     // spawn path grants from. Without it a narrowed child would hold a grant set it cannot
@@ -1727,7 +1708,6 @@ public static class AgentComposition
         ]),
         sp.GetRequiredService<StateCapabilityProvider>(),
         sp.GetRequiredService<PlanCapabilityProvider>(),
-        sp.GetRequiredService<MemoryCapabilityProvider>(),
         sp.GetRequiredService<ChainCapabilityProvider>(),
         // The telemetry report (issue #309): a READ over every chain in the workspace, beside
         // the chain provider's write action so a reader can tell which one measures.

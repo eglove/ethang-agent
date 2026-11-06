@@ -8,7 +8,6 @@
     <Project Path="src/eThangAgent.ChildHost/eThangAgent.ChildHost.csproj" />
     <Project Path="src/eThangAgent.Documents.ACL/eThangAgent.Documents.ACL.csproj" />
     <Project Path="src/eThangAgent.Mcp.ACL/eThangAgent.Mcp.ACL.csproj" />
-    <Project Path="src/eThangAgent.Memory.Domain/eThangAgent.Memory.Domain.csproj" />
     <Project Path="src/eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj" />
     <Project Path="src/eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
     <Project Path="src/eThangAgent.Web.ACL/eThangAgent.Web.ACL.csproj" />
@@ -18,7 +17,6 @@
     <Project Path="tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj" />
     <Project Path="tests/eThangAgent.Documents.ACL.Tests/eThangAgent.Documents.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.Mcp.ACL.Tests/eThangAgent.Mcp.ACL.Tests.csproj" />
-    <Project Path="tests/eThangAgent.Memory.Domain.Tests/eThangAgent.Memory.Domain.Tests.csproj" />
     <Project Path="tests/eThangAgent.Skill.Domain.Tests/eThangAgent.Skill.Domain.Tests.csproj" />
     <Project Path="tests/eThangAgent.Tests.Shared/eThangAgent.Tests.Shared.csproj" />
     <Project Path="tests/eThangAgent.TestSupport/eThangAgent.TestSupport.csproj" />

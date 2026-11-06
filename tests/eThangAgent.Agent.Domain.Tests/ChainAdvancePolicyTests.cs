@@ -19,7 +19,7 @@ public class ChainAdvancePolicyTests
     Chain chain = Claimed(NewChain(1, 2), 1, "session-a", T0)
         .SettleStep(1, ChainStepStatus.Done, ChainActor.Session("session-a"), null, T0);
 
-    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 1, "session-a", T0);
+    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 1, "session-a");
 
     Assert.Equal(ChainAdvanceKind.StartStep, decision.Kind);
     Assert.Equal(2, decision.Position);
@@ -32,7 +32,7 @@ public class ChainAdvancePolicyTests
     Chain chain = Claimed(NewChain(1), 1, "session-a", T0)
         .SettleStep(1, ChainStepStatus.Done, ChainActor.Session("session-a"), null, T0);
 
-    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 1, "session-a", T0);
+    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 1, "session-a");
 
     Assert.Equal(ChainAdvanceKind.CompleteChain, decision.Kind);
   }
@@ -43,7 +43,7 @@ public class ChainAdvancePolicyTests
     Chain chain = Claimed(NewChain(1, 2), 2, "session-b", T0)
         .SettleStep(2, ChainStepStatus.Done, ChainActor.Session("session-b"), null, T0);
 
-    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 2, "session-a", T0);
+    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 2, "session-a");
 
     Assert.Equal(ChainAdvanceKind.Refused, decision.Kind);
     Assert.Equal(ChainAdvanceCode.ForeignStep, decision.Code);
@@ -54,7 +54,7 @@ public class ChainAdvancePolicyTests
   [Fact]
   public void Decide_OnAnUnknownStep_RefusesNamingTheStepAndTheCount()
   {
-    ChainAdvance decision = ChainAdvancePolicy.Decide(NewChain(1), 9, "session-a", T0);
+    ChainAdvance decision = ChainAdvancePolicy.Decide(NewChain(1), 9, "session-a");
 
     Assert.Equal(ChainAdvanceCode.UnknownStep, decision.Code);
     Assert.Contains("9", decision.Reason, StringComparison.Ordinal);
@@ -65,22 +65,22 @@ public class ChainAdvancePolicyTests
   {
     Chain chain = Claimed(NewChain(1, 2), 1, "session-a", T0);
 
-    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 1, "session-a", T0);
+    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 1, "session-a");
 
     Assert.Equal(ChainAdvanceCode.StepNotDone, decision.Code);
   }
 
   [Fact]
-  public void Decide_OnALapsedClaim_RefusesWithItsOwnCode()
+  public void Decide_OnAStepClaimedLongAgo_StillReadsTheClaimAsCurrent()
   {
-    // Claimed an hour and a minute ago: past the one-hour window.
-    DateTimeOffset stale = T0 - ChainClaimPolicy.ClaimTtl - TimeSpan.FromMinutes(1);
-    Chain chain = Claimed(NewChain(1, 2), 1, "session-a", stale);
+    // A claim has no time limit, so a step claimed a year ago is still assigned to the
+    // session that claimed it: nothing expires it but settling, releasing, or reassigning.
+    Chain chain = Claimed(NewChain(1, 2), 1, "session-a", T0.AddYears(-1))
+        .SettleStep(1, ChainStepStatus.Done, ChainActor.Session("session-a"), null, T0);
 
-    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 1, "session-a", T0);
+    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, 1, "session-a");
 
-    Assert.Equal(ChainAdvanceCode.ClaimLapsed, decision.Code);
-    Assert.Contains("re-claim", decision.Reason, StringComparison.Ordinal);
+    Assert.Equal(ChainAdvanceKind.StartStep, decision.Kind);
   }
 
   [Fact]
@@ -91,7 +91,7 @@ public class ChainAdvancePolicyTests
     Chain chain = Claimed(NewChain(1), 1, "session-a", T0)
         .SettleStep(1, ChainStepStatus.Parked, ChainActor.Session("session-a"), "waiting", T0);
 
-    ChainAdvance decision = ChainAdvancePolicy.Next(chain, T0);
+    ChainAdvance decision = ChainAdvancePolicy.Next(chain);
 
     Assert.Equal(ChainAdvanceKind.Blocked, decision.Kind);
     Assert.Equal(ChainAdvanceCode.StepsUnsettled, decision.Code);
@@ -106,7 +106,7 @@ public class ChainAdvancePolicyTests
     Chain chain = Claimed(NewChain(1, 2), 1, "session-a", T0)
         .SettleStep(1, ChainStepStatus.Parked, ChainActor.Session("session-a"), "waiting", T0);
 
-    ChainAdvance decision = ChainAdvancePolicy.Next(chain, T0);
+    ChainAdvance decision = ChainAdvancePolicy.Next(chain);
 
     Assert.Equal(ChainAdvanceKind.StartStep, decision.Kind);
     Assert.Equal(2, decision.Position);
@@ -118,6 +118,6 @@ public class ChainAdvancePolicyTests
     Chain chain = Claimed(NewChain(1), 1, "session-a", T0)
         .SettleStep(1, ChainStepStatus.Skipped, ChainActor.Session("session-a"), "not doing", T0);
 
-    Assert.Equal(ChainAdvanceKind.CompleteChain, ChainAdvancePolicy.Next(chain, T0).Kind);
+    Assert.Equal(ChainAdvanceKind.CompleteChain, ChainAdvancePolicy.Next(chain).Kind);
   }
 }

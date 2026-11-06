@@ -138,17 +138,18 @@ public sealed record Chain(
     return SetStatus(ChainStatus.Running, actor, now) with { ParkReason = null, ParkedAtPosition = null };
   }
 
-  /// <summary>Claims the step at the 1-based position for a session. The step must be
-  ///     available: Pending, or Running with a LAPSED claim (<see cref="ChainClaimPolicy"/>).</summary>
+  /// <summary>Claims the step at the 1-based position for a session. Only a Pending step
+  ///     can be claimed: a Running step is held by its claimant until it is settled,
+  ///     released, or reassigned.</summary>
   public Chain ClaimStep(int position, string sessionId, DateTimeOffset now)
   {
     EnsureMutable();
     int index = IndexOf(position);
     ChainStep step = Steps[index];
-    return step.IsAvailable(now)
+    return step.IsAvailable
       ? ReplaceStep(index, step.Claim(sessionId, now), now)
       : throw new ChainInputException(
-          $"chain #{Id} step {position} is {step.EffectiveStatus(now)}; only a pending step (or one whose claim has lapsed) can be claimed.");
+          $"chain #{Id} step {position} is {step.Status}; only a pending step can be claimed.");
   }
 
   /// <summary>Settles the step at the 1-based position with an outcome.</summary>
@@ -166,21 +167,20 @@ public sealed record Chain(
   ///     here once the session is real.
   ///     <para>Deliberately NOT a second <see cref="ClaimStep"/>: claiming increments
   ///     <see cref="ChainStep.Attempts"/> and restarts the claim clock, and neither is true —
-  ///     no new attempt was made and the claim never lapsed. Re-claiming would double-count
-  ///     an attempt the bound (#303 D2) reads.</para>
-  ///     <para>Refused when the step is not Running or its claim has lapsed: a lapsed claim is
-  ///     available to anyone, and silently reassigning it would steal it from a claimant that
-  ///     may already be working.</para></summary>
+  ///     no new attempt was made. Re-claiming would double-count an attempt the bound
+  ///     (#303 D2) reads.</para>
+  ///     <para>Refused when the step is not Running: only a held claim belongs to a session,
+  ///     and reassigning a Pending step would record a claimant that never claimed it.</para></summary>
   public Chain ReassignStep(int position, string sessionId, DateTimeOffset now)
   {
     EnsureMutable();
     ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
     int index = IndexOf(position);
     ChainStep step = Steps[index];
-    return step.Status == ChainStepStatus.Running && step.IsClaimLive(now)
+    return step.Status == ChainStepStatus.Running
       ? ReplaceStep(index, step.Reassign(sessionId), now)
       : throw new ChainInputException(
-          $"chain #{Id} step {position} is {step.EffectiveStatus(now)}; only a live claim can be reassigned.");
+          $"chain #{Id} step {position} is {step.Status}; only a running step's claim can be reassigned.");
   }
 
   /// <summary>Records the model a step's session actually served on (issue #218).
@@ -313,15 +313,13 @@ public sealed record Chain(
   public IReadOnlyList<ChainStep> InvalidatedSteps =>
       [.. Steps.Where(step => step.IsInvalidated).OrderBy(step => step.Position)];
 
-  /// <summary>The first step a session may claim now, or null when none is available.</summary>
-  public ChainStep? NextAvailableStep(DateTimeOffset now)
-    => Steps.FirstOrDefault(step => step.IsAvailable(now));
+  /// <summary>The first step a session may claim, or null when none is available.</summary>
+  public ChainStep? NextAvailableStep() => Steps.FirstOrDefault(step => step.IsAvailable);
 
-  /// <summary>True when no step is Pending or Running (a lapsed claim counts as available,
-  ///     so a stale Running step keeps the chain unfinished — the honest reading).</summary>
-  public bool IsSettled(DateTimeOffset now)
-    => Steps.All(step => !step.IsAvailable(now)
-        && step.EffectiveStatus(now) != ChainStepStatus.Running);
+  /// <summary>True when no step is Pending or Running: a claimed step keeps the chain
+  ///     unfinished however long its session takes.</summary>
+  public bool IsSettled()
+    => Steps.All(step => step.Status is not (ChainStepStatus.Pending or ChainStepStatus.Running));
 
   /// <summary>Finds a step by its 1-based position, or null.</summary>
   public ChainStep? StepAt(int position) => Steps.FirstOrDefault(step => step.Position == position);

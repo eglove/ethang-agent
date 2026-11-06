@@ -5,9 +5,7 @@ namespace eThangAgent.Agent.Application.Sessions;
 
 /// <summary>One resumable root session as the Sessions catalog lists it: the record's
 ///     discovery binding (workspace + provider) plus its lifecycle timestamps. Carries no
-///     conversation content — resume hydrates from the transcript store by id. (Distinct
-///     from the Agent Domain's memory-tool <see cref="SessionSummary"/>, which describes
-///     recall corpora.)</summary>
+///     conversation content — resume hydrates from the transcript store by id.</summary>
 public sealed record SessionCatalogEntry(
     AgentId Id,
     string WorkspaceId,

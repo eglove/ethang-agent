@@ -2,7 +2,6 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
-using eThangAgent.FileSystem.ACL;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -99,13 +98,11 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
     string? trustedDirectories = await ReadTrustedDirectoriesAsync(full, ct).ConfigureAwait(false);
-    Result<WorkspaceIdentityResolution> identity = await ResolveIdentityAsync(full, ct).ConfigureAwait(false);
-    if (!identity.IsSuccess)
-    {
-      return Result.Failure<AgentSession>(identity.Error);
-    }
+    // A workspace IS its directory path: nothing is written into the user's directory to
+    // identify it, so the identity is derived rather than resolved.
+    string workspaceId = WorkspaceIdentity.For(full);
 
-    ServiceProvider services = BuildContainer(identity.Value.Id, full, providerName, conversationSeed,
+    ServiceProvider services = BuildContainer(workspaceId, full, providerName, conversationSeed,
         ResolveBootstrapModel(providerName),
         new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories,
             trustedDirectories));
@@ -187,8 +184,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
       // Provider lineups are no longer published at session open: the model picker
       // (host UI) fetches the catalog lazily when shown, for either provider.
-      return Result.Success(BuildSession(services, bootstrapped.Value, full, providerName,
-          identity.Value.Notice is { } notice ? [notice] : []));
+      return Result.Success(BuildSession(services, bootstrapped.Value, full, providerName, []));
     }
     catch
     {
@@ -360,23 +356,6 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     RemoteAgentRuntime runtime = services.GetRequiredService<RemoteAgentRuntime>();
     RemoteHostSupervisor supervisor = services.GetRequiredService<RemoteHostSupervisor>();
     _ = await supervisor.AttachAsync(runtime, ct).ConfigureAwait(false);
-  }
-
-  /// <summary>Resolves a directory's STABLE workspace identity (issue #317 D5/D6) before any
-  ///     container is built, because the identity decides what every durable row in that container
-  ///     scopes to.
-  ///     <para>The resolver is constructed here rather than resolved from a container: the container
-  ///     is what needs the id, so it cannot be asked for it. The store is the one Storage ACL store
-  ///     with no workspace argument - it DEFINES the scopes.</para>
-  ///     <para>A resolution fault is a NAMED failure rather than a fallback to the path: opening a
-  ///     workspace with a guessed identity would silently fork its records, which is the data loss
-  ///     this issue exists to prevent.</para></summary>
-  private async Task<Result<WorkspaceIdentityResolution>> ResolveIdentityAsync(string workspaceRoot,
-      CancellationToken ct)
-  {
-    AppDatabase appDb = _database ?? new AppDatabase();
-    WorkspaceIdentityResolver resolver = new(new SqliteWorkspaceIdentityStore(appDb));
-    return await resolver.ResolveAsync(workspaceRoot, ct).ConfigureAwait(false);
   }
 
   /// <summary>Runs exact orphan repair against the host's declared live set: a persisted

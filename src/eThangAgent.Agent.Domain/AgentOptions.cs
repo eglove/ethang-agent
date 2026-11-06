@@ -1,5 +1,4 @@
 using eThangAgent.ModelDomain;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain;
 
@@ -47,13 +46,6 @@ public sealed record AgentOptions
   ///     builds (OpenRouter sticky sessions / prompt caching). Null (legacy wiring)
   ///     leaves the request's id unset: byte-identical legacy behavior.</summary>
   public string? SessionId { get; init; }
-
-  /// <summary>Persists the artifact an image-generation server tool produced inside the
-  ///     provider's response (issue #230). The loop saves the bytes into the workspace and
-  ///     names the path in the surfaced line, so the artifact is reachable by the user and
-  ///     by a later read_image. Null (legacy wiring) surfaces the call without persisting
-  ///     anything: byte-identical legacy behavior.</summary>
-  public IServerToolImageStore? ServerToolImages { get; init; }
 
   /// <summary>Append-only event log the loop records reasoning traces to (issue #263):
   ///     the TELEMETRY channel, never the context channel — no request builder reads it

@@ -1,5 +1,4 @@
 using eThangAgent.Composition;
-using eThangAgent.FileSystem.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 
@@ -41,16 +40,12 @@ public class RemoteHostScratchIsolationTests
       Assert.False(File.Exists(Path.Combine(ws, "childhost-settings.json")),
           "the host settings JSON leaked into the workspace");
 
-      // The workspace is not EMPTY any more, and that is correct: since #317 D5 it carries the
-      // identity marker, which is how a moved workspace keeps its plans, chains, and state. The
-      // assertion this test exists for is narrower than 'no files at all' - it is that the
-      // harness's SCRATCH (host settings, logs) never lands where the user works. So the marker
-      // is allowed by name and everything else is still refused.
+      // The workspace is EMPTY: the harness adds no artifacts to the user's machine outside
+      // its database, so neither its scratch (host settings, logs) nor an identity marker lands
+      // where the user works.
       string[] unexpected = [.. Directory
           .EnumerateFiles(ws, "*", SearchOption.AllDirectories)
-          .Select(path => Path.GetRelativePath(ws, path).Replace('\\', '/'))
-          .Where(relative => !string.Equals(relative, WorkspaceIdentityResolver.MarkerRelativePath,
-              StringComparison.OrdinalIgnoreCase))];
+          .Select(path => Path.GetRelativePath(ws, path).Replace('\\', '/'))];
       Assert.Empty(unexpected);
     }
     finally

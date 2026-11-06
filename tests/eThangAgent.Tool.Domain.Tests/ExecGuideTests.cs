@@ -197,58 +197,7 @@ public partial class ExecGuideTests
     }
   }
 
-  [Fact]
-  public void Guide_TeachesRecallingEarlierWork_InOrder()
-  {
-    string section = RecallSection();
 
-    int delegationEnd = ExecGuide.Text.IndexOf("### How an agent comes into existence", StringComparison.Ordinal);
-    int recallStart = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
-    Assert.True(delegationEnd >= 0, "delegation section marker missing");
-    Assert.True(recallStart > delegationEnd, "recall section must come after the delegation section");
-
-    // (1) memory.sessions lists what conversations exist — run it when resuming work.
-    Assert.Contains("Tools.Invoke(\"memory.sessions\", new { timeoutSeconds = 30 })", section, StringComparison.Ordinal);
-    Assert.Contains("lists what conversations exist", section, StringComparison.Ordinal)
-        ;
-    Assert.Contains("resuming work", section, StringComparison.Ordinal);
-    Assert.Contains("before duplicating effort", section, StringComparison.Ordinal);
-    // (2) memory.recall searches transcripts — literal default, tokens ANDed.
-    Assert.Contains("Tools.Invoke(\"memory.recall\", new {", section, StringComparison.Ordinal);
-    Assert.Contains("searches transcripts", section, StringComparison.Ordinal);
-    Assert.Contains("tokens ANDed", section, StringComparison.Ordinal);
-    // (2b) regex mode optional; budget errors mean simplify or go literal.
-    Assert.Contains("queryMode = \"regex\"", section, StringComparison.Ordinal);
-    Assert.Contains("`regex_pattern_too_large`", section, StringComparison.Ordinal);
-    Assert.Contains("`invalid_regex`", section, StringComparison.Ordinal);
-    Assert.Contains("`regex_timeout`", section, StringComparison.Ordinal);
-    Assert.Contains("simplify the pattern", section, StringComparison.Ordinal);
-    Assert.Contains("literal mode", section, StringComparison.Ordinal);
-    // (3) scopes and branches.
-    Assert.Contains("\"global\"", section, StringComparison.Ordinal);
-    Assert.Contains("\"session:<id>\"", section, StringComparison.Ordinal);
-    Assert.Contains("\"active\"", section, StringComparison.Ordinal);
-    Assert.Contains("\"all\"", section, StringComparison.Ordinal);
-    // (4) paging for long result sets.
-    Assert.Contains("page", section, StringComparison.Ordinal);
-    Assert.Contains("pageSize", section, StringComparison.Ordinal);
-    Assert.Contains("200", section, StringComparison.Ordinal);
-    // (5) memory is read-only.
-    Assert.Contains("READ-ONLY", section, StringComparison.Ordinal);
-    Assert.Contains("nothing to save yet", section, StringComparison.Ordinal);
-
-    int[] markers =
-    [
-            IndexOf(section, "Tools.Invoke(\"memory.sessions\""),
-            IndexOf(section, "Tools.Invoke(\"memory.recall\""),
-            IndexOf(section, "queryMode = \"regex\""),
-            IndexOf(section, "\"session:<id>\""),
-            IndexOf(section, "pageSize"),
-            IndexOf(section, "READ-ONLY"),
-        ];
-    Assert.All(markers, m => Assert.True(m >= 0, "teaching marker missing"));
-    Assert.Equal(markers.OrderBy(m => m), markers);
-  }
 
   /// <summary>Issue #316 retired the agent-to-agent messaging surface, so the guide must
   ///     stop teaching it (a documented action that 404s is worse than none - the #288
@@ -258,9 +207,9 @@ public partial class ExecGuideTests
   public void Guide_TeachesThatAgentsDoNotMessageEachOther()
   {
     int delegationStart = ExecGuide.Text.IndexOf("### How an agent comes into existence", StringComparison.Ordinal);
-    int recallStart = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
-    Assert.True(delegationStart >= 0 && recallStart > delegationStart, "section anchors missing");
-    string section = ExecGuide.Text[delegationStart..recallStart];
+    int errorsStart = ExecGuide.Text.IndexOf("### Errors", StringComparison.Ordinal);
+    Assert.True(delegationStart >= 0 && errorsStart > delegationStart, "section anchors missing");
+    string section = ExecGuide.Text[delegationStart..errorsStart];
 
     Assert.Contains("AGENTS DO NOT MESSAGE EACH OTHER", section, StringComparison.Ordinal);
     Assert.Contains("agents communicate by STATUS only", section, StringComparison.Ordinal);
@@ -295,15 +244,6 @@ public partial class ExecGuideTests
       Assert.True(count == 1, $"'{heading}' appears {count} times, expected exactly once.");
     }
   }
-  private static string RecallSection()
-  {
-    int start = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
-    int end = ExecGuide.Text.IndexOf("### Errors", StringComparison.Ordinal);
-    Assert.True(start >= 0, "Recalling earlier work section missing");
-    Assert.True(end > start, "Errors section missing after recall section");
-    return ExecGuide.Text[start..end];
-  }
-
   private static string ExistenceSection()
   {
     int start = ExecGuide.Text.IndexOf("### How an agent comes into existence", StringComparison.Ordinal);
@@ -316,9 +256,9 @@ public partial class ExecGuideTests
   private static string OutcomeSection()
   {
     int start = ExecGuide.Text.IndexOf("### Reading another agent's outcome", StringComparison.Ordinal);
-    int end = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
+    int end = ExecGuide.Text.IndexOf("### Errors", StringComparison.Ordinal);
     Assert.True(start >= 0, "Reading another agent's outcome section missing");
-    Assert.True(end > start, "Recalling earlier work section missing after it");
+    Assert.True(end > start, "Errors section missing after it");
     return ExecGuide.Text[start..end];
   }
 

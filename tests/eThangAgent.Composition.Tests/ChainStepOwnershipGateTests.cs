@@ -44,16 +44,11 @@ public class ChainStepOwnershipGateTests
     private int current(int id) => _chains[id].Version;
   }
 
-  private sealed class FixedClock(DateTimeOffset now) : TimeProvider
-  {
-    public override DateTimeOffset GetUtcNow() => now;
-  }
-
   private static async Task<ChainStepOwnershipGate> GateForAsync(Chain chain)
   {
     FakeStore store = new();
     _ = await store.CreateAsync(chain, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    return new ChainStepOwnershipGate(store, new FixedClock(T0));
+    return new ChainStepOwnershipGate(store);
   }
 
   private static Chain NewChain(int planId, params int[] positions)
@@ -116,17 +111,16 @@ public class ChainStepOwnershipGateTests
   }
 
   [Fact]
-  public async Task Evaluate_UnderALapsedClaim_RefusesWithTheLapsedCode()
+  public async Task Evaluate_UnderAClaimTakenLongAgo_Permits_AClaimNeverExpires()
   {
-    DateTimeOffset stale = T0 - ChainClaimPolicy.ClaimTtl - TimeSpan.FromMinutes(1);
-    Chain chain = NewChain(3, 1, 2).ClaimStep(2, "session-a", stale);
+    // A chain step has no time limit: the assignment recorded a year ago is still the
+    // assignment, so the owning session may still complete its step.
+    Chain chain = NewChain(3, 1, 2).ClaimStep(2, "session-a", T0.AddYears(-1));
     ChainStepOwnershipGate gate = await GateForAsync(chain);
 
     PlanStepOwnership ownership = await gate
         .EvaluateAsync(3, 2, "session-a", TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-    Assert.False(ownership.Allowed);
-    Assert.Equal(ChainAdvanceCode.ClaimLapsed, ownership.Code);
-    Assert.Contains("re-claim", ownership.Message, StringComparison.Ordinal);
+    Assert.True(ownership.Allowed);
   }
 }

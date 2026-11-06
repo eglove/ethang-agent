@@ -8,12 +8,15 @@ public class RootTurnToolResultImagePayloadTests
 {
   private const string PngBase64 = "iVBORw0KGgoAAQI=";
 
+  /// <summary>The surfaced line an image-generation call produces: the artifact is carried in
+  ///     the conversation, never written to a path.</summary>
+  private const string ImageLine = "[image_generation] image generated (image/png)";
+
   [Fact]
   public void Serialize_WithImages_CarriesThemThroughParse()
   {
     string json = RootTurnToolResultPayload.Serialize("image_generation", "ok", null,
-        ".ethang/images/a.png", ".ethang/images/a.png",
-        [new RootTurnImage("image/png", PngBase64)]);
+        ImageLine, ImageLine, [new RootTurnImage("image/png", PngBase64)]);
 
     RootTurnToolResultPayload? parsed = RootTurnToolResultPayload.Parse(json);
 

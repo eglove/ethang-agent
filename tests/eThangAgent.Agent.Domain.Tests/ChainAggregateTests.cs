@@ -152,7 +152,7 @@ public class ChainAggregateTests
     Assert.True(new ChainStatusTransition(ChainStatus.Running).IsSatisfiedBy(parked));
   }
 
-  // ---- claims and the TTL --------------------------------------------------
+  // ---- claims --------------------------------------------------------------
 
   [Fact]
   public void ClaimStep_MarksRunning_IncrementsAttempts_AndStampsSession()
@@ -167,7 +167,7 @@ public class ChainAggregateTests
   }
 
   [Fact]
-  public void ClaimStep_WhileAnotherClaimIsLive_Throws()
+  public void ClaimStep_WhileAnotherClaimIsHeld_Throws()
   {
     Chain chain = NewChain(1).ClaimStep(1, "session-a", T0);
     ChainInputException ex = Assert.Throws<ChainInputException>(
@@ -176,37 +176,33 @@ public class ChainAggregateTests
   }
 
   [Fact]
-  public void ClaimStep_AfterTheClaimLapses_IsAllowed_AndCountsASecondAttempt()
+  public void ClaimStep_AfterAnyAmountOfTime_IsStillRefused_AClaimNeverExpires()
   {
+    // A chain step has NO time limit: a claim held for a year is as live as one held for a
+    // second, and only settling, releasing, or reassigning it frees the step.
     Chain chain = NewChain(1).ClaimStep(1, "session-a", T0);
-    DateTimeOffset afterTtl = T0 + ChainClaimPolicy.ClaimTtl + TimeSpan.FromMinutes(1);
-    Chain reclaimed = chain.ClaimStep(1, "session-b", afterTtl);
-    Assert.Equal(2, reclaimed.Steps[0].Attempts);
-    Assert.Equal("session-b", reclaimed.Steps[0].SessionId);
-  }
+    DateTimeOffset muchLater = T0.AddYears(1);
 
-  [Fact]
-  public void ClaimTtl_IsOneHour_AndIsANamedConstantNotASetting()
-      => Assert.Equal(TimeSpan.FromHours(1), ChainClaimPolicy.ClaimTtl);
-
-  [Fact]
-  public void LapsedClaim_ReadsAsPending_WithoutRewritingTheStoredStatus()
-  {
-    Chain chain = NewChain(1).ClaimStep(1, "session-a", T0);
     ChainStep step = chain.Steps[0];
-    DateTimeOffset later = T0 + ChainClaimPolicy.ClaimTtl;
     Assert.Equal(ChainStepStatus.Running, step.Status);
-    Assert.Equal(ChainStepStatus.Pending, step.EffectiveStatus(later));
-    Assert.True(step.IsAvailable(later));
-    Assert.False(step.IsAvailable(T0.AddMinutes(1)));
+    Assert.False(step.IsAvailable);
+    Assert.False(chain.IsSettled());
+    _ = Assert.Throws<ChainInputException>(() => chain.ClaimStep(1, "session-b", muchLater));
   }
 
   [Fact]
-  public void RunningStepWithNoClaimClock_ReadsAsLapsed()
+  public void ReassignStep_MovesAHeldClaimWithoutSpendingAnAttempt()
   {
-    ChainStep orphan = ChainStep.Pending(1) with { Status = ChainStepStatus.Running, ClaimedAt = null };
-    Assert.False(orphan.IsClaimLive(T0));
-    Assert.Equal(ChainStepStatus.Pending, orphan.EffectiveStatus(T0));
+    Chain chain = NewChain(1).ClaimStep(1, "session-a", T0).ReassignStep(1, "session-b", T0);
+    Assert.Equal("session-b", chain.Steps[0].SessionId);
+    Assert.Equal(1, chain.Steps[0].Attempts);
+  }
+
+  [Fact]
+  public void ReassignStep_OnAPendingStep_Throws()
+  {
+    Chain chain = NewChain(1);
+    _ = Assert.Throws<ChainInputException>(() => chain.ReassignStep(1, "session-b", T0));
   }
 
   [Fact]
@@ -214,7 +210,7 @@ public class ChainAggregateTests
   {
     Chain chain = NewChain(1, 2)
         .SettleStep(1, ChainStepStatus.Done, ChainActor.Harness, null, T0);
-    Assert.Equal(2, chain.NextAvailableStep(T0)!.Position);
+    Assert.Equal(2, chain.NextAvailableStep()!.Position);
   }
 
   [Fact]
@@ -222,15 +218,15 @@ public class ChainAggregateTests
   {
     Chain chain = NewChain(1)
         .SettleStep(1, ChainStepStatus.Done, ChainActor.Harness, null, T0);
-    Assert.Null(chain.NextAvailableStep(T0));
-    Assert.True(chain.IsSettled(T0));
+    Assert.Null(chain.NextAvailableStep());
+    Assert.True(chain.IsSettled());
   }
 
   [Fact]
-  public void IsSettled_IsFalseWhileAStepIsRunningWithALiveClaim()
+  public void IsSettled_IsFalseWhileAStepIsHeldByAClaim()
   {
     Chain chain = NewChain(1).ClaimStep(1, "session-a", T0);
-    Assert.False(chain.IsSettled(T0.AddMinutes(1)));
+    Assert.False(chain.IsSettled());
   }
 
   // ---- settle --------------------------------------------------------------

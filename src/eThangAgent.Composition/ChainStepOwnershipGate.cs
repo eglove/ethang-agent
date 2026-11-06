@@ -14,15 +14,10 @@ namespace eThangAgent.Composition;
 ///     every session without a chain assignment, it would break the only workflow plans have
 ///     ever had, to protect a workflow that is not running.</para>
 ///     <para>THE PLAN MUST ALSO MATCH. A session assigned to chain #4's step 2 may not complete
-///     step 2 of an UNRELATED plan - the position alone is not the assignment.</para>
-///     <para>THE CLAIM MUST BE LIVE. An expired claim is no longer current, so a completion
-///     under it is refused with its own code rather than silently accepted (the issue's
-///     amendment); re-claiming records the new claimant.</para></summary>
-public sealed class ChainStepOwnershipGate(IChainStore chains, TimeProvider clock)
-    : IPlanStepOwnershipGate
+///     step 2 of an UNRELATED plan - the position alone is not the assignment.</para></summary>
+public sealed class ChainStepOwnershipGate(IChainStore chains) : IPlanStepOwnershipGate
 {
   private readonly IChainStore _chains = chains ?? throw new ArgumentNullException(nameof(chains));
-  private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
 
   /// <inheritdoc />
   public async Task<PlanStepOwnership> EvaluateAsync(int planId, int position, string sessionId,
@@ -47,7 +42,7 @@ public sealed class ChainStepOwnershipGate(IChainStore chains, TimeProvider cloc
         string.Equals(step.SessionId, sessionId, StringComparison.Ordinal));
     return assigned is null
       ? PlanStepOwnership.Permit
-      : WrongStep(chain, assigned, planId, position) ?? LapsedClaim(chain, assigned) ?? PlanStepOwnership.Permit;
+      : WrongStep(chain, assigned, planId, position) ?? PlanStepOwnership.Permit;
   }
 
   /// <summary>The assignment must be THIS plan's step at THIS position: the position alone is
@@ -60,15 +55,4 @@ public sealed class ChainStepOwnershipGate(IChainStore chains, TimeProvider cloc
           $"chain #{chain.Id} assigned you step {assigned.Position} of plan #{chain.PlanId}, "
           + $"not step {position} of plan #{planId}; a chain step's session completes only its own step.");
 
-  /// <summary>An expired claim is no longer current, so a completion under it is refused with
-  ///     its own code rather than silently accepted (the issue's amendment). Re-claiming
-  ///     records the new claimant.</summary>
-  private PlanStepOwnership? LapsedClaim(Chain chain, ChainStep assigned)
-    => assigned.IsClaimLive(_clock.GetUtcNow())
-      ? null
-      : PlanStepOwnership.Refuse(ChainAdvanceCode.ClaimLapsed,
-          $"chain #{chain.Id} step {assigned.Position}'s claim lapsed at "
-          + (assigned.ClaimedAt?.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
-              ?? "an unrecorded time")
-          + $" (claim window {ChainClaimPolicy.ClaimTtl}); re-claim the step before completing it.");
 }

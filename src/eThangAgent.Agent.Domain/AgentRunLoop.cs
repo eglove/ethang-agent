@@ -67,7 +67,6 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
   private readonly IModelCatalog? _catalog = catalog;
   private readonly IAgentHeartbeat? _heartbeat = services.Heartbeat;
   private readonly Func<AgentId, AgentSupervisor?>? _supervisorFor = services.SupervisorFor;
-  private readonly Func<string?, IServerToolImageStore?>? _serverToolImagesFor = services.ServerToolImagesFor;
   private readonly IAgentEvents? _events = services.Events;
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
@@ -255,7 +254,7 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
   ///     an interrupt or crash leaves the run's history persisted up to that point
   ///     instead of destroying it.</summary>
   private Agent BuildAgent(AgentRecord child, ModelConfig config, Conversation conversation,
-      IToolRegistry tools, int window, AgentTranscriptStore transcriptSink, string? anchor) =>
+      IToolRegistry tools, int window, AgentTranscriptStore transcriptSink) =>
       new(_factory.Create(config), conversation, config, tools,
           new AgentOptions
           {
@@ -271,10 +270,7 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
             // of fragments per second; a per-fragment registry lookup would take two locks
             // per fragment on the hot path.
             OnStreamActivity = ResolveStreamStamp(child.Id),
-            // The artifact store resolves at the child's ANCHOR when it has one: a
-            // generated image belongs beside the work that produced it, and an anchored
-            // child's workspace is the anchor (issue #230).
-            ServerToolImages = _serverToolImagesFor?.Invoke(anchor),
+
             // The reasoning trace is recorded under the RUN's own id (issue #263): an
             // agent's thinking is evidence about that agent's run, never another's.
             EventLog = _eventLog,
@@ -530,7 +526,7 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
       AgentTranscriptStore transcriptSink, CancellationToken ct)
   {
     Agent agent = BuildAgent(child, setup.Config, setup.Conversation, setup.Tools, setup.Window,
-        transcriptSink, setup.Anchor);
+        transcriptSink);
     PublishStarted(child);
 
     (string? report, AgentFailureReason? failureReason) =

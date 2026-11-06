@@ -12,10 +12,6 @@ public static class ChainAdvanceCode
   ///     names the assigned session, because a session told only 'no' retries.</summary>
   public const string ForeignStep = "ChainStepNotAssigned";
 
-  /// <summary>The amendment: the assignment exists but its claim window has closed, so the
-  ///     assignment is no longer current. Re-claiming records the new claimant.</summary>
-  public const string ClaimLapsed = "ChainClaimLapsed";
-
   /// <summary>The step is the right one for this session but is not Done.</summary>
   public const string StepNotDone = "ChainStepNotDone";
 

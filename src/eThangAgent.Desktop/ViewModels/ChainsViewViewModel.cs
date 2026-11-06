@@ -35,15 +35,13 @@ internal sealed record ChainStepRowViewModel(
     bool IsSettled,
     ChainStepStatus Status)
 {
-  /// <summary>Renders one step. The marker comes from <see cref="ChainStep.EffectiveStatus"/>,
-  ///     so a Running step whose claim lapsed reads as available again rather than as work in
-  ///     progress nobody is doing - the same reading the advance uses.</summary>
+  /// <summary>Renders one step from its recorded status: a claimed step reads as work in
+  ///     progress until its session settles it, which is the same reading the advance uses.</summary>
   /// <param name="step">The step to render.</param>
-  /// <param name="now">The clock the claim window is measured against.</param>
-  public static ChainStepRowViewModel For(ChainStep step, DateTimeOffset now)
+  public static ChainStepRowViewModel For(ChainStep step)
   {
     ArgumentNullException.ThrowIfNull(step);
-    ChainStepStatus status = step.EffectiveStatus(now);
+    ChainStepStatus status = step.Status;
     return new ChainStepRowViewModel(
         step.Position,
         MarkerFor(status),
@@ -103,9 +101,8 @@ internal sealed partial class ChainCardViewModel : ObservableObject
   ///     <para>The expansion state is the ONE thing the caller supplies, because it is the user's
   ///     choice and not a fact about the record (D7).</para></summary>
   /// <param name="chain">The chain to render.</param>
-  /// <param name="now">The clock the claim window is measured against.</param>
   /// <param name="isExpanded">Whether the card shows its steps.</param>
-  public ChainCardViewModel(Chain chain, DateTimeOffset now, bool isExpanded)
+  public ChainCardViewModel(Chain chain, bool isExpanded)
   {
     ArgumentNullException.ThrowIfNull(chain);
     ChainId = chain.Id;
@@ -115,9 +112,9 @@ internal sealed partial class ChainCardViewModel : ObservableObject
         $"plan #{chain.PlanId} v{chain.PlanVersion} \u00B7 {chain.Steps.Count} step(s) \u00B7 started by {session}");
     StatusKind = KindOf(chain.Status);
     StatusDisplay = chain.Status.ToString().ToUpperInvariant();
-    CurrentStep = CurrentStepFor(chain, now);
+    CurrentStep = CurrentStepFor(chain);
     ParkDetail = ParkDetailFor(chain);
-    Steps = [.. chain.Steps.OrderBy(step => step.Position).Select(step => ChainStepRowViewModel.For(step, now))];
+    Steps = [.. chain.Steps.OrderBy(step => step.Position).Select(ChainStepRowViewModel.For)];
     IsExpanded = isExpanded;
     CorruptReason = null;
   }
@@ -213,8 +210,7 @@ internal sealed partial class ChainCardViewModel : ObservableObject
   ///     nothing was available has no Parked step at all - and the record's own answer is the one
   ///     the harness acted on.</para></summary>
   /// <param name="chain">The chain to describe.</param>
-  /// <param name="now">The clock the claim window is measured against.</param>
-  private static string CurrentStepFor(Chain chain, DateTimeOffset now)
+  private static string CurrentStepFor(Chain chain)
   {
     if (chain.ParkedAtPosition is { } parked)
     {
@@ -222,13 +218,13 @@ internal sealed partial class ChainCardViewModel : ObservableObject
     }
 
     ChainStep? running = chain.Steps.FirstOrDefault(step =>
-        step.EffectiveStatus(now) == ChainStepStatus.Running);
+        step.Status == ChainStepStatus.Running);
     if (running is not null)
     {
       return string.Create(CultureInfo.InvariantCulture, $"running step {running.Position}");
     }
 
-    int settled = chain.Steps.Count(step => step.EffectiveStatus(now)
+    int settled = chain.Steps.Count(step => step.Status
         is ChainStepStatus.Done or ChainStepStatus.Skipped);
     return string.Create(CultureInfo.InvariantCulture,
         $"{settled} of {chain.Steps.Count} step(s) settled");
@@ -460,11 +456,10 @@ internal sealed partial class ChainsViewViewModel(
       return;
     }
 
-    DateTimeOffset now = DateTimeOffset.UtcNow;
     List<ChainCardViewModel> cards = [.. listed.Value.Chains
         .OrderBy(chain => Order(chain.Status))
         .ThenByDescending(chain => chain.Id)
-        .Select(chain => ToCard(chain, now))];
+        .Select(ToCard)];
     foreach (CorruptChainRow row in listed.Value.Corrupt)
     {
       cards.Add(new ChainCardViewModel(row));
@@ -501,13 +496,12 @@ internal sealed partial class ChainsViewViewModel(
   ///     active chain's steps are what the user opened the view for, while a finished one is
   ///     history whose summary line is the answer.</para></summary>
   /// <param name="chain">The chain to render.</param>
-  /// <param name="now">The clock the claim window is measured against.</param>
-  private ChainCardViewModel ToCard(Chain chain, DateTimeOffset now)
+  private ChainCardViewModel ToCard(Chain chain)
   {
     bool expanded = _expansion.TryGetValue(chain.Id, out bool remembered)
         ? remembered
         : chain.Status is not (ChainStatus.Completed or ChainStatus.Abandoned);
-    return new ChainCardViewModel(chain, now, expanded);
+    return new ChainCardViewModel(chain, expanded);
   }
 
   /// <summary>Re-renders the visible cards from the last read, honouring the finished filter.

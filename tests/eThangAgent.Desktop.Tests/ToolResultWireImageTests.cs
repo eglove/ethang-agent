@@ -17,12 +17,15 @@ public class ToolResultWireImageTests
   private const string PngBase64 =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
 
+  /// <summary>The surfaced line an image-generation call produces: the artifact is carried in
+  ///     the conversation, never written to a path.</summary>
+  private const string ImageLine = "[image_generation] image generated (image/png)";
+
   [Fact]
   public void Parse_ToolResultPayloadWithImages_CarriesThem()
   {
     string json = RootTurnToolResultPayload.Serialize("image_generation", "ok", null,
-        ".ethang/images/a.png", ".ethang/images/a.png",
-        [new RootTurnImage("image/png", PngBase64)]);
+        ImageLine, ImageLine, [new RootTurnImage("image/png", PngBase64)]);
 
     RootTurnToolPayload? parsed = RootTurnToolPayload.Parse(json);
 
@@ -51,7 +54,7 @@ public class ToolResultWireImageTests
     AgentSessionViewModel vm = TestFixtures.CreateViewModel();
 
     await vm.ApplyUiStreamEventAsync(new UiStreamEvent.ToolResultEvent("image_generation",
-        ".ethang/images/a.png", ".ethang/images/a.png", false, "image_generation",
+        ImageLine, ImageLine, false, "image_generation",
         [new ToolResultImage("image/png", PngBase64)])).ConfigureAwait(true);
 
     ToolResultEntry entry = Assert.IsType<ToolResultEntry>(

@@ -305,48 +305,11 @@ public sealed class AppDatabase
     transaction.Commit();
   }
 
-  private static void ApplyV4(SqliteConnection connection)
-  {
-    string sql = """
-            CREATE TABLE IF NOT EXISTS curated_memories (
-                id            TEXT PRIMARY KEY,
-                workspace_id  TEXT NOT NULL,
-                category      TEXT NOT NULL,
-                tags          TEXT NOT NULL,
-                content       TEXT NOT NULL,
-                usage_hint    TEXT NULL,
-                scope         TEXT NOT NULL,
-                provenance    TEXT NULL,
-                version       INTEGER NOT NULL,
-                created_at    TEXT NOT NULL,
-                updated_at    TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS ix_curated_ws ON curated_memories (workspace_id, scope);
-            CREATE VIRTUAL TABLE IF NOT EXISTS curated_memories_fts USING fts5(
-                content, tags, usage_hint, content='curated_memories', content_rowid='rowid'
-            );
-            CREATE TRIGGER IF NOT EXISTS curated_ai AFTER INSERT ON curated_memories BEGIN
-                INSERT INTO curated_memories_fts(rowid, content, tags, usage_hint)
-                VALUES (new.rowid, new.content, new.tags, new.usage_hint);
-            END;
-            CREATE TRIGGER IF NOT EXISTS curated_ad AFTER DELETE ON curated_memories BEGIN
-                INSERT INTO curated_memories_fts(curated_memories_fts, rowid, content, tags, usage_hint)
-                VALUES ('delete', old.rowid, old.content, old.tags, old.usage_hint);
-            END;
-            CREATE TRIGGER IF NOT EXISTS curated_au AFTER UPDATE ON curated_memories BEGIN
-                INSERT INTO curated_memories_fts(curated_memories_fts, rowid, content, tags, usage_hint)
-                VALUES ('delete', old.rowid, old.content, old.tags, old.usage_hint);
-                INSERT INTO curated_memories_fts(rowid, content, tags, usage_hint)
-                VALUES (new.rowid, new.content, new.tags, new.usage_hint);
-            END;
-            """;
-    using SqliteTransaction transaction = connection.BeginTransaction();
-    using SqliteCommand command = connection.CreateCommand();
-    command.Transaction = transaction;
-    command.CommandText = sql;
-    _ = command.ExecuteNonQuery();
-    transaction.Commit();
-  }
+  /// <summary>V4 created the curated-memories store. That store is gone, so the step now
+  ///     creates nothing: a fresh database must walk the same path an existing one did, and
+  ///     the path is 'no curated-memories table ever exists'. V18 drops it for databases that
+  ///     were created before this.</summary>
+  private static void ApplyV4(SqliteConnection connection) => _ = connection;
 
   private static void ApplyV5(SqliteConnection connection)
   {
@@ -872,12 +835,11 @@ public sealed class AppDatabase
   private static void ApplyV22(SqliteConnection connection)
       => Execute(connection, "DROP TABLE IF EXISTS provider_exclusions;");
 
-  /// <summary>V18 removes the curated-memories feature (issue #236): the store, its
-  ///     capability surface, and the turn-boundary nudge loop are gone, so the schema
-  ///     goes with them. Drops the sync triggers first (a trigger on a dropped table
-  ///     would otherwise fail), then the FTS5 index, the index, and the table. Fresh
-  ///     databases run V4 then V18 and end clean; existing databases lose the rows —
-  ///     no export is planned.</summary>
+  /// <summary>V18 removes the curated-memories store: the feature, its capability surface,
+  ///     and the turn-boundary nudge loop are gone, so the schema goes with them. Drops the
+  ///     sync triggers first (a trigger on a dropped table would otherwise fail), then the
+  ///     FTS5 index, the index, and the table. A database created before this build carries
+  ///     the table; one created after never had it, and the drops are no-ops there.</summary>
   private static void ApplyV18(SqliteConnection connection)
   {
     string sql = """
@@ -905,9 +867,9 @@ public sealed class AppDatabase
   ///     exec script's SQL), and now SQLite itself refuses. The sets are exactly the domain's
   ///     enums - a value outside them is a defect, never a forward-compatible unknown.</para>
   ///     <para>chain_steps is keyed by (chain_id, position) and carries the EXECUTION facts:
-  ///     the assigned session, the attempt count, the outcome, the acting identity, and the
-  ///     claim clock <c>ChainClaimPolicy</c> reads. Titles and details are deliberately
-  ///     absent: the chain references the plan and never copies it.</para></summary>
+  ///     the assigned session, the attempt count, the outcome, the acting identity, and when
+  ///     the claim started. Titles and details are deliberately absent: the chain references
+  ///     the plan and never copies it.</para></summary>
   private static void ApplyV23(SqliteConnection connection)
   {
     string sql = """

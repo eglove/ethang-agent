@@ -2,83 +2,33 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Tool.Domain.Tests;
 
-/// <summary>Issue #317 D5/D6: the move-versus-copy decision, pinned as a pure function.
-///     <para>These are the tests that make the two decisions checkable rather than asserted in a
-///     comment. D5 says a moved workspace is RECOVERABLE (the id survives, so every plan, chain,
-///     and state key follows it); D6 says a COPIED workspace gets a FRESH identity rather than
-///     sharing the original's records. The whole difference between them is whether the bound
-///     path still exists, which is exactly what these pin.</para></summary>
+/// <summary>A workspace IS its directory path, and nothing is written into the directory to
+///     identify it. These pin the rule and the accepted cost: a directory that is moved or
+///     renamed arrives as a new workspace, and the records scoped to the old path stay with the
+///     old path.</summary>
 public class WorkspaceIdentityTests
 {
-  private const string OldRoot = "C:\\work\\repo";
-  private const string NewRoot = "C:\\work\\repo2";
-  private const string MintedId = "ws-minted";
-
-  private static Func<string> Mint() => () => MintedId;
-
   [Fact]
-  public void Decide_WithNoMarker_MintsAFreshIdentity()
-  {
-    WorkspaceIdentityResolution result = WorkspaceIdentity.Decide(
-        markerId: null, NewRoot, binding: null, boundRootExists: false, Mint());
+  public void For_IsTheDirectoryPath()
+      => Assert.Equal("C:\\work\\repo", WorkspaceIdentity.For("C:\\work\\repo"));
 
-    Assert.Equal(MintedId, result.Id);
-    Assert.Equal(WorkspaceIdentityOutcome.Bound, result.Outcome);
-    Assert.Null(result.Notice);
-    Assert.False(result.IsNoteworthy);
-  }
-
+  /// <summary>A trailing separator is not a different directory, so it is not a different
+  ///     workspace: the alternative is two record sets for one folder.</summary>
   [Fact]
-  public void Decide_MarkerBoundToTheSamePath_KeepsTheIdentitySilently()
-  {
-    WorkspaceIdentityResolution result = WorkspaceIdentity.Decide(
-        "ws-a", OldRoot, new WorkspaceIdentityBinding("ws-a", OldRoot), boundRootExists: true, Mint());
+  public void For_IgnoresATrailingSeparator()
+      => Assert.Equal(WorkspaceIdentity.For("C:\\work\\repo"), WorkspaceIdentity.For("C:\\work\\repo\\"));
 
-    Assert.Equal("ws-a", result.Id);
-    Assert.Equal(WorkspaceIdentityOutcome.Bound, result.Outcome);
-    Assert.Null(result.Notice);
-  }
-
+  /// <summary>The accepted cost, stated as a test: a RENAMED directory is a new workspace.</summary>
   [Fact]
-  public void Decide_MarkerBoundToAVanishedPath_IsAMove_AndKeepsTheIdentity()
-  {
-    // D5: the bound path is GONE, so this directory is that workspace at a new location.
-    WorkspaceIdentityResolution result = WorkspaceIdentity.Decide(
-        "ws-a", NewRoot, new WorkspaceIdentityBinding("ws-a", OldRoot), boundRootExists: false, Mint());
+  public void For_OfADifferentDirectory_IsADifferentIdentity()
+      => Assert.NotEqual(WorkspaceIdentity.For("C:\\work\\repo"), WorkspaceIdentity.For("C:\\work\\repo2"));
 
-    Assert.Equal("ws-a", result.Id);
-    Assert.Equal(WorkspaceIdentityOutcome.Moved, result.Outcome);
-    Assert.NotNull(result.Notice);
-    Assert.Contains(OldRoot, result.Notice, StringComparison.Ordinal);
-    Assert.True(result.IsNoteworthy);
-  }
-
-  [Fact]
-  public void Decide_MarkerBoundToAPathThatStillExists_IsACopy_AndMintsAFreshIdentity()
-  {
-    // D6: the bound path is STILL THERE, so this directory is a copy of it. Two directories must
-    // never share one record set.
-    WorkspaceIdentityResolution result = WorkspaceIdentity.Decide(
-        "ws-a", NewRoot, new WorkspaceIdentityBinding("ws-a", OldRoot), boundRootExists: true, Mint());
-
-    Assert.Equal(MintedId, result.Id);
-    Assert.Equal(WorkspaceIdentityOutcome.Copied, result.Outcome);
-    Assert.NotNull(result.Notice);
-    Assert.Contains(OldRoot, result.Notice, StringComparison.Ordinal);
-    Assert.True(result.IsNoteworthy);
-  }
-
-  [Fact]
-  public void Decide_MarkerNamingAnUnboundIdentity_AdoptsIt()
-  {
-    // The row was lost (a pruned database, a hand-copied marker). The DIRECTORY is the authority
-    // on which identity it is, so the marker wins over minting a new one.
-    WorkspaceIdentityResolution result = WorkspaceIdentity.Decide(
-        "ws-a", NewRoot, binding: null, boundRootExists: false, Mint());
-
-    Assert.Equal("ws-a", result.Id);
-    Assert.Equal(WorkspaceIdentityOutcome.Bound, result.Outcome);
-  }
+  [Theory]
+  [InlineData(null)]
+  [InlineData("")]
+  [InlineData("   ")]
+  public void For_OfABlankRoot_IsRefused(string? root)
+      => _ = Assert.ThrowsAny<ArgumentException>(() => WorkspaceIdentity.For(root!));
 
   [Theory]
   [InlineData("C:\\work\\repo", "C:\\work\\repo")]

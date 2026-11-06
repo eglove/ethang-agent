@@ -4,8 +4,7 @@ namespace eThangAgent.AgentDomain;
 ///     on the chain record.
 ///     <para>WHY A CONSTANT AND NOT A SETTING: the count is the only bound on a session that
 ///     keeps failing the same way. A configurable cap is one that can be set to never fire,
-///     which is the same as having none - the rule <see cref="ChainClaimPolicy.ClaimTtl"/>
-///     already follows for the claim window. Widening it is a product decision that updates
+///     which is the same as having none. Widening it is a product decision that updates
 ///     this constant and its test in the same change.</para>
 ///     <para>PURE, like <see cref="ChainAdvancePolicy"/>: attempts in, decision out. The
 ///     enactment (resume the session, or park the chain) is the application layer's.</para></summary>

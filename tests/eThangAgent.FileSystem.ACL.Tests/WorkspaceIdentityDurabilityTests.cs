@@ -5,12 +5,10 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
 
-/// <summary>Issue #317 D5/D6/D7 end to end: the marker file, the identity table, and the orphan
-///     check against a REAL database and REAL directories.
-///     <para>These are the tests that prove the issue's first acceptance criterion - 'a workspace
-///     that is moved is either recoverable or documented as a loss, and the choice is recorded'.
-///     The choice recorded is RECOVERABLE, and what makes it true is that a chain written before a
-///     move is still found by the same identity after it.</para></summary>
+/// <summary>A workspace IS its directory path, and the identity table records that binding
+///     against a REAL database. These are the tests that keep the accepted cost honest: a
+///     directory that is moved or renamed arrives as a NEW workspace, and the records scoped to
+///     the old path stay with the old path rather than following the directory.</summary>
 public sealed class WorkspaceIdentityDurabilityTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ethang-wsid-{Guid.NewGuid():N}.db");
@@ -34,9 +32,6 @@ public sealed class WorkspaceIdentityDurabilityTests : IDisposable
 
   private AppDatabase Database => new(_dbPath);
 
-  private static WorkspaceIdentityResolver Resolver(AppDatabase database)
-      => new(new SqliteWorkspaceIdentityStore(database));
-
   private static T Must<T>(Result<T> result)
   {
     Assert.True(result.IsSuccess, result.Error?.Message ?? "expected success");
@@ -44,49 +39,58 @@ public sealed class WorkspaceIdentityDurabilityTests : IDisposable
   }
 
   [Fact]
-  public async Task Resolve_OnFirstOpen_BindsAnIdentityAndWritesTheMarker()
+  public async Task OpeningAWorkspace_WritesNothingIntoTheDirectory()
   {
-    WorkspaceIdentityResolution first = Must(await Resolver(Database).ResolveAsync(_root, TestContext.Current.CancellationToken));
+    // The harness adds no artifacts to the user's machine outside its database: opening a
+    // workspace leaves the directory exactly as it was.
+    AppDatabase database = Database;
+    string identity = WorkspaceIdentity.For(_root);
+    _ = Must(await new SqliteWorkspaceIdentityStore(database)
+        .BindAsync(identity, _root, TestContext.Current.CancellationToken));
 
-    Assert.Equal(WorkspaceIdentityOutcome.Bound, first.Outcome);
-    Assert.False(first.IsNoteworthy);
-    Assert.True(File.Exists(Path.Combine(_root, WorkspaceIdentityResolver.MarkerDirectory,
-        WorkspaceIdentityResolver.MarkerFileName)));
+    Assert.Empty(Directory.EnumerateFileSystemEntries(_root));
   }
 
   [Fact]
-  public async Task Resolve_Twice_ReturnsTheSameIdentity()
+  public async Task TheIdentity_IsTheDirectoryPath_AndItIsStable()
   {
     AppDatabase database = Database;
-    string first = Must(await Resolver(database).ResolveAsync(_root, TestContext.Current.CancellationToken)).Id;
-    string second = Must(await Resolver(database).ResolveAsync(_root, TestContext.Current.CancellationToken)).Id;
+    SqliteWorkspaceIdentityStore store = new(database);
+    string identity = WorkspaceIdentity.For(_root);
+    _ = Must(await store.BindAsync(identity, _root, TestContext.Current.CancellationToken));
 
-    Assert.Equal(first, second);
+    WorkspaceIdentityBinding? found = Must(await store.FindByRootAsync(_root,
+        TestContext.Current.CancellationToken));
+
+    Assert.NotNull(found);
+    Assert.Equal(identity, found.Id);
+    Assert.Equal(identity, found.Root);
   }
 
   [Fact]
-  public async Task Resolve_AfterAMove_KeepsTheIdentity_AndTheChainsFollowIt()
+  public async Task AMovedDirectory_IsANewWorkspace_AndTheOldRecordsStayWithTheOldPath()
   {
-    // D5, the whole point: write a chain under the original path, MOVE the directory, and the
-    // chain is still reachable through the same identity.
+    // The accepted cost of a path-only identity, pinned: the chain written under the old path
+    // is NOT reachable from the new one. Nothing was lost - it is still under the old id - but
+    // it does not follow the directory.
     AppDatabase database = Database;
-    string originalId = Must(await Resolver(database).ResolveAsync(_root, TestContext.Current.CancellationToken)).Id;
+    string originalId = WorkspaceIdentity.For(_root);
     int chainId = await CreateChainAsync(database, originalId);
 
     string moved = _root + "-moved";
     Directory.Move(_root, moved);
     try
     {
-      WorkspaceIdentityResolution afterMove = Must(await Resolver(database).ResolveAsync(moved, TestContext.Current.CancellationToken));
+      string movedId = WorkspaceIdentity.For(moved);
+      Assert.NotEqual(originalId, movedId);
 
-      Assert.Equal(originalId, afterMove.Id);
-      Assert.Equal(WorkspaceIdentityOutcome.Moved, afterMove.Outcome);
-      Assert.NotNull(afterMove.Notice);
-
-      // The chain is still found: the store scopes on the IDENTITY, which survived the move.
-      Result<Chain> chain = await new SqliteChainStore(database, afterMove.Id)
+      Result<Chain> underNewPath = await new SqliteChainStore(database, movedId)
           .GetAsync(chainId, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      Assert.True(chain.IsSuccess, chain.Error?.Message ?? "the chain must follow its workspace");
+      Assert.False(underNewPath.IsSuccess, "a moved directory must not inherit the old workspace's chains");
+
+      Result<Chain> underOldPath = await new SqliteChainStore(database, originalId)
+          .GetAsync(chainId, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(underOldPath.IsSuccess, "the chain stays readable under the path it was written at");
     }
     finally
     {
@@ -95,82 +99,21 @@ public sealed class WorkspaceIdentityDurabilityTests : IDisposable
   }
 
   [Fact]
-  public async Task Resolve_OfACopiedDirectory_MintsAFreshIdentity_AndTheCopyStartsEmpty()
-  {
-    // D6: the original still exists, so this is a COPY. Two directories must never share one
-    // record set - the copy gets its own identity and sees none of the original's chains.
-    AppDatabase database = Database;
-    string originalId = Must(await Resolver(database).ResolveAsync(_root, TestContext.Current.CancellationToken)).Id;
-    _ = await CreateChainAsync(database, originalId);
-
-    string copy = _root + "-copy";
-    CopyDirectory(_root, copy);
-    try
-    {
-      WorkspaceIdentityResolution copied = Must(await Resolver(database).ResolveAsync(copy, TestContext.Current.CancellationToken));
-
-      Assert.NotEqual(originalId, copied.Id);
-      Assert.Equal(WorkspaceIdentityOutcome.Copied, copied.Outcome);
-      Assert.NotNull(copied.Notice);
-
-      Result<ChainCatalog> catalog = await new SqliteChainStore(database, copied.Id)
-          .ListAsync(null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      Assert.Empty(Must(catalog).Chains);
-
-      // And the ORIGINAL keeps its chains: a copy must not steal them either.
-      Result<ChainCatalog> original = await new SqliteChainStore(database, originalId)
-          .ListAsync(null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      _ = Assert.Single(Must(original).Chains);
-    }
-    finally
-    {
-      Directory.Delete(copy, recursive: true);
-    }
-  }
-
-  [Fact]
-  public async Task Resolve_OfAPreIdentityWorkspace_AdoptsThePathAsItsIdentity()
-  {
-    // A workspace opened before #317 has no marker, and its id IS its path. Minting a new id
-    // would orphan every record it already has, so the resolver adopts the existing binding.
-    AppDatabase database = Database;
-    _ = Must(await new SqliteWorkspaceIdentityStore(database)
-        .BindAsync(_root, _root, TestContext.Current.CancellationToken));
-
-    WorkspaceIdentityResolution adopted = Must(await Resolver(database).ResolveAsync(_root, TestContext.Current.CancellationToken));
-
-    Assert.Equal(_root, adopted.Id);
-    Assert.Equal(WorkspaceIdentityOutcome.Bound, adopted.Outcome);
-  }
-
-  [Fact]
-  public async Task Resolve_WithAMalformedMarker_FailsNamed_InsteadOfOrphaningTheWorkspace()
-  {
-    // A marker that cannot be read is NOT an absent marker: treating it as absent would mint a
-    // fresh identity and orphan the workspace's records, which is the data loss #317 prevents.
-    string markerDir = Path.Combine(_root, WorkspaceIdentityResolver.MarkerDirectory);
-    _ = Directory.CreateDirectory(markerDir);
-    await File.WriteAllTextAsync(Path.Combine(markerDir, WorkspaceIdentityResolver.MarkerFileName),
-        "{ not json", TestContext.Current.CancellationToken);
-
-    Result<WorkspaceIdentityResolution> result = await Resolver(Database).ResolveAsync(_root, TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsSuccess);
-    Assert.Equal("WorkspaceMarkerInvalid", result.Error.Code);
-  }
-
-  [Fact]
   public async Task OrphanQuery_ReportsAChainWhoseWorkspaceIsGone_AndSparesOneWhoseWorkspaceLives()
   {
     // D7: the orphan check spans workspaces by definition, so it must see BOTH - the vanished
     // one reported and the live one spared.
     AppDatabase database = Database;
-    string liveId = Must(await Resolver(database).ResolveAsync(_root, TestContext.Current.CancellationToken)).Id;
+    string liveId = WorkspaceIdentity.For(_root);
+    _ = Must(await new SqliteWorkspaceIdentityStore(database)
+        .BindAsync(liveId, _root, TestContext.Current.CancellationToken));
     _ = await CreateChainAsync(database, liveId);
 
     string vanished = Path.Combine(Path.GetTempPath(), $"ethang-gone-{Guid.NewGuid():N}");
     _ = Directory.CreateDirectory(vanished);
-    string goneId = Must(await Resolver(database).ResolveAsync(vanished, TestContext.Current.CancellationToken)).Id;
+    string goneId = WorkspaceIdentity.For(vanished);
+    _ = Must(await new SqliteWorkspaceIdentityStore(database)
+        .BindAsync(goneId, vanished, TestContext.Current.CancellationToken));
     int goneChain = await CreateChainAsync(database, goneId);
     Directory.Delete(vanished, recursive: true);
 
@@ -185,8 +128,7 @@ public sealed class WorkspaceIdentityDurabilityTests : IDisposable
   [Fact]
   public async Task BindAsync_RepointsAnIdentity_AndLeavesNoStaleRow()
   {
-    // A move re-points ONE row. A stale row on either side would leave two identities fighting
-    // over one directory, which is what D6 forbids.
+    // A stale row on either side would leave two identities fighting over one directory.
     SqliteWorkspaceIdentityStore store = new(Database);
     _ = Must(await store.BindAsync("ws-a", "C:\\work\\one", TestContext.Current.CancellationToken));
     _ = Must(await store.BindAsync("ws-a", "C:\\work\\two", TestContext.Current.CancellationToken));
@@ -204,22 +146,5 @@ public sealed class WorkspaceIdentityDurabilityTests : IDisposable
         .CreateAsync(draft, TestContext.Current.CancellationToken).ConfigureAwait(false);
     Assert.True(created.IsSuccess, created.Error?.Message ?? "chain create must succeed");
     return created.Value.Id;
-  }
-
-  private static void CopyDirectory(string source, string destination)
-  {
-    _ = Directory.CreateDirectory(destination);
-    foreach (string file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-    {
-      string relative = Path.GetRelativePath(source, file);
-      string target = Path.Combine(destination, relative);
-      string? parent = Path.GetDirectoryName(target);
-      if (parent is not null)
-      {
-        _ = Directory.CreateDirectory(parent);
-      }
-
-      File.Copy(file, target, overwrite: true);
-    }
   }
 }

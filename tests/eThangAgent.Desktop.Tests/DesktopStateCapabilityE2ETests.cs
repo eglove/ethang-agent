@@ -103,47 +103,4 @@ public class DesktopStateCapabilityE2ETests
         .OfType<AssistantTextEntry>().Select(a => a.Text));
     Assert.Contains("done", assistant, StringComparison.OrdinalIgnoreCase);
   }
-
-  /// <summary>Seed-and-recall E2E: the first exchange seeds the persisted root transcript
-  ///     with a distinctive phrase; scripted turns then list sessions and recall the phrase
-  ///     through the memory capability actions inside exec programs. Assertions read only
-  ///     decoded tool-message content - [mem] hit lines, the paging footer, session= lines.</summary>
-  [Fact]
-  public async Task MemoryRecall_AgainstMockServer()
-  {
-    using E2E.HostHarness host = new();
-    _ = await host.StartAsync();
-
-    // Turn 1: plain assistant reply seeding 'xylophone harvest' into the transcript.
-    _ = host.Mock.Returns(RawCompletion("The xylophone harvest begins at dawn."));
-    await host.Vm.RunTurnAsync("tell me about the xylophone harvest");
-
-    // Turn 2: one exec tool call listing what conversations exist.
-    _ = host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("return Tools.Invoke(\"memory.sessions\", new { timeoutSeconds = 60, limit = 50 });")));
-    // Turn 3: one exec tool call recalling the seeded phrase across all sessions.
-    _ = host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("return Tools.Invoke(\"memory.recall\", new { timeoutSeconds = 60, query = \"xylophone\", scope = \"global\" });")));
-    // Turn 4: final text closes the exchange.
-    _ = host.Mock.Returns(RawCompletion("recalled."));
-    await host.Vm.RunTurnAsync("now list sessions and recall what you said");
-
-    Assert.True(host.Mock.RequestBodies.Count >= 4,
-        $"expected at least 4 scripted requests, got {host.Mock.RequestBodies.Count}");
-
-    // (a) The sessions listing renders the documented contract: session= label= entries=
-    //     status= tier=, and NO depth field - an agent is a session, not a node in a tree.
-    string sessionsOutput = E2E.FindToolMessageContaining(host.Mock.RequestBodies, "label=root");
-    Assert.Matches(@"(^|\n)session=[0-9a-fA-F-]{36} label=root entries=\d+ ", sessionsOutput);
-    Assert.DoesNotContain("depth=", sessionsOutput, StringComparison.Ordinal);
-
-    // (b) Recall renders the [mem] annotation line carrying the seeded phrase.
-    string recallOutput = E2E.FindToolMessageContaining(host.Mock.RequestBodies, "xylophone harvest");
-    Assert.Contains("[mem] session=", recallOutput, StringComparison.Ordinal);
-
-    // (c) The recall footer follows the paging contract.
-    Assert.Matches(@"--- memory: \d+ hits, page 1/\d+ ---", recallOutput);
-
-    string assistant = string.Join("", host.Vm.Transcript.Entries
-        .OfType<AssistantTextEntry>().Select(a => a.Text));
-    Assert.Contains("recalled.", assistant, StringComparison.OrdinalIgnoreCase);
-  }
 }
