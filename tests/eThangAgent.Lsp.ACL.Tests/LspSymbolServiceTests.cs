@@ -420,6 +420,77 @@ public class LspSymbolServiceTests
   }
 
   [Fact]
+  public async Task Rename_UnadvertisedCapability_ReturnsUnsupported_WithoutTouchingTheWire()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    LspSymbolService service = new(transport, LspCapabilities.None);
+    LspSymbolResult r = await service.RenameAsync("file:///ws/A.cs", "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Unsupported, r.State);
+    Assert.Contains("textDocument/rename", r.Message, StringComparison.Ordinal);
+    Assert.DoesNotContain("textDocument/rename", Encoding.UTF8.GetString(output.ToArray()), StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_SymbolOnlyReferenced_ReturnsUnsupported()
+  {
+    // documentSymbols advertises a different name, so resolution fails.
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Other", 0, 0)) + "}");
+    LspCapabilities caps = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
+    LspSymbolService service = new(transport, caps);
+    LspSymbolResult r = await service.RenameAsync("file:///ws/A.cs", "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Unsupported, r.State);
+    Assert.Contains("only referenced", r.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_WithCapability_CarriesTheWorkspaceEditJsonInMessage()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    string edit = "{\"changes\":{\"" + uri + "\":[{\"range\":{\"start\":{\"line\":0,\"character\":5},\"end\":{\"line\":0,\"character\":8}},\"newText\":\"Bar\"}]}}";
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + edit + "}");
+    LspCapabilities caps = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
+    LspSymbolService service = new(transport, caps);
+    LspSymbolResult r = await service.RenameAsync(uri, "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Ready, r.State);
+    Assert.Empty(r.Sites);
+    Assert.Equal(0, r.OccurrenceUsed);
+    Assert.Equal(1, r.TotalOccurrences);
+    LspRenameEditSet parsed = LspRenameEdits.Parse(r.Message!);
+    LspTextDocumentEdit document = Assert.Single(parsed.Documents);
+    Assert.Equal(uri, document.Uri);
+    Assert.Equal("Bar", Assert.Single(document.Edits).NewText);
+    string written = Encoding.UTF8.GetString(output.ToArray());
+    Assert.Contains("textDocument/rename", written, StringComparison.Ordinal);
+    Assert.Contains("newName", written, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Rename_ServerReturnsNoEdits_ReturnsReadyWithEmptySites()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/A.cs";
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("Foo", 0, 5)) + "}");
+    transport.EnqueueIncomingForTest(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 2, ["result"] = new JsonObject() }.ToJsonString());
+    LspCapabilities caps = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
+    LspSymbolService service = new(transport, caps);
+    LspSymbolResult r = await service.RenameAsync(uri, "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Ready, r.State);
+    Assert.Empty(r.Sites);
+    Assert.Contains("no edits", r.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task References_IdenticalSites_AreCollapsed()
   {
     using MemoryStream input = new();

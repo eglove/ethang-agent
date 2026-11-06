@@ -418,6 +418,11 @@ public sealed partial class LspSymbolService
     => QueryAsync(uri, symbolName, occurrence, "textDocument/implementation",
         (u, _, r) => "{\"textDocument\":{\"uri\":\"" + u + "\"},\"position\":{\"line\":" + r.Line + ",\"character\":" + r.Character + "}}", ct);
 
+  /// <summary>Asks the server to compute a rename of the named symbol and reports the edit
+  ///     set it answers with, unapplied, as the result message.</summary>
+  public Task<LspSymbolResult> RenameAsync(string uri, string symbolName, int occurrence, string newName, CancellationToken ct = default)
+    => RenameCoreAsync(uri, symbolName, occurrence, newName, ct);
+
   public async Task<LspSymbolResult> DocumentSymbolsAsync(string uri, CancellationToken ct = default)
   {
     if (_transport is null)
