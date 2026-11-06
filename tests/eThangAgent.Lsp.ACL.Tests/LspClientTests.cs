@@ -137,6 +137,15 @@ public class LspClientTests
   }
 
   [Fact]
+  public void UriMapping_ReadsTheServersPercentEncodedWindowsForm()
+  {
+    // Roslyn reports a Windows file as 'file:///c%3A/...', whose LocalPath carries a
+    // leading separator the platform's paths do not have.
+    string back = LspUriMapper.FromUri("file:///c%3A/Users/test/file.cs");
+    Assert.Equal(Path.GetFullPath("C:\\Users\\test\\file.cs"), back);
+  }
+
+  [Fact]
   public void ServerConfig_ClaimsExtensions()
   {
     LspServerConfig config = new("csharp", "omnisharp", [], [".cs"]);

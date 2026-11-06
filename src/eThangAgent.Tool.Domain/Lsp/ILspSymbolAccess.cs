@@ -65,6 +65,6 @@ public abstract record LspSymbolOutcome
   /// <summary>A computed rename: the edit set the language server returned, the symbol it
   ///     was computed for, and whether the edits were written. Reporting without applying
   ///     is the default, so <paramref name="Applied"/> is false unless a caller applied them.</summary>
-  public sealed record Renamed(IReadOnlyList<LspRenameEdit> Edits, string Target, bool Applied, string? Message = null) : LspSymbolOutcome;
+  public sealed record Renamed(IReadOnlyList<LspRenameEdit> Edits, string Target, string NewName, bool Applied, string? Message = null) : LspSymbolOutcome;
 }
 #pragma warning restore CA1034

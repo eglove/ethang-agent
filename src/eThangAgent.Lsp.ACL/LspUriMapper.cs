@@ -13,6 +13,16 @@ public static class LspUriMapper
   public static string FromUri(string uri)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(uri);
-    return new Uri(uri).LocalPath;
+    string local = new Uri(uri).LocalPath;
+
+    // A server may report a Windows path in the authority-less form
+    // 'file:///c%3A/dir/file.cs', whose LocalPath is '/c:/dir/file.cs'. The leading
+    // separator is not part of the path on this platform.
+    if (local.Length >= 3 && local[0] == '/' && char.IsAsciiLetter(local[1]) && local[2] == ':')
+    {
+      return Path.GetFullPath(char.ToUpperInvariant(local[1]) + local[2..]);
+    }
+
+    return local;
   }
 }

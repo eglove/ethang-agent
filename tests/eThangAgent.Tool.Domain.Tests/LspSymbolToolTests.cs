@@ -197,7 +197,7 @@ public class LspSymbolToolTests
   {
     ScriptedSymbolAccess access = new()
     {
-      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\other\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\other\A.cs", 3, 10, 3, 13, "Bar")], "Foo", "Bar", Applied: false),
     };
     RecordingApplier rootApplier = new();
     RecordingApplier anchoredApplier = new();
@@ -305,7 +305,7 @@ public class LspSymbolToolTests
   {
     ScriptedSymbolAccess access = new()
     {
-      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", "Bar", Applied: false),
     };
     RecordingApplier applier = new();
     ToolResult r = await CallWithApplier(access, applier, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\"").ConfigureAwait(true);
@@ -326,7 +326,7 @@ public class LspSymbolToolTests
   {
     ScriptedSymbolAccess access = new()
     {
-      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", "Bar", Applied: false),
     };
     RecordingApplier applier = new();
     ToolResult r = await CallWithApplier(access, applier,
@@ -343,7 +343,7 @@ public class LspSymbolToolTests
   {
     ScriptedSymbolAccess access = new()
     {
-      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", "Bar", Applied: false),
     };
     ToolResult r = await Call(access,
         "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\", \"apply\": true").ConfigureAwait(true);
@@ -357,7 +357,7 @@ public class LspSymbolToolTests
   {
     ScriptedSymbolAccess access = new()
     {
-      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\ws\A.cs", 3, 10, 3, 13, "Bar")], "Foo", "Bar", Applied: false),
     };
     LspSymbolTool tool = new(new WorkspacePathResolver("C:\\ws"), access, new FailingApplier());
     ToolResult r = await tool.ExecuteAsync(new RawToolInput("lsp",
@@ -378,6 +378,7 @@ public class LspSymbolToolTests
             new LspRenameEdit(@"C:\ws\B.cs", 9, 2, 9, 5, "Bar"),
           ],
           "Foo",
+          "Bar",
           Applied: false),
     };
     ToolResult r = await Call(access, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\"").ConfigureAwait(true);
@@ -393,7 +394,7 @@ public class LspSymbolToolTests
   {
     ScriptedSymbolAccess access = new()
     {
-      Next = new LspSymbolOutcome.Renamed([], "Foo", Applied: false, Message: "the server returned no edits"),
+      Next = new LspSymbolOutcome.Renamed([], "Foo", "Bar", Applied: false, Message: "the server returned no edits"),
     };
     ToolResult r = await Call(access, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\"").ConfigureAwait(true);
     Assert.False(r.IsError);

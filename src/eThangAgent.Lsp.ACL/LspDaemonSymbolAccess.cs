@@ -39,7 +39,7 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     LspSymbolResult result = await client
         .SymbolAsync(action, uri, symbolName ?? string.Empty, occurrence, depth, newName, ct)
         .ConfigureAwait(false);
-    return Map(result, action);
+    return Map(result, action, symbolName ?? string.Empty, newName);
   }
 
   private static (string Action, string? Path, string? SymbolName, int Occurrence, int Depth, string NewName) Describe(LspSymbolCommand command) => command switch
@@ -57,13 +57,13 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     _ => throw new InvalidOperationException("unreachable: command is a validated record family"),
   };
 
-  private static LspSymbolOutcome Map(LspSymbolResult result, string action)
+  private static LspSymbolOutcome Map(LspSymbolResult result, string action, string symbolName, string newName)
   {
     string message = result.Message ?? result.State.ToString();
     List<ToolDomain.Lsp.LspSymbolSite> sites = [.. result.Sites.Select(s => new ToolDomain.Lsp.LspSymbolSite(FromUri(s.Uri), s.Line, s.Character, s.SymbolName))];
     return result.State switch
     {
-      LspSymbolState.Ready when action == RenameAction => MapRename(result),
+      LspSymbolState.Ready when action == RenameAction => MapRename(result, symbolName, newName),
       LspSymbolState.Ready => new LspSymbolOutcome.Ready(sites, result.OccurrenceUsed, result.TotalOccurrences, result.Message),
       LspSymbolState.Unsupported => new LspSymbolOutcome.Unsupported(message),
       LspSymbolState.Unavailable => new LspSymbolOutcome.Unavailable(message),
@@ -77,7 +77,7 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
   /// <summary>Flattens a rename WorkspaceEdit into the domain's edit values. The wire shape
   ///     never crosses the seam: a file move is unsupported, and a payload that does not
   ///     parse is a degraded answer rather than a guess.</summary>
-  private static LspSymbolOutcome MapRename(LspSymbolResult result)
+  private static LspSymbolOutcome MapRename(LspSymbolResult result, string target, string newName)
   {
     if (string.IsNullOrWhiteSpace(result.Message))
     {
@@ -103,7 +103,7 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     List<LspRenameEdit> edits = [.. editSet.Documents.SelectMany(document =>
         document.Edits.Select(edit => new LspRenameEdit(
             FromUri(document.Uri), edit.StartLine, edit.StartCharacter, edit.EndLine, edit.EndCharacter, edit.NewText)))];
-    return new LspSymbolOutcome.Renamed(edits, string.Empty, Applied: false, result.Message);
+    return new LspSymbolOutcome.Renamed(edits, target, newName, Applied: false, result.Message);
   }
 
   private static string FromUri(string uri)

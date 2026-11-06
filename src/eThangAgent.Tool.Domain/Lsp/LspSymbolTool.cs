@@ -67,7 +67,8 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
         + " definition, references, hover, implementation, call-hierarchy-incoming, and call-hierarchy-outgoing require path and symbolName and take an optional occurrence (default 0); call-hierarchy actions take an optional depth (1 default, 2 max);"
         + " document-symbols requires path; workspace-symbols requires symbolName; workspace-load takes neither."
         + " rename requires path, symbolName, and newName, and takes an optional occurrence and an optional apply (default false)."
-        + " rename asks the language server for the edit set and reports every edit as 'path:line:character -> newName' (1-based), marked not applied, unless apply is true, in which case every edit is written as one all-or-nothing unit and the result names the files changed."
+        + " rename asks the language server for the edit set and reports every edit as 'path:line:character -> newText' (1-based), marked not applied, unless apply is true, in which case every edit is written as one all-or-nothing unit and the result names the files changed."
+        + " A server may answer with a minimal diff, so one newText is the replacement for that exact span and is not necessarily the whole new name; the edit set as a whole applies the rename."
         + " rename refuses paths outside the workspace and paths under bin/ or obj/, and reports Unsupported when the server does not advertise rename or the edit set carries file renames - file renames are not supported, only text edits."
         + " The caller never supplies line or column: the tool resolves the position from the symbol name via document symbols."
         + " Multiple occurrences resolve deterministically and the result names the occurrence used."
@@ -227,14 +228,14 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
   }
 
   /// <summary>Renders a computed rename that was not written: every edit as
-  ///     'path:line:character -> newName' (1-based), then the words 'not applied'.</summary>
+  ///     'path:line:character -> newText' (1-based), then the words 'not applied'.</summary>
   private static ToolResult RenderRenamed(LspSymbolOutcome.Renamed renamed, string actionText)
   {
     int count = renamed.Edits.Count;
     List<string> lines =
     [
       string.Create(CultureInfo.InvariantCulture,
-          $"[lsp] Ready: {actionText} - {count} {EditPlural(count)} for '{renamed.Target}' (not applied)"),
+          $"[lsp] Ready: {actionText} - {count} {EditPlural(count)} renaming '{renamed.Target}' to '{renamed.NewName}' (not applied)"),
     ];
     foreach (LspRenameEdit edit in renamed.Edits)
     {
