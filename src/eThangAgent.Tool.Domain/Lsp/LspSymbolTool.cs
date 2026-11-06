@@ -13,11 +13,13 @@ namespace eThangAgent.ToolDomain.Lsp;
 ///     <see cref="LspSymbolOutcome"/> values and are rendered, not caught.
 ///     Symbol-name addressing: the caller supplies path + symbolName (never
 ///     line/column); the ACL resolves the position via document symbols.</summary>
-public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess access, ILspRenameApplier? applier = null) : ITool, IWorkspaceScopedTool
+public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess access, ILspRenameApplier? applier = null,
+    Func<string, ILspRenameApplier>? applierAt = null) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly ILspSymbolAccess _access = access ?? throw new ArgumentNullException(nameof(access));
   private readonly ILspRenameApplier? _applier = applier;
+  private readonly Func<string, ILspRenameApplier>? _applierAt = applierAt;
 
   private static readonly string[] ActionNames = ["definition", "references", "hover", "document-symbols", "workspace-symbols", "implementation", "call-hierarchy-incoming", "call-hierarchy-outgoing", "workspace-load", "rename"];
 
@@ -26,8 +28,12 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
   private static bool IsListingAction(LspSymbolAction action)
     => action is LspSymbolAction.DocumentSymbols or LspSymbolAction.WorkspaceSymbols or LspSymbolAction.WorkspaceLoad;
 
+  /// <summary>The anchored view: the resolver re-roots, and so does the rename applier when a
+  ///     factory was supplied, so an anchored child's rename writes are confined to its own
+  ///     anchor exactly like its read and write tools.</summary>
   public ITool RootedAt(string workspaceRoot)
-      => new LspSymbolTool(new WorkspacePathResolver(workspaceRoot), _access, _applier);
+      => new LspSymbolTool(new WorkspacePathResolver(workspaceRoot), _access,
+          _applierAt?.Invoke(workspaceRoot) ?? _applier, _applierAt);
 
   /// <inheritdoc />
   public ToolDefinition Definition { get; } = new(

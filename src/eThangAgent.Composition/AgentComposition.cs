@@ -421,8 +421,13 @@ public static class AgentComposition
       // requires a language server to exist.
       new AgentToolBinding(
           new LspSymbolTool(sp.GetRequiredService<IPathResolver>(),
-              new LspDaemonSymbolAccess(ct => sp.GetRequiredService<LspDaemonHost>().EnsureConnectedAsync(ct))),
-          "Query language-server symbol navigation (definition, references, hover, document-symbols, workspace-symbols, implementation)."),
+              new LspDaemonSymbolAccess(ct => sp.GetRequiredService<LspDaemonHost>().EnsureConnectedAsync(ct)),
+              sp.GetRequiredService<ILspRenameApplier>(),
+              anchor => new LspRenameApplier(
+                  sp.GetRequiredService<IFileSystemAccess>(),
+                  sp.GetRequiredService<IFileWriteAccess>(),
+                  anchor)),
+          "Query language-server symbol navigation (definition, references, hover, document-symbols, workspace-symbols, implementation, rename)."),
   ];
 
   /// <summary>Host-supplied workspace identity, the app database, the storage-backed stores, the
@@ -1290,6 +1295,13 @@ public static class AgentComposition
         .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
         .AddSingleton<LspDaemonExePathOverride>()
         .AddSingleton(DaemonHost)
+        // The rename action's write half: the same file seams and workspace root every other
+        // mutating tool uses, so a computed rename is applied by the edit machinery rather than
+        // by the model. One applier per container; it holds no per-call state.
+        .AddSingleton<ILspRenameApplier>(sp => new LspRenameApplier(
+            sp.GetRequiredService<IFileSystemAccess>(),
+            sp.GetRequiredService<IFileWriteAccess>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
         .AddSingleton(sp => new VerificationGate(
             sp.GetRequiredService<IVerificationLedger>(),
             settings.VerificationGateEnabled))

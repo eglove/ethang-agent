@@ -193,6 +193,31 @@ public class LspSymbolToolTests
   }
 
   [Fact]
+  public async Task RootedAt_ReRoots_The_RenameApplier()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Renamed([new LspRenameEdit(@"C:\other\A.cs", 3, 10, 3, 13, "Bar")], "Foo", Applied: false),
+    };
+    RecordingApplier rootApplier = new();
+    RecordingApplier anchoredApplier = new();
+    string? anchoredAt = null;
+    LspSymbolTool tool = new(new WorkspacePathResolver("C:\\ws"), access, rootApplier, root =>
+    {
+      anchoredAt = root;
+      return anchoredApplier;
+    });
+    ITool rooted = tool.RootedAt("C:\\other");
+    ToolResult r = await rooted.ExecuteAsync(new RawToolInput("lsp",
+        Args("\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\", \"apply\": true")),
+        ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.Equal("C:\\other", anchoredAt);
+    Assert.Equal(0, rootApplier.Calls);
+    Assert.Equal(1, anchoredApplier.Calls);
+  }
+
+  [Fact]
   public async Task DocumentSymbols_Annotation_ReportsCount_NotOccurrence()
   {
     ScriptedSymbolAccess access = new()
