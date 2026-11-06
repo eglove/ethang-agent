@@ -14,7 +14,8 @@ public sealed class ChainBriefRendererTests
       IReadOnlyList<ChainBriefPredecessor>? predecessors = null,
       string goal = "Make the dashboard tell the truth about what it did.",
       ChainStepRole? role = null,
-      bool rubric = false) =>
+      bool rubric = false,
+      IReadOnlyList<ChainBriefSibling>? siblings = null) =>
       new(ChainId: 7,
           ChainTitle: "2026-08-24-dashboard-truth",
           PlanId: 104,
@@ -29,7 +30,10 @@ public sealed class ChainBriefRendererTests
           Predecessors: predecessors ?? [],
           LedgerKey: "sci.dashboard-truth/ledger",
           Role: role,
-          ReviewRubricAvailable: rubric);
+          ReviewRubricAvailable: rubric)
+      {
+        Siblings = siblings ?? [],
+      };
 
   [Fact]
   public void Render_NamesTheAssignedStepThePlanAndTheChain()
@@ -230,5 +234,88 @@ public sealed class ChainBriefRendererTests
     Assert.Equal("ChainStepMissing", brief.Error.Code);
     Assert.Contains("step 9", brief.Error.Message, StringComparison.Ordinal);
     Assert.Contains("plan #104", brief.Error.Message, StringComparison.Ordinal);
+  }
+
+  /// <summary>A group member's brief names the steps running BESIDE it (D6): their outcomes do
+  ///     not exist yet, so the brief must say so rather than list them as predecessors.
+  ///     </summary>
+  [Fact]
+  public void Render_ForAGroupMember_ListsTheStepsRunningBesideIt()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(siblings: [
+      new ChainBriefSibling(2, "Parse the schema"),
+      new ChainBriefSibling(3, "Write the reader"),
+    ])).Value!;
+
+    Assert.Contains(
+        """
+        ## Steps running BESIDE you
+
+        These steps of the same chain are running at the same moment as yours, each in its own
+        git worktree. Their outcomes do not exist yet. Do not change work that belongs to them,
+        and do not wait for them: the harness merges the branches when every member has finished.
+
+        - Step 2 — Parse the schema
+        - Step 3 — Write the reader
+        """,
+        brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_WithNoSiblings_OmitsTheSectionEntirely()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
+
+    Assert.DoesNotContain("Steps running BESIDE you", brief.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>Completing one member starts nothing: the group is a barrier, and the harness
+  ///     starts what follows only once every member has finished. A member told the sequential
+  ///     rule would believe its own completion advanced the chain.</summary>
+  [Fact]
+  public void Render_ForAGroupMember_DoesNotClaimItsCompletionStartsTheNextStep()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(siblings: [
+      new ChainBriefSibling(3, "Write the reader"),
+    ])).Value!;
+
+    Assert.DoesNotContain("Completing your step is what starts the next one", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("Completing your step starts nothing on its own", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("the harness starts what follows only once every member has finished",
+        brief.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>The sequential sentence is pinned here so the member branch cannot quietly change
+  ///     it: every chain that exists today reads this text.</summary>
+  [Fact]
+  public void Render_ForASequentialStep_StillClaimsItsCompletionStartsTheNextStep()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
+
+    Assert.Contains("Completing your step is what starts the next one", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("Completing your step starts nothing on its own", brief.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>A member's work must be committed: the harness merges its branch, and an
+  ///     uncommitted worktree refuses the completion. The brief names the commands because a
+  ///     session that has to guess them guesses wrong.</summary>
+  [Fact]
+  public void Render_ForAGroupMember_RequiresACommitAndNamesTheCommands()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(siblings: [
+      new ChainBriefSibling(3, "Write the reader"),
+    ])).Value!;
+
+    Assert.Contains("Your work must be COMMITTED before you mark this step done", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("`git add -A`", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("`git commit -m \"<what you did>\"`", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForASequentialStep_RequiresNoCommit()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
+
+    Assert.DoesNotContain("git add -A", brief.Content, StringComparison.Ordinal);
   }
 }

@@ -164,7 +164,24 @@ public sealed class ChainBriefService(IChainBriefSource source)
           chain.Predecessors,
           ChainLedgerSlug.KeyFor(chain.Title),
           RoleOf(chain, assignment),
-          rubricAvailable);
+          rubricAvailable)
+      {
+        Siblings = Siblings(chain, plan, assignment.Position),
+      };
+
+  /// <summary>The other members of this step's group, named by the plan's titles.
+  ///     <para>THE CHAIN OWNS MEMBERSHIP, THE PLAN OWNS TITLES. A group is a fact of the chain
+  ///     record; a step's title is a fact of the plan. Joining them here is what lets the brief
+  ///     name work happening beside this session without the Agent Domain learning what a plan
+  ///     is. A member whose plan step is gone is skipped rather than rendered as a blank line.
+  ///     </para></summary>
+  private static IReadOnlyList<ChainBriefSibling> Siblings(ChainBriefChain chain,
+      ChainBriefPlan plan, int position) =>
+      [.. chain.Members
+          .Where(member => member != position)
+          .Select(member => plan.Steps.FirstOrDefault(step => step.Position == member))
+          .OfType<ChainBriefPlanStep>()
+          .Select(step => new ChainBriefSibling(step.Position, step.Title))];
 
   /// <summary>The seed message, flagged as a summary so every surface treats it as harness
   ///     context rather than as user voice.

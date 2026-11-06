@@ -18,6 +18,14 @@ public sealed record ChainBriefPlanStep(int Position, string Title, string? Deta
 /// <param name="Outcome">What the step recorded, when it recorded anything.</param>
 public sealed record ChainBriefPredecessor(int Position, ChainStepStatus Status, string? Outcome);
 
+/// <summary>One step running at the same moment as this one, as a member of the same group
+///     needs it. A sibling is NOT a predecessor: its outcome does not exist yet, so the brief
+///     names it as work happening beside this session rather than as work that concluded.
+///     </summary>
+/// <param name="Position">1-based chain step position of the sibling.</param>
+/// <param name="Title">The sibling's title.</param>
+public sealed record ChainBriefSibling(int Position, string Title);
+
 /// <summary>Everything the brief renders, gathered by <see cref="IChainBriefSource"/> and
 ///     turned into text by <see cref="ChainBriefRenderer"/> (issue #302 D1).
 ///     <para>WHY FACTS AND NOT THE RECORDS: the renderer must be a PURE function so the same
@@ -77,6 +85,15 @@ public sealed record ChainBriefFacts(
   ///     same fact whether a session is implementing or reviewing. What differs is what
   ///     "finished" means, and that is the whole of the difference.</para></summary>
   public bool IsReview => EffectiveRole.IsReview;
+
+  /// <summary>The other members of this step's group, in position order, so a member knows
+  ///     which work is happening beside it and must neither change nor wait on it. Empty for a
+  ///     step that runs alone.</summary>
+  public IReadOnlyList<ChainBriefSibling> Siblings { get; init; } = [];
+
+  /// <summary>True when this step runs as one of a group, so its completion starts nothing on
+  ///     its own and its work must be committed before it completes.</summary>
+  public bool IsGroupMember => Siblings.Count > 0;
 }
 
 /// <summary>The rendered brief (issue #302): the first message a chain step's session

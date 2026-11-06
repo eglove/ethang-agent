@@ -44,9 +44,17 @@ public interface IChainBriefSource
 /// <param name="Role">The role assigned to the step this brief is for (issue #306), read from
 ///     the chain record. Null when the chain holds no step at that position, which the renderer
 ///     already refuses — a brief for a step that is gone has nothing to say about its role.</param>
+/// <param name="GroupPositions">The positions of every member of the group the step at
+///     <c>position</c> belongs to, including that step, in position order. Empty when the step
+///     runs alone. The chain record owns group membership; the titles come from the plan, so the
+///     two are joined where both are held.</param>
 public sealed record ChainBriefChain(
     int ChainId, string Title, int PlanId, IReadOnlyList<ChainBriefPredecessor> Predecessors,
-    ChainStepRole? Role = null);
+    ChainStepRole? Role = null, IReadOnlyList<int>? GroupPositions = null)
+{
+  /// <summary>The group's member positions, never null.</summary>
+  public IReadOnlyList<int> Members => GroupPositions ?? [];
+}
 
 /// <summary>The plan facts a brief needs.</summary>
 /// <param name="PlanId">The plan id.</param>

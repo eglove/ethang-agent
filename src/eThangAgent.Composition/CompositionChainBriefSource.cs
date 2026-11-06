@@ -30,7 +30,7 @@ internal sealed class CompositionChainBriefSource(ChainService chains, PlanServi
     Result<Chain> chain = await _chains.GetAsync(chainId, ct).ConfigureAwait(false);
     return chain.IsSuccess
       ? Result.Success(new ChainBriefChain(chain.Value.Id, chain.Value.Title, chain.Value.PlanId,
-          Predecessors(chain.Value), RoleOf(chain.Value, position)))
+          Predecessors(chain.Value), RoleOf(chain.Value, position), GroupPositions(chain.Value, position)))
       : Result.Failure<ChainBriefChain>(chain.Error);
   }
 
@@ -52,6 +52,14 @@ internal sealed class CompositionChainBriefSource(ChainService chains, PlanServi
   ///     the row, and the row is what #218's separation rule reads too.</para></summary>
   private static ChainStepRole? RoleOf(Chain chain, int position) =>
       chain.Steps.FirstOrDefault(step => step.Position == position)?.Role;
+
+  /// <summary>The positions of the group the step at <paramref name="position"/> belongs to,
+  ///     including that step, or an empty list when the step runs alone or the chain holds no
+  ///     step there.</summary>
+  private static IReadOnlyList<int> GroupPositions(Chain chain, int position) =>
+      chain.GroupAt(position) is { } group
+        ? [.. chain.GroupMembers(group).Select(step => step.Position)]
+        : [];
 
   /// <inheritdoc />
   public async Task<Result<ChainBriefPlan>> GetPlanAsync(int planId, CancellationToken ct = default)

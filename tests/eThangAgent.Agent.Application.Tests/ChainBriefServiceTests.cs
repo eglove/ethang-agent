@@ -199,6 +199,42 @@ public sealed class ChainBriefServiceTests
     Assert.Contains("You are the REVIEWER for this step", message.Content, StringComparison.Ordinal);
   }
 
+  [Fact]
+  public async Task BuildSeed_ForAGroupMember_NamesTheOtherMembersByTheirPlanTitles()
+  {
+    // The chain record owns group membership and the plan owns titles, so the join is the
+    // service's: a member must see the work running beside it, named rather than numbered.
+    ChainBriefService service = new(new FakeSource(
+        chain: Result.Success(new ChainBriefChain(
+            7, "2026-08-24-dashboard-truth", 104, [], null, [2, 3])),
+        plan: Result.Success(new ChainBriefPlan(104, 3, "Make the dashboard tell the truth.",
+            [new ChainBriefPlanStep(1, "Honest status line", null),
+             new ChainBriefPlanStep(2, "Real demo broker", null),
+             new ChainBriefPlanStep(3, "Write the reader", null)]))));
+
+    Message message = Assert.Single((await service
+        .BuildSeedAsync(Assignment, TestContext.Current.CancellationToken)).Value!);
+
+    Assert.Contains("## Steps running BESIDE you", message.Content, StringComparison.Ordinal);
+    Assert.Contains("- Step 3 — Write the reader", message.Content, StringComparison.Ordinal);
+    // Its OWN position is not a sibling.
+    Assert.DoesNotContain("- Step 2 — Real demo broker", message.Content, StringComparison.Ordinal);
+    Assert.Contains("Completing your step starts nothing on its own", message.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task BuildSeed_ForASequentialStep_RendersNoSiblingsAndNoCommitDuty()
+  {
+    ChainBriefService service = new(new FakeSource());
+
+    Message message = Assert.Single((await service
+        .BuildSeedAsync(Assignment, TestContext.Current.CancellationToken)).Value!);
+
+    Assert.DoesNotContain("Steps running BESIDE you", message.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("git add -A", message.Content, StringComparison.Ordinal);
+    Assert.Contains("Completing your step is what starts the next one", message.Content, StringComparison.Ordinal);
+  }
+
   private sealed class FakeSource(
       Result<ChainBriefChain>? chain = null,
       Result<ChainBriefPlan>? plan = null,

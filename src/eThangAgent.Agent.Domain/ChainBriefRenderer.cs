@@ -115,6 +115,7 @@ public static class ChainBriefRenderer
     ]);
 
     AddPredecessors(lines, facts);
+    AddSiblings(lines, facts);
     AddCompletionEvidence(lines);
     // THE ONE BRANCH ON ROLE (issue #306): a reviewer is not asked to finish the work, because
     // a reviewer told to mark the step done would finish it instead of judging it.
@@ -145,6 +146,29 @@ public static class ChainBriefRenderer
     {
       lines.Add($"- Step {predecessor.Position} — {predecessor.Status}: "
           + (string.IsNullOrWhiteSpace(predecessor.Outcome) ? "(no outcome recorded)" : predecessor.Outcome.Trim()));
+    }
+  }
+
+  /// <summary>The steps of this step's group that are running at the same moment, so a member
+  ///     knows which work is happening beside it and that it must neither change nor wait on it.
+  ///     </summary>
+  private static void AddSiblings(List<string> lines, ChainBriefFacts facts)
+  {
+    if (facts.Siblings.Count == 0)
+    {
+      return;
+    }
+
+    lines.Add("");
+    lines.Add("## Steps running BESIDE you");
+    lines.Add("");
+    lines.Add("These steps of the same chain are running at the same moment as yours, each in its own");
+    lines.Add("git worktree. Their outcomes do not exist yet. Do not change work that belongs to them,");
+    lines.Add("and do not wait for them: the harness merges the branches when every member has finished.");
+    lines.Add("");
+    foreach (ChainBriefSibling sibling in facts.Siblings)
+    {
+      lines.Add($"- Step {sibling.Position} — {sibling.Title}");
     }
   }
 
@@ -241,7 +265,11 @@ public static class ChainBriefRenderer
     lines.Add("");
   }
 
-  /// <summary>D4: how to finish, stated so a session that does not know how to finish can.</summary>
+  /// <summary>D4: how to finish, stated so a session that does not know how to finish can.
+  ///     <para>A MEMBER OF A GROUP FINISHES DIFFERENTLY IN TWO WAYS: its work must be committed,
+  ///     because the harness merges its branch and an uncommitted worktree refuses the
+  ///     completion; and its completion starts nothing, because the group is a barrier.</para>
+  ///     </summary>
   private static void AddCompletion(List<string> lines, ChainBriefFacts facts)
   {
     lines.Add("");
@@ -254,8 +282,27 @@ public static class ChainBriefRenderer
     lines.Add("That is the ONLY step you may mark done. The harness refuses a Done on any other step");
     lines.Add("of this plan, and it refuses a Done on this step from any other session.");
     lines.Add("");
+    if (facts.IsGroupMember)
+    {
+      AddMemberCommit(lines);
+      lines.Add("Completing your step starts nothing on its own: this step is one of a group that runs");
+      lines.Add("together, and the harness starts what follows only once every member has finished. If you");
+      lines.Add("cannot finish, say so in the transcript and stop; the chain parks rather than guessing.");
+      return;
+    }
+
     lines.Add("Completing your step is what starts the next one — the harness reacts to it, you do not");
     lines.Add("start anything yourself. If you cannot finish, say so in the transcript and stop; the");
     lines.Add("chain parks rather than guessing.");
+  }
+
+  /// <summary>The commit duty of a group member: the harness merges its branch into the
+  ///     workspace, so the work has to exist on the branch before the step completes.</summary>
+  private static void AddMemberCommit(List<string> lines)
+  {
+    lines.Add("Your work must be COMMITTED before you mark this step done. The harness merges your branch");
+    lines.Add("into the workspace, so an uncommitted worktree refuses your completion. When your work is");
+    lines.Add("done, run `git add -A` and `git commit -m \"<what you did>\"` in this session's workspace.");
+    lines.Add("");
   }
 }
