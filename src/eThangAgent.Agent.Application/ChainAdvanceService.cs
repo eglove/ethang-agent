@@ -191,14 +191,25 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
           .ConfigureAwait(false);
     }
 
+    // A GROUP'S MEMBERS START TOGETHER (D2): the completion that makes the group runnable starts
+    // every member that has not started yet, not just the first one the cursor offers. A group
+    // whose members started one per completion would be a sequential chain with extra machinery.
+    if (GroupToStart(settled.Value) is { } group)
+    {
+      return Result.Success(await StartGroupAsync(settled.Value, group, sessionId, now, ct)
+          .ConfigureAwait(false));
+    }
+
     ChainAdvance decision = ChainAdvancePolicy.Decide(settled.Value, position, sessionId);
     if (decision.Kind == ChainAdvanceKind.Blocked)
     {
-      // A BLOCKED CHAIN IS PARKED, not left Running (issue #303 D3/D9). Nothing is available to
-      // start and nothing can complete, so the work is waiting for a human - and a chain that
-      // stayed Running here would sit forever while every surface reported it as in progress.
-      // 'Waiting for a human' and 'broken' must not look alike, which is what Parked is for.
-      return Result.Success(await ParkBlockedAsync(settled.Value, decision, now, ct)
+      // A SIBLING STILL RUNNING IS NOT A REASON TO PARK (D2). The group's other members are
+      // working, and their completions are what move the cursor; parking here would stop a group
+      // because one of its members finished first. The chain simply has nothing to start yet.
+      // A BLOCKED CHAIN WITH NOTHING RUNNING IS PARKED, not left Running (issue #303 D3/D9):
+      // nothing is available to start and nothing can complete, so the work is waiting for a
+      // human. 'Waiting for a human' and 'broken' must not look alike, which is what Parked is for.
+      return Result.Success(await ParkOrWaitAsync(settled.Value, decision, now, ct)
           .ConfigureAwait(false));
     }
 
@@ -429,6 +440,42 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
         ? new ChainAdvance(ChainAdvanceKind.Blocked, null, ChainReviewCode.CapReached, reason)
         : ChainAdvance.Refused(parked.Error.Code, parked.Error.Message);
   }
+  /// <summary>Starts every PENDING member of <paramref name="group"/> that has no session yet, so
+  ///     a group's members run at the same moment instead of one per completion.
+  ///     <para>THE MEMBERS SHARE ONE PREDECESSOR, which is the session whose completion made the
+  ///     group runnable: a member is not waiting on its siblings, so none of them is the
+  ///     predecessor of another.</para>
+  ///     <para>A MEMBER THAT CANNOT START STOPS THE FAN-OUT. Every refusal here is a fact about
+  ///     the chain (a spent attempt, a checkout that could not be made), and starting the
+  ///     remaining members behind it would report a group that ran when part of it did
+  ///     not.</para></summary>
+  /// <param name="chain">The chain as it stands.</param>
+  /// <param name="group">The group id whose members start.</param>
+  /// <param name="predecessorSessionId">The session whose completion made the group runnable.</param>
+  /// <param name="now">The clock the claims are stamped with.</param>
+  /// <param name="ct">Cancellation.</param>
+  public async Task<ChainAdvance> StartGroupAsync(Chain chain, int group, string predecessorSessionId,
+      DateTimeOffset now, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(chain);
+    ChainAdvance started = new(ChainAdvanceKind.Blocked, null, ChainAdvanceCode.StepsUnsettled,
+        $"chain #{chain.Id} group {group} has no member left to start.");
+    foreach (ChainStep member in chain.GroupMembers(group)
+        .Where(step => step.Status == ChainStepStatus.Pending).ToList())
+    {
+      (ChainAdvance one, _) = await StartOneAsync(chain, member.Position, predecessorSessionId, now, ct)
+          .ConfigureAwait(false);
+      if (one.Kind != ChainAdvanceKind.StartStep)
+      {
+        return one;
+      }
+
+      started = one;
+    }
+
+    return started;
+  }
+
   /// <summary>Claims the next step for a NEW session and starts it. The claim happens
   ///     BEFORE the start so the step is unavailable to any other claimant during the launch
   ///     window; the claim is then REASSIGNED to the real id, which spends no extra attempt.
@@ -437,6 +484,17 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
   private async Task<ChainAdvance> StartStepAsync(Chain chain, int position, string predecessorSessionId,
       DateTimeOffset now, CancellationToken ct)
   {
+    (ChainAdvance advance, _) = await StartOneAsync(chain, position, predecessorSessionId, now, ct)
+        .ConfigureAwait(false);
+    return advance;
+  }
+
+  /// <summary>The same start, also returning the chain as it stands afterwards, so a caller
+  ///     starting several steps threads one handle through them instead of re-reading the
+  ///     record between launches.</summary>
+  private async Task<(ChainAdvance Advance, Chain Chain)> StartOneAsync(Chain chain, int position,
+      string predecessorSessionId, DateTimeOffset now, CancellationToken ct)
+  {
     // THE SEPARATION RULE RUNS BEFORE THE CLAIM (issue #218): a refused review step must spend
     // no attempt and hold no claim, or it would be unavailable to the next advance while nothing
     // was ever started for it.
@@ -444,15 +502,15 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
         .ConfigureAwait(false);
     if (!checkedOk.IsSuccess)
     {
-      return ChainAdvance.Refused(checkedOk.Error.Code, checkedOk.Error.Message);
+      return (ChainAdvance.Refused(checkedOk.Error.Code, checkedOk.Error.Message), chain);
     }
 
     // A PARKED CHAIN IS NOT STARTED: the refusal is already on the record, so there is nothing
     // to release and nothing to report as a failure - the chain is waiting for a human.
     if (checkedOk.Value.Parked)
     {
-      return new ChainAdvance(ChainAdvanceKind.Blocked, position,
-          ChainAdvanceCode.ReviewerNotSeparated, checkedOk.Value.Reason);
+      return (new ChainAdvance(ChainAdvanceKind.Blocked, position,
+          ChainAdvanceCode.ReviewerNotSeparated, checkedOk.Value.Reason), chain);
     }
 
     string provisional = "pending-" + Guid.NewGuid().ToString("N");
@@ -460,7 +518,7 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
         .ConfigureAwait(false);
     if (!claimed.IsSuccess)
     {
-      return ChainAdvance.Refused(claimed.Error.Code, claimed.Error.Message);
+      return (ChainAdvance.Refused(claimed.Error.Code, claimed.Error.Message), chain);
     }
 
     ChainStep claimedStep = claimed.Value.Steps.First(step => step.Position == position);
@@ -475,7 +533,7 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     {
       _ = await _chains.ReleaseStepAsync(chain.Id, position, ChainActor.Harness, now, ct)
           .ConfigureAwait(false);
-      return ChainAdvance.Refused(worktree.Error.Code, worktree.Error.Message);
+      return (ChainAdvance.Refused(worktree.Error.Code, worktree.Error.Message), chain);
     }
 
     // THE ROLE TRAVELS FROM THE RECORD (issue #313 D7): the step's assigned role is what
@@ -498,14 +556,14 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       // launch is still an attempt the bound must see.
       _ = await _chains.ReleaseStepAsync(chain.Id, position, ChainActor.Harness, now, ct)
           .ConfigureAwait(false);
-      return ChainAdvance.Refused(started.Error.Code, started.Error.Message);
+      return (ChainAdvance.Refused(started.Error.Code, started.Error.Message), chain);
     }
 
     // REASSIGN to the real id: the placeholder existed only to hold the step during launch,
     // and reassigning must not spend a second attempt.
     _ = await _chains.ReassignStepAsync(chain.Id, position, started.Value, now, ct)
         .ConfigureAwait(false);
-    return new ChainAdvance(ChainAdvanceKind.StartStep, position, null, started.Value);
+    return (new ChainAdvance(ChainAdvanceKind.StartStep, position, null, started.Value), chain);
   }
 
   /// <summary>The worktree the step at <paramref name="step"/> runs in, provisioned when it
@@ -549,6 +607,23 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
         ? Result.Success<StepWorktree?>(new StepWorktree(provisioned.Value.Path, provisioned.Value.Branch))
         : Result.Failure<StepWorktree?>(new DomainError(stamped.Error.Code,
             $"the worktree '{provisioned.Value.Path}' was provisioned but could not be recorded: {stamped.Error.Message}"));
+  }
+
+  /// <summary>The group whose members must start now, or null when no group is waiting.
+  ///     <para>A GROUP IS RUNNABLE ONCE EVERY GROUP BEFORE IT HAS SETTLED, which is the same
+  ///     barrier <see cref="Chain.NextAvailableStep"/> applies: the group is read from the
+  ///     cursor's own answer rather than re-derived here, so the barrier has one home.</para>
+  ///     <para>THE STEP THAT COMPLETED MAY BE ANYWHERE, including inside the group itself: a
+  ///     member completing while its siblings are still Pending is exactly the case this exists
+  ///     for, because a launch that failed releases its member rather than holding it.</para>
+  ///     </summary>
+  /// <param name="chain">The chain as it stands after the step settled.</param>
+  private static int? GroupToStart(Chain chain)
+  {
+    return chain.NextAvailableStep() is { Group: { } group }
+        && chain.GroupMembers(group).Any(step => step.Status == ChainStepStatus.Pending)
+          ? group
+          : null;
   }
 
   /// <summary>True when the step at <paramref name="position"/> is the reconciler of the
@@ -699,6 +774,21 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
   ///     from the walker, now with the record to match.</para>
   ///     <para>The session is NOT closed. It is the one that reported the completion, and a
   ///     parked chain is waiting for a human who may want to read that session's transcript.</para></summary>
+  /// <summary>Parks a chain that can no longer advance, unless a step is still RUNNING - a
+  ///     group's other members are working, and their completions are what move the cursor.
+  ///     <para>THE WAITING CASE IS NOT A PARK AND NOT A COMPLETION: nothing is available to start
+  ///     and nothing can complete yet, so the decision is returned as it stands and the running
+  ///     session's own completion advances the chain.</para></summary>
+  /// <param name="chain">The chain as it stands after the step settled.</param>
+  /// <param name="decision">The blocked decision the cursor produced.</param>
+  /// <param name="now">The clock.</param>
+  /// <param name="ct">Cancellation.</param>
+  private Task<ChainAdvance> ParkOrWaitAsync(Chain chain, ChainAdvance decision,
+      DateTimeOffset now, CancellationToken ct) =>
+      chain.Steps.Any(step => step.Status == ChainStepStatus.Running)
+          ? Task.FromResult(decision)
+          : ParkBlockedAsync(chain, decision, now, ct);
+
   private async Task<ChainAdvance> ParkBlockedAsync(Chain chain, ChainAdvance decision,
       DateTimeOffset now, CancellationToken ct)
   {

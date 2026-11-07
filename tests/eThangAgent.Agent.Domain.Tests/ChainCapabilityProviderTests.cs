@@ -181,8 +181,19 @@ public class ChainCapabilityProviderTests
     ChainService chains = new(store);
     return (new ChainCapabilityProvider(chains, new FakePlans(planSteps), start,
         () => "session-creator", new FixedClock(T0), reviewers: null,
-        workspaceGit: new ChainWorkspaceGit(new FakeWorktrees(isRepository), "C:\\ws")),
+        workspaceGit: new ChainWorkspaceGit(new FakeWorktrees(isRepository), "C:\\ws",
+            new FakeProvisioner())),
         store, start);
+  }
+
+  /// <summary>The provisioner a group's members are made by: one checkout per worktree name,
+  ///     under the workspace's own <c>.worktrees</c> directory.</summary>
+  private sealed class FakeProvisioner : IWorktreeProvisioner
+  {
+    public Task<Result<WorktreeProvision>> CreateAsync(string repoRoot, string name,
+        CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new WorktreeProvision(name,
+            repoRoot + "\\.worktrees\\" + name, name)));
   }
 
   [Fact]
@@ -228,7 +239,9 @@ public class ChainCapabilityProviderTests
         .ConfigureAwait(true);
 
     Assert.False(result.IsError);
-    _ = Assert.Single(start.Started);
+    // BOTH MEMBERS START, not only the first: a group's members run at the same moment, so
+    // creation launches every one of them.
+    Assert.Equal([1, 2], [.. start.Started.Select(assignment => assignment.Position)]);
   }
 
   [Fact]
@@ -434,7 +447,9 @@ public class ChainCapabilityProviderTests
   [Fact]
   public async Task Create_WithAGroup_RecordsTheGroupOnEveryMemberAndStartsStepOne()
   {
-    (ChainCapabilityProvider provider, FakeStore store, _, _) = New(1, 2, 3);
+    // THE GIT FIXTURE, because a group's members need checkouts: creation makes one per member
+    // before it launches them, so a container with no provisioner cannot start a group.
+    (ChainCapabilityProvider provider, FakeStore store, _) = NewWithGit(isRepository: true, 1, 2, 3);
 
     CapabilityInvocationResult result = await InvokeAsync(provider,
         Plan(7, Step(1, group: 4) + ", " + Step(2, group: 4) + ", " + Step(3)))
@@ -443,6 +458,11 @@ public class ChainCapabilityProviderTests
     Assert.False(result.IsError);
     Chain stored = Must(await store.GetAsync(1, TestContext.Current.CancellationToken)
         .ConfigureAwait(true));
+    // EVERY MEMBER OF THE OPENING GROUP IS STARTED, and the reconciler is not: creation
+    // launches the members together and leaves the merge to the step after them.
+    Assert.Equal(ChainStepStatus.Running, stored.Steps.Single(step => step.Position == 1).Status);
+    Assert.Equal(ChainStepStatus.Running, stored.Steps.Single(step => step.Position == 2).Status);
+    Assert.Equal(ChainStepStatus.Pending, stored.Steps.Single(step => step.Position == 3).Status);
     Assert.Equal(4, stored.Steps.Single(step => step.Position == 1).Group);
     Assert.Equal(4, stored.Steps.Single(step => step.Position == 2).Group);
     Assert.Null(stored.Steps.Single(step => step.Position == 3).Group);

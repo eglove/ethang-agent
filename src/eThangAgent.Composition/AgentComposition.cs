@@ -709,7 +709,10 @@ public static class AgentComposition
             // A group runs its members in worktrees, so creation asks the same git seam the
             // advance provisions them through whether the workspace is a repository at all.
             new ChainWorkspaceGit(sp.GetRequiredService<IGitWorktreeAccess>(),
-                sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot)));
+                sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
+                // A group member's checkout is made by the same provisioner the advance uses,
+                // because creation starts a group's members itself.
+                sp.GetRequiredService<IWorktreeProvisioner>())));
   }
 
   /// <summary>The reviewer-recording delegate <c>plan.review</c> writes through (issue #320):

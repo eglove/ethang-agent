@@ -10,8 +10,6 @@ public class ChainAdvanceGroupTests
 {
   private static readonly DateTimeOffset T0 = new(2026, 11, 6, 10, 0, 0, TimeSpan.Zero);
 
-  private const string ProvisionedPath = "C:\\ws\\.worktrees\\provisioned";
-
   /// <summary>What happened, in the order it happened: the claim and the provisioning are
   ///     two writes whose order decides whether a member can be claimed by nobody while its
   ///     checkout is being made.</summary>
@@ -103,9 +101,15 @@ public class ChainAdvanceGroupTests
     {
       Provisioned.Add(name);
       journal.Add("provision:" + name);
+      // EACH CHECKOUT GETS ITS OWN DIRECTORY, named after the worktree: a group's members are
+      // provisioned together, and one shared path would make them indistinguishable.
       return Task.FromResult(ProvisionResult
-          ?? Result.Success(new WorktreeProvision(name, ProvisionedPath, name)));
+          ?? Result.Success(new WorktreeProvision(name, PathFor(name), name)));
     }
+
+    /// <summary>The directory this host reports for a worktree name.</summary>
+    /// <param name="name">The worktree name.</param>
+    public static string PathFor(string name) => "C:\\ws\\.worktrees\\" + name;
 
     public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
         => Task.FromResult(Dirty.Contains(path));
@@ -173,10 +177,12 @@ public class ChainAdvanceGroupTests
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.True(advance.IsSuccess, advance.Error?.Message ?? "expected success");
-    Assert.Equal(["chain-1-step-2"], fixture.Host.Provisioned);
-    ChainStepAssignment started = Assert.Single(fixture.Host.Started);
-    Assert.Equal(2, started.Position);
-    Assert.Equal(ProvisionedPath, started.WorktreePath);
+    // THE WHOLE GROUP STARTS, not only the member the cursor offered: a group whose members
+    // waited for one another would be a sequential chain.
+    Assert.Equal(["chain-1-step-2", "chain-1-step-3"], fixture.Host.Provisioned);
+    Assert.Equal([2, 3], [.. fixture.Host.Started.Select(started => started.Position)]);
+    Assert.Equal(FakeHost.PathFor("chain-1-step-2"), fixture.Host.Started[0].WorktreePath);
+    Assert.Equal(FakeHost.PathFor("chain-1-step-3"), fixture.Host.Started[1].WorktreePath);
   }
 
   [Fact]
@@ -190,11 +196,13 @@ public class ChainAdvanceGroupTests
 
     Chain stored = Must(await fixture.Store.GetAsync(claimed.Id,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
-    Assert.Equal(ProvisionedPath, stored.StepAt(2)!.WorktreePath);
+    Assert.Equal(FakeHost.PathFor("chain-1-step-2"), stored.StepAt(2)!.WorktreePath);
     // The branch the provisioner checked out is recorded beside the path: the reconciler merges
     // by branch, and the member's session is closed by the time it reads this.
     Assert.Equal("chain-1-step-2", stored.StepAt(2)!.WorktreeBranch);
-    Assert.Null(stored.StepAt(3)!.WorktreePath);
+    // EVERY MEMBER OF THE GROUP HAS ITS OWN CHECKOUT, and the reconciler has none.
+    Assert.Equal(FakeHost.PathFor("chain-1-step-3"), stored.StepAt(3)!.WorktreePath);
+    Assert.Null(stored.StepAt(4)!.WorktreePath);
     Assert.Null(stored.StepAt(1)!.WorktreePath);
   }
 
@@ -268,9 +276,10 @@ public class ChainAdvanceGroupTests
     _ = Must(await fixture.Service.AdvanceAsync(stamped, 1, "session-a", T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
 
-    Assert.Empty(fixture.Host.Provisioned);
-    Assert.Equal("C:\\ws\\.worktrees\\chain-1-step-2",
-        Assert.Single(fixture.Host.Started).WorktreePath);
+    // THE RECORDED CHECKOUT IS REUSED and only the sibling is provisioned: a retried launch must
+    // land in the directory that already holds its work.
+    Assert.Equal(["chain-1-step-3"], fixture.Host.Provisioned);
+    Assert.Equal("C:\\ws\\.worktrees\\chain-1-step-2", fixture.Host.Started[0].WorktreePath);
   }
 
   [Fact]
@@ -282,7 +291,8 @@ public class ChainAdvanceGroupTests
         TestContext.Current.CancellationToken).ConfigureAwait(true));
     Chain afterFirst = Must(await fixture.Store.GetAsync(claimed.Id,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
-    _ = fixture.Host.Dirty.Add(ProvisionedPath);
+    string memberPath = FakeHost.PathFor("chain-1-step-2");
+    _ = fixture.Host.Dirty.Add(memberPath);
 
     Result<ChainAdvance> second = await fixture.Service.AdvanceAsync(afterFirst, 2, "session-2", T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -290,7 +300,7 @@ public class ChainAdvanceGroupTests
     Assert.True(second.IsSuccess, second.Error?.Message ?? "a refusal is a value, not a failure");
     Assert.Equal(ChainAdvanceKind.Refused, second.Value.Kind);
     Assert.Equal("ChainWorktreeDirty", second.Value.Code);
-    Assert.Contains(ProvisionedPath, second.Value.Reason!, StringComparison.Ordinal);
+    Assert.Contains(memberPath, second.Value.Reason!, StringComparison.Ordinal);
     Assert.Contains("git commit -m", second.Value.Reason!, StringComparison.Ordinal);
     Chain stored = Must(await fixture.Store.GetAsync(claimed.Id,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
@@ -421,7 +431,7 @@ public class ChainAdvanceGroupTests
     Assert.Empty(fixture.Host.Removed);
     Chain stored = Must(await fixture.Store.GetAsync(claimed.Id,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
-    Assert.Equal(ProvisionedPath, stored.StepAt(2)!.WorktreePath);
+    Assert.Equal(FakeHost.PathFor("chain-1-step-2"), stored.StepAt(2)!.WorktreePath);
   }
 
   [Fact]

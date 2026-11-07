@@ -61,7 +61,12 @@ internal sealed class CompositionChainBriefSource(ChainService chains, PlanServi
   private async Task<Result<ChainBriefReconciliation?>> ReconciliationAsync(Chain chain, int position,
       CancellationToken ct)
   {
-    if (chain.GroupAt(position - 1) is not { } group)
+    // THE RECONCILER IS THE STEP IMMEDIATELY AFTER A GROUP'S LAST MEMBER, and it stands OUTSIDE
+    // that group - chain creation requires exactly that. Reading the group at the position before
+    // this one is therefore right only when that position is the group's LAST member: asked of
+    // any earlier member it names the group this step does not reconcile, and the brief would
+    // claim a merge that is not this step's to perform.
+    if (chain.GroupAt(position - 1) is not { } group || chain.GroupAt(position) is not null)
     {
       return Result.Success<ChainBriefReconciliation?>(null);
     }
@@ -73,8 +78,11 @@ internal sealed class CompositionChainBriefSource(ChainService chains, PlanServi
               .Where(member => member.WorktreePath is not null && member.WorktreeBranch is not null)
               .Select(member => new ChainBriefBranch(member.Position, member.WorktreeBranch!, member.WorktreePath!))],
           checkout.Value.DirtyFiles,
+          // A MEMBER IS JUDGED BY WHETHER IT SETTLED, not by whether it is Done: a member still
+          // running has not failed, and naming it as one would tell the reconciler to leave its
+          // branch out of a merge it has not written yet.
           [.. chain.GroupMembers(group)
-              .Where(member => member.Status is not ChainStepStatus.Done)
+              .Where(member => member.Status is not (ChainStepStatus.Done or ChainStepStatus.Running))
               .Select(member => member.Position)],
           checkout.Value.Readable))
       : Result.Failure<ChainBriefReconciliation?>(checkout.Error);

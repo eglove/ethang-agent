@@ -12,6 +12,7 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   private readonly CancellationTokenSource _cts = new();
   private readonly Queue<string> _scriptedResponses = new();
   private readonly Dictionary<string, Queue<string>> _modelScripts = [];
+  private readonly List<(string Marker, Queue<string> Queue)> _contentScripts = [];
   private readonly Dictionary<string, TimeSpan> _modelDelays = [];
   // Dispatch runs every request on its own task, so these are written from more than one
   // thread while the test thread reads them. The snapshots below hand out copies taken under
@@ -122,6 +123,34 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
       {
         queue.Enqueue(response);
       }
+    }
+
+    return this;
+  }
+
+  /// <summary>Scripts one turn for EVERY request whose body contains <paramref name="marker"/>,
+  ///     consumed in the order scripted.
+  ///     <para>WHY THIS EXISTS BESIDE THE MODEL QUEUE: two sessions on one model draw from one
+  ///     queue in arrival order, so a script written for one of them is served to whichever
+  ///     asked first. A marker the session's own prompt carries - its step position, say -
+  ///     answers each session with its own script whatever the order.</para></summary>
+  /// <param name="marker">Text the request body must contain.</param>
+  /// <param name="responseJson">The response body.</param>
+  public MockOpenRouterServer ReturnsForRequestContaining(string marker, string responseJson)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(marker);
+    ArgumentNullException.ThrowIfNull(responseJson);
+    lock (_gate)
+    {
+      (string Marker, Queue<string> Queue) rule = _contentScripts
+          .FirstOrDefault(candidate => string.Equals(candidate.Marker, marker, StringComparison.Ordinal));
+      if (rule.Queue is null)
+      {
+        rule = (marker, new Queue<string>());
+        _contentScripts.Add(rule);
+      }
+
+      rule.Queue.Enqueue(responseJson);
     }
 
     return this;
@@ -241,23 +270,45 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
     return texts;
   }
 
-  /// <summary>Picks the next scripted response for a responses request — the request model's
-  ///     queue, then the default script, then the pineapple fallback — and applies
-  ///     {{child_id}} substitution before the body is served.</summary>
+  /// <summary>Picks the next scripted response for a responses request — the first matching
+  ///     CONTENT rule, then the request model's queue, then the default script, then the
+  ///     pineapple fallback — and applies {{child_id}} substitution before the body is served.
+  ///     <para>A CONTENT RULE IS ADDRESSED BY WHAT THE REQUEST SAYS, not by which model asked:
+  ///     two sessions on one model draw from one queue in arrival order, so a script written
+  ///     for one of them is served to whichever asked first. A rule keyed on a fact the
+  ///     session's own prompt carries answers each session with its own script whatever the
+  ///     order.</para></summary>
   private string NextScriptedBody(string requestBody)
   {
     string? model = TryGetRequestModel(requestBody);
     string body;
     lock (_gate)
     {
-      body = model is not null
+      body = MatchingContentScript(requestBody) ?? (model is not null
           && _modelScripts.TryGetValue(model, out Queue<string>? scripted)
           && scripted.Count > 0
           ? scripted.Dequeue()
-          : NextDefaultScriptedBody();
+          : NextDefaultScriptedBody());
     }
 
     return SubstituteAgentId(body, requestBody);
+  }
+
+  /// <summary>The first content rule whose marker the request body carries, or null. A rule
+  ///     whose queue is spent no longer matches, so a later request falls through to the
+  ///     ordinary selection instead of being served an answer twice.</summary>
+  /// <param name="requestBody">The request as the server received it.</param>
+  private string? MatchingContentScript(string requestBody)
+  {
+    foreach ((string marker, Queue<string> queue) in _contentScripts)
+    {
+      if (queue.Count > 0 && requestBody.Contains(marker, StringComparison.Ordinal))
+      {
+        return queue.Dequeue();
+      }
+    }
+
+    return null;
   }
 
   private string NextDefaultScriptedBody()

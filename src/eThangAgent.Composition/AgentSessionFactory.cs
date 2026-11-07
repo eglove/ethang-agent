@@ -141,15 +141,16 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     // provider reads it at construction, so a fill after the first turn would leave the prompt
     // silent for exactly the session it describes.
     services.GetService<ChainContractCarrier>()?.Fill(chainContract);
-    // THE SESSION'S CHECKOUT IS AMBIENT FOR ITS WHOLE LIFETIME when it is not the workspace: the
-    // exec engine, the completion gate, and every path-rooted tool read the anchor scope first,
-    // so setting it once here is what makes a group member's scripts run in its own worktree
-    // rather than in the checkout its siblings are also writing into. An ordinary launch leaves
-    // the scope untouched, which is the behaviour every session had before this existed.
-    if (!string.Equals(anchor, full, StringComparison.OrdinalIgnoreCase)
-        && services.GetService<IWorkspaceAnchorScope>() is { } scope)
+    // THE SESSION'S CHECKOUT IS AMBIENT WHILE IT IS BEING BUILT, and only then: the exec engine
+    // and the completion gate read the anchor scope, so setting it here is what makes a group
+    // member's scripts run in its own worktree rather than in the checkout its siblings write.
+    // IT IS CLEARED BEFORE THIS METHOD RETURNS, because the scope is an AsyncLocal on the flow
+    // that built this session - an anchor left set would travel into whatever that flow does
+    // next, and the next launch on it would inherit a checkout it does not own.
+    IWorkspaceAnchorScope? scope = services.GetService<IWorkspaceAnchorScope>();
+    if (!string.Equals(anchor, full, StringComparison.OrdinalIgnoreCase))
     {
-      scope.Current = anchor;
+      SetAnchor(scope, anchor);
     }
     try
     {
@@ -231,7 +232,20 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       await services.DisposeAsync().ConfigureAwait(false);
       throw;
     }
+    finally
+    {
+      // THE ANCHOR IS AMBIENT FOR THE BUILD, NOT FOR THE FLOW (see above): leaving it set
+      // would hand a member's checkout to the next launch that runs on this flow.
+      SetAnchor(scope, null);
+    }
   }
+
+  /// <summary>Sets the ambient checkout, or clears it when <paramref name="anchor"/> is null.
+  ///     A container that wired no scope has nothing to set.</summary>
+  /// <param name="scope">The container's anchor scope, or null.</param>
+  /// <param name="anchor">The checkout, or null to clear it.</param>
+  private static void SetAnchor(IWorkspaceAnchorScope? scope, string? anchor)
+    => scope?.Current = anchor;
 
   /// <summary>Reopens a previously persisted root session by id: its persisted transcript
   ///     hydrates the new container's conversation, and a Completed row returns to Running.

@@ -227,8 +227,12 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     session-request launch is answered IMMEDIATELY but appended as a cell only when the
   ///     requesting turn goes idle, so the pending session needs a home in between; the map is
   ///     also the one-launch-per-tab guard (two launches racing for one tab would leave one
-  ///     session orphaned in no tab at all).</summary>
-  private readonly Dictionary<AgentTabViewModel, AgentSession> _pendingReplacements = [];
+  ///     session orphaned in no tab at all).
+  ///     <para>A GROUP'S MEMBERS ARE SEVERAL LAUNCHES FOR ONE TAB, so the guard is a COUNT per
+  ///     tab rather than a presence: the launches are siblings in one tab, each with its own
+  ///     session, and refusing the second would start one member of a group that declared
+  ///     two.</para></summary>
+  private readonly Dictionary<AgentTabViewModel, int> _pendingReplacements = [];
 
   /// <summary>How many session starts this shell has begun and not yet either attached or
   ///     disposed (issue #368).
@@ -1424,7 +1428,11 @@ internal sealed partial class MainViewModel : ObservableObject
       return refusal;
     }
 
-    string workspaceRoot = tab.Container.WorkspaceRoot;
+    // THE TAB'S WORKSPACE, NOT ITS LIVE CELL'S CHECKOUT: a group member's cell is anchored at its
+    // own worktree, so the live container names that directory once one is appended. A launch
+    // built from it would put the next session's stores - plan and chain alike - under the
+    // worktree's identity instead of the workspace's.
+    string workspaceRoot = tab.WorkspaceRoot;
     string providerName = tab.Container.ProviderName;
     int index = Tabs.IndexOf(tab);
 
@@ -2236,7 +2244,11 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    if (_pendingReplacements.ContainsKey(tab))
+    // A CHAIN LAUNCH IS NOT GATED BY ANOTHER CHAIN LAUNCH (D2): a group starts its members at the
+    // same moment, so two of them arrive here concurrently and each is a separate cell with its
+    // own session. What the guard still protects is the REPLACEMENT slot - a handoff or `/new`
+    // that supersedes a cell - so it refuses only when one of those is already in flight.
+    if (_pendingReplacements.ContainsKey(tab) && request.ChainStep is null)
     {
       Answer(channel, request, failure: new DomainError("SessionRequestPending",
           "a previous new-session request for this tab is still being applied."));
@@ -2267,7 +2279,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // ANSWER FIRST: the id is the thing the blocked tool is waiting for, and the tab swap
     // must not delay it.
     Answer(channel, request, sessionId: created.Value.RootId.ToString());
-    _pendingReplacements[tab] = created.Value;
+    _pendingReplacements[tab] = _pendingReplacements.GetValueOrDefault(tab) + 1;
 
     // The swap waits for the CURRENT turn to go idle. A handoff request is emitted BEFORE
     // the host settles its turn, so swapping now would dispose the container the running
@@ -2422,7 +2434,12 @@ internal sealed partial class MainViewModel : ObservableObject
   private async Task<Result<AgentSession>> CreateForSessionRequestAsync(AgentTabViewModel tab,
       SessionRequestPayload request)
   {
-    string workspaceRoot = tab.Container.WorkspaceRoot;
+    // THE TAB'S WORKSPACE, NOT ITS LIVE CELL'S CHECKOUT. A group member's cell is anchored at
+    // its own worktree, so once one is appended the tab's live container names that directory -
+    // and a launch built from it would put the next session's stores, plan and chain alike,
+    // under the worktree's identity instead of the workspace's. The tab records the workspace
+    // it was opened on, which is the fact a launch into it needs.
+    string workspaceRoot = tab.WorkspaceRoot;
     string providerName = tab.Container.ProviderName;
     Result<ChainBriefLaunch> launch = await SeedForAsync(tab, request).ConfigureAwait(true);
     if (!launch.IsSuccess)
@@ -2432,6 +2449,12 @@ internal sealed partial class MainViewModel : ObservableObject
 
     IReadOnlyList<Message>? messages = launch.Value.Seed.Count == 0 ? null : launch.Value.Seed;
     ChainContract? contract = launch.Value.Contract;
+    // THE CHECKOUT THE STEP WORKS IN (D3): a group member's session is anchored at its own
+    // worktree, so every path-rooted tool and the exec workspace name that directory. Null for a
+    // sequential step, which runs in the workspace exactly as it always did.
+    string? anchorRoot = request.ChainStep is { } step
+        ? await WorktreePathAsync(tab, step).ConfigureAwait(true)
+        : null;
     SeededSessionCreator? creator = _createSeededSession;
     if ((messages is not null || contract is not null) && creator is null)
     {
@@ -2443,7 +2466,7 @@ internal sealed partial class MainViewModel : ObservableObject
     using (ExecutionContext.SuppressFlow())
     {
       scheduled = Task.Run(() => creator is not null && (messages is not null || contract is not null)
-          ? creator(workspaceRoot, providerName, messages, contract)
+          ? creator(workspaceRoot, providerName, messages, contract, anchorRoot)
           : _createSession(workspaceRoot, providerName));
     }
 
@@ -2479,11 +2502,43 @@ internal sealed partial class MainViewModel : ObservableObject
     // implementer's model in a single-model run. The model crossed the wire beside the role, so
     // the assignment carries both.
     ChainStepRole role = RoleOf(request) ?? ChainStepRole.Implement;
-    return briefs is null
-        ? Result.Failure<ChainBriefLaunch>(new DomainError("BriefUnsupported",
-            "this host cannot render a chain brief; the chain step's session was not started."))
-        : await briefs.BuildLaunchAsync(new ChainStepAssignment(step.ChainId, step.PlanId,
-            step.Position, null).WithRole(role)).ConfigureAwait(true);
+    if (briefs is null)
+    {
+      return Result.Failure<ChainBriefLaunch>(new DomainError("BriefUnsupported",
+          "this host cannot render a chain brief; the chain step's session was not started."));
+    }
+
+    // THE CHECKOUT TRAVELS WITH THE ASSIGNMENT (D3): a group member's session is anchored at its
+    // own worktree, and the record is the only source that path - it was written when the
+    // checkout was made, before this launch. A sequential step's record names none, so its
+    // session runs in the workspace exactly as it always did.
+    ChainStepAssignment assignment = new ChainStepAssignment(step.ChainId, step.PlanId,
+        step.Position, null).WithRole(role);
+    if (await WorktreePathAsync(tab, step).ConfigureAwait(true) is { } checkout)
+    {
+      assignment = assignment.WithWorktree(checkout);
+    }
+
+    return await briefs.BuildLaunchAsync(assignment).ConfigureAwait(true);
+  }
+
+  /// <summary>The checkout a chain step's session runs in, read from the chain record, or null
+  ///     for a step that runs in the workspace.
+  ///     <para>A RECORD THAT CANNOT BE READ NAMES NO CHECKOUT, which is the workspace default:
+  ///     the alternative is refusing a launch over a read the brief already made, and a step with
+  ///     no worktree is the ordinary case.</para></summary>
+  /// <param name="tab">The tab whose workspace scopes the chain records.</param>
+  /// <param name="step">The chain step the request names.</param>
+  private static async Task<string?> WorktreePathAsync(AgentTabViewModel tab,
+      SessionRequestChainStep step)
+  {
+    if (ChainStoreFor(tab) is not { } chains)
+    {
+      return null;
+    }
+
+    Result<Chain> chain = await chains.GetAsync(step.ChainId).ConfigureAwait(false);
+    return chain.IsSuccess ? chain.Value.StepAt(step.Position)?.WorktreePath : null;
   }
 
   /// <summary>Awaits the requesting tab's turn going idle, then swaps. The wait is the
@@ -2548,7 +2603,16 @@ internal sealed partial class MainViewModel : ObservableObject
     }
     finally
     {
-      _ = _pendingReplacements.Remove(tab);
+      // THE COUNT IS RELEASED, NOT THE TAB: a group's second member is still in flight while the
+      // first lands, so dropping the entry here would let a third launch through the guard.
+      if (_pendingReplacements.GetValueOrDefault(tab) is var pending and > 1)
+      {
+        _pendingReplacements[tab] = pending - 1;
+      }
+      else
+      {
+        _ = _pendingReplacements.Remove(tab);
+      }
     }
   }
 

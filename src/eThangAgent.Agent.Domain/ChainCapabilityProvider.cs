@@ -6,13 +6,16 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain;
 
-/// <summary>The git seam a chain creation asks whether the workspace is a repository, and
-///     the directory it asks it of. Both facts travel together because neither answers the
-///     question alone.</summary>
+/// <summary>The git seam a chain creation asks whether the workspace is a repository, makes a
+///     group member's checkout through, and the directory it asks both of. The facts travel
+///     together because none of them answers anything alone.</summary>
 /// <param name="Worktrees">The worktree operations; listing succeeds only inside a
 ///     repository.</param>
 /// <param name="Root">The workspace directory.</param>
-public sealed record ChainWorkspaceGit(IGitWorktreeAccess Worktrees, string Root);
+/// <param name="Provisioner">Creates a group member's checkout, or null when the host wired
+///     none - a group member then cannot start and the refusal says so.</param>
+public sealed record ChainWorkspaceGit(IGitWorktreeAccess Worktrees, string Root,
+    IWorktreeProvisioner? Provisioner = null);
 
 /// <summary>The model-facing door over the chain record (issue #313 D6): one action,
 ///     <c>create</c>, which converts a plan into a chain and starts step 1.
@@ -227,29 +230,138 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
           + $"{chain.Steps.Count} step(s), PARKED - {separated.Value.Reason}"));
     }
 
+    // A GROUP'S MEMBERS ALL START AT CREATION (D2): the first position may open a group, and a
+    // group whose members waited for one another would be a sequential chain.
+    Result<string> started = chain.Steps[0].Group is { } opening
+      ? await StartGroupAsync(chain, opening, plan, now, ct).ConfigureAwait(false)
+      : await StartFirstAsync(chain, plan, first, now, ct).ConfigureAwait(false);
+    return started.IsSuccess
+      ? CapabilityInvocationResult.Ok(string.Create(CultureInfo.InvariantCulture,
+          $"[chain] created #{chain.Id} from plan #{plan.PlanId} v{plan.Version}: "
+          + $"{chain.Steps.Count} step(s), step {first} started as session {started.Value}"))
+      : Gutter(started.Error);
+  }
+
+  /// <summary>Claims and starts every PENDING member of <paramref name="group"/>, returning the
+  ///     LAST session id started. A member that cannot start releases its own claim and stops the
+  ///     fan-out, so the caller reports the refusal rather than a group that half ran.</summary>
+  /// <param name="chain">The chain as it stands.</param>
+  /// <param name="group">The group id whose members start.</param>
+  /// <param name="plan">The plan the chain executes.</param>
+  /// <param name="now">The clock the claims are stamped with.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<string>> StartGroupAsync(Chain chain, int group, ChainPlanFacts plan,
+      DateTimeOffset now, CancellationToken ct)
+  {
+    Result<string> started = Result.Failure<string>(new DomainError(ChainCreationCode.NoExecutableSteps,
+        $"chain #{chain.Id} group {group} has no member left to start."));
+    foreach (ChainStep member in chain.GroupMembers(group)
+        .Where(step => step.Status == ChainStepStatus.Pending).ToList())
+    {
+      started = await StartFirstAsync(chain, plan, member.Position, now, ct).ConfigureAwait(false);
+      if (!started.IsSuccess)
+      {
+        return started;
+      }
+    }
+
+    return started;
+  }
+
+  /// <summary>Claims the step at <paramref name="position"/> and starts its session, releasing the
+  ///     claim when the launch fails so the step is available rather than held by a session that
+  ///     never existed.</summary>
+  /// <param name="chain">The chain as it stands.</param>
+  /// <param name="plan">The plan the chain executes.</param>
+  /// <param name="position">The 1-based step position.</param>
+  /// <param name="now">The clock the claim is stamped with.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<string>> StartFirstAsync(Chain chain, ChainPlanFacts plan, int position,
+      DateTimeOffset now, CancellationToken ct)
+  {
     string provisional = "pending-" + Guid.NewGuid().ToString("N");
-    Result<Chain> claimed = await _chains.ClaimStepAsync(chain.Id, first, provisional, now, ct)
+    Result<Chain> claimed = await _chains.ClaimStepAsync(chain.Id, position, provisional, now, ct)
         .ConfigureAwait(false);
     if (!claimed.IsSuccess)
     {
-      return Gutter(claimed.Error);
+      return Result.Failure<string>(claimed.Error);
+    }
+
+    // A GROUP MEMBER RUNS IN ITS OWN CHECKOUT (D3), made BEFORE the launch so the session is
+    // anchored at a directory that already exists. A provision that fails RELEASES the claim: the
+    // step is available again rather than held by a session that was never started.
+    Result<string?> worktree = await EnsureWorktreeAsync(claimed.Value, position, now, ct)
+        .ConfigureAwait(false);
+    if (!worktree.IsSuccess)
+    {
+      _ = await _chains.ReleaseStepAsync(chain.Id, position, ChainActor.Harness, now, ct).ConfigureAwait(false);
+      return Result.Failure<string>(worktree.Error);
     }
 
     // THE ROLE TRAVELS FROM THE RECORD, not from the declaration: the record is what a
     // resumed or restarted launch reads, so a caller restating it could disagree with it.
-    ChainStepAssignment assignment = new ChainStepAssignment(chain.Id, plan.PlanId, first, null)
-        .WithRole(chain.Steps[0].Role);
+    ChainStep step = claimed.Value.Steps.First(candidate => candidate.Position == position);
+    ChainStepAssignment assignment = new ChainStepAssignment(chain.Id, plan.PlanId, position, null)
+        .WithRole(step.Role);
+    if (worktree.Value is { } path)
+    {
+      assignment = assignment.WithWorktree(path);
+    }
+
     Result<string> started = await _start.StartFirstStepAsync(assignment, ct).ConfigureAwait(false);
     if (!started.IsSuccess)
     {
-      _ = await _chains.ReleaseStepAsync(chain.Id, first, ChainActor.Harness, now, ct).ConfigureAwait(false);
-      return Gutter(started.Error);
+      _ = await _chains.ReleaseStepAsync(chain.Id, position, ChainActor.Harness, now, ct).ConfigureAwait(false);
+      return started;
     }
 
-    _ = await _chains.ReassignStepAsync(chain.Id, first, started.Value, now, ct).ConfigureAwait(false);
-    return CapabilityInvocationResult.Ok(string.Create(CultureInfo.InvariantCulture,
-        $"[chain] created #{chain.Id} from plan #{plan.PlanId} v{plan.Version}: "
-        + $"{chain.Steps.Count} step(s), step {first} started as session {started.Value}"));
+    _ = await _chains.ReassignStepAsync(chain.Id, position, started.Value, now, ct).ConfigureAwait(false);
+    return started;
+  }
+
+  /// <summary>The checkout the step at <paramref name="position"/> runs in, provisioned and
+  ///     recorded when the step is a group member and has none yet: null for a sequential step,
+  ///     which runs in the workspace checkout.
+  ///     <para>A PATH ALREADY ON THE RECORD IS REUSED, never re-provisioned: a retried launch must
+  ///     land in the checkout that already holds its work.</para></summary>
+  /// <param name="chain">The chain as it stands after the claim.</param>
+  /// <param name="position">The 1-based step position.</param>
+  /// <param name="now">The clock the record write is stamped with.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<string?>> EnsureWorktreeAsync(Chain chain, int position,
+      DateTimeOffset now, CancellationToken ct)
+  {
+    ChainStep step = chain.Steps.First(candidate => candidate.Position == position);
+    if (step.Group is null)
+    {
+      return Result.Success<string?>(null);
+    }
+
+    if (step.WorktreePath is { } recorded)
+    {
+      return Result.Success<string?>(recorded);
+    }
+
+    if (_workspaceGit?.Provisioner is not { } provisioner)
+    {
+      return Result.Failure<string?>(new DomainError("WorktreeUnsupported",
+          "this host cannot provision a worktree, so the group member's session was not started."));
+    }
+
+    Result<WorktreeProvision> provisioned = await provisioner
+        .CreateAsync(_workspaceGit.Root, ChainWorktreeNaming.For(chain.Id, position), ct)
+        .ConfigureAwait(false);
+    if (!provisioned.IsSuccess)
+    {
+      return Result.Failure<string?>(provisioned.Error);
+    }
+
+    Result<Chain> stamped = await _chains.WithWorktreeAsync(chain.Id, position,
+        provisioned.Value.Path, provisioned.Value.Branch, now, ct).ConfigureAwait(false);
+    return stamped.IsSuccess
+        ? Result.Success<string?>(provisioned.Value.Path)
+        : Result.Failure<string?>(new DomainError(stamped.Error.Code,
+            $"the worktree '{provisioned.Value.Path}' was provisioned but could not be recorded: {stamped.Error.Message}"));
   }
 
   /// <summary>Runs the reviewer-separation rule for the step about to start (issue #218).

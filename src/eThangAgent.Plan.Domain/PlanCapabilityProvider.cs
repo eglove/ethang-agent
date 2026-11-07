@@ -237,23 +237,69 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     // unspent; ownership runs first because 'this is not your step' is the more specific
     // answer. Skipped is deliberately NOT gated: it is the truthful exit the completion
     // invariant depends on, and gating it would make the honest answer unreachable.
-    if (stepStatus == PlanStepStatus.Done
-        && await StepCompletionGateRefusalAsync().ConfigureAwait(false) is { } gateRefusal)
+    return stepStatus == PlanStepStatus.Done
+        && await StepCompletionGateRefusalAsync().ConfigureAwait(false) is { } gateRefusal
+      ? gateRefusal
+      : await ApplyStepUpdateAsync(id, position, title, detail, stepStatus, plan.Value.Version)
+          .ConfigureAwait(false);
+  }
+
+  /// <summary>Writes the step update, retrying on a version conflict.
+  ///     <para>A CONFLICT HERE IS CONCURRENCY, NOT A CALLER'S MISTAKE. Two sessions completing
+  ///     their own steps of one plan at the same moment is the ordinary case for a parallel
+  ///     group, and the compare-and-swap is what makes each write safe - but a caller that gave
+  ///     up on the first conflict would leave one member's completion unrecorded while its
+  ///     work was already committed. The retry re-reads the plan and re-applies THIS step's
+  ///     change, which is the reconcile the refusal used to ask a model to perform by hand.
+  ///     </para>
+  ///     <para>A CONFLICT THAT SURVIVES EVERY ATTEMPT IS STILL REPORTED, naming the version it
+  ///     lost to: a plan being rewritten continuously is a fact the caller must see rather than
+  ///     a write that silently never lands.</para></summary>
+  /// <param name="id">The plan id.</param>
+  /// <param name="position">The 1-based step position.</param>
+  /// <param name="title">The new title, or null to keep it.</param>
+  /// <param name="detail">The new detail, or null to keep it.</param>
+  /// <param name="stepStatus">The new status, or null to keep it.</param>
+  /// <param name="expectedVersion">The version the caller loaded.</param>
+  private async Task<CapabilityInvocationResult> ApplyStepUpdateAsync(int id, int position,
+      string? title, string? detail, PlanStepStatus? stepStatus, int expectedVersion)
+  {
+    int expected = expectedVersion;
+    for (int attempt = 1; attempt <= StepUpdateAttempts; attempt++)
     {
-      return gateRefusal;
+      Result<Plan> updated = await _service.UpdateStepAsync(id, position, step => step with
+      {
+        Title = title ?? step.Title,
+        Detail = detail ?? step.Detail,
+        Status = stepStatus ?? step.Status,
+      }, expected, DateTimeOffset.UtcNow).ConfigureAwait(false);
+      if (updated.IsSuccess)
+      {
+        return CapabilityInvocationResult.Ok($"[plan] updated step {position} in #{id}");
+      }
+
+      Result<Plan> fresh = await _service.GetAsync(id).ConfigureAwait(false);
+      if (!fresh.IsSuccess || fresh.Value.Version == expected)
+      {
+        return await ResolveMutationErrorAsync(id, position, expected, updated.Error)
+            .ConfigureAwait(false);
+      }
+
+      expected = fresh.Value.Version;
     }
 
-    int expected = plan.Value.Version;
-    Result<Plan> updated = await _service.UpdateStepAsync(id, position, step => step with
-    {
-      Title = title ?? step.Title,
-      Detail = detail ?? step.Detail,
-      Status = stepStatus ?? step.Status,
-    }, expected, DateTimeOffset.UtcNow).ConfigureAwait(false);
-    return updated.IsSuccess
-        ? CapabilityInvocationResult.Ok($"[plan] updated step {position} in #{id}")
-        : await ResolveMutationErrorAsync(id, position, expected, updated.Error).ConfigureAwait(false);
+    return await ResolveMutationErrorAsync(id, position, expected,
+        new DomainError(VersionConflictCode,
+            $"plan #{id} was rewritten by other writers {StepUpdateAttempts} times while this step's change was being saved."))
+        .ConfigureAwait(false);
   }
+
+  /// <summary>How many times a step update is re-applied before a version conflict is reported.
+  ///     <para>A SMALL BOUND, because each attempt means another writer landed inside this one's
+  ///     window: two members of a group settle within milliseconds of each other, so a couple of
+  ///     retries covers the real case, and a plan being rewritten without pause is a fact the
+  ///     caller must see rather than a write that never lands.</para></summary>
+  private const int StepUpdateAttempts = 5;
 
   private static void RequireAtLeastOneField(string? title, string? detail, PlanStepStatus? stepStatus)
   {
