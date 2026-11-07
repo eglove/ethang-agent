@@ -5,6 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
+    <ProjectReference Include="../eThangAgent.Windows.ACL/eThangAgent.Windows.ACL.csproj" />
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.WindowsDesktop.App" />

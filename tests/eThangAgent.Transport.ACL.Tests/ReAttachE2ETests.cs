@@ -176,7 +176,7 @@ public class ReAttachE2ETests
         "the host never reported its accept. host log: " + string.Join(" | ", hostLog));
   }
 
-  /// <summary>The composition's kill-on-close job, reached by reflection (internal type).</summary>
+  /// <summary>The shared kill-on-close job, reached by reflection (no project reference).</summary>
   private static nint CreateJob() => (nint)JobObjectType
       .GetMethod("Create", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, null)!;
 
@@ -186,6 +186,5 @@ public class ReAttachE2ETests
   private static bool CloseJob(nint job) => (bool)JobObjectType
       .GetMethod("Close", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, [job])!;
 
-  private static readonly Type JobObjectType = typeof(ChildHostExeLocator).Assembly
-      .GetType("eThangAgent.Composition.JobObject", throwOnError: true)!;
+  private static readonly Type JobObjectType = Type.GetType("eThangAgent.Windows.ACL.JobObject, eThangAgent.Windows.ACL", throwOnError: true)!;
 }

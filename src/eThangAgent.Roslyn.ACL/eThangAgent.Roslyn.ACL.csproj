@@ -2,6 +2,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.*" />
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+    <ProjectReference Include="../eThangAgent.Windows.ACL/eThangAgent.Windows.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
     <ProjectReference Include="../eThangAgent.Capability.Domain/eThangAgent.Capability.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.State.Domain/eThangAgent.State.Domain.csproj" />

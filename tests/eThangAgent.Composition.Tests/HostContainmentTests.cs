@@ -9,13 +9,12 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>This is the test that covers the CRASH path without crashing a test host. The
 ///     app's clean-exit path is covered separately (disposal runs the explicit kill); this
 ///     one proves the backstop that catches a kill, a fault, or a Task-Manager end.</para>
-///     <para>The seam is reached by reflection because <c>JobObject</c> is internal to the
-///     composition assembly and this project is not a friend: the alternative is widening
-///     the production surface for a test, which is the wrong trade for a P/Invoke wrapper.</para></summary>
+///     <para>The seam is reached by reflection because this project does not reference the
+///     Windows ACL assembly: the alternative is a project reference for one P/Invoke
+///     wrapper, which is the wrong trade.</para></summary>
 public sealed class HostContainmentTests
 {
-  private static readonly Type JobObject = typeof(RemoteHostSupervisor).Assembly
-      .GetType("eThangAgent.Composition.JobObject", throwOnError: true)!;
+  private static readonly Type JobObject = Type.GetType("eThangAgent.Windows.ACL.JobObject, eThangAgent.Windows.ACL", throwOnError: true)!;
 
   private static nint Create() => (nint)JobObject
       .GetMethod("Create", BindingFlags.Public | BindingFlags.Static)!

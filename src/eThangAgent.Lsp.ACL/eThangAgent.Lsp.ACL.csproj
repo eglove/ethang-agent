@@ -6,5 +6,11 @@
   <ItemGroup>
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
+    <ProjectReference Include="../eThangAgent.Windows.ACL/eThangAgent.Windows.ACL.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The daemon's job handle is internal: the host's containment test asserts the daemon
+         joined THIS host's job, which no public surface should expose. -->
+    <InternalsVisibleTo Include="eThangAgent.Lsp.ACL.Tests" />
   </ItemGroup>
 </Project>

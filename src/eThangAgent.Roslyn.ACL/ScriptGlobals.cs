@@ -7,6 +7,7 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.Verification;
+using eThangAgent.Windows.ACL;
 
 namespace eThangAgent.Roslyn.ACL;
 

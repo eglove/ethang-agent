@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using eThangAgent.Transport.ACL;
+using eThangAgent.Windows.ACL;
 
 namespace eThangAgent.Composition;
 

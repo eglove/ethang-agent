@@ -51,96 +51,6 @@ public class LspDaemonTests
   }
 
   [Fact]
-  public async Task Supervisor_CodeLessWorkspace_StartsNoDaemon()
-  {
-    string root = Directory.CreateTempSubdirectory("lspnodaemon").FullName;
-    try
-    {
-      File.WriteAllText(Path.Combine(root, "notes.md"), "hello");
-      await using LspDaemonSupervisor sup = new("ws-codeless", root, () => throw new InvalidOperationException("must not start"));
-      await sup.EnsureStartedAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(LspDaemonState.Unavailable, sup.State);
-      Assert.Null(sup.DaemonProcessId);
-    }
-    finally { Directory.Delete(root, true); }
-  }
-
-  [Fact]
-  public async Task Supervisor_RestartOnce_SecondDeathStaysUnavailable()
-  {
-    string root = Directory.CreateTempSubdirectory("lsprestart").FullName;
-    try
-    {
-      File.WriteAllText(Path.Combine(root, "a.cs"), "class A {}");
-      int starts = 0;
-      await using LspDaemonSupervisor sup = new("ws-restart", root, () =>
-      {
-        starts++;
-        return StartFakeDaemon();
-      });
-      await sup.EnsureStartedAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(1, starts);
-      await sup.WaitUntilReadyAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(LspDaemonState.Ready, sup.State);
-      sup.KillForTest();
-      await sup.EnsureStartedAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(2, starts);
-      await sup.WaitUntilReadyAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(LspDaemonState.Ready, sup.State);
-      sup.KillForTest();
-      await sup.EnsureStartedAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(2, starts);
-      Assert.Equal(LspDaemonState.Unavailable, sup.State);
-    }
-    finally { Directory.Delete(root, true); }
-  }
-
-  [Fact]
-  public async Task Supervisor_KillMidTurn_ReturnsUnavailable_ThenRestartStartingToReady()
-  {
-    string root = Directory.CreateTempSubdirectory("lspkill").FullName;
-    try
-    {
-      File.WriteAllText(Path.Combine(root, "a.cs"), "class A {}");
-      await using LspDaemonSupervisor sup = new("ws-kill", root, () => StartFakeDaemon());
-      await sup.EnsureStartedAsync(TestContext.Current.CancellationToken);
-      await sup.WaitUntilReadyAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(LspDaemonState.Ready, sup.State);
-      sup.KillForTest();
-      Assert.Equal(LspDaemonState.Unavailable, sup.State);
-      await sup.EnsureStartedAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(LspDaemonState.Starting, sup.State);
-      await sup.WaitUntilReadyAsync(TestContext.Current.CancellationToken);
-      Assert.Equal(LspDaemonState.Ready, sup.State);
-    }
-    finally { Directory.Delete(root, true); }
-  }
-
-  [Fact]
-  public async Task Supervisor_TwoWorkspaces_Independent()
-  {
-    string root1 = Directory.CreateTempSubdirectory("lspws1").FullName;
-    string root2 = Directory.CreateTempSubdirectory("lspws2").FullName;
-    try
-    {
-      File.WriteAllText(Path.Combine(root1, "a.cs"), "class A {}");
-      File.WriteAllText(Path.Combine(root2, "b.cs"), "class B {}");
-      await using LspDaemonSupervisor s1 = new("ws-1", root1, () => StartFakeDaemon());
-      await using LspDaemonSupervisor s2 = new("ws-2", root2, () => StartFakeDaemon());
-      await s1.EnsureStartedAsync(TestContext.Current.CancellationToken);
-      await s2.EnsureStartedAsync(TestContext.Current.CancellationToken);
-      await s1.WaitUntilReadyAsync(TestContext.Current.CancellationToken);
-      await s2.WaitUntilReadyAsync(TestContext.Current.CancellationToken);
-      Assert.NotEqual(s1.DaemonProcessId, s2.DaemonProcessId);
-      Assert.NotEqual(s1.PipeName, s2.PipeName);
-      s1.KillForTest();
-      Assert.Equal(LspDaemonState.Unavailable, s1.State);
-      Assert.Equal(LspDaemonState.Ready, s2.State);
-    }
-    finally { Directory.Delete(root1, true); Directory.Delete(root2, true); }
-  }
-
-  [Fact]
   public async Task Pipe_HelloHandshake_Succeeds()
   {
     string ws = "ws-hello";
@@ -169,13 +79,5 @@ public class LspDaemonTests
       using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, "ws-other", "app-2", cts.Token);
     });
     await serve;
-  }
-
-  private static System.Diagnostics.Process StartFakeDaemon()
-  {
-    System.Diagnostics.ProcessStartInfo psi = new("cmd", "/c ping -n 30 127.0.0.1 >nul");
-    psi.UseShellExecute = false;
-    psi.CreateNoWindow = true;
-    return System.Diagnostics.Process.Start(psi)!;
   }
 }

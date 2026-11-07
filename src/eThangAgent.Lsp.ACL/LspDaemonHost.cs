@@ -1,4 +1,5 @@
 using eThangAgent.ToolDomain;
+using eThangAgent.Windows.ACL;
 
 namespace eThangAgent.Lsp.ACL;
 
@@ -18,6 +19,7 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   private readonly SemaphoreSlim _gate = new(1, 1);
   private LspDaemonConnection? _connection;
   private LspWatcherForwarder? _forwarder;
+  private nint _job;
   private bool? _hasCode;
   private bool _disposed;
 
@@ -49,6 +51,12 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   public LspPipeClient? Client => _connection?.Client;
 
   public int? DaemonProcessId => _connection?.DaemonProcessId;
+
+  /// <summary>The kill-on-close job holding the daemon this host started, or zero when no
+  ///     daemon is contained. Exposed to the test assembly so containment is asserted against
+  ///     THIS host's job: a child process inherits its parent's job, so 'the daemon is in some
+  ///     job' is true whether or not this host attached one.</summary>
+  internal nint DaemonJobHandle => _job;
 
   /// <summary>True once the workspace watcher is publishing to this daemon.</summary>
   public bool IsForwarding => _forwarder?.IsForwarding == true;
@@ -149,7 +157,14 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     {
       await dead.DisposeAsync().ConfigureAwait(false);
     }
+
+    ReleaseJob();
   }
+
+  /// <summary>Closes the kill-on-close job holding the daemon this host started, so the
+  ///     kernel reaps the daemon's process tree. A zero handle (no daemon started here, or
+  ///     a job that could not be created) is a no-op.</summary>
+  private void ReleaseJob() => _ = JobObject.Close(Interlocked.Exchange(ref _job, nint.Zero));
 
   private void StartForwarding()
   {
@@ -184,12 +199,32 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     psi.ArgumentList.Add(_workspaceRoot);
     System.Diagnostics.Process started = System.Diagnostics.Process.Start(psi)
         ?? throw new InvalidOperationException("the language-server daemon could not be started");
+    ContainDaemon(started);
     // The daemon announces its install work on stdout, so the drain feeds the monitor
     // rather than discarding what it reads. A redirected stream nobody drains would fill
     // its pipe buffer and block the daemon, so the read is required either way.
     _ = LspDaemonOutputPump.DrainAsync(started.StandardOutput, ServerStatus);
     _ = started.StandardError.ReadToEndAsync();
     return started;
+  }
+
+  /// <summary>Assigns a freshly started daemon to a kill-on-close job whose handle this
+  ///     host holds, so the kernel reaps the daemon when the app exits or dies. Best-effort:
+  ///     a job that cannot be created or configured leaves the explicit-kill disposal in
+  ///     <see cref="LspDaemonConnection"/> as the only containment, which covers a clean exit.
+  ///     </summary>
+  private void ContainDaemon(System.Diagnostics.Process daemon)
+  {
+    nint job = JobObject.Create();
+    if (job == nint.Zero || !JobObject.Configure(job))
+    {
+      _ = JobObject.Close(job);
+      return;
+    }
+
+    _ = JobObject.Attach(job, daemon);
+    ReleaseJob();
+    _ = Interlocked.Exchange(ref _job, job);
   }
 
   /// <summary>Releases the daemon this host started and stops forwarding watcher
@@ -206,6 +241,7 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     _forwarder = null;
     _connection?.DisposeAsync().AsTask().GetAwaiter().GetResult();
     _connection = null;
+    ReleaseJob();
     _gate.Dispose();
   }
 
@@ -225,6 +261,7 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
       _connection = null;
     }
 
+    ReleaseJob();
     _gate.Dispose();
   }
 }

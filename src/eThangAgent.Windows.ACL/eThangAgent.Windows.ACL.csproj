@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- SYSLIB1054: LibraryImport needs unsafe blocks; DllImport with blittable layouts
+         marshals identically here. S4200: the zero-handle guards make the wrappers
+         meaningful and never reach native code. -->
+    <NoWarn>$(NoWarn);SYSLIB1054;S4200</NoWarn>
+  </PropertyGroup>
+</Project>
