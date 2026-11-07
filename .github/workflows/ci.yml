@@ -54,7 +54,7 @@ jobs:
       - name: Test (batch)
         shell: powershell
         run: |
-          dotnet-coverage collect "dotnet test --solution eThangAgent.Batch.slnf -c Release --no-build --max-parallel-test-modules 8 -- --hangdump --hangdump-timeout 5m --hangdump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\batch.coveragexml"
+          dotnet-coverage collect "dotnet test --solution eThangAgent.Batch.slnf -c Release --no-build --max-parallel-test-modules 4 -- --hangdump --hangdump-timeout 5m --hangdump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\batch.coveragexml"
           exit $LASTEXITCODE
 
       - name: Upload coverage

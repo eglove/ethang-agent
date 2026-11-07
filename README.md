@@ -84,7 +84,7 @@ An ACL exists because its seam earns its keep. ACLs share no domain code with ea
 - **The loaded shape is a documented command**: the suite runs as three commands, and CI runs each as its own job. `eThangAgent.Batch.slnf` is every test project except the two heavyweight ones, which run on their own so they stop competing with the other 24 modules for the machine:
 
   ```
-  dotnet test --solution eThangAgent.Batch.slnf --max-parallel-test-modules 8
+  dotnet test --solution eThangAgent.Batch.slnf --max-parallel-test-modules 4
   dotnet test tests/eThangAgent.Composition.Tests
   dotnet test tests/eThangAgent.Storage.ACL.Tests
   ```
