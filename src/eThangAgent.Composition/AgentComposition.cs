@@ -705,7 +705,11 @@ public static class AgentComposition
             sp.GetRequiredService<IChainStartPort>(),
             () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
             TimeProvider.System,
-            sp.GetRequiredService<ChainReviewerGate>()));
+            sp.GetRequiredService<ChainReviewerGate>(),
+            // A group runs its members in worktrees, so creation asks the same git seam the
+            // advance provisions them through whether the workspace is a repository at all.
+            new ChainWorkspaceGit(sp.GetRequiredService<IGitWorktreeAccess>(),
+                sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot)));
   }
 
   /// <summary>The reviewer-recording delegate <c>plan.review</c> writes through (issue #320):

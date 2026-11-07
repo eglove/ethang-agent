@@ -2,8 +2,17 @@ using System.Globalization;
 using System.Text.Json;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain;
+
+/// <summary>The git seam a chain creation asks whether the workspace is a repository, and
+///     the directory it asks it of. Both facts travel together because neither answers the
+///     question alone.</summary>
+/// <param name="Worktrees">The worktree operations; listing succeeds only inside a
+///     repository.</param>
+/// <param name="Root">The workspace directory.</param>
+public sealed record ChainWorkspaceGit(IGitWorktreeAccess Worktrees, string Root);
 
 /// <summary>The model-facing door over the chain record (issue #313 D6): one action,
 ///     <c>create</c>, which converts a plan into a chain and starts step 1.
@@ -32,9 +41,12 @@ namespace eThangAgent.AgentDomain;
 /// <param name="reviewers">The reviewer-separation gate (issue #218), or null when the host
 ///     wired no chain machinery - a null gate clears the step, exactly as the pre-#218
 ///     behaviour.</param>
+/// <param name="workspaceGit">The git seam and the workspace directory it is asked of,
+///     or null when the host wired no git machinery.</param>
 public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSource plans,
     IChainStartPort start, Func<string?> sessionId, TimeProvider clock,
-    ChainReviewerGate? reviewers = null) : ICapabilityProvider
+    ChainReviewerGate? reviewers = null, ChainWorkspaceGit? workspaceGit = null)
+    : ICapabilityProvider
 {
   public const string ProviderId = "chain";
 
@@ -66,6 +78,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
   private readonly ChainReviewerGate? _reviewers = reviewers;
+  private readonly ChainWorkspaceGit? _workspaceGit = workspaceGit;
 
   public string Id => ProviderId;
 
@@ -76,7 +89,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             Converts an existing plan into a chain the HARNESS executes: it claims step 1, starts a session for it seeded with the rendered brief, and returns. No session decides when the next step begins - completing a step is what advances the chain.
             A plan does NOT become a chain on its own. This action is the explicit statement 'execute this', so a plan can stay a design artifact indefinitely.
             'steps' names which plan steps execute and in what role. Only steps you name become chain steps, so design and informational steps are simply left out. Roles are exactly implement | review; a step that names none is an implementer step. A review step may name the reviewer's model with 'model'.
-            'group' marks a step as a member of a parallel group: every member of one group starts at the same moment and runs in its own git worktree, and nothing after the group starts until every member has settled. A group needs at least two members, may not contain a review step, and must be followed immediately by a step with no group - that next step is the RECONCILER, which merges the members' branches into the workspace checkout. The workspace must be a git repository to declare a group. Refusals: ChainGroupTooSmall, ChainGroupReviewMember, ChainReconcilerMissing, ChainReconcilerNotAdjacent.
+            'group' marks a step as a member of a parallel group: every member of one group starts at the same moment and runs in its own git worktree, and nothing after the group starts until every member has settled. A group needs at least two members, may not contain a review step, and must be followed immediately by a step with no group - that next step is the RECONCILER, which merges the members' branches into the workspace checkout. The workspace must be a git repository to declare a group (ChainGroupNeedsRepository). Refusals: ChainGroupTooSmall, ChainGroupReviewMember, ChainGroupReconcilerMissing, ChainReconcilerNotAdjacent, ChainGroupNeedsRepository.
             Validation is total and refuses before anything is created: a plan with no executable step (ChainNoExecutableSteps), a position the plan does not have (ChainStepMissing), one position declared with two roles (ChainStepRoleConflict), an unreadable plan (ChainPlanUnreadable). A session that is itself executing a chain step may not create a chain (ChainStepCannotCreateChain).
             Output contract:
             [chain] created #<id> from plan #<planId> v<version>: <n> step(s), step 1 started as session <sessionId>
@@ -124,7 +137,8 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
           + "Re-read it with plan.show and try again."));
     }
 
-    Result<IReadOnlyList<ChainStepSeed>> steps = OptSteps(args, plan.Value);
+    bool isRepository = await WorkspaceIsRepositoryAsync(ct).ConfigureAwait(false);
+    Result<IReadOnlyList<ChainStepSeed>> steps = OptSteps(args, plan.Value, isRepository);
     return steps.IsSuccess
         ? await CreateAndStartAsync(plan.Value, steps.Value, creating, ct).ConfigureAwait(false)
         : Gutter(steps.Error);
@@ -247,6 +261,37 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
           ? Task.FromResult(Result.Success(ChainReviewerCheck.Cleared))
           : _reviewers.CheckAsync(chain.Id, position, now, ct);
 
+  /// <summary>Whether the workspace is a git repository, asked of the git seam that only
+  ///     answers inside one: listing a repository's worktrees succeeds there and fails
+  ///     anywhere else.
+  ///     <para>A WORKSPACE THAT CANNOT BE READ IS NOT A REPOSITORY. Refusing a group is the
+  ///     safe direction - the refusal names both remedies - while permitting one would
+  ///     create a chain whose first member cannot start.</para>
+  ///     <para>A HOST THAT WIRED NO GIT SEAM IS NOT ASKED: with nothing to read, the fact is
+  ///     unknown and the declaration is not refused for it.</para></summary>
+  private async Task<bool> WorkspaceIsRepositoryAsync(CancellationToken ct)
+  {
+    if (_workspaceGit is null)
+    {
+      return true;
+    }
+
+    // Named decision (CA1031): a broken read is a workspace this cannot confirm is a
+    // repository, and the refusal is the safe answer for a group.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      Result<IReadOnlyList<WorktreeInfo>> listed = await _workspaceGit.Worktrees
+          .ListAsync(_workspaceGit.Root, ct).ConfigureAwait(false);
+      return listed.IsSuccess;
+    }
+    catch (Exception)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return false;
+    }
+  }
+
   // ---- strict argument parsing --------------------------------------------
 
   private static HashSet<string> Allowed(params string[] names) => new(names, StringComparer.Ordinal);
@@ -300,7 +345,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   ///     D3's 'not every step becomes a chain step' is served by NAMING the ones that do -
   ///     the omission is the shortcut, the declaration is the control.</para></summary>
   private static Result<IReadOnlyList<ChainStepSeed>> OptSteps(Dictionary<string, JsonElement> args,
-      ChainPlanFacts plan)
+      ChainPlanFacts plan, bool workspaceIsRepository)
   {
     if (!args.TryGetValue(StepsParam, out JsonElement element))
     {
@@ -336,7 +381,8 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
 
     // The plan-level rules (D4/D10) run here rather than only in the aggregate, because
     // the aggregate sees the seeds and this sees the PLAN they must fit.
-    DomainError? refusal = ChainCreationPolicy.RefusalFor(seeds, plan.StepPositions);
+    DomainError? refusal = ChainCreationPolicy.RefusalFor(seeds, plan.StepPositions,
+        workspaceIsRepository);
     return refusal is null
         ? Result.Success<IReadOnlyList<ChainStepSeed>>(seeds)
         : Result.Failure<IReadOnlyList<ChainStepSeed>>(refusal);

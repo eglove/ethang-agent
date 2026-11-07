@@ -51,6 +51,11 @@ public static class ChainCreationCode
   /// <summary>The position after a group's last member is itself a group member, so
   ///     the step that would merge the group is still inside it.</summary>
   public const string GroupReconcilerNotAdjacent = "ChainReconcilerNotAdjacent";
+
+  /// <summary>A group needs a git repository. Every member runs in its own worktree, and a
+  ///     worktree is git machinery: a workspace that is not a repository cannot start the
+  ///     group's first member, let alone merge its branches afterwards.</summary>
+  public const string GroupNeedsRepository = "ChainGroupNeedsRepository";
 }
 
 /// <summary>What a plan must be for a chain to execute it (issue #313 D4). PURE: facts in,
@@ -67,11 +72,17 @@ public static class ChainCreationPolicy
 {
   /// <summary>The first refusal the declaration earns, or null when it may be created.
   ///     <para>ORDER IS THE ORDER THEY MATTER IN: is there anything to execute at all,
-  ///     then does every named position exist, then does any position carry two roles.</para></summary>
+  ///     then does every named position exist, then does any position carry two roles,
+  ///     then can the workspace run a group at all, then are the groups themselves
+  ///     well formed. A group's shape is worth nothing in a workspace that cannot start
+  ///     one, so that fact is asked before any group rule.</para></summary>
   /// <param name="steps">The declared steps.</param>
   /// <param name="planStepPositions">Every position the plan actually has.</param>
+  /// <param name="workspaceIsRepository">Whether the workspace is a git repository, which
+  ///     a group requires. Defaults to true so a caller that does not know the fact is not
+  ///     refused for it.</param>
   public static DomainError? RefusalFor(IReadOnlyList<ChainStepSeed> steps,
-      IReadOnlyList<int> planStepPositions)
+      IReadOnlyList<int> planStepPositions, bool workspaceIsRepository = true)
   {
     ArgumentNullException.ThrowIfNull(steps);
     ArgumentNullException.ThrowIfNull(planStepPositions);
@@ -79,6 +90,7 @@ public static class ChainCreationPolicy
         ?? StepMissing(steps, planStepPositions)
         ?? ConflictingRole(steps)
         ?? ReviewerWithoutModel(steps)
+        ?? GroupNeedsRepository(steps, workspaceIsRepository)
         ?? GroupTooSmall(steps)
         ?? GroupReviewMember(steps)
         ?? GroupWithoutReconciler(steps)
@@ -92,6 +104,20 @@ public static class ChainCreationPolicy
             .Select(step => step.Group!.Value)
             .Distinct()
             .Order()];
+
+  /// <summary>A group needs a git repository, and this is asked BEFORE any rule about
+  ///     the group's shape: nothing else about a group matters if the workspace cannot
+  ///     start one of its members at all.
+  ///     <para>THE MESSAGE NAMES BOTH REMEDIES, because the caller can act on either:
+  ///     make the workspace a repository, or drop the group and run the steps in order.</para></summary>
+  private static DomainError? GroupNeedsRepository(IReadOnlyList<ChainStepSeed> steps,
+      bool workspaceIsRepository) =>
+      workspaceIsRepository || !steps.Any(step => step.Group is not null)
+          ? null
+          : new DomainError(ChainCreationCode.GroupNeedsRepository,
+              "this chain declares a parallel group, which runs each member in its own git "
+              + "worktree, so the workspace must be a git repository. Either make it one, or "
+              + "declare the steps without a group and they will run one at a time.");
 
   /// <summary>A group needs at least two members: a group of one runs nothing beside
   ///     anything, so its worktree and its reconciler would be pure cost.

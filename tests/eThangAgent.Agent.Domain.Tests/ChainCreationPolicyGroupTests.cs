@@ -60,6 +60,50 @@ public class ChainCreationPolicyGroupTests
   }
 
   [Fact]
+  public void RefusalFor_AGroupInANonRepository_IsRefused()
+  {
+    DomainError? error = ChainCreationPolicy.RefusalFor(
+        [
+            new ChainStepSeed(1, ChainStepRole.Implement, Group: 1),
+            new ChainStepSeed(2, ChainStepRole.Implement, Group: 1),
+            new ChainStepSeed(3, ChainStepRole.Implement),
+        ],
+        Plan,
+        workspaceIsRepository: false);
+
+    Assert.Equal(ChainCreationCode.GroupNeedsRepository, error!.Code);
+    // Both remedies, because the refusal is only actionable if it says what to do instead.
+    Assert.Contains("git repository", error.Message, StringComparison.Ordinal);
+    Assert.Contains("make it one", error.Message, StringComparison.Ordinal);
+    Assert.Contains("without a group", error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void RefusalFor_AGroupInANonRepository_IsRefusedBeforeAnyOtherGroupRule()
+  {
+    // The declaration is ALSO a group of one, so the ordering is what this pins: nothing
+    // else about a group matters if the workspace cannot run it at all.
+    DomainError? error = ChainCreationPolicy.RefusalFor(
+        [new ChainStepSeed(1, ChainStepRole.Implement, Group: 1)],
+        Plan,
+        workspaceIsRepository: false);
+
+    Assert.Equal(ChainCreationCode.GroupNeedsRepository, error!.Code);
+  }
+
+  [Fact]
+  public void RefusalFor_SequentialStepsInANonRepository_Pass()
+  {
+    // Only a GROUP needs worktrees, so a chain that runs one step at a time is unaffected.
+    DomainError? error = ChainCreationPolicy.RefusalFor(
+        [ChainStepSeed.Implementing(1), ChainStepSeed.Implementing(2)],
+        Plan,
+        workspaceIsRepository: false);
+
+    Assert.Null(error);
+  }
+
+  [Fact]
   public void RefusalFor_AGroupWithAnAdjacentReconciler_Passes()
   {
     DomainError? error = Refusal(

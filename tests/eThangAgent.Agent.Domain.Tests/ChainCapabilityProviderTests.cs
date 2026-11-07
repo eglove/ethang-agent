@@ -1,6 +1,7 @@
 using System.Globalization;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
@@ -148,6 +149,86 @@ public class ChainCapabilityProviderTests
     ChainService chains = new(store);
     return (new ChainCapabilityProvider(chains, plans, start, () => "session-creator",
         new FixedClock(T0)), store, plans, start);
+  }
+
+  /// <summary>The git seam as the creation asks it: whether the workspace is a repository.
+  ///     <para>ONLY THE LIST IS ANSWERED, because that is the one call that distinguishes a
+  ///     repository from a plain directory - the other two would have to create or destroy
+  ///     something to answer at all.</para></summary>
+  private sealed class FakeWorktrees(bool isRepository) : IGitWorktreeAccess
+  {
+    public Task<Result<IReadOnlyList<WorktreeInfo>>> ListAsync(string repoRoot,
+        CancellationToken ct = default)
+        => Task.FromResult(isRepository
+            ? Result.Success<IReadOnlyList<WorktreeInfo>>([])
+            : Result.Failure<IReadOnlyList<WorktreeInfo>>(new DomainError("GitFailed",
+                $"not a git repository: {repoRoot}")));
+
+    public Task<Result<WorktreeInfo>> CreateAsync(string repoRoot, string name,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("creation does not provision a worktree");
+
+    public Task<Result<bool>> RemoveAsync(string repoRoot, string name, bool force,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("creation does not remove a worktree");
+  }
+
+  private static (ChainCapabilityProvider Provider, FakeStore Store, FakeStart Start)
+      NewWithGit(bool isRepository, params int[] planSteps)
+  {
+    FakeStore store = new();
+    FakeStart start = new();
+    ChainService chains = new(store);
+    return (new ChainCapabilityProvider(chains, new FakePlans(planSteps), start,
+        () => "session-creator", new FixedClock(T0), reviewers: null,
+        workspaceGit: new ChainWorkspaceGit(new FakeWorktrees(isRepository), "C:\\ws")),
+        store, start);
+  }
+
+  [Fact]
+  public async Task Create_WithAGroupInANonRepository_IsRefusedBeforeAnythingIsCreated()
+  {
+    (ChainCapabilityProvider provider, FakeStore store, FakeStart start) =
+        NewWithGit(isRepository: false, 1, 2, 3);
+
+    CapabilityInvocationResult result = await InvokeAsync(provider,
+        Plan(7, Step(1, group: 1) + ", " + Step(2, group: 1) + ", " + Step(3)))
+        .ConfigureAwait(true);
+
+    Assert.True(result.IsError);
+    Assert.Contains(ChainCreationCode.GroupNeedsRepository, result.Content,
+        StringComparison.Ordinal);
+    Assert.Empty(start.Started);
+    ChainCatalog listed = Must(await store.ListAsync(null, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true));
+    Assert.Empty(listed.Chains);
+  }
+
+  [Fact]
+  public async Task Create_WithoutAGroupInANonRepository_IsCreated()
+  {
+    // Only a group needs worktrees, so a chain that runs one step at a time is unaffected by
+    // a workspace that is not a repository.
+    (ChainCapabilityProvider provider, _, FakeStart start) =
+        NewWithGit(isRepository: false, 1, 2);
+
+    CapabilityInvocationResult result = await InvokeAsync(provider, Plan(7)).ConfigureAwait(true);
+
+    Assert.False(result.IsError);
+    _ = Assert.Single(start.Started);
+  }
+
+  [Fact]
+  public async Task Create_WithAGroupInARepository_IsCreated()
+  {
+    (ChainCapabilityProvider provider, _, FakeStart start) = NewWithGit(isRepository: true, 1, 2, 3);
+
+    CapabilityInvocationResult result = await InvokeAsync(provider,
+        Plan(7, Step(1, group: 1) + ", " + Step(2, group: 1) + ", " + Step(3)))
+        .ConfigureAwait(true);
+
+    Assert.False(result.IsError);
+    _ = Assert.Single(start.Started);
   }
 
   [Fact]
