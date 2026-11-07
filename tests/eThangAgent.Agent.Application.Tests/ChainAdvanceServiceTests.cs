@@ -138,6 +138,8 @@ public class ChainAdvanceServiceTests
 
     public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
         => Task.FromResult(false);
+
+    public Task RemoveWorktreeAsync(string path, CancellationToken ct = default) => Task.CompletedTask;
   }
 
   private static T Must<T>(Result<T> result)

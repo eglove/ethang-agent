@@ -46,7 +46,10 @@ internal static class ChainAdvanceFactory
           provisionWorktree: name => ProvisionWorktreeAsync(session, name),
           // A MEMBER'S UNCOMMITTED WORKTREE: the same read-only git seam the status tool uses,
           // asked about the member's own checkout rather than the workspace.
-          worktreeIsDirty: path => WorktreeIsDirtyAsync(session, path)),
+          worktreeIsDirty: path => WorktreeIsDirtyAsync(session, path),
+          // A LANDED GROUP'S CHECKOUTS: removed by the same seam that made them, once the
+          // reconciler has merged their branches into the workspace checkout.
+          removeWorktree: path => RemoveWorktreeAsync(session, path)),
           // The separation rule and the implementer's recorded model (issue #218): the gate parks
           // a review step whose reviewer matches the implementer, and the agent store is where the
           // durable record of what actually served lives.
@@ -91,6 +94,30 @@ internal static class ChainAdvanceFactory
     return status.IsSuccess
       && (status.Value.Staged.Count > 0 || status.Value.Unstaged.Count > 0
           || status.Value.Untracked.Count > 0);
+  }
+
+  /// <summary>Removes one worktree of <paramref name="session"/>'s workspace. A container that
+  ///     wired no worktree access removes nothing: the checkout stays, which is what every step
+  ///     did before a group existed.</summary>
+  /// <param name="session">The session whose container owns the worktree access.</param>
+  /// <param name="path">The worktree directory.</param>
+  private static async Task RemoveWorktreeAsync(AgentSession session, string path)
+  {
+    if (session.Services.GetService<IGitWorktreeAccess>() is not { } worktrees)
+    {
+      return;
+    }
+
+    // The worktree is named by its directory, and the access addresses one by name: the name is
+    // the directory's last segment, which is the name the provisioner was given.
+    Result<bool> removed = await worktrees
+        .RemoveAsync(session.WorkspaceRoot, Path.GetFileName(path), force: false)
+        .ConfigureAwait(false);
+    if (!removed.IsSuccess)
+    {
+      await Console.Error.WriteLineAsync(
+          $"chain advance: removing worktree {path} failed: {removed.Error.Message}").ConfigureAwait(false);
+    }
   }
 
   /// <summary>The floor service for <paramref name="session"/> (issue #304): park the chain when

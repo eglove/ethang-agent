@@ -80,6 +80,8 @@ public class ChainAdvanceReviewerSeparationTests
     public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
         => Task.FromResult(false);
 
+    public Task RemoveWorktreeAsync(string path, CancellationToken ct = default) => Task.CompletedTask;
+
     public Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId, CancellationToken ct = default)
       => Task.FromResult(Result.Success("session-final"));
   }

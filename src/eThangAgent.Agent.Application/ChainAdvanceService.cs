@@ -50,6 +50,15 @@ public interface IChainAdvanceHost
   /// <param name="ct">Cancellation.</param>
   Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default);
 
+  /// <summary>Removes the worktree at <paramref name="path"/>. Best effort by contract: a
+  ///     group's checkouts are removed once the reconciler has landed them, and a removal that
+  ///     fails must not undo a landing that succeeded.
+  ///     <para>THE CHECKOUT IS GONE, NOT THE WORK: the branch it held is already merged into the
+  ///     workspace checkout by the step that just settled.</para></summary>
+  /// <param name="path">The worktree directory.</param>
+  /// <param name="ct">Cancellation.</param>
+  Task RemoveWorktreeAsync(string path, CancellationToken ct = default);
+
   /// <summary>Starts the FINAL agent for a completed chain and returns its id. A failed start is
   ///     a typed error, never an exception. The final agent summarizes the work done and hands
   ///     control back to the user; it executes no step.</summary>
@@ -167,6 +176,12 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     {
       return Result.Failure<ChainAdvance>(settled.Error);
     }
+
+    // A LANDED GROUP'S CHECKOUTS ARE REMOVED (D13). The step that just settled is the group's
+    // reconciler, so its members' branches are merged into the workspace checkout and their
+    // worktrees are evidence nobody needs. A reconciler that failed or parked keeps every
+    // checkout: a conflict is evidence, and its members' work is still unmerged.
+    await RemoveLandedWorktreesAsync(settled.Value, position, now, ct).ConfigureAwait(false);
 
     // A REVIEW STEP'S CURSOR IS THE VERDICT (issue #320), not the plain 'next available step'
     // rule: a denial moves the cursor BACK, and the round-trip cap parks rather than looping.
@@ -518,6 +533,47 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
         ? Result.Success<StepWorktree?>(new StepWorktree(provisioned.Value.Path, provisioned.Value.Branch))
         : Result.Failure<StepWorktree?>(new DomainError(stamped.Error.Code,
             $"the worktree '{provisioned.Value.Path}' was provisioned but could not be recorded: {stamped.Error.Message}"));
+  }
+
+  /// <summary>True when the step at <paramref name="position"/> is the reconciler of the
+  ///     group immediately before it: chain creation requires that position to exist and to
+  ///     belong to no group.</summary>
+  /// <param name="chain">The chain the step belongs to.</param>
+  /// <param name="position">The 1-based step position.</param>
+  private static bool IsReconciler(Chain chain, int position)
+    => chain.GroupAt(position - 1) is not null && chain.GroupAt(position) is null;
+
+  /// <summary>Removes the worktrees of the group the reconciler at <paramref name="position"/>
+  ///     just landed, and clears the paths from the record so no later reader launches a session
+  ///     into a directory that no longer exists.
+  ///     <para>THE STEP HAS ALREADY SETTLED DONE, so this runs only on a successful landing: a
+  ///     reconciler that failed or parked keeps every checkout, because a conflict is evidence
+  ///     and its members' work is still unmerged.</para>
+  ///     <para>BEST EFFORT AND REPORTED, never thrown: the landing already happened, and a
+  ///     removal that fails costs a stale checkout rather than the merge.</para></summary>
+  /// <param name="chain">The chain as it stands after the step settled.</param>
+  /// <param name="position">The position of the step that just settled.</param>
+  /// <param name="now">The clock the record writes are stamped with.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task RemoveLandedWorktreesAsync(Chain chain, int position, DateTimeOffset now,
+      CancellationToken ct)
+  {
+    if (!IsReconciler(chain, position) || chain.GroupAt(position - 1) is not { } group)
+    {
+      return;
+    }
+
+    foreach (ChainStep member in chain.GroupMembers(group))
+    {
+      if (member.WorktreePath is not { } path)
+      {
+        continue;
+      }
+
+      await _host.RemoveWorktreeAsync(path, ct).ConfigureAwait(false);
+      _ = await _chains.WithWorktreeAsync(chain.Id, member.Position, null, null, now, ct)
+          .ConfigureAwait(false);
+    }
   }
 
   /// <summary>The checkout a group member's session runs in: its directory, and the branch

@@ -88,6 +88,9 @@ public class ChainAdvanceGroupTests
     /// <summary>The checkouts that hold uncommitted work.</summary>
     public HashSet<string> Dirty { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>The worktrees the host was asked to remove, in the order it was asked.</summary>
+    public List<string> Removed { get; } = [];
+
     public Result<WorktreeProvision>? ProvisionResult { get; set; }
 
     public Task CloseSessionAsync(string sessionId, CancellationToken ct = default)
@@ -106,6 +109,12 @@ public class ChainAdvanceGroupTests
 
     public Task<bool> WorktreeIsDirtyAsync(string path, CancellationToken ct = default)
         => Task.FromResult(Dirty.Contains(path));
+
+    public Task RemoveWorktreeAsync(string path, CancellationToken ct = default)
+    {
+      Removed.Add(path);
+      return Task.CompletedTask;
+    }
 
     public Task<Result<string>> StartSessionAsync(ChainStepAssignment assignment,
         string predecessorSessionId, CancellationToken ct = default)
@@ -323,5 +332,138 @@ public class ChainAdvanceGroupTests
     Assert.True(second.IsSuccess, second.Error?.Message ?? "expected success");
     Assert.Equal(["chain-1-step-2", "chain-1-step-3"], fixture.Host.Provisioned);
     Assert.Equal(3, fixture.Host.Started[^1].Position);
+  }
+
+  [Fact]
+  public async Task SettleAMember_WithAParkedSibling_StartsTheReconciler()
+  {
+    Fixture fixture = await NewAsync();
+    Chain prepared = fixture.Chain
+        .ClaimStep(1, "session-1", T0)
+        .SettleStep(1, ChainStepStatus.Done, ChainActor.Session("session-1"), null, T0)
+        .ClaimStep(2, "session-2", T0)
+        .WithWorktree(2, MemberOnePath, "worktree/chain-1-step-2", T0)
+        .SettleStep(2, ChainStepStatus.Parked, ChainActor.Session("session-2"), null, T0)
+        .WithWorktree(3, MemberTwoPath, "worktree/chain-1-step-3", T0)
+        .ClaimStep(3, "session-3", T0);
+    Chain saved = Must(await fixture.Store.SaveAsync(prepared, fixture.Chain.Version,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    // The rule, read directly on the chain as it stands once step 3 has settled: a group whose
+    // members have all settled offers the step after it, even when one of them parked. Work that
+    // passed is not stranded because a sibling failed.
+    ChainAdvance next = ChainAdvancePolicy.Next(
+        saved.SettleStep(3, ChainStepStatus.Done, ChainActor.Session("session-3"), null, T0));
+    Assert.Equal(ChainAdvanceKind.StartStep, next.Kind);
+    Assert.Equal(4, next.Position);
+
+    Result<ChainAdvance> advance = await fixture.Service.AdvanceAsync(saved, 3, "session-3", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(advance.IsSuccess, advance.Error?.Message ?? "expected success");
+    Assert.Equal(4, Assert.Single(fixture.Host.Started).Position);
+    // The reconciler runs in the workspace checkout, so it owns no worktree of its own.
+    Assert.Empty(fixture.Host.Removed);
+  }
+
+  [Fact]
+  public async Task ReconcilerDone_WithAParkedMember_ParksNamingThatMember()
+  {
+    Fixture fixture = await NewAsync();
+    Chain prepared = await ReadyToReconcileAsync(fixture, memberOneParked: true);
+
+    Result<ChainAdvance> advance = await fixture.Service.AdvanceAsync(prepared, 4, "session-4", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(advance.IsSuccess, advance.Error?.Message ?? "a park is a value, not a failure");
+    Assert.Equal(ChainAdvanceKind.Blocked, advance.Value.Kind);
+    Assert.Contains("2 (Parked)", advance.Value.Reason!, StringComparison.Ordinal);
+    Chain stored = Must(await fixture.Store.GetAsync(prepared.Id,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    Assert.Equal(ChainStatus.Parked, stored.Status);
+    Assert.Equal(ChainStepStatus.Done, stored.StepAt(4)!.Status);
+  }
+
+  [Fact]
+  public async Task ReconcilerDone_RemovesEveryMembersWorktree()
+  {
+    Fixture fixture = await NewAsync();
+    Chain prepared = await ReadyToReconcileAsync(fixture, memberOneParked: false);
+
+    _ = Must(await fixture.Service.AdvanceAsync(prepared, 4, "session-4", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Assert.Equal([MemberOnePath, MemberTwoPath], fixture.Host.Removed);
+    // The record stops naming checkouts that no longer exist, so a later reader cannot launch a
+    // session into a directory the landing removed.
+    Chain stored = Must(await fixture.Store.GetAsync(prepared.Id,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    Assert.Null(stored.StepAt(2)!.WorktreePath);
+    Assert.Null(stored.StepAt(3)!.WorktreePath);
+    Assert.Null(stored.StepAt(2)!.WorktreeBranch);
+  }
+
+  [Fact]
+  public async Task MemberDone_RemovesNothing()
+  {
+    Fixture fixture = await NewAsync();
+    Chain claimed = await SettleStepOneAsync(fixture);
+    _ = Must(await fixture.Service.AdvanceAsync(claimed, 1, "session-a", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    Chain afterFirst = Must(await fixture.Store.GetAsync(claimed.Id,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    // A member's completion lands nothing: only the reconciler merges, so only the reconciler's
+    // completion may remove a checkout.
+    _ = Must(await fixture.Service.AdvanceAsync(afterFirst, 2, "session-2", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Assert.Empty(fixture.Host.Removed);
+    Chain stored = Must(await fixture.Store.GetAsync(claimed.Id,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    Assert.Equal(ProvisionedPath, stored.StepAt(2)!.WorktreePath);
+  }
+
+  [Fact]
+  public async Task ReconcilerDone_OnAChainWithNoWorktrees_RemovesNothing()
+  {
+    Fixture fixture = await NewAsync(
+        ChainCreation.Implementing("C:\\ws", 3, 1, "t", "session-root", [1, 2, 3]));
+    Chain prepared = fixture.Chain
+        .ClaimStep(1, "session-1", T0)
+        .SettleStep(1, ChainStepStatus.Done, ChainActor.Session("session-1"), null, T0)
+        .ClaimStep(2, "session-2", T0)
+        .SettleStep(2, ChainStepStatus.Done, ChainActor.Session("session-2"), null, T0)
+        .ClaimStep(3, "session-3", T0);
+    Chain saved = Must(await fixture.Store.SaveAsync(prepared, fixture.Chain.Version,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    _ = Must(await fixture.Service.AdvanceAsync(saved, 3, "session-3", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Assert.Empty(fixture.Host.Removed);
+  }
+
+  private const string MemberOnePath = "C:\\ws\\.worktrees\\chain-1-step-2";
+
+  private const string MemberTwoPath = "C:\\ws\\.worktrees\\chain-1-step-3";
+
+  /// <summary>A chain whose group has settled and whose reconciler (step 4) is running: steps 2
+  ///     and 3 carry their checkouts, and step 2 either succeeded or parked.</summary>
+  private static async Task<Chain> ReadyToReconcileAsync(Fixture fixture, bool memberOneParked)
+  {
+    Chain chain = fixture.Chain
+        .ClaimStep(1, "session-1", T0)
+        .SettleStep(1, ChainStepStatus.Done, ChainActor.Session("session-1"), null, T0)
+        .ClaimStep(2, "session-2", T0)
+        .WithWorktree(2, MemberOnePath, "worktree/chain-1-step-2", T0)
+        .SettleStep(2, memberOneParked ? ChainStepStatus.Parked : ChainStepStatus.Done,
+            ChainActor.Session("session-2"), null, T0)
+        .ClaimStep(3, "session-3", T0)
+        .WithWorktree(3, MemberTwoPath, "worktree/chain-1-step-3", T0)
+        .SettleStep(3, ChainStepStatus.Done, ChainActor.Session("session-3"), null, T0)
+        .ClaimStep(4, "session-4", T0);
+    return Must(await fixture.Store.SaveAsync(chain, fixture.Chain.Version,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
   }
 }

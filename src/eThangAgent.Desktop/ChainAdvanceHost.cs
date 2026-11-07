@@ -20,7 +20,8 @@ internal sealed class ChainAdvanceHost(
     Func<ChainStepAssignment, string, Task<Result<string>>> startSession,
     Func<Chain, string, Task<Result<string>>>? startFinalSession = null,
     Func<string, Task<Result<WorktreeProvision>>>? provisionWorktree = null,
-    Func<string, Task<bool>>? worktreeIsDirty = null) : IChainAdvanceHost
+    Func<string, Task<bool>>? worktreeIsDirty = null,
+    Func<string, Task>? removeWorktree = null) : IChainAdvanceHost
 {
   /// <inheritdoc />
   public async Task<Result<WorktreeProvision>> ProvisionWorktreeAsync(string name, CancellationToken ct = default)
@@ -75,6 +76,34 @@ internal sealed class ChainAdvanceHost(
       await Console.Error.WriteLineAsync(
           $"chain advance: reading worktree {path} failed: {ex.Message}").ConfigureAwait(false);
       return false;
+    }
+  }
+
+  /// <inheritdoc />
+  public async Task RemoveWorktreeAsync(string path, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(path);
+    _ = ct;
+    // A host that wires no remover keeps the checkout, which is what every step did before a
+    // group existed: a stale directory is a smaller fault than a landing that reports a cleanup
+    // it never performed.
+    if (removeWorktree is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): the landing already happened, so a removal fault costs a stale
+    // checkout and must not undo the merge the reconciler completed.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      await removeWorktree(path).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      await Console.Error.WriteLineAsync(
+          $"chain advance: removing worktree {path} failed: {ex.Message}").ConfigureAwait(false);
     }
   }
 
