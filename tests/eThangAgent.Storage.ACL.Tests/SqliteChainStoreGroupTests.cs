@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
@@ -10,8 +11,7 @@ public sealed class SqliteChainStoreGroupTests : IDisposable
 {
   private const string Ws = "C:\\ws\\alpha";
   private static readonly DateTimeOffset T0 = new(2026, 11, 6, 10, 0, 0, TimeSpan.Zero);
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-chaingroup-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {

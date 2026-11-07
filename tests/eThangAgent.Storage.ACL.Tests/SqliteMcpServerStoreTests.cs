@@ -1,5 +1,6 @@
 #pragma warning disable JSON002 // deliberate JSON fixtures in test data
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Mcp;
 using Microsoft.Data.Sqlite;
 
@@ -12,7 +13,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 public sealed class SqliteMcpServerStoreTests : IDisposable
 {
   private const string GlobalWs = "global-scope";
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ethang-mcpstore-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _db;
   private readonly SqliteMcpServerStore _store;
 

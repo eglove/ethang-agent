@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -12,8 +13,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 public sealed class ChainReviewAttemptsMigrationTests : IDisposable
 {
   private const string Ws = "C:\\ws\\alpha";
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-chainv29-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   private static readonly DateTimeOffset T0 = new(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);
 

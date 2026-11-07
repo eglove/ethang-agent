@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
@@ -15,8 +16,9 @@ public sealed class ChainTelemetryStorageTests : IDisposable
   private const string Ws = "C:\\ws\\alpha";
   private const string OtherWs = "C:\\ws\\beta";
   private static readonly DateTimeOffset T0 = new(2026, 10, 30, 10, 0, 0, TimeSpan.Zero);
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(),
-      $"ethang-telemetry-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
+
+  public ChainTelemetryStorageTests() => Db = new AppDatabase(_dbPath);
 
   public void Dispose()
   {
@@ -31,7 +33,7 @@ public sealed class ChainTelemetryStorageTests : IDisposable
 #pragma warning restore CA1031, S108
   }
 
-  private AppDatabase Db => new(_dbPath);
+  private AppDatabase Db { get; }
 
   private static T Must<T>(Result<T> result)
   {

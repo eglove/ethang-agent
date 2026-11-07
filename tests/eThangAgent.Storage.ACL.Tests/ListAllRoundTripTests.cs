@@ -1,6 +1,7 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
@@ -9,8 +10,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     memory recall and session queries read.</summary>
 public sealed class ListAllRoundTripTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-agents-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly SqliteAgentStore _store;
 
   public ListAllRoundTripTests()

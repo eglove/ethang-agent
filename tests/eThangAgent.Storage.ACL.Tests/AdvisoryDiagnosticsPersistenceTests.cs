@@ -1,4 +1,5 @@
 using System.Globalization;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -7,8 +8,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 // is in-memory only; the app database schema carries no advisory table.
 public sealed class AdvisoryDiagnosticsPersistenceTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-adv-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
 
   public AdvisoryDiagnosticsPersistenceTests() => _database = new AppDatabase(_dbPath);

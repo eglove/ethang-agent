@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
@@ -8,8 +9,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 // - the append-only event table already existed.
 public sealed class SqliteAgentStoreReasoningTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-reasoning-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly SqliteAgentStore _store;
 
   public SqliteAgentStoreReasoningTests()

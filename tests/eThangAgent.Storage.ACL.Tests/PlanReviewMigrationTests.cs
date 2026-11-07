@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -8,8 +9,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     a literal every future migration would have to hunt down.</summary>
 public sealed class PlanReviewMigrationTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-planv27-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {

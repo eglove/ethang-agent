@@ -1,12 +1,12 @@
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
 public sealed class SqlitePlanStoreTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-plan-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly SqlitePlanStore _store;
 
   public SqlitePlanStoreTests()

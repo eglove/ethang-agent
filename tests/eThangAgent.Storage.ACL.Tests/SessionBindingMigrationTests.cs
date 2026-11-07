@@ -10,6 +10,9 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     new columns must round-trip through the store afterwards.</summary>
 public sealed class SessionBindingMigrationTests : IDisposable
 {
+  // A V7 database cannot be derived from the migrated template: the migrations between V7
+  // and now rebuild tables whose earlier shape no longer exists, so this fixture builds the
+  // historical schema from nothing.
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-binding-{Guid.NewGuid():N}.db");
 

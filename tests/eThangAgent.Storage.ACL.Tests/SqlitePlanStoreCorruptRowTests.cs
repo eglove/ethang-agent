@@ -1,5 +1,6 @@
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -15,8 +16,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 public sealed class SqlitePlanStoreCorruptRowTests : IDisposable
 {
   private const string Workspace = "C:\\ws\\alpha";
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-plancorrupt-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
   private readonly SqlitePlanStore _store;
 

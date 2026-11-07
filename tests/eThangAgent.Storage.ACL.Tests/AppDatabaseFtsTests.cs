@@ -1,4 +1,5 @@
 using System.Globalization;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -7,8 +8,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 /// sync by triggers, with existing rows backfilled at migration time.</summary>
 public sealed class AppDatabaseFtsTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-fts-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
 
   public AppDatabaseFtsTests() => _database = new AppDatabase(_dbPath);

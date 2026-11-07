@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -9,8 +10,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     re-read and the signal would be worthless as a cross-process trigger.</summary>
 public sealed class SqliteChangeSignalTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-signal-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
 
   public SqliteChangeSignalTests() => _database = new AppDatabase(_dbPath);

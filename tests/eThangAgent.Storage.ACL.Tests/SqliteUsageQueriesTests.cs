@@ -1,6 +1,7 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
@@ -17,8 +18,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     between the write and read sides fails here rather than in a live session.</summary>
 public sealed class SqliteUsageQueriesTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-usage-read-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
   private readonly SqliteAgentStore _store;
   private readonly SqliteUsageQueries _queries;

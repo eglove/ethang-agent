@@ -1,5 +1,6 @@
 using System.Globalization;
 using eThangAgent.AgentDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
@@ -12,7 +13,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     name, and the token table keyed by server id.</summary>
 public sealed class McpMigrationTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ethang-mcpmig-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {

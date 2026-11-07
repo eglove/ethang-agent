@@ -1,6 +1,7 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -17,8 +18,7 @@ public sealed class SqliteUsageQueriesPerformanceTests : IDisposable
 {
   private const string Workspace = "ws-perf";
 
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-usage-perf-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
   private readonly SqliteAgentStore _store;
   private readonly SqliteUsageQueries _queries;

@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -13,8 +14,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     identity must never claim two (D5).</para></summary>
 public sealed class WorkspaceIdentityMigrationTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-wsv25-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {

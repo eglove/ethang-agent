@@ -1,5 +1,6 @@
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
@@ -7,8 +8,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 /// dotted-boundary sub-namespaces are removed; siblings survive. FTS stays in sync.</summary>
 public sealed class SqliteStateStorePrefixTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-prefix-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
   private readonly SqliteStateStore _store;
 

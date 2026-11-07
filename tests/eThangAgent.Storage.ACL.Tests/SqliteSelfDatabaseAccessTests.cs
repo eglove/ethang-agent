@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
@@ -6,8 +7,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 
 public sealed class SqliteSelfDatabaseAccessTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-selfdb-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
   private readonly SqliteSelfDatabaseAccess _access;
 

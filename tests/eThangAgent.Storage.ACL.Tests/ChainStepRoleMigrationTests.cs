@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -11,8 +12,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 public sealed class ChainStepRoleMigrationTests : IDisposable
 {
   private const string Ws = "C:\\ws\\alpha";
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-chainv26-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {

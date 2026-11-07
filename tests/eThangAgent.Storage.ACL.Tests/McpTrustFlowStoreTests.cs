@@ -1,5 +1,6 @@
 #pragma warning disable JSON002 // deliberate JSON fixtures in test data
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Mcp;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -10,7 +11,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 public sealed class McpTrustFlowStoreTests : IDisposable
 {
   private const string GlobalWs = "global-scope";
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ethang-mcptf-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _db;
   private readonly SqliteMcpServerStore _store;
 
@@ -112,7 +113,7 @@ public sealed class McpTrustFlowStoreTests : IDisposable
     // A database stamped past V15 without the V15 tables (the renumbering survivor
     // shape): V16 self-heals the base table - and it must carry the partial unique
     // indexes, or scope-name uniqueness silently vanishes on such databases.
-    string path = Path.Combine(Path.GetTempPath(), $"ethang-selfheal-{Guid.NewGuid():N}.db");
+    string path = TemplateDatabase.Copy();
     try
     {
       _ = new AppDatabase(path);

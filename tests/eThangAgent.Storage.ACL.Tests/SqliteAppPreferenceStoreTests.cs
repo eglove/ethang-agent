@@ -1,4 +1,5 @@
 #pragma warning disable IDE0005
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 #pragma warning restore IDE0005
 
@@ -7,7 +8,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 
 public sealed class SqliteAppPreferenceStoreTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"prefs-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _db;
   private readonly SqliteAppPreferenceStore _store;
 

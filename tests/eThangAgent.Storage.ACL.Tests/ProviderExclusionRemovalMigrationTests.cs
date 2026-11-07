@@ -1,4 +1,5 @@
 using System.Globalization;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -10,7 +11,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     paths walk the same history - the V4/V18 curated-memories precedent.</summary>
 public sealed class ProviderExclusionRemovalMigrationTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ethang-v22mig-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {

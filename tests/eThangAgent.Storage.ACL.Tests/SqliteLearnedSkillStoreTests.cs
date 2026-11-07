@@ -1,6 +1,7 @@
 using System.Globalization;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -10,8 +11,7 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   private static readonly DateTimeOffset Timestamp
       = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-skills-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
   private readonly SqliteLearnedSkillStore _store;
 

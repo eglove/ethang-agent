@@ -1,5 +1,6 @@
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
@@ -7,8 +8,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 /// workspace-scoped, with malformed queries surfaced as InvalidQuery failures.</summary>
 public sealed class SqliteStateStoreSearchTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-search-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly AppDatabase _database;
   private readonly SqliteStateStore _store;
 

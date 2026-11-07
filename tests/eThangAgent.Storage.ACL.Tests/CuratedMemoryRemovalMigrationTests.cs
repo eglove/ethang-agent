@@ -1,5 +1,6 @@
 using System.Globalization;
 using eThangAgent.AgentDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -10,7 +11,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     every other table and row; re-opening is a no-op.</summary>
 public sealed class CuratedMemoryRemovalMigrationTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ethang-v18mig-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {

@@ -1,4 +1,5 @@
 using System.Globalization;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -14,7 +15,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     so a fresh database and an upgraded one end in the same place.</para></summary>
 public sealed class MessagingTablesRemovalMigrationTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ethang-v30mig-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {

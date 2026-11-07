@@ -1,12 +1,12 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
 public sealed class SqliteCommandRunStoreTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-cmdrun-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly SqliteCommandRunStore _store;
 
   public SqliteCommandRunStoreTests()

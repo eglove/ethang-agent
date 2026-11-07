@@ -1,5 +1,6 @@
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -10,8 +11,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     every plan becomes readable, and the statuses read as the step vocabulary.</summary>
 public sealed class PlanStepStatusRepairMigrationTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-planv20-{Guid.NewGuid():N}.db");
+  private readonly string _dbPath = TemplateDatabase.Copy();
 
   public void Dispose()
   {
