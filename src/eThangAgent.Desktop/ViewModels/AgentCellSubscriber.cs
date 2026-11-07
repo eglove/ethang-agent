@@ -369,6 +369,9 @@ internal sealed class AgentCellSubscriber(
         candidate => string.Equals(candidate.SessionId, sessionId, StringComparison.Ordinal));
     return step is null
         ? null
-        : new ChainPlacement(chain.Id, chain.Title, step.Position, chain.Steps.Count);
+        : new ChainPlacement(chain.Id, chain.Title, step.Position, chain.Steps.Count)
+        {
+          Siblings = ChainPlacement.SiblingsOf(chain, step.Position),
+        };
   }
 }

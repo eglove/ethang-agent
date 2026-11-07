@@ -1926,7 +1926,10 @@ internal sealed partial class MainViewModel : ObservableObject
       if (chain.IsSuccess)
       {
         return new ChainPlacement(chain.Value.Id, chain.Value.Title, assignment.Position,
-            chain.Value.Steps.Count);
+            chain.Value.Steps.Count)
+        {
+          Siblings = ChainPlacement.SiblingsOf(chain.Value, assignment.Position),
+        };
       }
     }
 
