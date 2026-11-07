@@ -23,6 +23,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>AND NOTHING STEALS THE VIEW (D2): a handoff that arrived mid-task is exactly the
 ///     case where a focus grab or a scroll would be worst, so the scroll offset and the focus
 ///     are asserted too.</para></summary>
+[Trait("Category", "Process")]
 public class CellAppendRenderingTests
 {
   /// <summary>Starting a new session renders a SECOND card and leaves the first one's

@@ -11,6 +11,7 @@ namespace eThangAgent.Composition.Tests;
 ///     carries a conversation-backed context service so milestone shrinks and
 ///     fine-grained edits act on the SHARED conversation. Grand-plan: agent-
 ///     triggered compaction plus fine-grained context edits.</summary>
+[Trait("Category", "Process")]
 public class ContextEditWiringTests
 {
   private static ServiceProvider Build()

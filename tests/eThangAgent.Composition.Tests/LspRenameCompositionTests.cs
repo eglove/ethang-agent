@@ -13,6 +13,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>The rename action's write half is wired at composition (issue #357): the container
 ///     registers the applier over the SAME file seams and workspace root every other mutating
 ///     tool uses, and the 'lsp' action advertises the rename surface the model reads.</summary>
+[Trait("Category", "Process")]
 public class LspRenameCompositionTests
 {
   private static ServiceProvider Build(string root)

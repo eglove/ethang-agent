@@ -12,6 +12,7 @@ namespace eThangAgent.Composition.Tests;
 /// read-only) while its relative paths stay bound to the workspace root.
 /// Mutating tools keep strict containment — write still refuses the same
 /// absolute path.</summary>
+[Trait("Category", "Process")]
 public sealed class ReadToolPathPolicyCompositionTests
 {
   [Fact]

@@ -22,6 +22,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     scrollbar, with the two wired to each other. The rows cannot overlap because the row
 ///     definitions decide the geometry, and the wiring is asserted directly - the headless
 ///     pointer path cannot be trusted here, because a plain ScrollViewer fails it too.</para></summary>
+[Trait("Category", "Process")]
 public class CodeBlockScrollBarTests
 {
   private const string LongLine =

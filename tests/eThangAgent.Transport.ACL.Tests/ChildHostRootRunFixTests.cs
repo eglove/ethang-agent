@@ -11,6 +11,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     implementation: a malformed turn must not kill the host, a turn must not block the
 ///     serve loop, deltas must reach the wire before the turn settles, and the host's real
 ///     settings-to-container resolution must actually produce a runner.</summary>
+[Trait("Category", "Process")]
 public sealed class ChildHostRootRunFixTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

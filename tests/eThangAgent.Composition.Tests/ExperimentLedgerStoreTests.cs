@@ -11,6 +11,7 @@ namespace eThangAgent.Composition.Tests;
 ///     back in append order, and fails closed on a stale expected version or on text its
 ///     underlying store rejects. A real state store backs it — a fake would prove nothing
 ///     about the append contract the experiment tool depends on.</summary>
+[Trait("Category", "Process")]
 public class ExperimentLedgerStoreTests
 {
   private const string Key = "sci.alpha/ledger";

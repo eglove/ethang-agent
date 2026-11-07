@@ -12,6 +12,7 @@ namespace eThangAgent.Composition.Tests;
 ///     (exec's Tools.read_image) and on the loop registry (direct dispatch, so the
 ///     tool result's image part enters the conversation). Anchored children re-root
 ///     it like read.</summary>
+[Trait("Category", "Process")]
 public class ReadImageCompositionTests
 {
   private static ServiceProvider Build()

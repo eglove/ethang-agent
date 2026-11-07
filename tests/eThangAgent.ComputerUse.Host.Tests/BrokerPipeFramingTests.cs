@@ -10,6 +10,7 @@ namespace eThangAgent.ComputerUse.Host.Tests;
 ///     replies are refused by the server loop; auth failure ends the connection; the
 ///     lease is released when the owning connection drops, so the next connection can
 ///     take over. The observer seam is faked - native surface is task 17.</summary>
+[Trait("Category", "Process")]
 public class BrokerPipeFramingTests
 {
   [Fact]

@@ -10,6 +10,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     a settings JSON without the section leaves every knob at WatchdogOptions.Default.
 ///     The values' trip: app config -> AgentSettings.Watchdog -> settings JSON ->
 ///     SessionHost.EffectiveWatchdogOptions -> ChildHostServer.BuildAgentWatchdog.</summary>
+[Trait("Category", "Process")]
 public class SessionHostWatchdogConfigTests
 {
   private static string WriteSettings(string json)

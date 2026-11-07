@@ -10,6 +10,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>Grand-plan input-row polish (line 116): the Stop button is vertically
 ///     CENTERED next to the input (no longer stretched to the input's height), and
 ///     stays glyph-fitted - a small padded square, not a wide bar.</summary>
+[Trait("Category", "Process")]
 public class StopButtonLayoutTests
 {
   [AvaloniaFact]

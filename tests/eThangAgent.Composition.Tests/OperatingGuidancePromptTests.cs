@@ -10,6 +10,7 @@ namespace eThangAgent.Composition.Tests;
 ///     retrospective that names a mechanical replacement, and the user is addressed as
 ///     the stakeholder rather than as a fellow implementer. Each rides the composite
 ///     prompt of a real composition, so a provider dropped from the wiring fails here.</summary>
+[Trait("Category", "Process")]
 public class OperatingGuidancePromptTests
 {
   private static ServiceProvider BuildCore()

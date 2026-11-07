@@ -8,6 +8,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 /// <summary>Fix round 4: the two defects round 3 left. A refused seed must not brick the
 ///     runner for the rest of its life, and the abandoned-hydration guard must cover the
 ///     STORE path too - not just the seed path.</summary>
+[Trait("Category", "Process")]
 public sealed class ChildHostRootRunRefusalTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

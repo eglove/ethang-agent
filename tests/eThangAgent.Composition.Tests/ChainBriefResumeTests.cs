@@ -18,6 +18,7 @@ namespace eThangAgent.Composition.Tests;
 ///     session and be gone after a restart — which is the failure mode the criterion names.</para>
 ///     <para>THE BRIEF IS BUILT BY THE REAL SERVICE over the real stores, so this also proves
 ///     the composition adapter's three reads agree with each other.</para></summary>
+[Trait("Category", "Process")]
 public sealed class ChainBriefResumeTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");

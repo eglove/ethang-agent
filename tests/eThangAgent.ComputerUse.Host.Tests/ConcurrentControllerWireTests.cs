@@ -5,6 +5,7 @@ namespace eThangAgent.ComputerUse.Host.Tests;
 /// <summary>C6 (spec 4): the broker pipe serves CONCURRENT connections; the single controller
 ///     lease arbitrates across them. Connection A takes over; rival B's takeover fails
 ///     controller_busy with owner=A's connection id in the message and details.</summary>
+[Trait("Category", "Process")]
 public class ConcurrentControllerWireTests
 {
   [Fact]

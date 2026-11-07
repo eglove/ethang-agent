@@ -14,6 +14,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <see cref="RootRunHost"/> over a REAL composed container whose only fake is the model
 ///     provider, so these tests fail if the host's turn path, its callback mapping, or its
 ///     event emission is wrong - not merely if a stub was called.</summary>
+[Trait("Category", "Process")]
 public sealed class ChildHostRootRunTests
 {
   // The envelope tests drive a REAL ChildHostServer whose first turn builds

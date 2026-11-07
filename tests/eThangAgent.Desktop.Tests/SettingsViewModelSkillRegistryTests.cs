@@ -13,6 +13,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>The skill-registry target row (plan #29 task 12): tri-state
 ///     (unset/global/workspace); save persists through the preference store
 ///     (delete on unset); the loader strict-parses on read.</summary>
+[Trait("Category", "Process")]
 public class SettingsViewModelSkillRegistryTests
 {
   private const string WsRoot = @"C:\work\skill-registry";

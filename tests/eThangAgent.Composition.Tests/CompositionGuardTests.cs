@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
 
+[Trait("Category", "Process")]
 public class CompositionGuardTests
 {
   private static AgentSettings Settings(string? openRouterKey = "sk-or-test") => new(

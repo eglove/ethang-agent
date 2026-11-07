@@ -24,6 +24,7 @@ namespace eThangAgent.Composition.Tests;
 ///     condition under test; the base class disposes it again afterwards, and a second
 ///     disposal is a no-op by the same contract.</para></summary>
 [Collection("EnvironmentSensitive")]
+[Trait("Category", "Process")]
 public class RemoteHostSupervisorDisposalTests : SessionOwningTest
 {
   private static AgentSettings Settings() => new(

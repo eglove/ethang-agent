@@ -1,5 +1,6 @@
 namespace eThangAgent.Web.ACL.Tests;
 
+[Trait("Category", "Process")]
 public sealed class HttpWebAccessTests : IDisposable
 {
   private readonly List<TestServer> _servers = [];

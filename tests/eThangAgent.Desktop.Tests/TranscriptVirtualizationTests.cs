@@ -18,6 +18,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>These assert the CONTRACT, not an implementation: a bounded number of realized
 ///     entries out of a large collection, the tail reachable, and the entries that are realized
 ///     still being the right ones.</para></summary>
+[Trait("Category", "Process")]
 public class TranscriptVirtualizationTests
 {
   private const int Many = 500;

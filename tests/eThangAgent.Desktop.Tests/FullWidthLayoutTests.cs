@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     input's column is star-sized, the composer's cost readout and the Stop button take
 ///     the auto columns after it, the Session Id control is docked right, and the status
 ///     border stretches across the row.</summary>
+[Trait("Category", "Process")]
 public class FullWidthLayoutTests
 {
   [AvaloniaFact]

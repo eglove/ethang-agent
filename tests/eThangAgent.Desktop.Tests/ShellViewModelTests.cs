@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     empty state, and the provider dimension of tabs. Session creation is faked at
 ///     the factory seam — the factory's own composition is covered in
 ///     eThangAgent.Composition.Tests.</summary>
+[Trait("Category", "Process")]
 public class ShellViewModelTests
 {
   private static MainViewModel CreateShell(

@@ -14,6 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     run result -> exec tool result -> message parts -> the wire. That is the whole image
 ///     channel, end to end, on the real composition.</para></summary>
 [Trait("Category", "Integration")]
+[Trait("Category", "Process")]
 public sealed class ComputerUseWireE2ETests
 {
   private sealed class FakeComputerAccess : IComputerAccess

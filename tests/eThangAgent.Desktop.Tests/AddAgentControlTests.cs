@@ -27,6 +27,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     directly bypasses hit-testing, so it passes even when the control is covered, clipped,
 ///     or zero-sized. The control sits outside the scrolling grid precisely so it stays
 ///     reachable, and only a pointer click proves that.</para></summary>
+[Trait("Category", "Process")]
 public class AddAgentControlTests
 {
   /// <summary>The control is on the tab and reachable at ANY cell count: with a grid tall

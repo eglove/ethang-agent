@@ -27,6 +27,7 @@ namespace eThangAgent.Composition.Tests;
 ///     pass with the null still in place.</para>
 ///     <para>Bounded awaits throughout (deadlock vigilance): every wait carries a timeout,
 ///     and every launched host is disposed through the runtime that owns it.</para></summary>
+[Trait("Category", "Process")]
 public class SpawnedAgentEventForwardingTests
 {
   private const string ChildModel = "mock/child-model";

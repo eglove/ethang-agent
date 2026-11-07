@@ -19,6 +19,7 @@ namespace eThangAgent.Composition.Tests;
 ///     the host resolves its root runner ONLY when SessionId is set - without the stamp
 ///     every root turn answers RootTurnUnavailable.</summary>
 [Trait("Category", "LatencyContract")]
+[Trait("Category", "Process")]
 public class ConversationHostSupervisionTests
 {
   private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);

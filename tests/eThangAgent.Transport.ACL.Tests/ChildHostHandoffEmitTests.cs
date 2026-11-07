@@ -22,6 +22,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     first turn does), the handler resolves holder.Current, and the compaction fires
 ///     through a REAL usage report (the accountant starts empty, so the first iteration
 ///     makes a tool call whose usage report drives iteration 2 over the ceiling).</para></summary>
+[Trait("Category", "Process")]
 public class ChildHostHandoffEmitTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

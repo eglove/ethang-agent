@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
 
+[Trait("Category", "Process")]
 public class PlanWiringTests
 {
   // Fixture copied from ToolSurfaceTests.Build() — the established way to build the

@@ -12,6 +12,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>The wire carries the steer addressed to the LIVE ROOT TURN (a root turn has no
 ///     record id, exactly like the interrupt path), and the host delivers it into the ROOT
 ///     container's inbox with the sender's message identity intact.</para></summary>
+[Trait("Category", "Process")]
 public class ChildHostRootSteerWireTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

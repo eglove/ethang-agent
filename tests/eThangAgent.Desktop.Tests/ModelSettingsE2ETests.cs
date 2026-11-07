@@ -21,6 +21,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     case degrades to unset: a malformed provider_settings payload never fails the
 ///     open and never reaches the wire.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class ModelSettingsE2ETests
 {
   private static string RawCompletion(string content) => E2E.RawCompletion(content);

@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     the title in its header and its fenced program body (through the markdown
 ///     renderer); a legacy card (no rich metadata) keeps the plain header and the full
 ///     content body. Bodies realize on expand, so the tests expand the card first.</summary>
+[Trait("Category", "Process")]
 public class RichToolResultRenderingTests
 {
   [AvaloniaFact]

@@ -23,6 +23,7 @@ namespace eThangAgent.Composition.Tests;
 ///     while find_files and mcp had no wrapper at all. Every assertion below therefore
 ///     also pins that the enumeration itself is non-trivial: a guard that silently
 ///     enumerates nothing is the bug, not the safety net.</para></summary>
+[Trait("Category", "Process")]
 public class ScriptToolsWrapperCoverageTests
 {
   // ScriptTools members that are not tool wrappers: the generic dispatch form, the

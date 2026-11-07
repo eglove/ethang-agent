@@ -20,6 +20,7 @@ namespace eThangAgent.Composition.Tests;
 ///     registration); the AgentSession surface carries the service beside
 ///     CommandRunner on create AND resume.</summary>
 [Collection("EnvironmentSensitive")]
+[Trait("Category", "Process")]
 public class SkillInvocationCompositionTests
 {
   private static AgentSettings Settings() => new(

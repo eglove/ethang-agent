@@ -21,6 +21,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>Together these make one subscribable: the same stream a parent agent
 ///     follows plan work, so an agent marking a plan step
 ///     done is visible to the parent AND to the view.</para></summary>
+[Trait("Category", "Process")]
 public class PlanRealtimeWiringTests
 {
   private static ServiceProvider Build()

@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     tolerance absorbs Fluent's internal borders; anything larger is the excess the
 ///     plan calls out. Coordinates come from transformed bounds, which share one
 ///     space (the window root) for every visual.</summary>
+[Trait("Category", "Process")]
 public class ToolCardAlignmentTests
 {
   private static (double CardX, double TextX) Layout(AgentView view)

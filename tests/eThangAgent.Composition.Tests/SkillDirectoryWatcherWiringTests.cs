@@ -14,6 +14,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>Factory wiring (spec #26): the session factory resolves the watcher
 /// singleton and starts it on create and resume; a container without skill
 /// directories still gets the watcher (inert - it watches nothing).</summary>
+[Trait("Category", "Process")]
 public class SkillDirectoryWatcherWiringTests
 {
   [Fact]

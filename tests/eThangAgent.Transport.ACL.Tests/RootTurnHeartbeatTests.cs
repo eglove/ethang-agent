@@ -23,6 +23,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     over the real turn handler and the real agent loop; only the model provider and
 ///     the store are doubles, and the provider is parked on a genuine async yield — the
 ///     quiet window a long tool call really produces.</para></summary>
+[Trait("Category", "Process")]
 public sealed class RootTurnHeartbeatTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

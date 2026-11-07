@@ -5,6 +5,7 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Task 20: the Settings Agents-tab computer-use toggle (prefill + save) and the
 ///     transcript tool-result entry carrying image parts with a pre-decoded bitmap.</summary>
+[Trait("Category", "Process")]
 public class ComputerUseSettingsAndTranscriptTests
 {
   [Fact]

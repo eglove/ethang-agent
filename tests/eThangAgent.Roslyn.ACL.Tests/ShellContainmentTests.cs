@@ -18,6 +18,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 ///     The detached grandchild's pid is captured through the Shell stdout
 ///     (Start-Process -PassThru) — the only observation window, since the
 ///     reaping happens inside the Shell call.</summary>
+[Trait("Category", "Process")]
 public class ShellContainmentTests
 {
   // The detached-grandchild shape: the direct child (powershell) exits after

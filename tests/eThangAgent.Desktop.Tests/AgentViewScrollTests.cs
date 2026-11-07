@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>Headless tests for the sticky auto-scroll wiring: user entries must not
 ///     steal scroll; a scrolled-up user must not be yanked; End re-sticks; and
 ///     scroll position survives the view being torn down and rebuilt.</summary>
+[Trait("Category", "Process")]
 public class AgentViewScrollTests
 {
   [AvaloniaFact]

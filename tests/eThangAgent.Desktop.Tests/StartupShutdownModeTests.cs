@@ -17,6 +17,7 @@ namespace eThangAgent.Desktop.Tests;
 /// stays empty through Show + MainWindow assignment), so no shutdown request can fire either
 /// way. The seams are therefore tested at the contract level here; the end-to-end behavior is
 /// covered by launching the real app.</summary>
+[Trait("Category", "Process")]
 public sealed class StartupShutdownModeTests
 {
   [AvaloniaFact]

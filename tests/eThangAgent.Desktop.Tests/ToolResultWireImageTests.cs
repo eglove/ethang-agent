@@ -10,6 +10,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     (issue #230). Every conversation runs in a host process, so an image the payload
 ///     dropped could never be rendered - the generated-image artifact and the computer
 ///     screenshot both went dark for exactly that reason.</summary>
+[Trait("Category", "Process")]
 public class ToolResultWireImageTests
 {
   // A real 1x1 PNG: the transcript decodes the bytes into a bitmap, so the fixture

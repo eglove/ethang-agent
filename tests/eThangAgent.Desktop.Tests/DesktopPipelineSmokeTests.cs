@@ -16,6 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 /// client — against the local mock provider, asserting the transcript renders streamed
 /// assistant text end-to-end. This is the desktop counterpart of the CLI piped E2E suite.
 /// </summary>
+[Trait("Category", "Process")]
 public class DesktopPipelineSmokeTests
 {
   [AvaloniaFact]

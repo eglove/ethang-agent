@@ -11,6 +11,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>The pdf tool is wired twice like docx (the plan's Task 9): as a
 ///     capability action (exec's Tools.pdf) and on the loop registry; anchored
 ///     children re-root it like read.</summary>
+[Trait("Category", "Process")]
 public class PdfCompositionTests
 {
   private static ServiceProvider Build()

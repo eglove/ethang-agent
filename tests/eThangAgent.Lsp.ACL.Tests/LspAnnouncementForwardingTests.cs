@@ -8,6 +8,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 
 // Issue #362: watcher-to-daemon announcement forwarding. The pipe path is
 // proven alone: these tests never touch IFileWatcher pub/sub.
+[Trait("Category", "Process")]
 public class LspAnnouncementForwardingTests
 {
   private static string NewTree() => TestTempRoot.CreateDirectory("lspforward").FullName;

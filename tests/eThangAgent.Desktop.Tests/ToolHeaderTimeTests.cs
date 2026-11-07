@@ -14,6 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     reach the bound header TextBlock), and the exec budget must render as a
 ///     duration (900s as 15m), not raw seconds. Pins the split three-slot header:
 ///     live elapsed, separator, budget.</summary>
+[Trait("Category", "Process")]
 public class ToolHeaderTimeTests
 {
   private const string ExecArgs = /*lang=json,strict*/ "{\"timeoutSeconds\":900,\"title\":\"t\",\"program\":\"return 1;\"}";

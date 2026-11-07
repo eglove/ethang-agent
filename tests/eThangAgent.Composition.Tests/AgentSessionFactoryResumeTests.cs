@@ -14,6 +14,7 @@ namespace eThangAgent.Composition.Tests;
 ///     into a fresh container on its ORIGINAL provider and workspace; every bad id
 ///     shape fails with a structured error. A workspace holds many sessions — resume
 ///     targets exactly one id and never touches another session's history.</summary>
+[Trait("Category", "Process")]
 public class AgentSessionFactoryResumeTests
 {
 

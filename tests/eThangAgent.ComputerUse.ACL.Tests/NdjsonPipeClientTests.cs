@@ -7,6 +7,7 @@ namespace eThangAgent.ComputerUse.ACL.Tests;
 ///     handshake ok, auth failure, reply-id matching incl. genuinely concurrent requests,
 ///     oversize rejection, dropped-pipe faults, UTF-8 round trip, and error mapping.
 ///     The fake broker is a real NamedPipeServerStream started in-test.</summary>
+[Trait("Category", "Process")]
 public class NdjsonPipeClientTests
 {
   [Fact]

@@ -22,6 +22,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     breaches; the settle envelope reaches the attached app runtime. Operational
 ///     discipline: the host is spawned DETACHED (output drained on background tasks
 ///     into a bounded queue), every await deadline-bounded (deadlock vigilance).</summary>
+[Trait("Category", "Process")]
 public class HungRemoteChildE2ETests
 {
   private static string FindHostExe()

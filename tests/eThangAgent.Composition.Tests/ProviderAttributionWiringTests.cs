@@ -21,6 +21,7 @@ namespace eThangAgent.Composition.Tests;
 /// the typed client is a SEPARATE HttpClient instance whose defaults never saw
 /// OpenRouterAppAttribution.Apply. Pinned end-to-end over the REAL composition
 /// against a local capture server.</summary>
+[Trait("Category", "Process")]
 public class ProviderAttributionWiringTests
 {
   /// <summary>A local server that captures the headers of the first POST to

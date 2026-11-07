@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     action that did not happen. These refusals had no test at all, and the reclaim
 ///     - the one path that used to throw straight out of the governor's tick - had
 ///     none either.</summary>
+[Trait("Category", "Process")]
 public sealed class ResourceHostEnactmentTests
 {
   [Fact]

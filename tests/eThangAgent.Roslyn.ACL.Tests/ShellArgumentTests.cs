@@ -11,6 +11,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 /// ProcessStartInfo.ArgumentList. An argument containing spaces — a path, a
 /// commit message — reaches the target process as a single argument; the
 /// joined line is never re-split.</summary>
+[Trait("Category", "Process")]
 public class ShellArgumentTests
 {
   private readonly CSharpScriptExecEngine _engine =

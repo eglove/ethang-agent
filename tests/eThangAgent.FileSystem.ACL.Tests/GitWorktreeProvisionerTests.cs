@@ -9,6 +9,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 ///     lands as a real worktree on disk (at root/.worktrees/name, branch worktree/name),
 ///     duplicate names refuse with WorktreeExists, and invalid names refuse with
 ///     InvalidName - the same contracts GitWorktreeAccessTests pin on the access.</summary>
+[Trait("Category", "Process")]
 public sealed class GitWorktreeProvisionerTests : IDisposable
 {
   private readonly string _repoDir;

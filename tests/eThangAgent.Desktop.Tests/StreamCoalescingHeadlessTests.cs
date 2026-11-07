@@ -16,6 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 /// window, not one per token), keep the tail in view while stuck, and still deliver
 /// the full text to the transcript.
 /// </summary>
+[Trait("Category", "Process")]
 public class StreamCoalescingHeadlessTests
 {
   /// <summary>Counts transcript mutations by action kind, by view wiring.</summary>

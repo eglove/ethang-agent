@@ -8,6 +8,7 @@ namespace eThangAgent.Desktop.Tests;
 /// dispatch, the real composition, and a real SqlitePlanStore, against the mock provider.
 /// </summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class PlanCapabilityE2ETests
 {
   private static string RawCompletion(string content) => E2E.RawCompletion(content);

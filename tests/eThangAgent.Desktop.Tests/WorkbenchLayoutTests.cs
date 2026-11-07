@@ -23,6 +23,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <see cref="WorkspaceTabView"/> - the tab - rather than in one agent's cell. Every
 ///     test here therefore hosts the TAB VIEW and reads the rail through it. The contract
 ///     under test is unchanged; only the view that carries the rail is.</para></summary>
+[Trait("Category", "Process")]
 public class WorkbenchLayoutTests
 {
   [AvaloniaFact]

@@ -14,6 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     is lost, and measured: no DragCompleted is raised) would leave the count above zero and
 ///     defer every later render forever - trading a scrollbar that stops moving for a block that
 ///     stops streaming, which is the worse failure.</para></summary>
+[Trait("Category", "Process")]
 public class CodeBlockScrollBarAbortedDragTests
 {
   private const string LongLine =

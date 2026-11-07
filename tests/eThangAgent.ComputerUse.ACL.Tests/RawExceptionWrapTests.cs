@@ -9,6 +9,7 @@ namespace eThangAgent.ComputerUse.ACL.Tests;
 ///     raw (its catch list covers only typed broker failures) and left the faulted
 ///     _connecting cached forever. The spawn delegate is the same seam, so these tests
 ///     model the crash by throwing the SAME exception type from it.</summary>
+[Trait("Category", "Process")]
 public class RawExceptionWrapTests
 {
   [Fact]

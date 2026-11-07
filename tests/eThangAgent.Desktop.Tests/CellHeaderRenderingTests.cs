@@ -22,6 +22,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>THE REPORT IS DRIVEN THROUGH THE STORE, never by assigning the cell's state: the
 ///     card's own settle path is what fills it, so these tests prove the read AND the binding
 ///     rather than only the template.</para></summary>
+[Trait("Category", "Process")]
 public class CellHeaderRenderingTests
 {
   /// <summary>The header renders the cell's label AND a chip reading Starting on a fresh cell:

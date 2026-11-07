@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     marked as a shell command before Enter — the amber border (and placeholder swap).
 ///     Pins the AXAML style class contract, not just the code-behind toggle: the class
 ///     alone is invisible if no style matches it (the regression this pins).</summary>
+[Trait("Category", "Process")]
 public class CommandModeBorderTests
 {
   private static (AgentView View, TextBox Input) Show()

@@ -11,6 +11,7 @@ namespace eThangAgent.Composition.Tests;
 ///     strictly (absent=false; true/false; junk = startup error naming the key). The container gates
 ///     on settings.ComputerUse: disabled yields no 'computer' action anywhere (agent tools, ExecGuide
 ///     render, ChildToolSurface); enabled yields the tool in all three with a working access seam.</summary>
+[Trait("Category", "Process")]
 public class ComputerUseCompositionTests
 {
   private static AgentSettings Settings(bool computerUse) => new(

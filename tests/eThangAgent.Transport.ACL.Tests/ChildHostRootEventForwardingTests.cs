@@ -17,6 +17,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     arriving on the app's own stream. It stayed green while every real session forwarded
 ///     nothing. <c>ChildHostRootChildEventForwardingTests</c> is the end-to-end complement
 ///     and is the one to extend when forwarding behavior is questioned.</para></summary>
+[Trait("Category", "Process")]
 public class ChildHostRootEventForwardingTests
 {
   [Fact]

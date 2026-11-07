@@ -9,6 +9,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>The capability surface: every agent tool is SelfManaged (the tool
 ///     contract owns its timeoutSeconds budget). Sub-agents resolve their own
 ///     registry through the exec engine's per-execution resolver.</summary>
+[Trait("Category", "Process")]
 public class ChildSurfaceTests
 {
   private static ServiceProvider Build()

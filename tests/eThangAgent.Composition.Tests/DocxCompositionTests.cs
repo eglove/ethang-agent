@@ -11,6 +11,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>The docx tool is wired twice like read_image (the plan's Task 12): as a
 ///     capability action (exec's Tools.docx) and on the loop registry; anchored
 ///     children re-root it like read.</summary>
+[Trait("Category", "Process")]
 public class DocxCompositionTests
 {
   private static ServiceProvider Build()

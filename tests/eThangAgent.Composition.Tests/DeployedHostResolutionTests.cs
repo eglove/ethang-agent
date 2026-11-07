@@ -15,6 +15,7 @@ namespace eThangAgent.Composition.Tests;
 ///     and a host that cannot start at all is a NAMED failure the shell can surface,
 ///     never an escaping exception.</summary>
 [Collection("EnvironmentSensitive")]
+[Trait("Category", "Process")]
 public class DeployedHostResolutionTests
 {
   /// <summary>The host exe name, spelled out here so the test pins the FILE the app

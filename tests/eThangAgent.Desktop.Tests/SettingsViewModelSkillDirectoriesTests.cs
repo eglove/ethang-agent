@@ -13,6 +13,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     SkillDirectoryPreferences.Serialize to the matching keys (DeleteAsync on an
 ///     empty list), a shell without a preference store persists as a silent
 ///     no-op, and the prefill loaders read the same keys back.</summary>
+[Trait("Category", "Process")]
 public class LaunchSkillDirectoriesPersistenceTests
 {
   private const string WsRoot = @"C:\work\skill-directories";

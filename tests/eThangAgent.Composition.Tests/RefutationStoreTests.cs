@@ -15,6 +15,7 @@ namespace eThangAgent.Composition.Tests;
 ///     chain established is FINDABLE by another chain in the same workspace, and findability is
 ///     a property of the real store's FTS index - not of a method call that returned success.
 ///     </para></summary>
+[Trait("Category", "Process")]
 public class RefutationStoreTests
 {
   private const string Ledger = "sci.alpha/ledger";

@@ -16,6 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     bootstrap mandate still injects (phase 3 de-mandates it); coexistence
 ///     here is the intended phase shape.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class SkillListingE2ETests
 {
   private const string ListingHeader =

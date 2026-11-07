@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     surfaces for identical input — one shared translation
 ///     (AgentSettingsLoader.WithPreferenceKeyName), so the retired SubAgent:Config-path
 ///     names never reach the user from either path.</summary>
+[Trait("Category", "Process")]
 public class StorelessRebindErrorNamingTests
 {
   [Fact]

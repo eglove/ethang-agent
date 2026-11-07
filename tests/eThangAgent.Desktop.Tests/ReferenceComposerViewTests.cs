@@ -16,6 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     commit closes it for good, the CARET feeds the popup (moving out of a token closes it),
 ///     Enter commits while the popup shows and sends only once it is closed, a refused send
 ///     keeps the input, and the cost readout follows the message's references.</summary>
+[Trait("Category", "Process")]
 public class ReferenceComposerViewTests
 {
   private const string Root = @"C:\work\demo";

@@ -7,6 +7,7 @@ namespace eThangAgent.ComputerUse.ACL.Tests;
 ///     following action re-takes the lease lazily instead of skipping the takeover.
 ///     The stub host answers every request with an accepted receipt, so each wire
 ///     round trip is observable through the supervisor's request path.</summary>
+[Trait("Category", "Process")]
 public class StopReceiptLeaseTests
 {
   [Fact]

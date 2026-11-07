@@ -24,6 +24,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>The rig is deliberately end-to-end: a real <see cref="ChildHostServer"/>,
 ///     a real named-pipe pair, and the real <see cref="RemoteAgentRuntime"/> pump. A test
 ///     that substituted any of them could pass while the production path stayed broken.</para></summary>
+[Trait("Category", "Process")]
 public class ChildHostRootChildEventForwardingTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

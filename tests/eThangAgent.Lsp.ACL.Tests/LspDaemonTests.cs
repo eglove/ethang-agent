@@ -3,6 +3,7 @@ using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
+[Trait("Category", "Process")]
 public class LspDaemonTests
 {
   [Fact]

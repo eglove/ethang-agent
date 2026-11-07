@@ -20,6 +20,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <see cref="RootAgentResolver"/>, and the real agent loop. Only the model provider and
 ///     the store are doubles, and the provider records the config it was handed, which is
 ///     the only direct observation of what actually served.</para></summary>
+[Trait("Category", "Process")]
 public sealed class ChildHostRootModelPreferenceTests
 {
   private const string FallbackModel = "openrouter/auto";

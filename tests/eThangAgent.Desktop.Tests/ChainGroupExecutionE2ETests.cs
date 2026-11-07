@@ -29,6 +29,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     fail whenever the order flipped. Each member asks git which branch it is on and derives
 ///     its own position from it.</para></summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class ChainGroupExecutionE2ETests
 {
   /// <summary>How long one step's turn may take. Generous because a chain launch BLOCKS while

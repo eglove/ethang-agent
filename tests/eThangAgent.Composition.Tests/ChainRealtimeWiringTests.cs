@@ -19,6 +19,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>The second is proven the way the plan view's is: resolving the service is what
 ///     constructs the publisher, and the publish test below is the behavioral proof that the
 ///     subscription is live.</para></summary>
+[Trait("Category", "Process")]
 public class ChainRealtimeWiringTests
 {
   private static ServiceProvider Build()

@@ -9,6 +9,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     staging surface the view's Ctrl+V handler calls.</summary>
 [Trait("Category", "Integration")]
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public sealed class PasteImageE2ETests
 {
   private const string TinyPngBase64 =

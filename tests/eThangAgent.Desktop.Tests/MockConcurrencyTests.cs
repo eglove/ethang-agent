@@ -10,6 +10,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     child's delayed response is still pending. The sequential-loop regression made
 ///     the child's delay also delay the parent's requests, racing the wait's subscribe
 ///     against the child's settlement.</summary>
+[Trait("Category", "Process")]
 public class MockConcurrencyTests
 {
   [Fact]

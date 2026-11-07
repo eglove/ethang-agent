@@ -24,6 +24,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     reaping the host via the kill-on-close job) is pinned by
 ///     eThangAgent.Composition.Tests.HostContainmentTests.</para></summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class AppShutdownContainmentTests
 {
   /// <summary>The host process a session owns, or null when the session runs in-process.</summary>

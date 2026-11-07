@@ -16,6 +16,7 @@ namespace eThangAgent.Composition.Tests;
 ///     .editorconfig decides the convention a NEW file lands in, the composed write seam
 ///     applies it, and the advertised `write` tool description tells the model so.
 ///     Drives the composed seams — no fake on the path under test.</summary>
+[Trait("Category", "Process")]
 public sealed class LineEndingCompositionTests : IDisposable
 {
   private readonly string _root = TestTempRoot.CreateDirectory("ethang-eolc").FullName;

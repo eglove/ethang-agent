@@ -10,6 +10,7 @@ namespace eThangAgent.Composition.Tests;
 ///     formats its own questions): no tool asks the human a question mid-turn.
 ///     The root surface must not resolve a clarify action, and no agent tool
 ///     binding may carry that name.</summary>
+[Trait("Category", "Process")]
 public class ToolSurfaceTests
 {
   private static ServiceProvider Build()

@@ -13,6 +13,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 ///     BUG 3): the adapter lists untracked paths over a real git repository and
 ///     reports a non-repository directory as a typed failure the spawner stands
 ///     down on.</summary>
+[Trait("Category", "Process")]
 public sealed class WorkspaceCleanlinessCheckTests : IDisposable
 {
   private readonly string _repoDir;

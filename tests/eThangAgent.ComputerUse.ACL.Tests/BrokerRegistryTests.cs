@@ -2,6 +2,7 @@ namespace eThangAgent.ComputerUse.ACL.Tests;
 
 /// <summary>Registry identity (the brief's task-13 contract): same supervisor per workspace
 ///     root, different across roots, thread-safe GetOrCreate.</summary>
+[Trait("Category", "Process")]
 public class BrokerRegistryTests
 {
   [Fact]

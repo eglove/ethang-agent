@@ -39,6 +39,9 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@"Assert\.Skip\s*\(")]
   private static partial Regex SkipCallPattern();
 
+  [GeneratedRegex(@"Trait\s*\(\s*""Category""\s*,\s*""Process""\s*\)")]
+  private static partial Regex ProcessTraitPattern();
+
   [GeneratedRegex(@"Trait\s*\(\s*""Category""\s*,\s*""OptIn""\s*\)")]
   private static partial Regex OptInTraitPattern();
 
@@ -297,6 +300,102 @@ public sealed partial class DoctrineTests
     Assert.True(violations.Count == 0,
         "test projects not covered by exactly one documented command (add it to eThangAgent.Batch.slnf, "
         + "or to the heavyweight list in this test and the README): " + string.Join(", ", violations));
+  }
+
+
+  /// <summary>Issue #373: the fast tier is only as trustworthy as its boundary. A test that
+  ///     starts a process, opens a listener, or builds a composed container carries
+  ///     <c>Category=Process</c>; a test that carries the trait does one of those things. The
+  ///     marker list below is what "does one of those things" MEANS in this repository - the
+  ///     real child host, the language-server daemon and its pipe client, a stub MCP or
+  ///     computer-use host, a mock HTTP server, a real shell, and the composed-container
+  ///     helpers - and it is checked in both directions, because a trait that is missing
+  ///     leaks work into the fast loop and a trait that is unearned takes a test out of it.
+  ///     <para>Both directions matter for the same reason: the fast command is a NEGATIVE
+  ///     filter (<c>--filter-not-trait</c>), so an untagged process test runs on every edit
+  ///     and a wrongly tagged pure test silently stops running there at all.</para></summary>
+  [Fact]
+  public void ProcessTier_EveryTestThatSpawnsCarriesTheTraitAndEveryTraitEarnsItsPlace()
+  {
+    string[] markers =
+    [
+        "Process.Start",
+        "new Process(",
+        "ProcessStartInfo",
+        "Process.GetProcessById",
+        "System.Diagnostics.Process",
+        "DirectShellAccess",
+        "Shell(\"",
+        "TcpListener",
+        "HttpListener",
+        "NamedPipeServerStream",
+        "NamedPipeClientStream",
+        "AddEThangAgentCore",
+        "AgentSessionFactory",
+        "SessionOwningTest",
+        "HostHarness",
+        "ScriptedRootHost",
+        "StubHostBuilder",
+        "StubServerBuilder",
+        "MockOpenRouterServer",
+        "FakeBroker",
+        "FakeConversationHost",
+        "NonReadingPeer",
+        "LspPipeClient",
+        "DaemonHarness",
+        "Avalonia.Headless",
+        "using eThangAgent.ChildHost;",
+    ];
+
+    // A test attribute, whatever the runner that supplies it: xUnit's Fact/Theory and the
+    // Avalonia headless variants, which are the ones whose tests drive a real UI thread.
+    string[] testAttributes = ["[Fact", "[Theory", "[AvaloniaFact", "[AvaloniaTheory"];
+
+    string[] allowlist =
+    [
+        // This file names every marker as data, so it matches its own list by construction.
+        "tests/eThangAgent.Agent.Application.Tests/DoctrineTests.cs",
+        // The engine's semantics are pure; only the four Shell tests in it spawn, and they
+        // carry the trait on the METHOD - the one shape the file-level check cannot see.
+        "tests/eThangAgent.Roslyn.ACL.Tests/CSharpScriptExecEngineTests.cs",
+    ];
+
+    List<string> missingTrait = [];
+    List<string> unearnedTrait = [];
+    foreach (string file in SourceFiles("tests"))
+    {
+      string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
+      if (allowlist.Contains(relative))
+      {
+        continue;
+      }
+
+      string text = File.ReadAllText(file);
+      if (!testAttributes.Any(attribute => text.Contains(attribute, StringComparison.Ordinal)))
+      {
+        continue;
+      }
+
+      bool spawns = markers.Any(marker => text.Contains(marker, StringComparison.Ordinal));
+      bool carries = ProcessTraitPattern().IsMatch(text);
+      if (spawns && !carries)
+      {
+        missingTrait.Add(relative);
+      }
+      else if (!spawns && carries)
+      {
+        unearnedTrait.Add(relative);
+      }
+    }
+
+    Assert.True(missingTrait.Count == 0,
+        "tests that spawn a process, open a listener, or build a composed container without "
+        + "[Trait(\"Category\", \"Process\")] (the fast tier runs everything else, so these would "
+        + "run on every edit): " + string.Join(", ", missingTrait));
+    Assert.True(unearnedTrait.Count == 0,
+        "tests carrying [Trait(\"Category\", \"Process\")] that spawn nothing (the fast tier is a "
+        + "negative filter, so an unearned trait silently stops the test running there): "
+        + string.Join(", ", unearnedTrait));
   }
 
   /// <summary>Issue #366: every test assembly takes its ceiling from Tests.Shared. A project that

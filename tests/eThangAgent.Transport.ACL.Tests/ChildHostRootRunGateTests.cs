@@ -9,6 +9,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     the seed refusal must apply only where the seed is actually used, an abandoned
 ///     hydration must never mutate the conversation, and the turn gate must be pinned by a
 ///     test that fails without it.</summary>
+[Trait("Category", "Process")]
 public sealed class ChildHostRootRunGateTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

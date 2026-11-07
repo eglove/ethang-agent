@@ -19,6 +19,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>The assertion is therefore measured height versus arranged height, not a pixel
 ///     count: a paragraph that lays itself out for the width it is given has the same number in
 ///     both places, and no amount of restyling or font change can make that untrue.</para></summary>
+[Trait("Category", "Process")]
 public class TranscriptLayoutTests
 {
   /// <summary>One scrollbar's worth of slack for the measure-after-scrollbar-appears lag.</summary>

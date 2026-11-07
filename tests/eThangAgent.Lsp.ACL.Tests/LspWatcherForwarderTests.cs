@@ -7,6 +7,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 /// It must resolve the client per announcement: a client captured when the subscription
 /// started keeps pointing at a daemon that has since died, so document sync would stop
 /// silently after a reconnect.</summary>
+[Trait("Category", "Process")]
 public class LspWatcherForwarderTests
 {
   private sealed class ScriptedWatcher : IFileWatcher

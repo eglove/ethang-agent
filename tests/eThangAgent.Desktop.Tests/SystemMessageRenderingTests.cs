@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     entry type renders NOTHING in the transcript (the empty-slot failure mode), so
 ///     the class contract alone is not enough. Pins that a live system message becomes
 ///     visible text in the rendered visual tree.</summary>
+[Trait("Category", "Process")]
 public class SystemMessageRenderingTests
 {
   [AvaloniaFact]

@@ -6,6 +6,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     a turn that changes files without fresh verification carries the
 ///     '[verification gate]' System nudge in the persisted transcript.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class VerificationGateE2ETests
 {
   private static string RawCompletion(string content) => E2E.RawCompletion(content);

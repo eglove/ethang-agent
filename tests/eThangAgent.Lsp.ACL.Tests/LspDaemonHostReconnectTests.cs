@@ -8,6 +8,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 /// a dead pipe as a live one. A daemon that exits leaves the cached client unusable, and
 /// every later query would fail for the life of the process unless the host notices and
 /// reconnects.</summary>
+[Trait("Category", "Process")]
 public class LspDaemonHostReconnectTests
 {
   private static CancellationToken Ct => TestContext.Current.CancellationToken;

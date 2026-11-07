@@ -19,7 +19,8 @@ public class ContextWindowOverflowClassificationTests
   private static OpenRouterModelProvider Provider(Func<HttpResponseMessage> respond)
   {
     FakeHttpMessageHandler handler = new(_ => Task.FromResult(respond()));
-    return new OpenRouterModelProvider(new HttpClient(handler), new OpenRouterConfiguration("test-key", BaseUrl));
+    return new OpenRouterModelProvider(new HttpClient(handler), new OpenRouterConfiguration("test-key", BaseUrl),
+        delay: (_, _) => Task.CompletedTask);
   }
 
   private static HttpResponseMessage BadRequest(string body) => Wire.Json(HttpStatusCode.BadRequest, body);

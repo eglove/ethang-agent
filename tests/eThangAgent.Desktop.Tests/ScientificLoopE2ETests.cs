@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 /// refused, so the tool cannot manufacture a closing record.
 /// </summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class ScientificLoopE2ETests
 {
   private const string Ledger = "sci.e2e-loop/ledger";

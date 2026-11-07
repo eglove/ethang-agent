@@ -10,6 +10,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     attached AFTER a turn started (tab switch back to a busy workspace, or a tab whose
 ///     content materialized mid-turn) never started its timer — the spinner froze with the
 ///     phase label showing Thinking/Streaming.</summary>
+[Trait("Category", "Process")]
 public class SpinnerAttachTests
 {
   [AvaloniaFact]

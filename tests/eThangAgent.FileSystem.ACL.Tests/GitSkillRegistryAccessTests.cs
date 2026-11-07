@@ -13,6 +13,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 /// <summary>GitSkillRegistryAccess against real local git fixture repos
 /// (plan #29 task 7): clone/promote/remove semantics, credential refusal,
 /// stderr-tail errors, and the never-delete-a-configured-root guard.</summary>
+[Trait("Category", "Process")]
 public sealed class GitSkillRegistryAccessTests : IDisposable
 {
   private readonly string _repoDir;

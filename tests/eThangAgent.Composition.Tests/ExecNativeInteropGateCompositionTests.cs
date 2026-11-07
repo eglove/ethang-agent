@@ -21,6 +21,7 @@ namespace eThangAgent.Composition.Tests;
 ///     enabled or disabled, because the sanctioned path is the broker in both cases — an enabled
 ///     computer tool is not a licence to bypass the containment, audit trail, and focus policy
 ///     the broker exists to supply.</para></summary>
+[Trait("Category", "Process")]
 public class ExecNativeInteropGateCompositionTests
 {
   private static AgentSettings Settings(bool computerUse) => new(

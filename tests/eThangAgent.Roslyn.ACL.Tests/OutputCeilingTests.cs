@@ -13,6 +13,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 ///     run's TOTAL output rather than per stream. The unit tests pin the ceiling's own
 ///     arithmetic; the Shell tests pin the wiring end to end.</summary>
 [Trait("Category", "LatencyContract")]
+[Trait("Category", "Process")]
 public sealed class OutputCeilingTests
 {
   [Fact]

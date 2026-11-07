@@ -5,6 +5,7 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Resume renders user-message image parts (issue #20): a persisted paste
 ///     re-decodes on restore; a corrupt payload degrades to a notice, never throws.</summary>
+[Trait("Category", "Process")]
 public class UserImageRestoreTests
 {
   private const string TinyPngBase64 =

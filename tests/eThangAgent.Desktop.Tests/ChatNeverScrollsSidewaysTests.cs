@@ -18,6 +18,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>The invariant: however wide the status content gets, the transcript never demands
 ///     more width than it is given. Markdown then wraps in the column instead of running under
 ///     the workbench rail.</para></summary>
+[Trait("Category", "Process")]
 public class ChatNeverScrollsSidewaysTests
 {
   private const string LongModel = "deepseek/deepseek-v4.1-flash-1017-ultra-long-model-identifier";

@@ -15,6 +15,7 @@ namespace eThangAgent.Composition.Tests;
 ///     rows over a database the base class creates, so the workspace is passed explicitly
 ///     and its path recorded for teardown.</para></summary>
 [Collection("EnvironmentSensitive")]
+[Trait("Category", "Process")]
 public class SessionOpenOrphanRepairTests : SessionOwningTest
 {
   private static AgentSettings Settings() => new(

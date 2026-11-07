@@ -19,6 +19,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     reactivation-time transient offset report can no longer flip the sticky state.
 ///     If the jump still reproduces on the real window, the controller guard holds the
 ///     position even when a transient would try to unstick it.</summary>
+[Trait("Category", "Process")]
 public class RefocusScrollTests
 {
   [AvaloniaFact]

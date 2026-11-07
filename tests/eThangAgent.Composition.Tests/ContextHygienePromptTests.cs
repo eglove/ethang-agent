@@ -9,6 +9,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>The static context-hygiene guidance must always ride the system prompt
 /// (root and children alike): the model is the primary janitor via context_trim,
 /// and the harness's deep clean is only the backstop.</summary>
+[Trait("Category", "Process")]
 public class ContextHygienePromptTests
 {
   private static ServiceProvider BuildCore(AgentHostOptions host)

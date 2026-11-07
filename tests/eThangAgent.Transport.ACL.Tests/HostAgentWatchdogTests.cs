@@ -12,6 +12,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     the policy's retry/terminal enacted against the host's OWN runtime — never
 ///     app-side guessing from absent beats. Before this existed, a hung-but-under-
 ///     budget remote child ran forever.</summary>
+[Trait("Category", "Process")]
 public class HostChildWatchdogTests
 {
   private sealed class StubClock(DateTimeOffset start) : TimeProvider

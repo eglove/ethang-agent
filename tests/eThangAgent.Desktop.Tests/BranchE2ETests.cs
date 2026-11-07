@@ -9,6 +9,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     temp git workspace shows the branch in the status bar, and closing the tab
 ///     releases the watcher. The wiring lives in the shell's attach path — the same
 ///     path production tabs open through.</summary>
+[Trait("Category", "Process")]
 public sealed class BranchE2ETests : IDisposable
 {
   private readonly string _repoDir;

@@ -18,6 +18,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     sends no injected message. The popup offers the same two surfaces: the catalog's
 ///     skills at <c>@</c> and the registry's commands at <c>/</c>.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class SkillSlashE2ETests
 {
   private const string SkillName = "e2e-invoke-skill";

@@ -16,6 +16,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>These tests pin the two halves: a host whose deployment is incomplete
 ///     SAYS SO (with the root cause), and the fault formatter never hides a cause
 ///     behind a wrapper exception.</para></summary>
+[Trait("Category", "Process")]
 public class ChildHostDeploymentTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

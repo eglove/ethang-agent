@@ -19,6 +19,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>The resize is applied to the workbench column and the chat width is asserted to
 ///     have actually changed, because an earlier harness silently measured nothing when the
 ///     column width did not propagate.</para></summary>
+[Trait("Category", "Process")]
 public class SplitterDragCostTests
 {
   private const string Prose =

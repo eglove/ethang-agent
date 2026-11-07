@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     picker fold-in (the standalone ModelPickerWindow's Opened trigger was
 ///     dropped, leaving the catalog never fetched and search matching nothing
 ///     but the auto row).</summary>
+[Trait("Category", "Process")]
 public class ModelSettingsWindowTests
 {
   private static ModelProviderEntry Entry(string modelId, string providerName = "ProviderA") => new(

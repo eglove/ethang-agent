@@ -14,6 +14,7 @@ namespace eThangAgent.Composition.Tests;
 ///     container's RootAgentHolder resolves it lazily from RootSessionIdentity and
 ///     stamps it onto every provider request the root agent builds.</summary>
 [Collection("EnvironmentSensitive")]
+[Trait("Category", "Process")]
 public class SessionIdWiringTests
 {
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory()

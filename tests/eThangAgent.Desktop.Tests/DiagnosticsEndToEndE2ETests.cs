@@ -10,6 +10,7 @@ namespace eThangAgent.Desktop.Tests;
 // without a language server, and a non-programming workspace starts neither a
 // daemon nor a server.
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class DiagnosticsEndToEndE2ETests
 {
   private const string TypeErrorMessage = "Cannot implicitly convert type 'string' to 'int'";

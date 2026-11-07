@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 /// (issue #334); these four never depended on it.</para>
 /// </summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class DesktopStateCapabilityE2ETests
 {
   private static string RawCompletion(string content) => E2E.RawCompletion(content);

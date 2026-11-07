@@ -52,6 +52,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     unattended. The earlier version of this test typed into each cell because nothing
 ///     fired a turn; doing that now would hide whether the kickoff works.</para></summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class ChainExecutionE2ETests
 {
   /// <summary>How long one step's turn may take. Generous because <c>chain.start</c> BLOCKS

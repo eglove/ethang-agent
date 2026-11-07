@@ -17,6 +17,7 @@ namespace eThangAgent.Composition.Tests;
 ///     whole eval forever. The budget turns the wedge into a per-row failure — the same
 ///     mechanism RunPromptAsync now drives. Pinned end-to-end over the REAL composition
 ///     (real container, real OpenRouter wire) against a server that stalls.</summary>
+[Trait("Category", "Process")]
 public class HeadlessTurnBudgetTests : SessionOwningTest
 {
   /// <summary>A local OpenAI-compatible server that ACCEPTS chat completions and then

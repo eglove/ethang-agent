@@ -19,6 +19,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     git branch and updates when the branch changes. The watcher is event-driven —
 ///     a FileSystemWatcher over .git/HEAD feeds StatusViewModel.Branch; a non-git
 ///     workspace shows nothing.</summary>
+[Trait("Category", "Process")]
 public sealed class GitBranchStatusTests : IDisposable
 {
   private readonly string _repoDir;

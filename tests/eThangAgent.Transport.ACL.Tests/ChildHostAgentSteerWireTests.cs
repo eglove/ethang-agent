@@ -20,6 +20,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>THE ANSWER IS THE OTHER HALF: the human typed the message, so a steer that cannot be
 ///     delivered must come back as a typed failure. A silent drop is indistinguishable from a
 ///     slow agent, which is the whole reason this path exists.</para></summary>
+[Trait("Category", "Process")]
 public class ChildHostAgentSteerWireTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

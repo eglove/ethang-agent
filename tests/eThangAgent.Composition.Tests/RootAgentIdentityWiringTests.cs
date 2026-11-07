@@ -13,6 +13,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>Phantom-parent regression (2026-10-04): every child row pointed at a
 ///     parent id that had no row, because the holder built the root agent without an
 ///     explicit Id. The built root agent's identity must BE the persisted root id.</summary>
+[Trait("Category", "Process")]
 public class RootAgentIdentityWiringTests
 {
   private static (AgentSessionFactory Factory, TestAppDatabase Db) CreateFactory()

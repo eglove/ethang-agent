@@ -33,6 +33,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>THE ASSERTION IS THE AGENT'S OWN CONVERSATION: not 'an ack said yes', but 'the
 ///     agent's next turn was handed the text'. A mailbox registered but never drained by the loop
 ///     the run actually uses would satisfy an ack and fail this.</para></summary>
+[Trait("Category", "Process")]
 public class ChildHostSpawnedAgentSteerTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

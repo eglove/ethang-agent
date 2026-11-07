@@ -13,6 +13,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     what fits the grid scrolls rather than shrinking a cell.
 ///     <para><see cref="AgentGridLayoutTests"/> pins the arithmetic; this pins that the panel
 ///     actually APPLIES it, because a plan nobody arranges to is a plan that does nothing.</para></summary>
+[Trait("Category", "Process")]
 public class AgentGridPanelTests
 {
   [AvaloniaFact]

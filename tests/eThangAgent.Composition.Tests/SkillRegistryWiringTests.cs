@@ -12,6 +12,7 @@ namespace eThangAgent.Composition.Tests;
 ///     both tools resolve in a container; a container with NO configured skill
 ///     directories still builds and the service reports NoTarget at use time —
 ///     never a composition failure.</summary>
+[Trait("Category", "Process")]
 public class SkillRegistryWiringTests
 {
   private static ServiceProvider Build()

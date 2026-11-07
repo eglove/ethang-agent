@@ -16,6 +16,7 @@ namespace eThangAgent.Composition.Tests;
 ///     can see that.</para>
 ///     <para>THE PROMPT IS READ FROM THE CONTAINER'S OWN COMPOSITE, so this pins the whole path:
 ///     the argument, the carrier, the provider, and the composite's empty-entry drop.</para></summary>
+[Trait("Category", "Process")]
 public sealed class ChainContractSessionTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");

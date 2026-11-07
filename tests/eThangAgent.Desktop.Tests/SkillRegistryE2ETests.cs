@@ -17,6 +17,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     fixture repo through the real adapters into a temp configured directory;
 ///     the hot-reload watcher announces the addition on both channels; a second
 ///     install without force fails NameCollision.</summary>
+[Trait("Category", "Process")]
 public class SkillRegistryE2ETests
 {
   [Fact]

@@ -9,6 +9,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 // cleanup is deliberate; Process handles transfer to the code under test.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
 
+[Trait("Category", "Process")]
 public sealed class DirectShellAccessTests : IDisposable
 {
   private static readonly TimeSpan TestTimeout = TestCeiling.Value;

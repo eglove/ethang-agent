@@ -12,6 +12,7 @@ using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
+[Trait("Category", "Process")]
 public class AgentViewTests
 {
   [AvaloniaFact]

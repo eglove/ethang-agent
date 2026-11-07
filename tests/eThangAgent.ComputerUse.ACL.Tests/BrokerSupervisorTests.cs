@@ -6,6 +6,7 @@ namespace eThangAgent.ComputerUse.ACL.Tests;
 /// <summary>Stub-host supervision tests (the brief's task-13 contract): spawn + handshake
 ///     through a real child process; dispose kills it; restart after a crash; registry
 ///     identity per root.</summary>
+[Trait("Category", "Process")]
 public class BrokerSupervisorTests
 {
   [Fact]

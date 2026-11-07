@@ -10,6 +10,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     turns are now the NORMAL case (round 1 moved dispatch off the serve loop), so the
 ///     hydration latch and the runner-resolution latch are both load-bearing under
 ///     concurrency, and a buffering host must be detectable at the wire.</summary>
+[Trait("Category", "Process")]
 public sealed class ChildHostRootRunConcurrencyTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

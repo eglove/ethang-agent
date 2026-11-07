@@ -13,6 +13,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 ///     recorded so the turn can park the chain once.</para>
 ///     <para>THE SPAWN IS NEVER ATTEMPTED, which is what these assert through a command that
 ///     WOULD have produced output if it had run.</para></summary>
+[Trait("Category", "Process")]
 public class ScriptGlobalsFloorTests
 {
   private static ScriptGlobals Globals(ChainFloorLedger ledger) =>

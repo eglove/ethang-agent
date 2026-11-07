@@ -14,6 +14,7 @@ namespace eThangAgent.Composition.Tests;
 ///     undeclaring one gets the key stripped and then fails its own envelope parse
 ///     with MissingParameter even when the caller stated the budget. The invariant
 ///     guards the whole surface, including tools added later.</summary>
+[Trait("Category", "Process")]
 public class ToolContractConsistencyTests
 {
   private static ServiceProvider Build()

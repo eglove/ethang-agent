@@ -12,6 +12,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>The second test pins the D6 decision itself: the wired implementation is the
 ///     <c>gh</c> CLI adapter, not an API client, and its construction touches no network and
 ///     no credential store.</para></summary>
+[Trait("Category", "Process")]
 public class GitHubWiringTests
 {
   private static ServiceProvider Build()

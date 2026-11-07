@@ -13,6 +13,7 @@ namespace eThangAgent.Composition.Tests;
 ///     it got before this provider existed. The second is the harder one to hold, because it is
 ///     an absence — so it is pinned against the composite prompt the composition actually
 ///     builds, not against a hand-assembled list.</para></summary>
+[Trait("Category", "Process")]
 public sealed class ChainContractPromptProviderTests
 {
   private static ChainContract Contract() =>

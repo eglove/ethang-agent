@@ -12,6 +12,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>The seam is reached by reflection because this project does not reference the
 ///     Windows ACL assembly: the alternative is a project reference for one P/Invoke
 ///     wrapper, which is the wrong trade.</para></summary>
+[Trait("Category", "Process")]
 public sealed class HostContainmentTests
 {
   private static readonly Type JobObject = Type.GetType("eThangAgent.Windows.ACL.JobObject, eThangAgent.Windows.ACL", throwOnError: true)!;

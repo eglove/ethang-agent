@@ -23,6 +23,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>THE SCANNER'S OWN RULES ARE PINNED in the Skill Domain's tests; this file pins that
 ///     the REAL corpus passes against the REAL surface, which is the only assertion that can
 ///     catch a skill going stale.</para></summary>
+[Trait("Category", "Process")]
 public class EmbeddedSkillToolReferenceTests
 {
   private static ServiceProvider Build()

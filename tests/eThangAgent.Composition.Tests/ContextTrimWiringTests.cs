@@ -10,6 +10,7 @@ namespace eThangAgent.Composition.Tests;
 ///     agent tool surface (root and children alike), next to context_edit, and
 ///     the adapter delegates both trim operations to the wrapped Conversation
 ///     Domain service.</summary>
+[Trait("Category", "Process")]
 public class ContextTrimWiringTests
 {
   private static ServiceProvider Build()

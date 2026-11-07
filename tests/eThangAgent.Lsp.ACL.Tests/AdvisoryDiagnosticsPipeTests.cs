@@ -6,6 +6,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 // Issue #356: advisory diagnostics over the daemon pipe. The daemon answers
 // lsp.diagnostics from its attached diagnostics service; the client maps state
 // and diagnostics back; a null service yields Unavailable, never an exception.
+[Trait("Category", "Process")]
 public class AdvisoryDiagnosticsPipeTests
 {
   [Fact]

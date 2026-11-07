@@ -12,6 +12,7 @@ namespace eThangAgent.Composition.Tests;
 ///     with ManagementUnavailable. Since issue #288 that surface is reached ONLY from
 ///     inside exec (Tools.openrouter_management), so the tests dispatch through the
 ///     capability registry rather than a loop tool.</summary>
+[Trait("Category", "Process")]
 public class OpenRouterManagementWiringTests
 {
   private static ServiceProvider Build(string? managementKey)

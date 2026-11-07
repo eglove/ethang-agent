@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>Headless pin for the exec CALL card template: header shows [gear][title]
 ///     with elapsed/budget in the right slot, and the expanded body renders ONLY the
 ///     program through the markdown renderer - the raw JSON arguments never appear.</summary>
+[Trait("Category", "Process")]
 public class ExecCallCardRenderingTests
 {
   [AvaloniaFact]

@@ -10,6 +10,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     Anti-tautology: <see cref="ScriptedRootHost"/> runs the REAL
 ///     <c>RootRunHost</c> over the REAL agent loop, so these tests fail if the host's
 ///     callback mapping is missing - not merely if a stub was called.</summary>
+[Trait("Category", "Process")]
 public class ChildHostRootContextTests
 {
   [Fact]

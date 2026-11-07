@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>Status-bar session id: ONE button shows the "Sess. Id" label with a copy
 ///     glyph, the full id as tooltip, copies on click, and flashes a checkmark on
 ///     success before reverting.</summary>
+[Trait("Category", "Process")]
 public class SessionIdStatusTests
 {
   [Fact]

@@ -15,6 +15,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     per open tab, created at open, retained across selection changes — switches are
 ///     visibility toggles, so no re-render storm and no spinner/timer restart.
 /// </summary>
+[Trait("Category", "Process")]
 public class KeepAliveTabsTests
 {
   private static AgentSession FakeSession(string root)

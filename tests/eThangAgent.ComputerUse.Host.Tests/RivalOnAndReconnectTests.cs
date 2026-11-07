@@ -9,6 +9,7 @@ namespace eThangAgent.ComputerUse.Host.Tests;
 ///     authenticate + hello, no second supervisor, no second process - and a failed
 ///     spawn/connect must clear the cached connecting task so the NEXT call retries
 ///     instead of surfacing the cached fault forever.</summary>
+[Trait("Category", "Process")]
 public class RivalOnAndReconnectTests
 {
   [Fact]

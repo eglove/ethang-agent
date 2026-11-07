@@ -13,6 +13,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     its children as its desired width and never constrains them, so one long model id made the
 ///     chat overflow sideways (ChatNeverScrollsSidewaysTests). The ORDER asserted here is
 ///     unchanged - only the container that holds it.</para></summary>
+[Trait("Category", "Process")]
 public class StatusBarOrderTests
 {
   [AvaloniaFact]

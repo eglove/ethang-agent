@@ -16,6 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>Capturing is the subtle half. The block reuses ONE viewer instance, so assigning
 ///     <c>Markdown</c> rebuilds the very tree the offsets live in - reading them afterwards
 ///     returns zeros, silently. The offsets are therefore captured BEFORE the rebuild.</para></summary>
+[Trait("Category", "Process")]
 public class CodeBlockScrollPositionTests
 {
   private const string LongLine =

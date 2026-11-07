@@ -10,6 +10,7 @@ namespace eThangAgent.Mcp.ACL.Tests;
 ///     (B4). The factory self-spawns the process (the SDK offers no process-started
 ///     hook for Job Object attachment) and hands the process streams to the SDK's
 ///     StreamClientTransport.</summary>
+[Trait("Category", "Process")]
 public class StdioContainmentTests
 {
   private static string StubExe => StubServerBuilder.Build();

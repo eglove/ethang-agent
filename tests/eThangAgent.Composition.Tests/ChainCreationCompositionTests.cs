@@ -10,6 +10,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>Issue #313 D6: the chain creation action lives in a NEW Chain capability
 ///     provider in the Agent Domain, and it is REACHABLE - a provider nobody can resolve is
 ///     a feature that does not exist. This pins the wiring a real session gets.</summary>
+[Trait("Category", "Process")]
 public class ChainCreationCompositionTests
 {
   private static ServiceProvider Build()

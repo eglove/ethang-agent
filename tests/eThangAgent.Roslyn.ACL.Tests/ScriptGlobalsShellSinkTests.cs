@@ -5,6 +5,7 @@ using eThangAgent.ToolDomain.Verification;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
+[Trait("Category", "Process")]
 public class ScriptGlobalsShellSinkTests
 {
   private sealed class RecordingSink : IVerificationLedger

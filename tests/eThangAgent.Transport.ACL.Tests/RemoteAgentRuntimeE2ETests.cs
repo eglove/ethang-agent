@@ -11,6 +11,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     interrupt round-trips, and a declared failure when the host dies. The host exe is
 ///     built by the solution (project reference); every await is deadline-bounded per
 ///     deadlock vigilance.</summary>
+[Trait("Category", "Process")]
 public class RemoteAgentRuntimeE2ETests
 {
   private static string FindHostExe()

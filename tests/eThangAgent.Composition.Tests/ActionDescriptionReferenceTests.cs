@@ -18,6 +18,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>IT READS THE COMPOSED REGISTRY, so an action retired anywhere in the harness is
 ///     caught in every description that still names it - including descriptions written after
 ///     this test.</para></summary>
+[Trait("Category", "Process")]
 public class ActionDescriptionReferenceTests
 {
   [Fact]

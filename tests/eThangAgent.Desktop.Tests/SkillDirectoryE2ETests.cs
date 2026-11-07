@@ -17,6 +17,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     skill under a directory-skills header; with no directories configured the
 ///     composite is behavior-identical: built-ins only, and no file skill listed.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class SkillDirectoryE2ETests
 {
   private const string FileSkillName = "e2e-file-skill";

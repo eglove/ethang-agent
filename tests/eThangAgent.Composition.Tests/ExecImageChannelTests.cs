@@ -20,6 +20,7 @@ namespace eThangAgent.Composition.Tests;
 ///     engine is the production Roslyn engine, the tools are the production tools, and the
 ///     final link is the exact part conversion the Agent loop performs (the shape
 ///     AgentImagePassThroughTests pins against the private helper).</para></summary>
+[Trait("Category", "Process")]
 public class ExecImageChannelTests
 {
   // A real 1x1 PNG - survives ToolResultImage's base64 validation and the format sniff.

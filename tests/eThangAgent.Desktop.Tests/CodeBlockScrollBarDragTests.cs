@@ -23,6 +23,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>So the contract these tests pin is about the GESTURE, not the geometry: while a
 ///     thumb inside the block is being dragged, a pending re-render must wait, and the same
 ///     scroll viewer must still be there when the user lets go.</para></summary>
+[Trait("Category", "Process")]
 public class CodeBlockScrollBarDragTests
 {
   private const string LongLine =

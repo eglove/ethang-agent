@@ -13,6 +13,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 // The production legs the review found unwired: the watcher publishes over the pipe,
 // the lsp tool reaches the daemon, sibling sessions share one claim table, and a query
 // behind the applied generation is labeled Stale.
+[Trait("Category", "Process")]
 public class LspProductionPathTests
 {
   private sealed class FakeWatcher : IFileWatcher

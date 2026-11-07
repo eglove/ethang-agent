@@ -17,6 +17,7 @@ namespace eThangAgent.Composition.Tests;
 ///     and the per-root access cache. Per-session providers would give each session
 ///     its own ledger over one broker connection, defeating fail-closed indexing.
 ///     ForWorkspace never spawns a broker (lazy), so this test stays unit-clean.</summary>
+[Trait("Category", "Process")]
 public class ComputerUseProcessLevelWiringTests
 {
   private static AgentSettings Settings(bool computerUse) => new(

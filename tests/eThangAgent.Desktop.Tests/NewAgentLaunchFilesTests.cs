@@ -14,6 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     both lists verbatim - what the user sees is what the preference store
 ///     gets. The dialog is also where the workspace root is chosen, so the
 ///     workspace scope is never inert here.</summary>
+[Trait("Category", "Process")]
 public class NewAgentLaunchFilesTests
 {
   private static readonly IReadOnlyList<ProviderOption> Options =

@@ -13,6 +13,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 // Issue #354: document sync and pull diagnostics. Push (publishDiagnostics)
 // is primary for C# per #355 capability matrix (OmniSharp is push-only);
 // pull (textDocument/diagnostic + previous-result-id) is secondary.
+[Trait("Category", "Process")]
 public class LspDiagnosticsTests
 {
   private static string NewTree() => TestTempRoot.CreateDirectory("lspdiag").FullName;

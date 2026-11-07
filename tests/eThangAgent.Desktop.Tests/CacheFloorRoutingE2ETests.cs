@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace eThangAgent.Desktop.Tests;
 
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class CacheFloorRoutingE2ETests
 {
   [Fact]

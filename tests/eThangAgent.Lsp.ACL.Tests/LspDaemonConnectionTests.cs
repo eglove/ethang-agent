@@ -11,6 +11,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 // (join an existing daemon, start one when the pipe is silent, Unavailable when neither
 // works) and the daemon's single connection loop, which must serve a watcher
 // announcement AND a diagnostics query on the SAME connection.
+[Trait("Category", "Process")]
 public class LspDaemonConnectionTests
 {
   private static CancellationToken Ct => TestContext.Current.CancellationToken;

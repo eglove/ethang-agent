@@ -23,6 +23,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>The app-side assertion that existed (<c>SkillDirectoryWatcherWiringTests</c>)
 ///     could not see this: it inspects the app's container, not the host's. These tests
 ///     assert liveness on the HOST container specifically.</para></summary>
+[Trait("Category", "Process")]
 public class SessionHostSkillHotReloadTests
 {
   [Fact]

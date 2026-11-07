@@ -18,6 +18,7 @@ namespace eThangAgent.Composition.Tests;
 ///     directory while sharing the one app database. Sessions are also the provider
 ///     seam: each is wired exclusively for the provider it was opened with.</summary>
 [Collection("EnvironmentSensitive")]
+[Trait("Category", "Process")]
 public class AgentSessionFactoryTests
 {
 

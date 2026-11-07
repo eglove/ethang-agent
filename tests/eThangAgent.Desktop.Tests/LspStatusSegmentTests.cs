@@ -7,6 +7,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>The status bar's language-server segment: the user must be able to tell a
 ///     one-time download from a hung app, and must not be told anything at all while the
 ///     daemon has announced nothing.</summary>
+[Trait("Category", "Process")]
 public class LspStatusSegmentTests
 {
   [Fact]

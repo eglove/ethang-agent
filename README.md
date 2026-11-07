@@ -81,6 +81,13 @@ An ACL exists because its seam earns its keep. ACLs share no domain code with ea
 - **Formatting & analyzers**: enforced mechanically. `.editorconfig`, `Directory.Build.props`, and the CI lint job are the source of truth, and this document deliberately does not restate their rules. Apply with `dotnet format whitespace eThangAgent.slnx`, then verify with `dotnet format eThangAgent.slnx --verify-no-changes --severity warn` before pushing — that verify run is a strict superset of the whitespace subcommand, and some analyzer families only execute in the format host and never surface on `dotnet build`.
 - **Testing**: xUnit, in three layers. Unit tests use fakes only — a domain test must never know that HTTP or a provider exists. Integration tests exercise real ACL implementations against real files and sandbox endpoints. E2E tests drive the desktop app headless, with the real composition behind the view-model, against a local mock provider server. Aim for 100% coverage; 80% is the minimum.
 - **Test selection**: the runner is Microsoft.Testing.Platform, not VSTest. `dotnet test --filter` is rejected — use `--filter-class`, `--filter-method`, `--filter-trait`, or `--filter-query`.
+- **The fast loop is a documented command**: the suite is split by trait, and the split is what makes an edit cheap. A test that starts a process, opens a listener, or builds a composed container carries `[Trait("Category", "Process")]`; everything else does not, so the fast command is a negative filter over the whole solution:
+
+  ```
+  dotnet test eThangAgent.slnx --max-parallel-test-modules 4 --filter-not-trait Category=Process
+  ```
+
+  Measured on a 24-core machine with the build warm: 5,882 tests in 24 s, against 2 m 37 s for the whole suite. The tier is a boundary, not a label of convenience — a process test that lacks the trait runs on every edit, and a pure test that carries it silently stops running in the fast loop at all. `DoctrineTests` rejects both directions, so the boundary cannot drift: adding a test that spawns something fails the build until it is tagged, and tagging a test that spawns nothing fails it too.
 - **The loaded shape is a documented command**: the suite runs as three commands, and CI runs each as its own job. `eThangAgent.Batch.slnf` is every test project except the two heavyweight ones, which run on their own so they stop competing with the other 24 modules for the machine:
 
   ```

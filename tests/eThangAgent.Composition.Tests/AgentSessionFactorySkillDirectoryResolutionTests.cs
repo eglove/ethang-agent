@@ -14,6 +14,7 @@ namespace eThangAgent.Composition.Tests;
 ///     (eThangAgent.Composition declares InternalsVisibleTo for this assembly).
 ///     The parse's shape matrix is pinned by SkillDirectoryPreferencesTests; these
 ///     tests cover what resolution adds on top of a successful parse.</summary>
+[Trait("Category", "Process")]
 public class AgentSessionFactorySkillDirectoryResolutionTests
 {
   [Fact]

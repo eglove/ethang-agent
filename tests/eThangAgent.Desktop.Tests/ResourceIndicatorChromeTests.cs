@@ -19,6 +19,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     details toggle, and the details carry the consumers and the governor's
 ///     decisions. The indicator is READ-ONLY: the chrome offers nothing that would
 ///     let the user act on the governor (the user declined a manual reclaim).</summary>
+[Trait("Category", "Process")]
 public sealed class ResourceIndicatorChromeTests
 {
   [AvaloniaFact]

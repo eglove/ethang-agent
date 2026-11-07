@@ -15,6 +15,7 @@ namespace eThangAgent.Composition.Tests;
 /// capability existed. The approval travels the production path: a workspace preference
 /// read at container build, not a constructor argument.
 /// </summary>
+[Trait("Category", "Process")]
 public sealed class TrustedDirectoryCompositionTests
 {
   [Fact]

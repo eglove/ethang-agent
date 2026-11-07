@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     announces something, and never wide enough to push the chat column sideways - the
 ///     bar is a DockPanel precisely because a row that desires more width than the chat has
 ///     turns into a horizontal scrollbar under the transcript.</summary>
+[Trait("Category", "Process")]
 public class LspStatusBarRenderingTests
 {
   [AvaloniaFact]

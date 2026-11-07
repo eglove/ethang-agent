@@ -13,6 +13,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     descendants. Another session's agent is never touched, and a NULL-id interrupt remains
 ///     the legacy blanket cancel. The rig registers active children the way RunChildAsync does
 ///     (AttachActiveChild), no real child runs; the serve loop stays alive throughout.</summary>
+[Trait("Category", "Process")]
 public class ChildHostInterruptScopeTests
 {
   [Fact]

@@ -14,6 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     scrollbar is disabled, so a line wider than the transcript was simply cut off - a
 ///     measured 2600 px line painted into 684 px with no way to reach the rest.</para>
 ///     <para>The rule these tests pin: the line keeps its full width and the BLOCK scrolls.</para></summary>
+[Trait("Category", "Process")]
 public class CodeBlockScrollTests
 {
   private const string LongLine =

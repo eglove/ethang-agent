@@ -13,6 +13,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     of the settings-file directory. Absent root = legacy fallback (scratch dir),
 ///     named for backward compatibility; a relative root is a named startup error
 ///     (W1.2 strictness), never a silent resolution against a random cwd.</summary>
+[Trait("Category", "Process")]
 public class SessionHostWorkspaceAnchorTests
 {
   private static string WriteSettings(string json)

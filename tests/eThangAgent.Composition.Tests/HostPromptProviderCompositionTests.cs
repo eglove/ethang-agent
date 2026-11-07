@@ -8,6 +8,7 @@ namespace eThangAgent.Composition.Tests;
 
 /// <summary>Frontends may append their own prompt providers (e.g. workspace instructions)
 /// via AgentHostOptions; the composition must merge them into the composite system prompt.</summary>
+[Trait("Category", "Process")]
 public class HostPromptProviderCompositionTests
 {
   private static ServiceProvider BuildCore(AgentHostOptions host)

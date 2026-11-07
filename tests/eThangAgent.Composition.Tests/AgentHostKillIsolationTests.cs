@@ -14,6 +14,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>The test launches two real hosts through the same supervisor the runtime uses,
 ///     kills one, and asserts the other is still alive. It asserts on PROCESS LIVENESS, not on
 ///     a handle or a flag, because 'still running' is exactly the claim being made.</para></summary>
+[Trait("Category", "Process")]
 public class AgentHostKillIsolationTests
 {
   [Fact]

@@ -14,6 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 /// inverse pins the no-approval behavior: nothing configured means the container
 /// behaves exactly as it did before the capability existed.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public sealed class TrustedDirectoryE2ETests
 {
   [Fact]

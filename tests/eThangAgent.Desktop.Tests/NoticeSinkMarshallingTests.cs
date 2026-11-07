@@ -16,6 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     mutated from the wrong side. The notice renders only after the dispatcher
 ///     pumps, proving the queue boundary; and a notice posted before any shell has
 ///     attached a sink is dropped without a fault (headless hosts).</summary>
+[Trait("Category", "Process")]
 public class NoticeSinkMarshallingTests
 {
   [AvaloniaFact]

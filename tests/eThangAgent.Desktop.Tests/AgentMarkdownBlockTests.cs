@@ -15,6 +15,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     re-render coalesced by ThrottleInterval (deltas are cheap, visual rebuilds
 ///     are not), an immediate render on close, and link routing through the
 ///     http(s)-only launcher seam.</summary>
+[Trait("Category", "Process")]
 public class AgentMarkdownBlockTests
 {
   [AvaloniaFact]

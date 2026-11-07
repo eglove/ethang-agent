@@ -10,6 +10,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     mock server — the persisted transcript replays into the tab and the next turn
 ///     carries the prior history to the provider.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class SessionResumeE2ETests
 {
   private static string RawCompletion(string content) => E2E.RawCompletion(content);

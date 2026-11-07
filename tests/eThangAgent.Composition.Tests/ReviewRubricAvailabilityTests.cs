@@ -22,6 +22,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>WHY THE SECOND CHECK LIVES HERE AND NOT IN THE SKILL'S OWN TESTS: it needs the
 ///     Plan Domain's codec, and the Skill Domain's test project references only the Skill
 ///     Domain. The composition is the one place allowed to know both.</para></summary>
+[Trait("Category", "Process")]
 public class ReviewRubricAvailabilityTests
 {
   private static ServiceProvider Build()

@@ -11,6 +11,7 @@ namespace eThangAgent.Composition.Tests;
 ///     that resolved only on the root surface would be a capability the model cannot see.
 ///     <para>These read the real composed surface rather than the provider's literal list, which
 ///     is what makes them prove reachability instead of restating a declaration.</para></summary>
+[Trait("Category", "Process")]
 public class AgentLaunchCompositionTests
 {
   private static ServiceProvider Build()

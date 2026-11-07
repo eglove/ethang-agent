@@ -17,6 +17,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     <para>The invariant is asserted through a recording child, because a child's own
 ///     DesiredSize reports what IT wants, not the width it was measured at: the defect is the
 ///     size the panel HANDS DOWN, so that is what a test has to observe.</para></summary>
+[Trait("Category", "Process")]
 public class AgentGridMeasureArrangeTests
 {
   [AvaloniaFact]

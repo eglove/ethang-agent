@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     (API Keys / Skills / Models / Agents / Advanced / Git) with the validation
 ///     error and Save/Cancel footer shared outside the tabs. Session files and
 ///     skill directories live in the Open Workspace dialog, not here.</summary>
+[Trait("Category", "Process")]
 public class SettingsWindowTabsTests
 {
   [AvaloniaFact]

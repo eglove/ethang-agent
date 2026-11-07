@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     every remote-mode session polluted the workspace). The anchor test proves the
 ///     feature; this proves the file never lands where the user works.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class RemoteHostScratchIsolationTests
 {
   [Fact]

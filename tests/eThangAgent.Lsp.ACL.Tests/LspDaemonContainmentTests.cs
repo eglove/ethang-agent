@@ -13,6 +13,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 ///     crash, a hard power event - runs no cleanup code, so without the job the daemon
 ///     outlives its app holding a pipe and a language server that nobody can find except by
 ///     image name.</para></summary>
+[Trait("Category", "Process")]
 public class LspDaemonContainmentTests
 {
   /// <summary>A started daemon is inside the host's own kill-on-close job. Asserted against

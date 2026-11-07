@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>Headless pin for the tool cards' default expansion: call and result
 ///     cards start expanded - a tool's arguments and output read without a click.
 ///     The user can still collapse any card; only the default changed.</summary>
+[Trait("Category", "Process")]
 public class ToolCardDefaultExpansionTests
 {
   [AvaloniaFact]

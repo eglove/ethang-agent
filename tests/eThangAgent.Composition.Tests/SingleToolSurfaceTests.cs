@@ -16,6 +16,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>These tests pin the invariant from both sides — the loop registry holds
 ///     exactly one definition, and the capability surface holds everything else — so the
 ///     surface cannot quietly grow a second door again.</para></summary>
+[Trait("Category", "Process")]
 public class SingleToolSurfaceTests
 {
   private static ServiceProvider Build(bool computerUse)

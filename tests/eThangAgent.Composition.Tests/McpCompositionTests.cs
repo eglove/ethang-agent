@@ -12,6 +12,7 @@ namespace eThangAgent.Composition.Tests;
 ///     and the capability surface, the definition budget stays FLAT regardless of
 ///     configured server count (B1), and the per-workspace access resolves through
 ///     the provider seam.</summary>
+[Trait("Category", "Process")]
 public class McpCompositionTests
 {
   private static ServiceProvider Build()

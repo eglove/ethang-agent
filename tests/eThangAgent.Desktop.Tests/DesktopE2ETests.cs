@@ -11,6 +11,7 @@ namespace eThangAgent.Desktop.Tests;
 /// exposed tool surface, exec guide injection.
 /// </summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class DesktopE2ETests
 {
   private static string RawCompletion(string content) => E2E.RawCompletion(content);

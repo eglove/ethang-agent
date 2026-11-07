@@ -8,6 +8,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     the 80% threshold, the real compactor rewrites the conversation (summarizer falls
 ///     back to the serving mock model), and the summarizer call must appear between turns.</summary>
 [Collection("Desktop E2E")]
+[Trait("Category", "Process")]
 public class CompactionE2ETests
 {
   private static string RawCompletionWithUsage(string content, int inputTokens, int outputTokens) =>

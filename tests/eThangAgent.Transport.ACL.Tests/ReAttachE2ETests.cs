@@ -13,6 +13,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     re-attach. This test pins the host half of that contract against the real executable:
 ///     when the app's connection drops, the host process EXITS instead of waiting for a
 ///     second client.</summary>
+[Trait("Category", "Process")]
 public class ReAttachE2ETests
 {
   private static string FindHostExe()

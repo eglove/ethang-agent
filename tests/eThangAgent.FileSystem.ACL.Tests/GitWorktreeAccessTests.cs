@@ -11,6 +11,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
 #pragma warning disable CA1031 // Do not catch general exception types
 
+[Trait("Category", "Process")]
 public sealed class GitWorktreeAccessTests : IDisposable
 {
   private readonly string _repoDir;

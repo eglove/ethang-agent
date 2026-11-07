@@ -8,6 +8,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>Applying a settings update persists the management key under its own
 ///     preference key, DPAPI-protected like the model key, and the rebuilt
 ///     settings carry it for future session opens.</summary>
+[Trait("Category", "Process")]
 public class SettingsManagementKeyPersistenceTests
 {
   private sealed class FakePreferenceStore : IAppPreferenceStore

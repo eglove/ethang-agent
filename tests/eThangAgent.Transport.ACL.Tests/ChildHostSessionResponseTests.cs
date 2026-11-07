@@ -22,6 +22,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>Every request runs INSIDE a real turn (the provider parks between deltas),
 ///     because the channel is connected only while a turn runs — the same shape the
 ///     production handoff sees.</para></summary>
+[Trait("Category", "Process")]
 public class ChildHostSessionResponseTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

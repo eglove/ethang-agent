@@ -16,6 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     screen the chat text ran under the rail and a scrollbar sat across the bottom.</para>
 ///     <para>The fix reads the ancestor scroll viewer's VIEWPORT, which is decided above this
 ///     panel and therefore cannot feed on the panel's own output.</para></summary>
+[Trait("Category", "Process")]
 public class ChatShrinksForWorkbenchTests
 {
   /// <summary>The transition is what broke: the workbench starts closed, the tab lays out at

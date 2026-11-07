@@ -18,6 +18,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     verbatim system prompt renders through the markdown renderer (headings,
 ///     emphasis, code), not as a flat mono text block - the prompt is markdown
 ///     and must read as such.</summary>
+[Trait("Category", "Process")]
 public class BootstrapRenderingTests
 {
   private const string Prompt = "# Session contract\n\n**Prefer** a matching skill over improvising.";

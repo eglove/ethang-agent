@@ -6,6 +6,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 // Issue #363: the daemon-side shared claim store. Two pipe clients share one
 // daemon table; refusal payloads round-trip holder session id + expiry;
 // expiry-on-read holds over the pipe with no sweeper.
+[Trait("Category", "Process")]
 public class FileClaimPipeTests
 {
   [Fact]

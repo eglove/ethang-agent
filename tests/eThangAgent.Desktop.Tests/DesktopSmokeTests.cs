@@ -17,6 +17,7 @@ public static class TestApp
 }
 #pragma warning restore CA1515
 
+[Trait("Category", "Process")]
 public class DesktopSmokeTests
 {
   [AvaloniaFact]

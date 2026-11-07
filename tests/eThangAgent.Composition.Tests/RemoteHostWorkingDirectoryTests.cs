@@ -13,6 +13,7 @@ namespace eThangAgent.Composition.Tests;
 ///     directory, so deletes over it fail while the child lives - the documented git
 ///     -C hazard. The scratch folder is outside the workspace, so it fixes (1) without
 ///     causing (2).</summary>
+[Trait("Category", "Process")]
 public class RemoteHostWorkingDirectoryTests
 {
   [Fact]

@@ -20,6 +20,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <para>THE ASSERTION IS ON THE HOST'S OWN COMPOSED PROMPT, built through
 ///     <see cref="SessionHost.Create"/> over a real settings file — the same path production
 ///     takes, so a registration this test forgot cannot hide.</para></summary>
+[Trait("Category", "Process")]
 public sealed class ChainContractHostWiringTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");

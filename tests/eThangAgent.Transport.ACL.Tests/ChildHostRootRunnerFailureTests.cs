@@ -15,6 +15,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     that did not exist (2026-10-22). These tests pin the two distinct causes: no
 ///     session id, and a container that cannot be built.</summary>
 [Trait("Category", "LatencyContract")]
+[Trait("Category", "Process")]
 public class ChildHostRootRunnerFailureTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

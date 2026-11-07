@@ -6,6 +6,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 /// <summary>A host owns the daemon it starts, so a disposed host must start nothing: a
 ///     daemon spawned after disposal is a child process no part of the app can reach
 ///     again, and it outlives the session that caused it.</summary>
+[Trait("Category", "Process")]
 public class LspDaemonHostOwnershipTests
 {
   [Fact]

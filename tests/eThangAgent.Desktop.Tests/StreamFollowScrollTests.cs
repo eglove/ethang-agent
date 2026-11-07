@@ -9,6 +9,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>Stream-follow tests: a streamed delta REPLACES the tail entry record;
 ///     while the transcript is stuck to the bottom the view must keep the tail in
 ///     view during the stream - not only when the block closes.</summary>
+[Trait("Category", "Process")]
 public class StreamFollowScrollTests
 {
   // Deltas use short space-separated words (realistic prose): a long unbreakable

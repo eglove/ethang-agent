@@ -5,6 +5,7 @@ using eThangAgent.TestSupport;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
+[Trait("Category", "Process")]
 public sealed class ProcessTreeGuardTests
 {
   private static string PwshPath()

@@ -8,6 +8,7 @@ namespace eThangAgent.Composition.Tests;
 
 /// <summary>web_fetch must be wired into the root agent's tool list with its real
 ///     ACL dependencies, and must be safe for sub-agents.</summary>
+[Trait("Category", "Process")]
 public class WebFetchWiringTests
 {
   private static ServiceProvider Build()

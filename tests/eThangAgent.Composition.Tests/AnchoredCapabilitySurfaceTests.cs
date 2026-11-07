@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
 
+[Trait("Category", "Process")]
 public class AnchoredCapabilitySurfaceTests
 {
   private static ServiceProvider Build(string workspaceRoot)

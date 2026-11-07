@@ -9,6 +9,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>Watchdog seams must exist per container: a singleton heartbeat, the shared
 ///     SQLite event store, and the heartbeat passed into AgentRunServices so child runs
 ///     actually beat. Two containers never share a heartbeat (per-session isolation).</summary>
+[Trait("Category", "Process")]
 public class WatchdogWiringTests
 {
   private static ServiceProvider Build()

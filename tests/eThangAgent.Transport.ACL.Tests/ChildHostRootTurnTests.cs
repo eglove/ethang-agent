@@ -17,6 +17,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     production client's send, routing, or settlement is broken. The Received
 ///     assertions prove the request actually crossed the pipe.</summary>
 [Trait("Category", "LatencyContract")]
+[Trait("Category", "Process")]
 public class ChildHostRootTurnTests
 {
   private static readonly TimeSpan Limit = TestCeiling.Value;

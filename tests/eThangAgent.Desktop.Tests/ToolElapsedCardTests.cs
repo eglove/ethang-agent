@@ -12,6 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     card carries the live count-up while its tool runs, the result card the
 ///     frozen total. Entries are added before Show so the first layout pass
 ///     realizes the containers (the proven StatusBarOrderTests pattern).</summary>
+[Trait("Category", "Process")]
 public class ToolElapsedCardTests
 {
   [AvaloniaFact]

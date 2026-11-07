@@ -11,6 +11,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 /// ETHANG_LSP_REAL_SERVER=1.</summary>
 [Trait("Category", "OptIn")]
 [Trait("Category", "RealLspServer")]
+[Trait("Category", "Process")]
 public class LspRealServerSymbolTests
 {
   private static CancellationToken Ct => TestContext.Current.CancellationToken;

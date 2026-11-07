@@ -22,6 +22,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     async-void dispatcher handler and took the whole process down. These
 ///     tests pin the three layers that make that impossible: the command's
 ///     availability, the command's own guard, and the shell's refusal.</summary>
+[Trait("Category", "Process")]
 public sealed class NewAgentLaunchGuardTests
 {
   private static readonly IReadOnlyList<ProviderOption> Options =

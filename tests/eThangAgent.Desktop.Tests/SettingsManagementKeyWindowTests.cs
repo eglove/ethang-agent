@@ -8,6 +8,7 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>The management key field lives in the settings modal's API Keys tab,
 ///     masked like the model key and sharing the reveal toggle.</summary>
+[Trait("Category", "Process")]
 public class SettingsManagementKeyWindowTests
 {
   [AvaloniaFact]

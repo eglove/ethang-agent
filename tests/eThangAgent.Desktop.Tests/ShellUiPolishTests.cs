@@ -13,6 +13,7 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Shell chrome polish: the left menu is a thin icon rail (no header, hover
 ///     tooltips) and tab headers render at a reduced font size.</summary>
+[Trait("Category", "Process")]
 public class ShellUiPolishTests
 {
   private static MainViewModel CreateShellWindowVm()

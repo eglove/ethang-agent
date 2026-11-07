@@ -18,6 +18,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     the bound view-model ON THE UI THREAD - the indicator is bound to the chrome,
 ///     and a cross-thread property change is a live binding fault the moment the
 ///     store's read suspends.</para></summary>
+[Trait("Category", "Process")]
 public sealed class ResourceIndicatorFeedTests
 {
   private static readonly DateTimeOffset Base = new(2026, 10, 18, 12, 0, 0, TimeSpan.Zero);

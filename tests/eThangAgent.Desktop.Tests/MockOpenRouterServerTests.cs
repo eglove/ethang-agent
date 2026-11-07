@@ -7,6 +7,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     scripted response, the most recent agent-id annotation in the request's tool messages
 ///     replaces every placeholder occurrence — child ids are runtime Guids no static script
 ///     can predict.</summary>
+[Trait("Category", "Process")]
 public class MockOpenRouterServerTests
 {
   private const string NewestId = "12345678-1234-1234-1234-123456789abc";

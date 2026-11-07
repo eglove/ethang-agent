@@ -12,6 +12,7 @@ namespace eThangAgent.Composition.Tests;
 ///     <para>The declaration in the sidecar project IS the contract, so this test pins
 ///     it: a sidecar that stops publishing its manifest fails here, not in a user's
 ///     published app.</para></summary>
+[Trait("Category", "Process")]
 public class SidecarDeploymentContractTests
 {
   /// <summary>The sidecar apps that ship next to the desktop app.</summary>

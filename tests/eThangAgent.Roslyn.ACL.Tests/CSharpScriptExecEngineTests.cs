@@ -165,6 +165,7 @@ public class CSharpScriptExecEngineTests
   }
 
   [Fact]
+  [Trait("Category", "Process")]
   public async Task Shell_RunsCommand()
   {
     CSharpScriptExecEngine engine = CreateEngine();
@@ -183,6 +184,7 @@ public class CSharpScriptExecEngineTests
   /// <summary>Stop-button regression: cancelling the caller's token must kill the hung
   ///     child process tree so the turn actually ends, not just the token firing.</summary>
   [Fact]
+  [Trait("Category", "Process")]
   public async Task CallerCancellation_KillsHungShellProcessTree()
   {
     // A generous budget: the token must cover compile + spawn + kill under a loaded
@@ -198,6 +200,7 @@ public class CSharpScriptExecEngineTests
   /// <summary>Budget regression: an expired exec budget must kill the hung child tree and
   ///     surface Timeout — previously Shell blocked forever past its own WaitForExit cap.</summary>
   [Fact]
+  [Trait("Category", "Process")]
   public async Task ElapsedBudget_KillsHungShellProcessTree()
   {
     // The budget arrives through the caller's token - ExecOptions carries none. The
@@ -213,6 +216,7 @@ public class CSharpScriptExecEngineTests
   /// <summary>Pipe-deadlock regression: chatty stderr under quiet stdout must not block a
   ///     sequential stdout ReadToEnd — both pipes now drain concurrently.</summary>
   [Fact]
+  [Trait("Category", "Process")]
   public async Task ChattyStderr_DoesNotDeadlockShell()
   {
     CSharpScriptExecEngine engine = CreateEngine();
