@@ -26,7 +26,7 @@ public class ChildHostDeploymentTests
     // A staged copy of this assembly's output WITHOUT the host's manifest: the same
     // shape a published app had. The host must name the deployment gap, not fail with
     // an opaque type-initializer error.
-    string staged = Path.Combine(Path.GetTempPath(), "ethang-broken-deploy-" + Guid.NewGuid().ToString("N"));
+    string staged = Path.Combine(TestTempRoot.Root, "ethang-broken-deploy-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(staged);
     try
     {
@@ -90,7 +90,7 @@ public class ChildHostDeploymentTests
   ///     plus the events it produced.</summary>
   private static async Task<(Result<string> Result, List<RootTurnEvent> Events)> RunRootTurnAsync(string exe)
   {
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-deploy-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-deploy-" + Guid.NewGuid().ToString("N") + ".json");
     await File.WriteAllTextAsync(settings,
         /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":\"sk-or-test\",\"BaseUrl\":\"http://openrouter.test\"},\"SubAgents\":{}}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -98,7 +98,7 @@ public class ChildHostDeploymentTests
     System.Diagnostics.ProcessStartInfo psi = new(exe);
     psi.ArgumentList.Add(pipe);
     psi.ArgumentList.Add(settings);
-    psi.ArgumentList.Add(Path.Combine(Path.GetTempPath(), "ethang-deploy-" + Guid.NewGuid().ToString("N") + ".db"));
+    psi.ArgumentList.Add(Path.Combine(TestTempRoot.Root, "ethang-deploy-" + Guid.NewGuid().ToString("N") + ".db"));
     psi.RedirectStandardOutput = true;
     psi.RedirectStandardError = true;
     psi.UseShellExecute = false;

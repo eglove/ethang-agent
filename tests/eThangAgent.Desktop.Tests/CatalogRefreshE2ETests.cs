@@ -1,5 +1,6 @@
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Microsoft.Extensions.DependencyInjection;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
@@ -9,7 +10,6 @@ using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
-using Microsoft.Extensions.DependencyInjection;
 
 #pragma warning disable CA2007 // Headless UI test continuations stay on the dispatcher.
 using eThangAgent.TestSupport;

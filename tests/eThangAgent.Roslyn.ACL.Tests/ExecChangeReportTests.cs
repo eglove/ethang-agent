@@ -1,5 +1,6 @@
 using eThangAgent.CapabilityDomain;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -14,7 +15,7 @@ public class ExecChangeReportTests
   [Fact]
   public async Task Execute_WritesOneFile_ReportsThatFile()
   {
-    string root = Directory.CreateTempSubdirectory("execchg").FullName;
+    string root = TestTempRoot.CreateDirectory("execchg").FullName;
     try
     {
       string program = "File.WriteAllText(Path.Combine(Workspace, \"a.txt\"), \"x\"); return \"done\";";
@@ -35,7 +36,7 @@ public class ExecChangeReportTests
   [Fact]
   public async Task Execute_NoOpRewrite_ReportsModifiedZero()
   {
-    string root = Directory.CreateTempSubdirectory("execnoop").FullName;
+    string root = TestTempRoot.CreateDirectory("execnoop").FullName;
     try
     {
       await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "hello", TestContext.Current.CancellationToken);
@@ -62,7 +63,7 @@ public class ExecChangeReportTests
   [Fact]
   public async Task Execute_ReadOnly_ReportsNothingChanged()
   {
-    string root = Directory.CreateTempSubdirectory("execread").FullName;
+    string root = TestTempRoot.CreateDirectory("execread").FullName;
     try
     {
       await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "hello", TestContext.Current.CancellationToken);

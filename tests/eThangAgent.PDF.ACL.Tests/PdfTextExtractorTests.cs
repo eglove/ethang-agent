@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.PDF.ACL.Tests;
@@ -34,7 +35,7 @@ public sealed class PdfTextExtractorTests : IDisposable
 
   private string TempDir()
   {
-    string dir = Path.Combine(Path.GetTempPath(), "pdf-tests-" + Guid.NewGuid().ToString("N"));
+    string dir = Path.Combine(TestTempRoot.Root, "pdf-tests-" + Guid.NewGuid().ToString("N"));
     _dirs.Add(dir);
     _ = Directory.CreateDirectory(dir);
     return dir;
@@ -138,7 +139,7 @@ public sealed class PdfTextExtractorTests : IDisposable
   [Fact]
   public void Extract_missing_file_returns_file_not_found()
   {
-    string path = Path.Combine(Path.GetTempPath(), "pdf-missing-" + Guid.NewGuid().ToString("N") + ".pdf");
+    string path = Path.Combine(TestTempRoot.Root, "pdf-missing-" + Guid.NewGuid().ToString("N") + ".pdf");
     Result<PdfSnapshot> r = PdfTextExtractor.Extract(path, 0, 20);
     Assert.False(r.IsSuccess);
     Assert.Equal(PdfErrorCodes.FileNotFound, r.Error.Code);

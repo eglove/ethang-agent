@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
 
@@ -15,7 +16,7 @@ public sealed class GitWorktreeProvisionerTests : IDisposable
 
   public GitWorktreeProvisionerTests()
   {
-    _repoDir = Path.Combine(Path.GetTempPath(), "ethang-provisioner-tests-" + Guid.NewGuid().ToString("N"));
+    _repoDir = Path.Combine(TestTempRoot.Root, "ethang-provisioner-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_repoDir);
     _ = RunGit("init", "-b", "main");
     _ = RunGit("config", "user.email", "test@example.com");

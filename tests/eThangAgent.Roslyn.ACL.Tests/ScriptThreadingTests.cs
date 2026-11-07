@@ -1,4 +1,5 @@
 using eThangAgent.CapabilityDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -29,7 +30,7 @@ public class ScriptThreadingTests
   public async Task ScriptTools_Invoke_Completes_UnderNonPumpingContext()
   {
     ScriptGlobals globals = new(CapabilityRegistry.Create([new StubProvider()]),
-        workspace: ".", temp: Path.GetTempPath());
+        workspace: ".", temp: TestTempRoot.Root);
 
     (string? Value, bool Leaked) = await RunUnderNonPumpingContext(
         () => Task.FromResult(globals.Tools.Invoke("stub_action", new { timeoutSeconds = 30 })));

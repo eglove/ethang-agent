@@ -2,6 +2,7 @@ using eThangAgent.ChildHost;
 using eThangAgent.Composition;
 using eThangAgent.ModelDomain;
 using eThangAgent.StateDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -16,7 +17,7 @@ public class SessionHostWorkspaceAnchorTests
 {
   private static string WriteSettings(string json)
   {
-    string path = Path.Combine(Path.GetTempPath(), "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".json");
+    string path = Path.Combine(TestTempRoot.Root, "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".json");
     File.WriteAllText(path, json);
     return path;
   }
@@ -27,11 +28,11 @@ public class SessionHostWorkspaceAnchorTests
   [Fact]
   public void SettingsJson_WithWorkspaceRoot_AnchorsTheContainerThere()
   {
-    string root = Directory.CreateTempSubdirectory("ethang-anchor-ws").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-anchor-ws").FullName;
     string path = WriteSettings(SettingsJson(",\"WorkspaceRoot\":\"" + root.Replace("\\", "\\\\", StringComparison.Ordinal) + "\""));
     try
     {
-      SessionHost host = SessionHost.Create(path, Path.Combine(Path.GetTempPath(), "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".db"));
+      SessionHost host = SessionHost.Create(path, Path.Combine(TestTempRoot.Root, "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".db"));
       using IServiceScope scope = host.Services.CreateScope();
       Assert.Equal(root, scope.ServiceProvider.GetRequiredService<IWorkspaceContext>().WorkspaceId);
       string resolved = scope.ServiceProvider.GetRequiredService<IPathResolver>().Resolve("AGENTS.md").Value!;
@@ -51,7 +52,7 @@ public class SessionHostWorkspaceAnchorTests
     try
     {
       InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-          () => SessionHost.Create(path, Path.Combine(Path.GetTempPath(), "x.db")));
+          () => SessionHost.Create(path, Path.Combine(TestTempRoot.Root, "x.db")));
       Assert.Contains("WorkspaceRoot must be an absolute path", error.Message, StringComparison.Ordinal);
     }
     finally
@@ -66,7 +67,7 @@ public class SessionHostWorkspaceAnchorTests
     string path = WriteSettings(SettingsJson(""));
     try
     {
-      SessionHost host = SessionHost.Create(path, Path.Combine(Path.GetTempPath(), "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".db"));
+      SessionHost host = SessionHost.Create(path, Path.Combine(TestTempRoot.Root, "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".db"));
       using IServiceScope scope = host.Services.CreateScope();
       Assert.Equal(Path.GetDirectoryName(path), scope.ServiceProvider.GetRequiredService<IWorkspaceContext>().WorkspaceId);
     }
@@ -79,14 +80,14 @@ public class SessionHostWorkspaceAnchorTests
   [Fact]
   public void SettingsJson_WithWorkspaceRoot_InjectsWorkspaceDocsIntoTheSystemPrompt()
   {
-    string root = Directory.CreateTempSubdirectory("ethang-anchor-ws2").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-anchor-ws2").FullName;
     File.WriteAllText(Path.Combine(root, "AGENTS.md"), "# anchor prompt parity probe");
     string escaped = root.Replace("\\", "\\\\", StringComparison.Ordinal);
     string configured = SessionFilePreferences.Serialize([new SessionFileEntry(Path.Combine(root, "AGENTS.md"), true)]);
     string path = WriteSettings(SettingsJson(",\"WorkspaceRoot\":\"" + escaped + "\",\"SessionFilesGlobal\":\"" + configured.Replace("\\", "\\\\\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\""));
     try
     {
-      SessionHost host = SessionHost.Create(path, Path.Combine(Path.GetTempPath(), "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".db"));
+      SessionHost host = SessionHost.Create(path, Path.Combine(TestTempRoot.Root, "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".db"));
       ISystemPromptProvider prompt =
           host.Services.GetRequiredService<ISystemPromptProvider>();
       Assert.Contains("# anchor prompt parity probe", prompt.Build(), StringComparison.Ordinal);

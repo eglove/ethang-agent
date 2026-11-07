@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
 
@@ -19,12 +20,12 @@ public sealed class WorkspaceCleanlinessCheckTests : IDisposable
 
   public WorkspaceCleanlinessCheckTests()
   {
-    _repoDir = Path.Combine(Path.GetTempPath(), "ethang-clean-tests-" + Guid.NewGuid().ToString("N"));
+    _repoDir = Path.Combine(TestTempRoot.Root, "ethang-clean-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_repoDir);
     RunGit("init");
     RunGit("config", "user.email", "test@test.com");
     RunGit("config", "user.name", "Test");
-    _plainDir = Path.Combine(Path.GetTempPath(), "ethang-clean-plain-" + Guid.NewGuid().ToString("N"));
+    _plainDir = Path.Combine(TestTempRoot.Root, "ethang-clean-plain-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_plainDir);
   }
 

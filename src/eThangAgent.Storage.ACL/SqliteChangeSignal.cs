@@ -21,7 +21,15 @@ namespace eThangAgent.Storage.ACL;
 ///     database connection for the process lifetime.</para></summary>
 public sealed class SqliteChangeSignal(AppDatabase database) : IChangeSignal, IDisposable
 {
-  private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
+  /// <summary>Not pooled: this connection is the signal's own and lives as long as the
+  ///     signal does, so a pool entry would keep a handle on the database file after the
+  ///     signal is disposed.</summary>
+  private readonly string _connectionString = new SqliteConnectionStringBuilder
+  {
+    DataSource = (database ?? throw new ArgumentNullException(nameof(database))).DatabasePath,
+    Pooling = false,
+  }.ToString();
+
   private readonly Lock _gate = new();
   private SqliteConnection? _connection;
   private bool _disposed;
@@ -40,7 +48,7 @@ public sealed class SqliteChangeSignal(AppDatabase database) : IChangeSignal, ID
 #pragma warning disable CA1031 // Do not catch general exception types
       try
       {
-        _connection ??= _database.Open();
+        _connection ??= Open();
         using SqliteCommand command = _connection.CreateCommand();
         command.CommandText = "PRAGMA data_version;";
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
@@ -55,6 +63,13 @@ public sealed class SqliteChangeSignal(AppDatabase database) : IChangeSignal, ID
       }
 #pragma warning restore CA1031
     }
+  }
+
+  private SqliteConnection Open()
+  {
+    SqliteConnection connection = new(_connectionString);
+    connection.Open();
+    return connection;
   }
 
   public void Dispose()

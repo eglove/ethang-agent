@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 // JSON002 fires only in the format/IDE host; the pragma pair is the repo's named pattern.
 #pragma warning disable JSON002 // Probable JSON string detected
@@ -44,7 +45,7 @@ public class LspWorkspaceModelTests
   [Fact]
   public void WorkspaceSolution_AcceptsOnlyASolutionFile()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-solution").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-solution").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "a.csproj"), "<Project />");
@@ -61,7 +62,7 @@ public class LspWorkspaceModelTests
   [Fact]
   public void WorkspaceSolution_NoManifest_ReturnsNull()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-nosolution").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-nosolution").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "notes.md"), "hello");
@@ -76,7 +77,7 @@ public class LspWorkspaceModelTests
   [Fact]
   public async Task Model_RequestsTheLoadOnce_AndIsNotLoadedUntilTheServerSaysSo()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-model").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-model").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "a.slnx"), "<Solution />");
@@ -116,7 +117,7 @@ public class LspWorkspaceModelTests
   [Fact]
   public async Task Model_NoSolutionFile_IsLoadedWithoutWaiting()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-filebased").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-filebased").FullName;
     try
     {
       using MemoryStream input = new();

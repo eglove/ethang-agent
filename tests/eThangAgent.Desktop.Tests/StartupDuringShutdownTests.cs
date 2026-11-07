@@ -38,7 +38,7 @@ public class StartupDuringShutdownTests
     });
 
     Task<Result<AgentTabViewModel>> opening = shell.OpenAgentAsync(
-        Directory.CreateTempSubdirectory("ethang-open-race").FullName, Providers.OpenRouter);
+        TestTempRoot.CreateDirectory("ethang-open-race").FullName, Providers.OpenRouter);
     await started.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken)
         .ConfigureAwait(true);
 

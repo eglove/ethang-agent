@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
@@ -30,7 +31,7 @@ public class LspDaemonHostStatusTests
   [Fact]
   public async Task StartAsync_MarksTheHostStarted_AndIsIdempotent()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-start").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-start").FullName;
     string workspaceId = "ws-start-" + Guid.NewGuid().ToString("N");
     try
     {

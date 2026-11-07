@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,7 +19,7 @@ public class McpCompositionTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new AgentRunOptions(null, 2));
-    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
+    AppDatabase database = new(Path.Combine(TestTempRoot.Root, $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
@@ -50,7 +51,7 @@ public class McpCompositionTests
     IToolRegistry zeroRegistry = zero.GetRequiredService<IToolRegistry>();
     int zeroCount = zeroRegistry.Definitions.Count;
 
-    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
+    AppDatabase database = new(Path.Combine(TestTempRoot.Root, $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
     try
     {
       SqliteMcpServerStore store = new(database);
@@ -119,7 +120,7 @@ public class McpCompositionTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new AgentRunOptions(null, 2));
-    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
+    AppDatabase database = new(Path.Combine(TestTempRoot.Root, $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,

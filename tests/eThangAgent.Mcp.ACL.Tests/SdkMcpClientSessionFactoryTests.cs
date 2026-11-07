@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Mcp;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -102,9 +103,9 @@ public class SdkMcpClientSessionFactoryTests
       string name, McpServerTool tool)
 #pragma warning disable CA2000, S6966, CA1849 // named decision: the in-memory server outlives this helper through serverTask; trace writes are temporary instrumentation
   {
-    File.AppendAllText(Path.Combine(Path.GetTempPath(), "mcp-trace.log"), "pair created\n");
+    File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "pair created\n");
     (FullDuplexStream clientStream, FullDuplexStream serverStream) = FullDuplexStream.CreatePair();
-    File.AppendAllText(Path.Combine(Path.GetTempPath(), "mcp-trace.log"), "server options\n");
+    File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "server options\n");
     McpServerOptions serverOptions = new()
     {
       ServerInfo = new Implementation { Name = name, Version = "1.0.0" },
@@ -112,19 +113,19 @@ public class SdkMcpClientSessionFactoryTests
       ToolCollection = [],
     };
     serverOptions.ToolCollection.Add(tool);
-    File.AppendAllText(Path.Combine(Path.GetTempPath(), "mcp-trace.log"), "tool added\n");
+    File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "tool added\n");
     StreamServerTransport serverTransport = new(serverStream, serverStream);
     McpServer server = McpServer.Create(serverTransport, serverOptions);
     using CancellationTokenSource serverCts = new(TimeSpan.FromSeconds(30));
     Task serverTask = server.RunAsync(serverCts.Token);
-    File.AppendAllText(Path.Combine(Path.GetTempPath(), "mcp-trace.log"), "server task started\n");
+    File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "server task started\n");
 
     using CancellationTokenSource connectCts = new(TimeSpan.FromSeconds(15));
-    File.AppendAllText(Path.Combine(Path.GetTempPath(), "mcp-trace.log"), "factory call\n");
+    File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "factory call\n");
     McpConnectResult result = await SdkMcpClientSessionFactory.ConnectOverTransportAsync(
         () => new StreamClientTransport(clientStream, clientStream),
         connectCts.Token).ConfigureAwait(true);
-    File.AppendAllText(Path.Combine(Path.GetTempPath(), "mcp-trace.log"), "factory returned: " + (result is McpConnectResult.Success ? "success" : "failure") + "\n");
+    File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "factory returned: " + (result is McpConnectResult.Success ? "success" : "failure") + "\n");
     if (result is McpConnectResult.Failure failure)
     {
       throw new InvalidOperationException("connect failed: " + failure.Message);

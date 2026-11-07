@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Documents.ACL.Tests;
@@ -45,7 +46,7 @@ public sealed class DocxFormatSnifferTests : IDisposable
 
   private string TempFile(string name, string content)
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, name);
     File.WriteAllText(path, content);
@@ -74,7 +75,7 @@ public sealed class DocxFormatSnifferTests : IDisposable
   [Fact]
   public void Rejects_missing_file()
   {
-    string path = Path.Combine(Path.GetTempPath(), "docx-missing-" + Guid.NewGuid().ToString("N") + ".docx");
+    string path = Path.Combine(TestTempRoot.Root, "docx-missing-" + Guid.NewGuid().ToString("N") + ".docx");
     Result<string> r = DocxFormatSniffer.Inspect(path);
     Assert.False(r.IsSuccess);
     Assert.Equal(DocxErrorCodes.FileNotFound, r.Error.Code);
@@ -83,7 +84,7 @@ public sealed class DocxFormatSnifferTests : IDisposable
   [Fact]
   public void Rejects_zip_without_docx_parts()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     string inner = Path.Combine(dir, "payload");
     _ = Directory.CreateDirectory(inner);
     File.WriteAllText(Path.Combine(inner, "x.txt"), "x");
@@ -108,7 +109,7 @@ public sealed class DocxFormatSnifferTests : IDisposable
   [Fact]
   public void Rejects_oversize()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "big.docx");
     using (FileStream fs = File.Create(path))

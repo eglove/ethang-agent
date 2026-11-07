@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -16,7 +17,7 @@ public sealed class GitWorktreeAccessTests : IDisposable
 
   public GitWorktreeAccessTests()
   {
-    _repoDir = Path.Combine(Path.GetTempPath(), "ethang-worktree-tests-" + Guid.NewGuid().ToString("N"));
+    _repoDir = Path.Combine(TestTempRoot.Root, "ethang-worktree-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_repoDir);
     // The seed is the test's foundation: a silently failed git call (spawn contention
     // under a parallel run) would cascade every test into misleading assertions. Fail
@@ -147,7 +148,7 @@ public sealed class GitWorktreeAccessTests : IDisposable
   [Fact]
   public async Task ListAsync_BareRepository_SkipsDirtyProbeAndListsOneEntry()
   {
-    string bare = Path.Combine(Path.GetTempPath(), "ethang-bare-tests-" + Guid.NewGuid().ToString("N"));
+    string bare = Path.Combine(TestTempRoot.Root, "ethang-bare-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(bare);
     try
     {
@@ -325,7 +326,7 @@ public sealed class GitWorktreeAccessTests : IDisposable
   [Fact]
   public async Task ListAsync_OutsideRepo_ReturnsNotAGitRepository()
   {
-    string plain = Path.Combine(Path.GetTempPath(), "ethang-not-a-repo-" + Guid.NewGuid().ToString("N"));
+    string plain = Path.Combine(TestTempRoot.Root, "ethang-not-a-repo-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(plain);
     try
     {

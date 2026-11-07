@@ -17,7 +17,9 @@ public class SessionResumeE2ETests
   [Fact]
   public async Task Resume_Replays_Transcript_And_Carries_History_Into_Next_Turn()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 

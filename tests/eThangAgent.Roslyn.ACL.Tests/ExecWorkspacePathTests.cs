@@ -1,4 +1,5 @@
 using eThangAgent.CapabilityDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -19,7 +20,7 @@ public class ExecWorkspacePathTests
   [Fact]
   public async Task Resolve_RelativePath_ResolvesAtTheWorkspace()
   {
-    string workspace = Directory.CreateTempSubdirectory("ethang-exec-ws").FullName;
+    string workspace = TestTempRoot.CreateDirectory("ethang-exec-ws").FullName;
     try
     {
       CSharpScriptExecEngine engine = CreateEngine(workspace);
@@ -41,7 +42,7 @@ public class ExecWorkspacePathTests
   [Fact]
   public async Task Resolve_PathThatEscapesTheWorkspace_IsRefused()
   {
-    string workspace = Directory.CreateTempSubdirectory("ethang-exec-ws").FullName;
+    string workspace = TestTempRoot.CreateDirectory("ethang-exec-ws").FullName;
     try
     {
       CSharpScriptExecEngine engine = CreateEngine(workspace);
@@ -66,7 +67,7 @@ public class ExecWorkspacePathTests
   [Fact]
   public async Task Resolve_AbsolutePath_IsReturnedUnchanged()
   {
-    string workspace = Directory.CreateTempSubdirectory("ethang-exec-ws").FullName;
+    string workspace = TestTempRoot.CreateDirectory("ethang-exec-ws").FullName;
     try
     {
       CSharpScriptExecEngine engine = CreateEngine(workspace);

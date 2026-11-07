@@ -293,7 +293,7 @@ public class ChainStepCellBindingTests
     AgentTabViewModel tab = await shell.OpenAsync().ConfigureAwait(true);
     AgentId primaryId = tab.Container.RootId;
     shell.Chains.Chain = ThreeSteps(primaryId.ToString());
-    string worktree = Path.Combine(Path.GetTempPath(), "chain-1-step-2");
+    string worktree = Path.Combine(TestTempRoot.Root, "chain-1-step-2");
 
     Result<string> started = await shell.ViewModel.StartChainStepSessionAsync(
         new ChainStepAssignment(1, 1, 2, null).WithWorktree(worktree), primaryId.ToString())

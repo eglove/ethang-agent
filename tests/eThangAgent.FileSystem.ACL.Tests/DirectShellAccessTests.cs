@@ -17,7 +17,7 @@ public sealed class DirectShellAccessTests : IDisposable
 
   public DirectShellAccessTests()
   {
-    _workDir = Path.Combine(Path.GetTempPath(), "ethang-shell-tests-" + Guid.NewGuid().ToString("N"));
+    _workDir = Path.Combine(TestTempRoot.Root, "ethang-shell-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_workDir);
   }
 

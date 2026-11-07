@@ -3,6 +3,7 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.Lsp;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,7 +20,7 @@ public class LspRenameCompositionTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new AgentRunOptions(null, 2));
-    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-lspcomp-{Guid.NewGuid():N}.db"));
+    AppDatabase database = new(Path.Combine(TestTempRoot.Root, $"ethang-lspcomp-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
@@ -30,7 +31,7 @@ public class LspRenameCompositionTests
 
   private static string NewRoot()
   {
-    string root = Path.Combine(Path.GetTempPath(), $"ethang-lspws-{Guid.NewGuid():N}");
+    string root = Path.Combine(TestTempRoot.Root, $"ethang-lspws-{Guid.NewGuid():N}");
     _ = Directory.CreateDirectory(root);
     return root;
   }
@@ -72,7 +73,7 @@ public class LspRenameCompositionTests
   public async Task Container_Applier_Refuses_A_Path_Outside_The_Workspace()
   {
     string root = NewRoot();
-    string outside = Path.Combine(Path.GetTempPath(), $"ethang-lspout-{Guid.NewGuid():N}.cs");
+    string outside = Path.Combine(TestTempRoot.Root, $"ethang-lspout-{Guid.NewGuid():N}.cs");
     await File.WriteAllTextAsync(outside, "var foo = 1;" + Environment.NewLine,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     using ServiceProvider services = Build(root);

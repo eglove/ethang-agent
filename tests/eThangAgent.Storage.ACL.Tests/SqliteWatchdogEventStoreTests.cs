@@ -1,6 +1,7 @@
 #pragma warning disable IDE0005
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 #pragma warning restore IDE0005
 
 #pragma warning disable CA2007
@@ -10,7 +11,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     limit, per-agent kind counting, and the V9 migration's table creation.</summary>
 public sealed class SqliteWatchdogEventStoreTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), "wdog-" + Guid.NewGuid().ToString("N") + ".db");
+  private readonly string _dbPath = Path.Combine(TestTempRoot.Root, "wdog-" + Guid.NewGuid().ToString("N") + ".db");
   private readonly AppDatabase _db;
   private readonly SqliteWatchdogEventStore _store;
 

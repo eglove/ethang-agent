@@ -115,7 +115,6 @@ public sealed class ChainGroupMigrationTests : IDisposable
     Assert.True(created.IsSuccess, created.Error?.Message ?? "fixture chain must be created");
   }
 
-
   /// <summary>Builds a database at the V35 shape - the current chain_steps table minus
   ///     <c>worktree_branch</c> - and stamps user_version 35, which is the exact pre-V36 state a
   ///     shipped database is in.</summary>

@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -17,7 +18,7 @@ public sealed class DirectFileSystemAccessVersionTests : IDisposable
 {
   private readonly string _tempDir;
   public DirectFileSystemAccessVersionTests()
-      => _tempDir = Path.Combine(Path.GetTempPath(), "ethang-dfs-version-" + Guid.NewGuid().ToString("N"));
+      => _tempDir = Path.Combine(TestTempRoot.Root, "ethang-dfs-version-" + Guid.NewGuid().ToString("N"));
 
   public void Dispose()
   {

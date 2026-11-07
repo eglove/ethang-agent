@@ -31,7 +31,7 @@ public class HostLaunchingRuntimeRetireTests
   [Fact]
   public async Task DisposeAsync_DoesNotReturnWhileARetireIsStillDisposingTheHost()
   {
-    string root = Directory.CreateTempSubdirectory("ethang-retire-race").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-retire-race").FullName;
     bool disposed = false;
     HostLaunchingRuntime? runtime = null;
     try

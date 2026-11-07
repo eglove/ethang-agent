@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -15,7 +16,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 /// the real resolver with the real file ACL — no fakes — over a temp workspace.</summary>
 public sealed class WorkspacePathIntegrationTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-wsint").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-wsint").FullName;
 
   private (WorkspacePathResolver Resolver, DirectFileSystemAccess Files) Make() =>
     // The production shape: the desktop folder picker hands the host a root that may

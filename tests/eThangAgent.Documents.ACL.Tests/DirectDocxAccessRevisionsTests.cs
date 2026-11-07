@@ -1,7 +1,7 @@
 using DocumentFormat.OpenXml.Wordprocessing;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
-
 
 // S3220/S3878 flag the OOXML element-constructor calls in the fixture builders;
 // the trees are built exactly this way by design (mirrors TestDocxFactory).
@@ -44,7 +44,7 @@ public sealed class DirectDocxAccessRevisionsTests : IDisposable
 
   private string NewDoc(string name, Action<DocumentFormat.OpenXml.Packaging.MainDocumentPart> build)
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, name + ".docx");
     using (DocumentFormat.OpenXml.Packaging.WordprocessingDocument doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Create(path, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))

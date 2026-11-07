@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -11,7 +12,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 
 public sealed class FileWriteIntegrationTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-w").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-w").FullName;
   private readonly DirectFileSystemAccess _access = new(LineEndingStub.For(LineEnding.Lf));
 
   public void Dispose()

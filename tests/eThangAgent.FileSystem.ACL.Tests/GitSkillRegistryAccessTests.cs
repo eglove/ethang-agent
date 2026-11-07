@@ -5,6 +5,7 @@ using System.Diagnostics;
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
 #pragma warning disable CA1031 // Do not catch general exception types
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -20,9 +21,9 @@ public sealed class GitSkillRegistryAccessTests : IDisposable
 
   public GitSkillRegistryAccessTests()
   {
-    _repoDir = Path.Combine(Path.GetTempPath(), "regfix-" + Guid.NewGuid().ToString("N"));
-    _stagingParent = Path.Combine(Path.GetTempPath(), "regfix-stage-" + Guid.NewGuid().ToString("N"));
-    _targetDir = Path.Combine(Path.GetTempPath(), "regfix-target-" + Guid.NewGuid().ToString("N"));
+    _repoDir = Path.Combine(TestTempRoot.Root, "regfix-" + Guid.NewGuid().ToString("N"));
+    _stagingParent = Path.Combine(TestTempRoot.Root, "regfix-stage-" + Guid.NewGuid().ToString("N"));
+    _targetDir = Path.Combine(TestTempRoot.Root, "regfix-target-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_repoDir);
     _ = Directory.CreateDirectory(_stagingParent);
     _ = Directory.CreateDirectory(_targetDir);

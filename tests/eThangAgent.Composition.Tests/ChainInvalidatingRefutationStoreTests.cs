@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -21,7 +22,7 @@ public sealed class ChainInvalidatingRefutationStoreTests : IDisposable
 {
   private const string Ws = "C:\\ws\\refute";
   private static readonly DateTimeOffset T0 = new(2026, 10, 30, 13, 0, 0, TimeSpan.Zero);
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(),
+  private readonly string _dbPath = Path.Combine(TestTempRoot.Root,
       $"ethang-refute-{Guid.NewGuid():N}.db");
 
   public void Dispose()

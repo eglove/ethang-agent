@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp-file cleanup in catch blocks is deliberate (CA1031).
@@ -24,7 +25,7 @@ public class AgentSessionFactoryResumeTests
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings? settings = null)
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-resume-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-resume-{Guid.NewGuid():N}.db");
     return (new AgentSessionFactory(settings ?? Settings(), new AppDatabase(dbPath)), dbPath);
   }
 
@@ -49,7 +50,7 @@ public class AgentSessionFactoryResumeTests
     Result<AgentSession>? resumed = null;
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-resume-ws");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-resume-ws");
       try
       {
         Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
@@ -198,7 +199,7 @@ public class AgentSessionFactoryResumeTests
       SqliteAgentStore store = new(new AppDatabase(db));
       AgentId rootId = AgentId.NewId();
       string workspace = Directory.CreateDirectory(
-          Path.Combine(Path.GetTempPath(), $"ethang-resume-stamp-{Guid.NewGuid():N}")).FullName;
+          Path.Combine(TestTempRoot.Root, $"ethang-resume-stamp-{Guid.NewGuid():N}")).FullName;
       _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, workspace, Providers.OpenRouter,
           modelUsed: "openrouter/auto"), ct: TestContext.Current.CancellationToken);
       // A later selection recorded a different model before the tab closed.
@@ -238,7 +239,7 @@ public class AgentSessionFactoryResumeTests
       SqliteAgentStore store = new(new AppDatabase(db));
       AgentId rootId = AgentId.NewId();
       string workspace = Directory.CreateDirectory(
-          Path.Combine(Path.GetTempPath(), $"ethang-resume-z-{Guid.NewGuid():N}")).FullName;
+          Path.Combine(TestTempRoot.Root, $"ethang-resume-z-{Guid.NewGuid():N}")).FullName;
       _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, workspace, Providers.OpenRouter), ct: TestContext.Current.CancellationToken);
 
       Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
@@ -259,7 +260,7 @@ public class AgentSessionFactoryResumeTests
     {
       SqliteAgentStore store = new(new AppDatabase(db));
       AgentId rootId = AgentId.NewId();
-      string gone = Path.Combine(Path.GetTempPath(), $"ethang-gone-{Guid.NewGuid():N}");
+      string gone = Path.Combine(TestTempRoot.Root, $"ethang-gone-{Guid.NewGuid():N}");
       _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, gone, Providers.OpenRouter), ct: TestContext.Current.CancellationToken);
 
       Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);

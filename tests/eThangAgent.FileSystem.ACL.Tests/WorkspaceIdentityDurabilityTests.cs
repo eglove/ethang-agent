@@ -1,6 +1,7 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -11,8 +12,8 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 ///     the old path stay with the old path rather than following the directory.</summary>
 public sealed class WorkspaceIdentityDurabilityTests : IDisposable
 {
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ethang-wsid-{Guid.NewGuid():N}.db");
-  private readonly string _root = Path.Combine(Path.GetTempPath(), $"ethang-ws-{Guid.NewGuid():N}");
+  private readonly string _dbPath = Path.Combine(TestTempRoot.Root, $"ethang-wsid-{Guid.NewGuid():N}.db");
+  private readonly string _root = Path.Combine(TestTempRoot.Root, $"ethang-ws-{Guid.NewGuid():N}");
 
   public WorkspaceIdentityDurabilityTests() => _ = Directory.CreateDirectory(_root);
 
@@ -109,7 +110,7 @@ public sealed class WorkspaceIdentityDurabilityTests : IDisposable
         .BindAsync(liveId, _root, TestContext.Current.CancellationToken));
     _ = await CreateChainAsync(database, liveId);
 
-    string vanished = Path.Combine(Path.GetTempPath(), $"ethang-gone-{Guid.NewGuid():N}");
+    string vanished = Path.Combine(TestTempRoot.Root, $"ethang-gone-{Guid.NewGuid():N}");
     _ = Directory.CreateDirectory(vanished);
     string goneId = WorkspaceIdentity.For(vanished);
     _ = Must(await new SqliteWorkspaceIdentityStore(database)

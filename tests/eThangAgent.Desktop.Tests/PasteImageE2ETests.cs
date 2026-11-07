@@ -17,7 +17,9 @@ public sealed class PasteImageE2ETests
   [Fact]
   public async Task StagedImage_RidesUserMessageOntoProviderWire()
   {
-    using E2E.HostHarness harness = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness harness = new();
+#pragma warning restore CA2007
     _ = await harness.StartAsync().ConfigureAwait(true);
 
     byte[] png = Convert.FromBase64String(TinyPngBase64);

@@ -2,6 +2,7 @@ using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.ModelDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -62,10 +63,10 @@ public class ConversationHostSupervisionTests
   [Fact]
   public async Task Supervisor_StampsTheConversationIdIntoTheHostSettingsJson()
   {
-    string scratch = Directory.CreateTempSubdirectory("ethang-conv-scratch").FullName;
+    string scratch = TestTempRoot.CreateDirectory("ethang-conv-scratch").FullName;
     try
     {
-      string workspace = Directory.CreateTempSubdirectory("ethang-conv-ws").FullName;
+      string workspace = TestTempRoot.CreateDirectory("ethang-conv-ws").FullName;
       try
       {
         AgentSettings settings = new AgentSettings(
@@ -101,10 +102,10 @@ public class ConversationHostSupervisionTests
   [Fact]
   public async Task Supervisor_KeepsTheWorkspaceRootItWasGiven()
   {
-    string scratch = Directory.CreateTempSubdirectory("ethang-conv-scratch2").FullName;
+    string scratch = TestTempRoot.CreateDirectory("ethang-conv-scratch2").FullName;
     try
     {
-      string workspace = Directory.CreateTempSubdirectory("ethang-conv-ws2").FullName;
+      string workspace = TestTempRoot.CreateDirectory("ethang-conv-ws2").FullName;
       try
       {
         AgentSettings settings = new AgentSettings(
@@ -196,7 +197,7 @@ public class ConversationHostSupervisionTests
   [Fact]
   public void Supervisor_WithoutAWorkspaceRoot_FailsNamed()
   {
-    string scratch = Directory.CreateTempSubdirectory("ethang-conv-scratch3").FullName;
+    string scratch = TestTempRoot.CreateDirectory("ethang-conv-scratch3").FullName;
     try
     {
       AgentSettings settings = new(
@@ -354,10 +355,10 @@ public class ConversationHostSupervisionTests
   [Fact]
   public async Task Connect_NoHostListening_FailsNamedInsideItsDeadline()
   {
-    string scratch = Directory.CreateTempSubdirectory("ethang-connect-scratch").FullName;
+    string scratch = TestTempRoot.CreateDirectory("ethang-connect-scratch").FullName;
     try
     {
-      string workspace = Directory.CreateTempSubdirectory("ethang-connect-ws").FullName;
+      string workspace = TestTempRoot.CreateDirectory("ethang-connect-ws").FullName;
       try
       {
         AgentSettings settings = new AgentSettings(
@@ -404,10 +405,10 @@ public class ConversationHostSupervisionTests
   [Fact]
   public async Task Attach_CallerAlreadyCancelled_PropagatesWithoutLaunchingAHost()
   {
-    string scratch = Directory.CreateTempSubdirectory("ethang-cancel-scratch").FullName;
+    string scratch = TestTempRoot.CreateDirectory("ethang-cancel-scratch").FullName;
     try
     {
-      string workspace = Directory.CreateTempSubdirectory("ethang-cancel-ws").FullName;
+      string workspace = TestTempRoot.CreateDirectory("ethang-cancel-ws").FullName;
       try
       {
         AgentSettings settings = new AgentSettings(

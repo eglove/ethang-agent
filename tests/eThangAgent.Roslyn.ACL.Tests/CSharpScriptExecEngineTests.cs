@@ -1,6 +1,7 @@
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -173,7 +174,6 @@ public class CSharpScriptExecEngineTests
     Assert.Contains("hello", run.Output, StringComparison.Ordinal);
   }
 
-
   /// <summary>Hang primitive for the kill-tree regressions: waitfor blocks for its whole
   ///     duration and resolves directly from System32, so it hangs on every Windows machine
   ///     regardless of PATH.</summary>
@@ -258,9 +258,9 @@ public class CSharpScriptExecEngineTests
 
     // A second execution sees the resolver's NEW value — the construction-time
     // capture that pinned multi-session hosts to one root is gone.
-    current = Path.GetTempPath();
+    current = TestTempRoot.Root;
     ExecRunResult second = await engine.ExecuteAsync(new ExecProgram("return Workspace;"), ct: TestContext.Current.CancellationToken);
-    Assert.Equal(Path.GetTempPath(), second.Output);
+    Assert.Equal(TestTempRoot.Root, second.Output);
   }
 
   // ---- empty-output attribution: discarded nested-call results (two real

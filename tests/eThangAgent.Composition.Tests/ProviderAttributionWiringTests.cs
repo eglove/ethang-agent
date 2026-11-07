@@ -4,6 +4,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -105,7 +106,7 @@ public class ProviderAttributionWiringTests
   {
     using CapturingServer server = new();
     server.Start();
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-attrib-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-attrib-{Guid.NewGuid():N}.db");
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),
         new AgentRunOptions(null, 2));

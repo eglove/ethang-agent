@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.ToolDomain.Tests;
 
@@ -121,7 +122,7 @@ public class SkillRegistryToolTests
 
   private static SkillRegistryServiceHarness MakeRegistryHarness()
   {
-    string dir = Path.Combine(Path.GetTempPath(), "regtool-" + Guid.NewGuid().ToString("N"));
+    string dir = Path.Combine(TestTempRoot.Root, "regtool-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(dir);
     return new SkillRegistryServiceHarness(dir);
   }
@@ -163,7 +164,6 @@ public class SkillRegistryToolTests
   // undeclared contract made nested calls to these tools fail MissingParameter
   // even when the caller stated the budget (sessions 851d… and the definition
   // sweep that followed).
-
 
   [Fact]
   public void SkillRegistryTool_DeclaresTimeoutSeconds_AndRequiresIt()

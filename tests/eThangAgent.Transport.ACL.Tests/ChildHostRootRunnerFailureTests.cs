@@ -63,10 +63,10 @@ public class ChildHostRootRunnerFailureTests
     // that was never the problem.
     // The host is a GUEST in the app's database: the app owns the schema, so the
     // guest opens the file as it finds it and never waits on the app's lock.
-    string dbPath = Path.Combine(Path.GetTempPath(), "ethang-lock-" + Guid.NewGuid().ToString("N") + ".db");
+    string dbPath = Path.Combine(TestTempRoot.Root, "ethang-lock-" + Guid.NewGuid().ToString("N") + ".db");
     _ = new AppDatabase(dbPath); // the owner creates it and migrates it
     await StampVersionAsync(dbPath, 3, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-lock-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-lock-" + Guid.NewGuid().ToString("N") + ".json");
     await File.WriteAllTextAsync(settings,
         /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":\"sk-or-test\",\"BaseUrl\":\"http://openrouter.test\"},\"SubAgents\":{},\"SessionId\":\"" + Guid.NewGuid().ToString() + "\"}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -123,10 +123,10 @@ public class ChildHostRootRunnerFailureTests
   private static async Task<(Result<string> Result, List<RootTurnEvent> Events)> RunRootTurnAsync(
       string settingsJson)
   {
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-rootfailure-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-rootfailure-" + Guid.NewGuid().ToString("N") + ".json");
     await File.WriteAllTextAsync(settings, settingsJson, TestContext.Current.CancellationToken).ConfigureAwait(true);
     ChildHostServer server = new(settings,
-        Path.Combine(Path.GetTempPath(), "ethang-rootfailure-" + Guid.NewGuid().ToString("N") + ".db"));
+        Path.Combine(TestTempRoot.Root, "ethang-rootfailure-" + Guid.NewGuid().ToString("N") + ".db"));
     string pipeName = "ethang-rootfailure-" + Guid.NewGuid().ToString("N");
     Task<NamedPipeChildTransport> accept = NamedPipeChildTransport.AcceptAppAsync(pipeName,
         TestContext.Current.CancellationToken);

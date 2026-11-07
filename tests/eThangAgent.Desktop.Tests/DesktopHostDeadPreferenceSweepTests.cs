@@ -1,4 +1,5 @@
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -14,7 +15,7 @@ public class DesktopHostDeadPreferenceSweepTests
   [Fact]
   public async Task PrepareAsync_Removes_Dead_Preference_Rows_And_Keeps_Live_Ones()
   {
-    string dbPath = Path.Combine(Path.GetTempPath(),
+    string dbPath = Path.Combine(TestTempRoot.Root,
         "ethang-dead-prefs-" + Guid.NewGuid().ToString("N") + ".db");
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
     try

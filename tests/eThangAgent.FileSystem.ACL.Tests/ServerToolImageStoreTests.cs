@@ -1,5 +1,6 @@
 using System.Text.Json;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -23,7 +24,7 @@ public sealed class ServerToolImageStoreTests : IDisposable
 #pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
-      string folder = Path.Combine(Path.GetTempPath(), ServerToolImageStore.ArtifactFolderName, _session);
+      string folder = Path.Combine(TestTempRoot.Root, ServerToolImageStore.ArtifactFolderName, _session);
       if (Directory.Exists(folder))
       {
         Directory.Delete(folder, recursive: true);
@@ -49,7 +50,7 @@ public sealed class ServerToolImageStoreTests : IDisposable
 
     Assert.True(File.Exists(saved.FullPath));
     Assert.True(Path.IsPathRooted(saved.FullPath), "read_image needs an absolute path");
-    Assert.StartsWith(Path.GetTempPath(), saved.FullPath, StringComparison.OrdinalIgnoreCase);
+    Assert.StartsWith(ServerToolImageStore.ArtifactRoot, saved.FullPath, StringComparison.OrdinalIgnoreCase);
     Assert.Contains(_session, saved.FullPath, StringComparison.Ordinal);
   }
 
@@ -86,7 +87,6 @@ public sealed class ServerToolImageStoreTests : IDisposable
     Assert.Equal("UnsupportedImageFormat", refused.Error.Code);
   }
 
-
   /// <summary>The round trip that makes a generated artifact useful: the store writes it to
   ///     the temp directory and hands back an ABSOLUTE path, and read_image - wired the way a
   ///     session wires it, over a workspace-rooted resolver - opens that path and attaches the
@@ -94,7 +94,7 @@ public sealed class ServerToolImageStoreTests : IDisposable
   [Fact]
   public async Task GeneratedArtifact_IsReadableFromItsAbsolutePath_OutsideTheWorkspace()
   {
-    string workspace = Path.Combine(Path.GetTempPath(), "ethang-ws-" + Guid.NewGuid().ToString("N"));
+    string workspace = Path.Combine(TestTempRoot.Root, "ethang-ws-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(workspace);
     try
     {

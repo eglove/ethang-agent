@@ -7,7 +7,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 #pragma warning disable CA2007
 public class WorkspaceFileWatcherPollingTests
 {
-  private static string NewTree() => Directory.CreateTempSubdirectory("wspoll").FullName;
+  private static string NewTree() => TestTempRoot.CreateDirectory("wspoll").FullName;
 
   private static void Write(string root, string relative, string content)
   {

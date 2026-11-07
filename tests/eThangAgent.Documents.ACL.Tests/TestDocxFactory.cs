@@ -1,7 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
-
+using eThangAgent.TestSupport;
 
 // S3220 flags every single-element params-ctor call below; OOXML element trees are
 // built exactly this way by design (a child element argument to the params ctor is
@@ -151,7 +151,7 @@ public static class TestDocxFactory
 
   private static string NewPath(string name)
   {
-    string dir = Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N"));
+    string dir = Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(dir);
     return Path.Combine(dir, name + ".docx");
   }

@@ -7,6 +7,7 @@ using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -27,10 +28,12 @@ public class ModelSettingsE2ETests
   [Fact]
   public async Task SavedSettings_RestoreAndReachTheWire()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-settings");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-settings");
     try
     {
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
       string workspaceRoot = ws.FullName;
@@ -89,10 +92,12 @@ public class ModelSettingsE2ETests
   [Fact]
   public async Task MalformedProviderSettings_DegradesToUnset_AndTurnStillRuns()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-settings-bad");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-settings-bad");
     try
     {
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
       string workspaceRoot = ws.FullName;
@@ -148,10 +153,12 @@ public class ModelSettingsE2ETests
   [Fact]
   public async Task SavedReasoningSummary_ReachesTheWire_AndLeavesInputUnchanged()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-summary");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-summary");
     try
     {
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
       string workspaceRoot = ws.FullName;
@@ -236,4 +243,3 @@ public class ModelSettingsE2ETests
         $"prebuilt session failed to open: [{opened.Error.Code}] {opened.Error.Message}");
   }
 }
-

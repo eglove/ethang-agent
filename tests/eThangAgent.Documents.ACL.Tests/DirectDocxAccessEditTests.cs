@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Documents.ACL.Tests;
@@ -227,7 +228,7 @@ public sealed class DirectDocxAccessEditTests : IDisposable
   [Fact]
   public async Task Edit_refuses_missing_file_and_unknown_address()
   {
-    string missing = Path.Combine(Path.GetTempPath(), "docx-missing-" + Guid.NewGuid().ToString("N") + ".docx");
+    string missing = Path.Combine(TestTempRoot.Root, "docx-missing-" + Guid.NewGuid().ToString("N") + ".docx");
     Result<DocxEditOutcome> r = await _access.EditAsync(missing, new FileVersion(1, DateTime.UnixEpoch),
         [new ReplaceParagraphText("p1", "x")], TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);

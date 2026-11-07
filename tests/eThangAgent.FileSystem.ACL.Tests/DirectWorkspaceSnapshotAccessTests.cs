@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -7,7 +8,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 // comparison calls that a change; the content hash is the only evidence that does not.
 public class DirectWorkspaceSnapshotAccessTests
 {
-  private static string NewTree() => Directory.CreateTempSubdirectory("wssnap").FullName;
+  private static string NewTree() => TestTempRoot.CreateDirectory("wssnap").FullName;
 
   private static void Write(string root, string relative, string content)
   {
@@ -163,7 +164,7 @@ public class DirectWorkspaceSnapshotAccessTests
   public async Task Capture_MissingRoot_IsIncompleteNotThrowing()
   {
     WorkspaceSnapshot snapshot = await new DirectWorkspaceSnapshotAccess()
-        .CaptureAsync(Path.Combine(Path.GetTempPath(), "definitely-missing-" + Guid.NewGuid()),
+        .CaptureAsync(Path.Combine(TestTempRoot.Root, "definitely-missing-" + Guid.NewGuid()),
             TestContext.Current.CancellationToken);
 
     Assert.False(snapshot.IsComplete);

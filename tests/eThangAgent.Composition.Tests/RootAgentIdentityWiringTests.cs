@@ -2,6 +2,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp-file cleanup in finally blocks is deliberate (CA1031).
@@ -31,7 +32,7 @@ public class RootAgentIdentityWiringTests
     (AgentSessionFactory? factory, TestAppDatabase? db) = CreateFactory();
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-rootid-ws");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-rootid-ws");
       try
       {
         Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);

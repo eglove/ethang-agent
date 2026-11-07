@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
@@ -10,7 +11,7 @@ public class LspDaemonHostOwnershipTests
   [Fact]
   public async Task EnsureConnected_AfterDispose_StartsNoDaemon()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-owned").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-owned").FullName;
     string workspaceId = "owned-" + Guid.NewGuid().ToString("N");
     try
     {
@@ -37,7 +38,7 @@ public class LspDaemonHostOwnershipTests
   [Fact]
   public async Task Dispose_IsSafeToCallTwice_AndLeavesNoClient()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-twice").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-twice").FullName;
     string workspaceId = "twice-" + Guid.NewGuid().ToString("N");
     try
     {

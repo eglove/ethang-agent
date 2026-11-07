@@ -50,6 +50,9 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@"Assert\.\w+\s*\([^;]*?\.Elapsed\s*<=")]
   private static partial Regex ElapsedAssertionPattern();
 
+  [GeneratedRegex(@"Path\.GetTempPath\(\)|Directory\.CreateTempSubdirectory\(")]
+  private static partial Regex AmbientTempPattern();
+
   /// <summary>R5.1: no NEW polling. Wait idioms are event-driven (WhenSettledAsync,
   ///     push delivery); timed waits appear only in the named allowlist — the
   ///     watchdog's bounded settle poll, transport/retry ACLs owning real backoff
@@ -214,6 +217,38 @@ public sealed partial class DoctrineTests
         "wall-clock latency bounds outside a declared latency contract (use TestCeiling, or mark the "
         + "class [Trait(\"Category\", \"LatencyContract\")] when latency IS the contract): "
         + string.Join(", ", violations));
+  }
+
+  /// <summary>Issue #371: a test's scratch state lives under the run's temp root, never in the
+  ///     ambient temp directory. A test that reads the ambient directory directly creates debris
+  ///     the run cannot sweep: it is indistinguishable from every other process's, so the one
+  ///     recursive delete at teardown cannot reach it and nothing else ever reclaims it. The
+  ///     measured cost of that habit was 242,000 files and 58 GB in one machine's temp directory,
+  ///     with every failed cleanup swallowed by a bare catch.</summary>
+  [Fact]
+  public void NoAmbientTemp_EveryScratchPathLivesUnderTheRunRoot()
+  {
+    // The root is the one place the ambient directory is read.
+    string[] allowlist = ["tests/eThangAgent.TestSupport/TestTempRoot.cs"];
+
+    List<string> violations = [];
+    foreach (string file in SourceFiles("tests"))
+    {
+      string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
+      if (allowlist.Contains(relative))
+      {
+        continue;
+      }
+
+      if (AmbientTempPattern().IsMatch(File.ReadAllText(file)))
+      {
+        violations.Add(relative);
+      }
+    }
+
+    Assert.True(violations.Count == 0,
+        "tests reading the ambient temp directory instead of the run root (use TestTempRoot.Root "
+        + "for a path and TestTempRoot.CreateDirectory for a directory): " + string.Join(", ", violations));
   }
 
   /// <summary>Issue #366: every test assembly takes its ceiling from Tests.Shared. A project that

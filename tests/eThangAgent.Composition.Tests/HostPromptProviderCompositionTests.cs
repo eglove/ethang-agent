@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -57,7 +58,7 @@ public class HostPromptProviderCompositionTests
   [Fact]
   public void Composite_Renders_Three_Delimited_Sections_In_Source_Order()
   {
-    string dir = Directory.CreateTempSubdirectory("ethang-sections").FullName;
+    string dir = TestTempRoot.CreateDirectory("ethang-sections").FullName;
     try
     {
       string globalPath = Path.Combine(dir, "global.md");

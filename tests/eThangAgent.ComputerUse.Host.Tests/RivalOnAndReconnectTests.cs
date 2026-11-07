@@ -1,4 +1,5 @@
 using eThangAgent.ComputerUse.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.Host.Tests;
@@ -41,7 +42,7 @@ public class RivalOnAndReconnectTests
     string pipeName = "ethang-cu-heal-" + Guid.NewGuid().ToString("N");
 
     // First call: a spawn path that does not exist - the connect attempt fails.
-    string missing = Path.Combine(Path.GetTempPath(), "no-such-host-" + Guid.NewGuid().ToString("N") + ".exe");
+    string missing = Path.Combine(TestTempRoot.Root, "no-such-host-" + Guid.NewGuid().ToString("N") + ".exe");
     string realHostPath = HealedHost.RealPath();
     bool healed = false;
     BrokerSupervisor supervisor = new(missing, pipeName, "heal-ws",

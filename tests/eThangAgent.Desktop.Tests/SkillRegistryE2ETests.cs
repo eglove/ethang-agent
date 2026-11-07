@@ -8,6 +8,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.FileSystem.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
@@ -22,8 +23,8 @@ public class SkillRegistryE2ETests
   public async Task Install_FixtureRepo_Installs_And_Announces()
   {
     string repo = CreateFixtureRepo();
-    string target = Directory.CreateTempSubdirectory("ethang-regtarget").FullName;
-    string stagingParent = Directory.CreateTempSubdirectory("ethang-regstage").FullName;
+    string target = TestTempRoot.CreateDirectory("ethang-regtarget").FullName;
+    string stagingParent = TestTempRoot.CreateDirectory("ethang-regstage").FullName;
     try
     {
       GitSkillRegistryAccess registryAccess = new();
@@ -94,7 +95,7 @@ public class SkillRegistryE2ETests
 
   private static string CreateFixtureRepo()
   {
-    string repo = Directory.CreateTempSubdirectory("ethang-regrepo").FullName;
+    string repo = TestTempRoot.CreateDirectory("ethang-regrepo").FullName;
     RunGit(repo, "init", "-b", "main");
     RunGit(repo, "config", "user.email", "test@example.com");
     RunGit(repo, "config", "user.name", "Test");

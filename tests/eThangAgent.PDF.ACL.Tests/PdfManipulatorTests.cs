@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using UglyToad.PdfPig;
 
@@ -37,7 +38,7 @@ public sealed class PdfManipulatorTests : IDisposable
 
   private string TempDir()
   {
-    string dir = Path.Combine(Path.GetTempPath(), "pdf-manip-tests-" + Guid.NewGuid().ToString("N"));
+    string dir = Path.Combine(TestTempRoot.Root, "pdf-manip-tests-" + Guid.NewGuid().ToString("N"));
     _dirs.Add(dir);
     _ = Directory.CreateDirectory(dir);
     return dir;
@@ -296,7 +297,7 @@ public sealed class PdfManipulatorTests : IDisposable
   [Fact]
   public async Task Manipulate_missing_file_is_file_not_found()
   {
-    string path = Path.Combine(Path.GetTempPath(), "pdf-missing-" + Guid.NewGuid().ToString("N") + ".pdf");
+    string path = Path.Combine(TestTempRoot.Root, "pdf-missing-" + Guid.NewGuid().ToString("N") + ".pdf");
 
     Result<PdfEditOutcome> r = await _access.ManipulateAsync(
         path, new FileVersion(1, DateTime.UtcNow), [new RotatePages([1], 90)], TestContext.Current.CancellationToken);

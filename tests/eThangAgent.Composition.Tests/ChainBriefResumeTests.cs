@@ -3,6 +3,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 // Best-effort temp-file cleanup in catch blocks is deliberate (CA1031).
 #pragma warning disable CA1031 // Do not catch general exception types
@@ -28,12 +29,12 @@ public sealed class ChainBriefResumeTests
   [Fact]
   public async Task AChainBriefSeed_SurvivesAResume()
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-brief-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-brief-{Guid.NewGuid():N}.db");
     AgentSessionFactory factory = new(Settings(), new AppDatabase(dbPath));
     Result<AgentSession>? resumed = null;
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-brief-ws");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-brief-ws");
       try
       {
         // The brief as the real service renders it: a chain step assignment in, one

@@ -1,5 +1,6 @@
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
 
@@ -16,7 +17,7 @@ public sealed class DirectorySkillSourceTests : IDisposable
   private const string ValidAlpha = "---\nname: alpha\ndescription: Alpha does things.\n---\nAlpha body.";
   private const string ValidBeta = "---\nname: beta\ndescription: Beta does other things.\n---\nBeta body.";
 
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-skilldir").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-skilldir").FullName;
   private readonly DirectorySkillSource _source = new();
 
   public void Dispose()

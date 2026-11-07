@@ -1,5 +1,6 @@
 using System.Text;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.PDF.ACL.Tests;
@@ -37,7 +38,7 @@ public sealed class PdfFormatSnifferTests : IDisposable
 
   private string TempFile(string name, byte[] bytes)
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "pdf-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "pdf-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, name);
     File.WriteAllBytes(path, bytes);
@@ -59,7 +60,7 @@ public sealed class PdfFormatSnifferTests : IDisposable
   [Fact]
   public void Rejects_missing_file()
   {
-    string path = Path.Combine(Path.GetTempPath(), "pdf-missing-" + Guid.NewGuid().ToString("N") + ".pdf");
+    string path = Path.Combine(TestTempRoot.Root, "pdf-missing-" + Guid.NewGuid().ToString("N") + ".pdf");
     Result<string> r = PdfFormatSniffer.Inspect(path);
     Assert.False(r.IsSuccess);
     Assert.Equal(PdfErrorCodes.FileNotFound, r.Error.Code);
@@ -118,7 +119,7 @@ public sealed class PdfFormatSnifferTests : IDisposable
   [Fact]
   public void Rejects_oversize_file()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "pdf-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "pdf-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "oversize.pdf");
 

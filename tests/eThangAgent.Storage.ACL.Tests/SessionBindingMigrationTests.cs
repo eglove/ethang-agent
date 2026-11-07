@@ -1,5 +1,6 @@
 using System.Globalization;
 using eThangAgent.AgentDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -14,7 +15,7 @@ public sealed class SessionBindingMigrationTests : IDisposable
   // and now rebuild tables whose earlier shape no longer exists, so this fixture builds the
   // historical schema from nothing.
   private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-binding-{Guid.NewGuid():N}.db");
+      TestTempRoot.Root, $"ethang-binding-{Guid.NewGuid():N}.db");
 
   public void Dispose()
   {

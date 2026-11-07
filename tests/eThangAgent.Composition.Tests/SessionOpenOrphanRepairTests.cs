@@ -24,12 +24,12 @@ public class SessionOpenOrphanRepairTests : SessionOwningTest
   [Fact]
   public async Task SessionOpen_MarksUnownedRunningRows_Interrupted()
   {
-    string ws = Track(Directory.CreateTempSubdirectory("ethang-ws").FullName);
+    string ws = Track(TestTempRoot.CreateDirectory("ethang-ws").FullName);
 
     // Seed BEFORE the session opens: the orphan must exist when open-time repair runs.
     // The base class below selects the temp database this seeding targets.
     AgentSettings settings = Settings();
-    string dbPath = Track(Path.Combine(Path.GetTempPath(),
+    string dbPath = Track(Path.Combine(TestTempRoot.Root,
         "ethang-orphan-" + Guid.NewGuid().ToString("N") + ".db"));
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
 

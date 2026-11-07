@@ -18,14 +18,14 @@ public static class TemplateDatabase
   /// <summary>A new temp database file, already migrated, that the caller owns and deletes.</summary>
   public static string Copy()
   {
-    string path = Path.Combine(Path.GetTempPath(), $"ethang-test-{Guid.NewGuid():N}.db");
+    string path = TestTempRoot.FilePath($"ethang-test-{Guid.NewGuid():N}.db");
     File.Copy(TemplatePath.Value, path, overwrite: false);
     return path;
   }
 
   private static string BuildTemplate()
   {
-    string directory = Directory.CreateTempSubdirectory("ethang-template").FullName;
+    string directory = TestTempRoot.CreateDirectory("ethang-template").FullName;
     string path = Path.Combine(directory, "template.db");
     _ = new AppDatabase(path);
     return path;

@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -53,7 +54,7 @@ public sealed class GhCliAccessIntegrationTests
   [Fact]
   public async Task TheRealCli_RefusesAPlainDirectoryAsNotAGitHubRepository()
   {
-    string scratch = Path.Combine(Path.GetTempPath(), "ethang-gh-tests-" + Guid.NewGuid().ToString("N"));
+    string scratch = Path.Combine(TestTempRoot.Root, "ethang-gh-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(scratch);
     try
     {

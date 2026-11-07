@@ -78,10 +78,12 @@ public class ChainExecutionE2ETests
   [AvaloniaFact]
   public async Task ChainStart_LaunchesStepOneSession_OverTheWire_AndRecordsIt()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync().ConfigureAwait(true);
-    string workspace = Directory.CreateTempSubdirectory("ethang-chain-e2e").FullName;
+    string workspace = TestTempRoot.CreateDirectory("ethang-chain-e2e").FullName;
     MainViewModel? shell = null;
     try
     {
@@ -161,10 +163,12 @@ public class ChainExecutionE2ETests
   [AvaloniaFact]
   public async Task Chain_FromStartToCompleted_RunsEveryStepInItsOwnHostedSession()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync().ConfigureAwait(true);
-    string workspace = Directory.CreateTempSubdirectory("ethang-chain-e2e").FullName;
+    string workspace = TestTempRoot.CreateDirectory("ethang-chain-e2e").FullName;
     MainViewModel? shell = null;
     try
     {

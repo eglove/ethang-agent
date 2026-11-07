@@ -4,6 +4,7 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -19,7 +20,7 @@ public sealed class ChainTelemetryCompositionTests : IDisposable
 {
   private const string Ws = "C:\\ws\\telemetry";
   private static readonly DateTimeOffset T0 = new(2026, 10, 30, 10, 0, 0, TimeSpan.Zero);
-  private readonly string _dbPath = Path.Combine(Path.GetTempPath(),
+  private readonly string _dbPath = Path.Combine(TestTempRoot.Root,
       $"ethang-telemetry-composition-{Guid.NewGuid():N}.db");
 
   public void Dispose()

@@ -25,7 +25,7 @@ public class LspRealServerDiagnosticsTests
     string daemonExe = LspDaemonExeLocator.CreateDefault().Resolve();
     Assert.True(File.Exists(daemonExe), "the language-server daemon must be built first: " + daemonExe);
 
-    string root = Directory.CreateTempSubdirectory("ethang-lsp-real").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-lsp-real").FullName;
     string workspaceId = "real-" + Guid.NewGuid().ToString("N");
     string pipeName = LspPipeNames.ForWorkspaceId(workspaceId);
     try
@@ -123,7 +123,6 @@ public class LspRealServerDiagnosticsTests
       {
         return result;
       }
-
 
       await Task.Delay(1000, Ct).ConfigureAwait(true);
     }

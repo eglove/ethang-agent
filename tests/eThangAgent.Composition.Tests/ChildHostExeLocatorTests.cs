@@ -1,3 +1,5 @@
+using eThangAgent.TestSupport;
+
 namespace eThangAgent.Composition.Tests;
 
 /// <summary>ChildHost exe resolution must find the host build output no matter which
@@ -11,7 +13,7 @@ public class ChildHostExeLocatorTests
 
   private static string MakeFakeRepo()
   {
-    string root = Path.Combine(Path.GetTempPath(), "childhost-locator-" + Guid.NewGuid().ToString("N"));
+    string root = Path.Combine(TestTempRoot.Root, "childhost-locator-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(Path.Combine(root, "src", "eThangAgent.ChildHost", "bin"));
     return root;
   }
@@ -154,7 +156,7 @@ public class ChildHostExeLocatorTests
   {
     // A published app has NO repo above it: the 2026-10-21 crash walked past the
     // filesystem root, found nothing, and dereferenced the null.
-    string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
+    string appDir = TestTempRoot.CreateDirectory("ethang-deployed-app").FullName;
     try
     {
       string resolved = ChildHostExeLocator.Resolve(repoRoot: null, appDir);
@@ -175,7 +177,7 @@ public class ChildHostExeLocatorTests
     // ways that look like product bugs (2026-10-22). The copy shipped next to the app
     // is that build; the repo's live output is only a fallback.
     string repo = MakeFakeRepo();
-    string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
+    string appDir = TestTempRoot.CreateDirectory("ethang-deployed-app").FullName;
     try
     {
       PlantWindowsExe(repo, "Debug");
@@ -198,7 +200,7 @@ public class ChildHostExeLocatorTests
     // A caller that ships no host of its own (a test host) still finds the repo's
     // live build output: the dev layout keeps working.
     string repo = MakeFakeRepo();
-    string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
+    string appDir = TestTempRoot.CreateDirectory("ethang-deployed-app").FullName;
     try
     {
       PlantWindowsExe(repo, "Debug");
@@ -222,7 +224,7 @@ public class ChildHostExeLocatorTests
     // The repo is there but the host was never built in it: the copy shipped with
     // the app is the answer, not a not-found path.
     string repo = MakeFakeRepo();
-    string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
+    string appDir = TestTempRoot.CreateDirectory("ethang-deployed-app").FullName;
     try
     {
       string resolved = ChildHostExeLocator.Resolve(repo, appDir);

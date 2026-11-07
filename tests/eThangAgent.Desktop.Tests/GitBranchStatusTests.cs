@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.TestSupport;
 
 // Test helpers: sync temp-file IO and best-effort cleanup are deliberate.
 #pragma warning disable CA1849 // Call async methods when in an async method
@@ -24,7 +25,7 @@ public sealed class GitBranchStatusTests : IDisposable
 
   public GitBranchStatusTests()
   {
-    _repoDir = Path.Combine(Path.GetTempPath(), "ethang-branch-tests-" + Guid.NewGuid().ToString("N"));
+    _repoDir = Path.Combine(TestTempRoot.Root, "ethang-branch-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_repoDir);
     RunGit("init");
     RunGit("config", "user.email", "test@test.com");
@@ -83,7 +84,6 @@ public sealed class GitBranchStatusTests : IDisposable
     status.Branch = "feature/demo";
 #pragma warning restore IDE0017 // The test mutates after construction on purpose: the setter's change notification is the behavior under test.
 
-
     Assert.Equal("feature/demo", status.Branch);
   }
 
@@ -118,7 +118,7 @@ public sealed class GitBranchStatusTests : IDisposable
   [AvaloniaFact]
   public async Task Watcher_NonGitWorkspace_ShowsNothing()
   {
-    string plain = Path.Combine(Path.GetTempPath(), "ethang-plain-ws-" + Guid.NewGuid().ToString("N"));
+    string plain = Path.Combine(TestTempRoot.Root, "ethang-plain-ws-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(plain);
     try
     {

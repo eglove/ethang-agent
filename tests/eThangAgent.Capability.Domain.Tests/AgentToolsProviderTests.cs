@@ -1,5 +1,6 @@
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Capability.Domain.Tests;
@@ -17,7 +18,7 @@ public class AgentToolsProviderTests
   public void Actions_DeclarePreDispatchValidation()
   {
     Assert.All(Create().Actions, a => Assert.True(a.ValidatesArgumentsBeforeDispatch));
-    Assert.All(Create().RootedAt(Path.Combine(Path.GetTempPath(), "atp-anchor")).Actions,
+    Assert.All(Create().RootedAt(Path.Combine(TestTempRoot.Root, "atp-anchor")).Actions,
         a => Assert.True(a.ValidatesArgumentsBeforeDispatch));
   }
 
@@ -75,7 +76,7 @@ public class AgentToolsProviderTests
   public void RootedAt_KeepsAdvertisement_Identical()
   {
     AgentToolsProvider original = Create();
-    AgentToolsProvider anchored = original.RootedAt(Path.Combine(Path.GetTempPath(), "atp-anchor"));
+    AgentToolsProvider anchored = original.RootedAt(Path.Combine(TestTempRoot.Root, "atp-anchor"));
 
     ActionDescriptor expected = Assert.Single(original.Actions);
     ActionDescriptor action = Assert.Single(anchored.Actions);
@@ -90,7 +91,7 @@ public class AgentToolsProviderTests
   public async Task RootedAt_ScopedTool_ResolvesAtAnchor_AndRefusesEscape()
   {
     RecordingFileSystemAccess files = new();
-    string anchor = Path.Combine(Path.GetTempPath(), "atp-anchor");
+    string anchor = Path.Combine(TestTempRoot.Root, "atp-anchor");
     AgentToolsProvider provider = new("agent",
         [new AgentToolBinding(new ReadTool(new UnrootedPathResolver(), files), "Read lines.")]);
 
@@ -120,7 +121,7 @@ public class AgentToolsProviderTests
                              """{"timeoutSeconds":30,"edges":[],"entry":[]}""";
 
     CapabilityInvocationResult before = await provider.InvokeAsync("cycle_check", args, ct: TestContext.Current.CancellationToken);
-    CapabilityInvocationResult after = await provider.RootedAt(Path.Combine(Path.GetTempPath(), "atp-anchor"))
+    CapabilityInvocationResult after = await provider.RootedAt(Path.Combine(TestTempRoot.Root, "atp-anchor"))
         .InvokeAsync("cycle_check", args, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(before.IsError, after.IsError);

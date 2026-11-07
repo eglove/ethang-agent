@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
@@ -29,7 +30,7 @@ public class ShellContainmentTests
   [Fact]
   public async Task Shell_TreeDies_WithTheExecCall()
   {
-    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath());
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root);
 
     ShellResult result = globals.Shell("powershell",
         "-NoProfile", "-Command", SpawnDetachedChildAndPrintPid);

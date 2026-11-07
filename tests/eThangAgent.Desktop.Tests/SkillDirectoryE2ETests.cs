@@ -1,6 +1,7 @@
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -23,8 +24,8 @@ public class SkillDirectoryE2ETests
   [Fact]
   public async Task Session_WithConfiguredSkillDirectory_ListsFileSkillFromCompositeCatalog()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skilldir-ws");
-    DirectoryInfo skills = Directory.CreateTempSubdirectory("ethang-e2e-skilldir");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilldir-ws");
+    DirectoryInfo skills = TestTempRoot.CreateDirectory("ethang-e2e-skilldir");
     try
     {
       // ONE valid file skill (agentskills.io shape: name/description frontmatter only)
@@ -44,7 +45,9 @@ public class SkillDirectoryE2ETests
       await File.WriteAllLinesAsync(Path.Combine(skillFolder, "SKILL.md"), skillLines,
         TestContext.Current.CancellationToken);
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 
@@ -96,10 +99,12 @@ public class SkillDirectoryE2ETests
   [Fact]
   public async Task Session_WithoutConfiguredDirectories_ListsBuiltInsOnly()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skilldir-empty");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilldir-empty");
     try
     {
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 

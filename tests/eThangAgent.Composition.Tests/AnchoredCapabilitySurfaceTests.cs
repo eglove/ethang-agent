@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -29,7 +30,7 @@ public class AnchoredCapabilitySurfaceTests
   [Fact]
   public async Task AnchoredChildSurface_ResolvesReadAndWriteAtAnchor_AndRefusesEscape()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-anchor-surface");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-anchor-surface");
     string anchor = Path.Combine(ws.FullName, "anchored");
     _ = Directory.CreateDirectory(anchor);
     string probe = Path.Combine(anchor, "probe.txt");
@@ -74,7 +75,7 @@ public class AnchoredCapabilitySurfaceTests
   [Fact]
   public void RootSurface_WithoutRunningChild_StillResolvesAllActions()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-root-surface");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-root-surface");
     try
     {
       using ServiceProvider services = Build(ws.FullName);
@@ -94,7 +95,7 @@ public class AnchoredCapabilitySurfaceTests
   [Fact]
   public void AnchoredSurface_IsMemoized_PerAnchor()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-anchor-memo");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-anchor-memo");
     string anchor = Path.Combine(ws.FullName, "anchored");
     _ = Directory.CreateDirectory(anchor);
     try

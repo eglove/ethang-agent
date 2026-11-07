@@ -3,6 +3,7 @@ using eThangAgent.Composition;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp cleanup in catch blocks is deliberate (CA1031), matching the
@@ -27,10 +28,10 @@ public class SessionHostSkillHotReloadTests
   [Fact]
   public async Task HostContainer_StartsWithTheWatcher_AndSeesASkillWrittenAfterBuild()
   {
-    string skillsRoot = Directory.CreateTempSubdirectory("ethang-host-skills").FullName;
-    string settingsPath = Path.Combine(Path.GetTempPath(),
+    string skillsRoot = TestTempRoot.CreateDirectory("ethang-host-skills").FullName;
+    string settingsPath = Path.Combine(TestTempRoot.Root,
         "ethang-host-skills-" + Guid.NewGuid().ToString("N") + ".json");
-    string dbPath = Path.Combine(Path.GetTempPath(),
+    string dbPath = Path.Combine(TestTempRoot.Root,
         "ethang-host-skills-" + Guid.NewGuid().ToString("N") + ".db");
     try
     {
@@ -93,10 +94,10 @@ public class SessionHostSkillHotReloadTests
   [Fact]
   public async Task HostContainer_ReloadAnnouncement_ReachesTheNoticeSink()
   {
-    string skillsRoot = Directory.CreateTempSubdirectory("ethang-host-notice").FullName;
-    string settingsPath = Path.Combine(Path.GetTempPath(),
+    string skillsRoot = TestTempRoot.CreateDirectory("ethang-host-notice").FullName;
+    string settingsPath = Path.Combine(TestTempRoot.Root,
         "ethang-host-notice-" + Guid.NewGuid().ToString("N") + ".json");
-    string dbPath = Path.Combine(Path.GetTempPath(),
+    string dbPath = Path.Combine(TestTempRoot.Root,
         "ethang-host-notice-" + Guid.NewGuid().ToString("N") + ".db");
     try
     {
@@ -154,10 +155,10 @@ public class SessionHostSkillHotReloadTests
   [Fact]
   public async Task HostContainer_StartsTheLanguageServerAtWorkspaceStart()
   {
-    string workspaceRoot = Directory.CreateTempSubdirectory("ethang-host-lsp").FullName;
-    string settingsPath = Path.Combine(Path.GetTempPath(),
+    string workspaceRoot = TestTempRoot.CreateDirectory("ethang-host-lsp").FullName;
+    string settingsPath = Path.Combine(TestTempRoot.Root,
         "ethang-host-lsp-" + Guid.NewGuid().ToString("N") + ".json");
-    string dbPath = Path.Combine(Path.GetTempPath(),
+    string dbPath = Path.Combine(TestTempRoot.Root,
         "ethang-host-lsp-" + Guid.NewGuid().ToString("N") + ".db");
     try
     {

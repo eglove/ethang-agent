@@ -1,4 +1,5 @@
 using System.Text.Json;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -9,7 +10,7 @@ namespace eThangAgent.Composition.Tests;
 ///     pinned here.</summary>
 public sealed class SessionFilesPromptProviderTests : IDisposable
 {
-  private readonly string _dir = Directory.CreateTempSubdirectory("ethang-sfpp").FullName;
+  private readonly string _dir = TestTempRoot.CreateDirectory("ethang-sfpp").FullName;
 
   public void Dispose()
   {

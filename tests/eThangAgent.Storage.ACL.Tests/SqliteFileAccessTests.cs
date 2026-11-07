@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
@@ -10,7 +11,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 ///     file fails without creating one (read-only mode never creates).</summary>
 public sealed class SqliteFileAccessTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-sq").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-sq").FullName;
 
   [Fact]
   public async Task QueryAsync_ReadsRows_FromARealSqliteFile()

@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 // Best-effort temp-file cleanup in finally blocks is deliberate (CA1031).
 #pragma warning disable CA1031, S108 // Do not catch general exception types
@@ -24,7 +25,7 @@ public class DeployedHostResolutionTests
   public void DefaultHostExePath_Outside_A_Repo_Resolves_The_Host_Next_To_The_App()
   {
     // The published layout: the app's own directory, with no repo anywhere above it.
-    string appDir = Directory.CreateTempSubdirectory("ethang-published-app").FullName;
+    string appDir = TestTempRoot.CreateDirectory("ethang-published-app").FullName;
     try
     {
       string fakeAssembly = Path.Combine(appDir, "eThangAgent.Composition.dll");
@@ -45,7 +46,7 @@ public class DeployedHostResolutionTests
   {
     // The dev layout keeps working for a caller that ships no host of its own: the
     // repo's build output is the fallback.
-    string repo = Directory.CreateTempSubdirectory("ethang-repo-app").FullName;
+    string repo = TestTempRoot.CreateDirectory("ethang-repo-app").FullName;
     try
     {
       File.WriteAllText(Path.Combine(repo, "eThangAgent.slnx"), string.Empty);
@@ -73,14 +74,14 @@ public class DeployedHostResolutionTests
     // of the host. A cross-build pair fails the wire protocol in ways that read as
     // product bugs - the 2026-10-22 case answered every root turn with "this
     // conversation host is not bound to a root session".
-    string repo = Directory.CreateTempSubdirectory("ethang-repo-app").FullName;
+    string repo = TestTempRoot.CreateDirectory("ethang-repo-app").FullName;
     try
     {
       File.WriteAllText(Path.Combine(repo, "eThangAgent.slnx"), string.Empty);
       string hostDir = Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0-windows");
       _ = Directory.CreateDirectory(hostDir);
       File.WriteAllText(Path.Combine(hostDir, HostExeName), string.Empty);
-      string appDir = Directory.CreateTempSubdirectory("ethang-repo-app-bin").FullName;
+      string appDir = TestTempRoot.CreateDirectory("ethang-repo-app-bin").FullName;
       try
       {
         string shipped = Path.Combine(appDir, HostExeName);
@@ -108,10 +109,10 @@ public class DeployedHostResolutionTests
     // The host executable does not exist: the open must fail with a NAMED error the
     // shell surfaces in a dialog, never an exception that tears the process down
     // (the open path runs on the UI dispatcher, which has no handler for one).
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-host-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-host-{Guid.NewGuid():N}.db");
     string missingHost = Path.Combine(
-        Path.GetTempPath(), $"ethang-no-host-{Guid.NewGuid():N}", HostExeName);
-    DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-host");
+        TestTempRoot.Root, $"ethang-no-host-{Guid.NewGuid():N}", HostExeName);
+    DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-host");
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
     try
     {

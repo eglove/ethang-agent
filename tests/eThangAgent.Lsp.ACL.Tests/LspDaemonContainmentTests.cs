@@ -22,7 +22,7 @@ public class LspDaemonContainmentTests
   [Fact]
   public async Task StartedDaemon_IsContainedByAKillOnCloseJob()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-contained").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-contained").FullName;
     string workspaceId = "contained-" + Guid.NewGuid().ToString("N");
     try
     {
@@ -49,7 +49,7 @@ public class LspDaemonContainmentTests
   [Fact]
   public async Task DisposedHost_LeavesNoDaemon()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-reaped").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-reaped").FullName;
     string workspaceId = "reaped-" + Guid.NewGuid().ToString("N");
     try
     {

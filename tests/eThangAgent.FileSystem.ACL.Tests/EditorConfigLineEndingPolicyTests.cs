@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -13,7 +14,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 ///     nothing.</summary>
 public sealed class EditorConfigLineEndingPolicyTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-eol").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-eol").FullName;
 
   public void Dispose()
   {

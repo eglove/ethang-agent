@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
@@ -17,7 +18,7 @@ public class LspDaemonTests
   [Fact]
   public void CodeDetection_CSharpWorkspace_ReturnsFound()
   {
-    string root = Directory.CreateTempSubdirectory("lspcode").FullName;
+    string root = TestTempRoot.CreateDirectory("lspcode").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "a.cs"), "class A {}");
@@ -29,7 +30,7 @@ public class LspDaemonTests
   [Fact]
   public void CodeDetection_EmptyWorkspace_ReturnsNotFound()
   {
-    string root = Directory.CreateTempSubdirectory("lspempty").FullName;
+    string root = TestTempRoot.CreateDirectory("lspempty").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "notes.md"), "hello");
@@ -41,7 +42,7 @@ public class LspDaemonTests
   [Fact]
   public void CodeDetection_Inconclusive_ReturnsInconclusive()
   {
-    string root = Directory.CreateTempSubdirectory("lspinc").FullName;
+    string root = TestTempRoot.CreateDirectory("lspinc").FullName;
     try
     {
       for (int i = 0; i < 2500; i++) File.WriteAllText(Path.Combine(root, $"f{i}.md"), "x");

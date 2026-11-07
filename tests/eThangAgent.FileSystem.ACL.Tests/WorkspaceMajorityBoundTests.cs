@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -12,7 +13,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 ///     fixed sample instead of a full scan.</summary>
 public sealed class WorkspaceMajorityBoundTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-eolb").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-eolb").FullName;
 
   public void Dispose()
   {

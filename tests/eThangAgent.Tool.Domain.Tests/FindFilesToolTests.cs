@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.ToolDomain.Tests;
 
@@ -7,7 +8,7 @@ namespace eThangAgent.ToolDomain.Tests;
 ///     name) is what this tool removes — one call answers "where is the file named X".</summary>
 public class FindFilesToolTests
 {
-  private static readonly string Root = Path.Combine(Path.GetTempPath(), "ethang-findfiles-tests-" + Guid.NewGuid().ToString("N"));
+  private static readonly string Root = Path.Combine(TestTempRoot.Root, "ethang-findfiles-tests-" + Guid.NewGuid().ToString("N"));
 
   private static IPathResolver Resolver => new WorkspacePathResolver(Root);
 

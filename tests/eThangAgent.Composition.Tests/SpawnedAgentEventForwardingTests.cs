@@ -5,6 +5,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -171,7 +172,7 @@ public class SpawnedAgentEventForwardingTests
     ///     pre-#326 code did.</summary>
     public static ParentHost Create(bool wireEvents)
     {
-      string root = Directory.CreateTempSubdirectory("ethang-agent-events").FullName;
+      string root = TestTempRoot.CreateDirectory("ethang-agent-events").FullName;
       string workspace = Directory.CreateDirectory(Path.Combine(root, "ws")).FullName;
       string database = Path.Combine(root, "app.db");
       MockProviderServer mock = new();

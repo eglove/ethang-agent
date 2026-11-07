@@ -1,5 +1,6 @@
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.Verification;
 
@@ -20,7 +21,7 @@ public class ShellArgumentTests
   public void SpacedExecutablePath_IsOneNativeToken()
   {
     string cmdPath = Path.Combine(Environment.SystemDirectory, "cmd.exe");
-    DirectoryInfo tmp = Directory.CreateTempSubdirectory("shellarg spaced exe");
+    DirectoryInfo tmp = TestTempRoot.CreateDirectory("shellarg spaced exe");
     try
     {
       string exe = Path.Combine(tmp.FullName, "my spaced tool.exe");
@@ -41,7 +42,7 @@ public class ShellArgumentTests
   [Fact]
   public async Task SpacedArgument_ReachesGitAsOneArgument()
   {
-    DirectoryInfo tmp = Directory.CreateTempSubdirectory("shellarg-spaced-msg");
+    DirectoryInfo tmp = TestTempRoot.CreateDirectory("shellarg-spaced-msg");
     try
     {
       string dir = tmp.FullName.Replace("\\", "/", StringComparison.Ordinal);
@@ -77,7 +78,7 @@ public class ShellArgumentTests
   public void VerificationRecord_TokensAreVerbatimArguments()
   {
     RecordingSink sink = new();
-    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root,
         verificationSink: sink);
 
     _ = globals.Shell("cmd", "/c", "echo", "hello world");

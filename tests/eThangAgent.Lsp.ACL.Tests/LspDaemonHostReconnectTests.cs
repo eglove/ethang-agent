@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Lsp.ACL.Tests;
@@ -89,7 +90,7 @@ public class LspDaemonHostReconnectTests
   [Fact]
   public async Task EnsureConnected_AfterDaemonDies_ReconnectsInsteadOfReturningTheDeadClient()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-reconnect").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-reconnect").FullName;
     string workspaceId = "ws-reconnect-" + Guid.NewGuid().ToString("N");
     string pipeName = LspPipeNames.ForWorkspaceId(workspaceId);
     try
@@ -127,7 +128,7 @@ public class LspDaemonHostReconnectTests
   [Fact]
   public async Task EnsureConnected_AfterDaemonRestarts_ReturnsAWorkingClient()
   {
-    string root = Directory.CreateTempSubdirectory("lsp-reconnect2").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-reconnect2").FullName;
     string workspaceId = "ws-reconnect2-" + Guid.NewGuid().ToString("N");
     string pipeName = LspPipeNames.ForWorkspaceId(workspaceId);
     try

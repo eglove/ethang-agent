@@ -36,7 +36,7 @@ public class LspRealServerTests
           TimeSpan.FromSeconds(120));
       LspClient client = new(transport, LspLanguageDetector.CSharpConfig(serverPath));
       LspRequestResult initialized = await client.InitializeAsync(
-          LspUriMapper.ToUri(Path.GetTempPath()), TestContext.Current.CancellationToken).ConfigureAwait(true);
+          LspUriMapper.ToUri(TestTempRoot.Root), TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(initialized.IsSuccess, "the installed server must answer initialize over stdio: " + initialized.ErrorMessage);
     }
     finally

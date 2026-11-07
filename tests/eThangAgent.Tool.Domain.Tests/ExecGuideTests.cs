@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Tool.Domain.Tests;
@@ -197,8 +198,6 @@ public partial class ExecGuideTests
     }
   }
 
-
-
   /// <summary>Issue #316 retired the agent-to-agent messaging surface, so the guide must
   ///     stop teaching it (a documented action that 404s is worse than none - the #288
   ///     finding) AND must say so, because a model that has seen messaging elsewhere will
@@ -366,7 +365,7 @@ public partial class ExecGuideTests
     // Whitespace-normalized: the contract is about what the text SAYS, so a reflow
     // of the guide must not fail this test.
     string section = Collapse(SafeWritingSection());
-    WriteTool tool = new(new WorkspacePathResolver(Path.GetTempPath()), new NoopFileWriteAccess());
+    WriteTool tool = new(new WorkspacePathResolver(TestTempRoot.Root), new NoopFileWriteAccess());
     // The join contract lives in the tool description AND its 'lines' parameter text;
     // the guide must agree with both.
     string description = Collapse(tool.Definition.Description + " " +

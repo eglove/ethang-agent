@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.ToolDomain.Tests;
 
@@ -32,7 +33,7 @@ public class GitCommitCompletionNoticeTests
   }
 
   private static GitCommitTool Tool(ICommitCompletionNotice? notice) =>
-      new(new WorkspacePathResolver(Path.GetTempPath()), new FakeCommits(), new FixedStyle(),
+      new(new WorkspacePathResolver(TestTempRoot.Root), new FakeCommits(), new FixedStyle(),
           gate: null, notice);
 
   private static Task<ToolResult> RunCommitAsync(GitCommitTool tool) =>

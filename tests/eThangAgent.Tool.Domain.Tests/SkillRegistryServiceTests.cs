@@ -1,5 +1,6 @@
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.ToolDomain.Tests;
 
@@ -20,8 +21,8 @@ public sealed class SkillRegistryServiceTests : IDisposable
 
   public SkillRegistryServiceTests()
   {
-    _globalDir = Path.Combine(Path.GetTempPath(), "regsvc-g-" + Guid.NewGuid().ToString("N"));
-    _workspaceDir = Path.Combine(Path.GetTempPath(), "regsvc-w-" + Guid.NewGuid().ToString("N"));
+    _globalDir = Path.Combine(TestTempRoot.Root, "regsvc-g-" + Guid.NewGuid().ToString("N"));
+    _workspaceDir = Path.Combine(TestTempRoot.Root, "regsvc-w-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_globalDir);
     _ = Directory.CreateDirectory(_workspaceDir);
   }
@@ -303,7 +304,7 @@ internal sealed class FakeRegistryAccess
 
   public void StageSkills(string key, params (string Name, string Body)[] skills)
   {
-    string root = Path.Combine(Path.GetTempPath(), "fakestage-" + Guid.NewGuid().ToString("N"));
+    string root = Path.Combine(TestTempRoot.Root, "fakestage-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(Path.Combine(root, "skills"));
     foreach ((string name, string body) in skills)
     {

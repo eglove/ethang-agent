@@ -25,5 +25,8 @@
          composition itself. Only the suites that open sessions reference this project,
          and every one of them already references Composition. -->
     <ProjectReference Include="../../src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
+    <!-- The run's temp root (issue #371): a session's database and workspace are created under
+         it, so the shared teardown base class reads the same root every suite writes to. -->
+    <ProjectReference Include="../eThangAgent.TestSupport/eThangAgent.TestSupport.csproj" />
   </ItemGroup>
 </Project>

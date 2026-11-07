@@ -1,5 +1,6 @@
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -15,7 +16,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 public class ScriptGlobalsFloorTests
 {
   private static ScriptGlobals Globals(ChainFloorLedger ledger) =>
-      new(new EmptyRegistry(), Path.GetTempPath(), Path.GetTempPath(), floor: ledger);
+      new(new EmptyRegistry(), TestTempRoot.Root, TestTempRoot.Root, floor: ledger);
 
   // THE ACCEPTANCE CRITERION: an act on the floor is refused before anything spawns.
   [Fact]
@@ -83,7 +84,7 @@ public class ScriptGlobalsFloorTests
   [Fact]
   public void Shell_WithNoFloorWired_RefusesNothing()
   {
-    ScriptGlobals globals = new(new EmptyRegistry(), Path.GetTempPath(), Path.GetTempPath());
+    ScriptGlobals globals = new(new EmptyRegistry(), TestTempRoot.Root, TestTempRoot.Root);
 
     ShellResult result = globals.Shell("cmd", "/c", "exit 0");
 

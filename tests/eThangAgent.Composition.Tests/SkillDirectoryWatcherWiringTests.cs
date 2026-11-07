@@ -1,8 +1,8 @@
-
 using eThangAgent.AgentDomain;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp-file cleanup in catch blocks is deliberate (CA1031), matching
@@ -22,7 +22,7 @@ public class SkillDirectoryWatcherWiringTests
     (AgentSessionFactory factory, string db) = CreateFactory();
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-watcher");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-watcher");
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter,
@@ -57,7 +57,7 @@ public class SkillDirectoryWatcherWiringTests
     (AgentSessionFactory factory, string db) = CreateFactory();
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-lsp");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-lsp");
       try
       {
         await File.WriteAllTextAsync(Path.Combine(dir.FullName, "a.cs"), "public class A { }",
@@ -94,7 +94,7 @@ public class SkillDirectoryWatcherWiringTests
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory()
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-watcher-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-watcher-{Guid.NewGuid():N}.db");
     return (new AgentSessionFactory(Settings(), new AppDatabase(dbPath)), dbPath);
   }
 

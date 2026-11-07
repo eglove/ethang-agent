@@ -29,7 +29,9 @@ public class CompactionE2ETests
   [Fact]
   public async Task ThresholdCrossing_TurnCompacts_AndSummarizerCallFires()
   {
-    using E2E.HostHarness host = await new E2E.HostHarness().StartAsync();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = await new E2E.HostHarness().StartAsync();
+#pragma warning restore CA2007
 
     // The pinned session model resolves its window from the fixture catalog (the
     // LIVE-API auto row: 2,000,000). The frames are calibrated to that REAL window:

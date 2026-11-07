@@ -45,7 +45,7 @@ public class LspRealServerSymbolTests
     string daemonExe = LspDaemonExeLocator.CreateDefault().Resolve();
     Assert.True(File.Exists(daemonExe), "the language-server daemon must be built first: " + daemonExe);
 
-    string root = Directory.CreateTempSubdirectory("ethang-lsp-symbol").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-lsp-symbol").FullName;
     string workspaceId = "real-sym-" + Guid.NewGuid().ToString("N");
     string pipeName = LspPipeNames.ForWorkspaceId(workspaceId);
     try
@@ -207,7 +207,7 @@ public class LspRealServerSymbolTests
     string daemonExe = LspDaemonExeLocator.CreateDefault().Resolve();
     Assert.True(File.Exists(daemonExe), "the language-server daemon must be built first: " + daemonExe);
 
-    string root = Directory.CreateTempSubdirectory("ethang-lsp-cold").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-lsp-cold").FullName;
     string workspaceId = "real-cold-" + Guid.NewGuid().ToString("N");
     string pipeName = LspPipeNames.ForWorkspaceId(workspaceId);
     try
@@ -279,7 +279,7 @@ public class LspRealServerSymbolTests
     string daemonExe = LspDaemonExeLocator.CreateDefault().Resolve();
     Assert.True(File.Exists(daemonExe), "the language-server daemon must be built first: " + daemonExe);
 
-    string root = Directory.CreateTempSubdirectory("ethang-lsp-rename").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-lsp-rename").FullName;
     string workspaceId = "real-rename-" + Guid.NewGuid().ToString("N");
     string pipeName = LspPipeNames.ForWorkspaceId(workspaceId);
     try

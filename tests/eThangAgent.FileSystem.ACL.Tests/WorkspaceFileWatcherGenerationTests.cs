@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -6,7 +7,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 #pragma warning disable CA2007
 public class WorkspaceFileWatcherGenerationTests
 {
-  private static string NewTree() => Directory.CreateTempSubdirectory("wsgeneration").FullName;
+  private static string NewTree() => TestTempRoot.CreateDirectory("wsgeneration").FullName;
 
   private static void Write(string root, string relative, string content)
   {

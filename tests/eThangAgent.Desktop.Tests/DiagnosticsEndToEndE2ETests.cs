@@ -104,7 +104,7 @@ public class DiagnosticsEndToEndE2ETests
   [Fact]
   public async Task EditIntroducingTypeError_ReturnsScopedDiagnosticInToolResult()
   {
-    string ws = Directory.CreateTempSubdirectory("ethang-lsp-e2e").FullName;
+    string ws = TestTempRoot.CreateDirectory("ethang-lsp-e2e").FullName;
     string wsId = "e2e-" + Guid.NewGuid().ToString("N");
     try
     {
@@ -119,7 +119,9 @@ public class DiagnosticsEndToEndE2ETests
       using DaemonHarness daemon = new(wsId, ws, store);
       await daemon.WaitUntilListeningAsync().ConfigureAwait(true);
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
@@ -151,7 +153,7 @@ public class DiagnosticsEndToEndE2ETests
     OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
         "with a built daemon and a resolvable Roslyn server.");
 
-    string ws = Directory.CreateTempSubdirectory("ethang-lsp-real").FullName;
+    string ws = TestTempRoot.CreateDirectory("ethang-lsp-real").FullName;
     string wsId = "real-" + Guid.NewGuid().ToString("N");
     try
     {
@@ -163,7 +165,9 @@ public class DiagnosticsEndToEndE2ETests
       await File.WriteAllTextAsync(Path.Combine(ws, "a.slnx"),
           "<Solution>\n  <Project Path=\"a.csproj\" />\n</Solution>\n", Ct).ConfigureAwait(true);
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
       // The FIRST edit starts the daemon, which must load the solution before it can report
@@ -233,7 +237,7 @@ public class DiagnosticsEndToEndE2ETests
 
   private static async Task<(int GateMessages, List<string> ToolOutputs)> RunParitySequenceAsync(bool withDaemon)
   {
-    string ws = Directory.CreateTempSubdirectory("ethang-lsp-parity").FullName;
+    string ws = TestTempRoot.CreateDirectory("ethang-lsp-parity").FullName;
     string wsId = "parity-" + Guid.NewGuid().ToString("N");
     using DaemonHarness? daemon = withDaemon ? new DaemonHarness(wsId, ws, SeededStore(ws)) : null;
     try
@@ -244,7 +248,9 @@ public class DiagnosticsEndToEndE2ETests
         await daemon.WaitUntilListeningAsync().ConfigureAwait(true);
       }
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(
           workspaceRoot: ws,
@@ -277,7 +283,7 @@ public class DiagnosticsEndToEndE2ETests
   [Fact]
   public async Task CodeWorkspace_EditStartsTheDaemonProcess()
   {
-    string ws = Directory.CreateTempSubdirectory("ethang-lsp-start").FullName;
+    string ws = TestTempRoot.CreateDirectory("ethang-lsp-start").FullName;
     string wsId = "start-" + Guid.NewGuid().ToString("N");
     try
     {
@@ -286,7 +292,9 @@ public class DiagnosticsEndToEndE2ETests
           "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n", Ct).ConfigureAwait(true);
       int before = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,
@@ -306,14 +314,16 @@ public class DiagnosticsEndToEndE2ETests
   [Fact]
   public async Task NonProgrammingWorkspace_EditProducesNoLspOutputAndStartsNoDaemon()
   {
-    string ws = Directory.CreateTempSubdirectory("ethang-lsp-vault").FullName;
+    string ws = TestTempRoot.CreateDirectory("ethang-lsp-vault").FullName;
     string wsId = "vault-" + Guid.NewGuid().ToString("N");
     try
     {
       await File.WriteAllTextAsync(Path.Combine(ws, "notes.md"), "# notes\n\nold line\n", Ct).ConfigureAwait(true);
       int daemonsBefore = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws, workspaceId: wsId).ConfigureAwait(true);
       _ = host.Mock.ReturnsForModel(E2E.SessionModel,

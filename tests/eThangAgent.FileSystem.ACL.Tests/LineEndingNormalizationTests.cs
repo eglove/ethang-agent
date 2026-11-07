@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -15,7 +16,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 /// layer can state it in its annotation line instead of leaving the model to guess.</para></summary>
 public sealed class LineEndingNormalizationTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-eoln").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-eoln").FullName;
   private readonly DirectFileSystemAccess _lf = new(LineEndingStub.For(LineEnding.Lf));
   private readonly DirectFileSystemAccess _crlf = new(LineEndingStub.For(LineEnding.CrLf));
 

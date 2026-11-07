@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.ToolDomain.Tests;
 
@@ -60,7 +61,7 @@ public sealed class PdfToolTests : IDisposable
 
   public PdfToolTests()
   {
-    _root = Path.Combine(Path.GetTempPath(), "pdf-tool-tests-" + Guid.NewGuid().ToString("N"));
+    _root = Path.Combine(TestTempRoot.Root, "pdf-tool-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_root);
   }
 

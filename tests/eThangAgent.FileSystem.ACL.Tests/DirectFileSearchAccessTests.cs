@@ -1,5 +1,5 @@
-
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
 
@@ -7,7 +7,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 ///     exclusion pruning, and the result cap.</summary>
 public sealed class DirectFileSearchAccessTests : IDisposable
 {
-  private readonly string _root = Path.Combine(Path.GetTempPath(), "ethang-dfsa-" + Guid.NewGuid().ToString("N"));
+  private readonly string _root = Path.Combine(TestTempRoot.Root, "ethang-dfsa-" + Guid.NewGuid().ToString("N"));
 
   public DirectFileSearchAccessTests() => _ = Directory.CreateDirectory(_root);
 

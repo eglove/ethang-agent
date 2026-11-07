@@ -1,12 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
 public class LspServerInstallerTests
 {
-  private static string TempRoot() => Directory.CreateTempSubdirectory("lspinstall").FullName;
+  private static string TempRoot() => TestTempRoot.CreateDirectory("lspinstall").FullName;
 
   private static LspServerPackage Package(string sha512, string version = "1.0.0") => new(
       LanguageId: "csharp",

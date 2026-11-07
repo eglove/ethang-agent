@@ -4,6 +4,7 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -42,7 +43,7 @@ public class SkillInvocationCompositionTests
     // mutable hazard under concurrent tests (another test's finally clears it
     // mid-run), and no test may open the user's real database.
     TestAppDatabase db = TestAppDatabase.Create();
-    string workspace = Directory.CreateTempSubdirectory("ethang-invoke-ws").FullName;
+    string workspace = TestTempRoot.CreateDirectory("ethang-invoke-ws").FullName;
     return (new AgentSessionFactory(Settings(), db.Database), db, workspace);
   }
 

@@ -18,7 +18,9 @@ public class DesktopStateCapabilityE2ETests
   [Fact]
   public async Task StateDisciplineLoop_Certifies()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
@@ -43,7 +45,9 @@ public class DesktopStateCapabilityE2ETests
   [Fact]
   public async Task StateDisciplineLoop_Violated_OnFailingEvidence()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
@@ -74,7 +78,9 @@ public class DesktopStateCapabilityE2ETests
   [Fact]
   public async Task RetiredTodoAction_IsUnknown_AndItsNamespaceIsNoLongerReserved()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 

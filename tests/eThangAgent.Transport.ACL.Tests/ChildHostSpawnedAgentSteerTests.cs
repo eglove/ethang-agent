@@ -205,7 +205,7 @@ public class ChildHostSpawnedAgentSteerTests
 
     public static Rig Create()
     {
-      string root = Directory.CreateTempSubdirectory("ethang-spawned-steer").FullName;
+      string root = TestTempRoot.CreateDirectory("ethang-spawned-steer").FullName;
       string workspace = Directory.CreateDirectory(Path.Combine(root, "ws")).FullName;
       string database = Path.Combine(root, "app.db");
 

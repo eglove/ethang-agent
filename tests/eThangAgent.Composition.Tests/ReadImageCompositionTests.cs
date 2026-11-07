@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,7 +19,7 @@ public class ReadImageCompositionTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new AgentRunOptions(null, 2));
-    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-readimg-{Guid.NewGuid():N}.db"));
+    AppDatabase database = new(Path.Combine(TestTempRoot.Root, $"ethang-readimg-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", 512, 0.5f, 8192).Value!,
@@ -53,6 +54,6 @@ public class ReadImageCompositionTests
   {
     using ServiceProvider services = Build();
     AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
-    Assert.Contains(tools.RootedAt(Path.GetTempPath()).Actions, a => a.Name == "read_image");
+    Assert.Contains(tools.RootedAt(TestTempRoot.Root).Actions, a => a.Name == "read_image");
   }
 }

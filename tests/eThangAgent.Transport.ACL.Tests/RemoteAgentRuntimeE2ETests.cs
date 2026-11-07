@@ -30,7 +30,7 @@ public class RemoteAgentRuntimeE2ETests
     Assert.True(File.Exists(hostExe), "child host exe not built");
 
     string pipeName = "ethang-e2e-" + Guid.NewGuid().ToString("N");
-    string scratch = Path.Combine(Path.GetTempPath(), "e2e-" + Guid.NewGuid().ToString("N"));
+    string scratch = Path.Combine(TestTempRoot.Root, "e2e-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(scratch);
     await File.WriteAllTextAsync(Path.Combine(scratch, "settings.json"), "{}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);

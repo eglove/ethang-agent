@@ -5,6 +5,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.FileSystem.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
@@ -79,7 +80,7 @@ public class ReferenceSubmitTests
   ///     injector reads the same real file system the read tool does.</summary>
   private static Harness Build(IReadOnlyDictionary<string, string[]> files, params SkillDefinition[] skills)
   {
-    string root = Directory.CreateTempSubdirectory("ethang-refsubmit").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-refsubmit").FullName;
     foreach ((string name, string[] content) in files)
     {
       string path = Path.Combine(root, name);

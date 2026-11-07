@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -12,7 +13,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 public sealed class DirectFileSystemAccessTests : IDisposable
 {
   private readonly string _tempDir;
-  public DirectFileSystemAccessTests() => _tempDir = Path.Combine(Path.GetTempPath(), "ethang-dfs-tests-" + Guid.NewGuid().ToString("N"));
+  public DirectFileSystemAccessTests() => _tempDir = Path.Combine(TestTempRoot.Root, "ethang-dfs-tests-" + Guid.NewGuid().ToString("N"));
 
   public void Dispose()
   {

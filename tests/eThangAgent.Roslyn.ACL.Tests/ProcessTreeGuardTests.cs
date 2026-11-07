@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
@@ -43,7 +44,7 @@ public sealed class ProcessTreeGuardTests
   [Fact]
   public void Shell_ProgramExceedingProcessCeiling_ReportsProcessCeilingError()
   {
-    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root,
         ceilings: new ScriptCeilings(2, 256 * 1024, 8L * 1024 * 1024));
 
     ShellResult result = globals.Shell(PwshPath(), "-NoLogo", "-NoProfile", "-Command",
@@ -137,7 +138,7 @@ public sealed class ProcessTreeGuardTests
   [Fact]
   public void Shell_ProgramKilledByCeiling_PreservesItsOwnStderr()
   {
-    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root,
         ceilings: new ScriptCeilings(2, 256 * 1024, 8L * 1024 * 1024));
 
     // The dying words are written FIRST, then the process tree that trips the

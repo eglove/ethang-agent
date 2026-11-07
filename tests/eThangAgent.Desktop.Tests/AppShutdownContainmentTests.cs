@@ -48,10 +48,12 @@ public class AppShutdownContainmentTests
   [Fact]
   public async Task ShutdownAll_KillsEverySessionsHostProcess()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
-    string ws = Directory.CreateTempSubdirectory("ethang-shutdown-ws").FullName;
+    string ws = TestTempRoot.CreateDirectory("ethang-shutdown-ws").FullName;
     AgentSession? session = null;
     try
     {

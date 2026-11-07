@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -8,7 +9,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 // the read path counts with, so they are the numbers the model sees.
 public sealed class ChangedLinesTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-cl").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-cl").FullName;
   private readonly DirectFileSystemAccess _access = new(LineEndingStub.For(LineEnding.Lf));
 
   public void Dispose()

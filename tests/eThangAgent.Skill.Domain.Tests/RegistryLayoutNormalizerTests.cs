@@ -6,6 +6,7 @@
 
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Skill.Domain.Tests;
 
@@ -18,7 +19,7 @@ public sealed class RegistryLayoutNormalizerTests : IDisposable
 
   public RegistryLayoutNormalizerTests()
   {
-    _root = Path.Combine(Path.GetTempPath(), "normtests-" + Guid.NewGuid().ToString("N"));
+    _root = Path.Combine(TestTempRoot.Root, "normtests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_root);
   }
 

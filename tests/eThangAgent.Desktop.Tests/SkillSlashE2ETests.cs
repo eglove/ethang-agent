@@ -80,9 +80,13 @@ public class SkillSlashE2ETests
   [Fact]
   public async Task Tool_Path_And_Slash_Path_Carry_Invocation()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skillslash-ws");
-    DirectoryInfo skills = Directory.CreateTempSubdirectory("ethang-e2e-skillslash-dir");
-    E2E.HostHarness? host = null;
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skillslash-ws");
+    DirectoryInfo skills = TestTempRoot.CreateDirectory("ethang-e2e-skillslash-dir");
+    // 'await using' rather than a finally: the harness's own teardown stops the shell's
+    // sessions and releases its storage, which a bare Dispose cannot do.
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     AgentSession? session = null;
     try
     {
@@ -101,7 +105,6 @@ public class SkillSlashE2ETests
         "",
       ], TestContext.Current.CancellationToken);
 
-      host = new();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
       _ = await host.Store.SetAsync(
           SkillDirectoryPreferences.WorkspaceKey(ws.FullName),
@@ -200,8 +203,6 @@ public class SkillSlashE2ETests
       {
         await session.Services.DisposeAsync();
       }
-
-      host?.Dispose();
 
       // Best effort, the sibling's exact shape: a still-draining host may pin the directory.
 #pragma warning disable CA1031 // Named decision: temp-dir cleanup is best effort.

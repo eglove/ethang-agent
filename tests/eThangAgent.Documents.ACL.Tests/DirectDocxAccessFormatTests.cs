@@ -2,8 +2,8 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
-
 
 // S3220/S3878 flag the OOXML element-constructor calls in the fixture builder;
 // the trees are built exactly this way by design (mirrors TestDocxFactory).
@@ -68,7 +68,7 @@ public sealed class DirectDocxAccessFormatTests : IDisposable
   ///     plain second paragraph - the multi-run merge fixture.</summary>
   private static string CreateSplitRunDoc(string name)
   {
-    string dir = Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N"));
+    string dir = Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, name + ".docx");
     using (WordprocessingDocument doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))

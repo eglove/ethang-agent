@@ -1,5 +1,6 @@
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Verification;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -19,7 +20,7 @@ public class ScriptGlobalsShellSinkTests
   public void Shell_ReportsCompletedRun_ToSink()
   {
     RecordingSink sink = new();
-    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root,
         verificationSink: sink);
 
     _ = globals.Shell("cmd", "/c", "exit 3");
@@ -31,7 +32,7 @@ public class ScriptGlobalsShellSinkTests
   public void Shell_ZeroExit_AlsoReports()
   {
     RecordingSink sink = new();
-    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root,
         verificationSink: sink);
 
     _ = globals.Shell("cmd", "/c", "exit 0");
@@ -43,7 +44,7 @@ public class ScriptGlobalsShellSinkTests
   public void Shell_TokensAndTimesCarried()
   {
     RecordingSink sink = new();
-    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root,
         verificationSink: sink);
 
     _ = globals.Shell("cmd", "/c", "exit 0");
@@ -56,7 +57,7 @@ public class ScriptGlobalsShellSinkTests
   [Fact]
   public void Shell_WithoutSink_DoesNotThrow()
   {
-    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath());
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root);
 
     ShellResult result = globals.Shell("cmd", "/c", "exit 0");
 

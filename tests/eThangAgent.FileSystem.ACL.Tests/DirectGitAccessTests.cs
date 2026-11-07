@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -16,7 +17,7 @@ public sealed class DirectGitAccessTests : IDisposable
 
   public DirectGitAccessTests()
   {
-    _repoDir = Path.Combine(Path.GetTempPath(), "ethang-git-tests-" + Guid.NewGuid().ToString("N"));
+    _repoDir = Path.Combine(TestTempRoot.Root, "ethang-git-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_repoDir);
     RunGit("init");
     RunGit("config", "user.email", "test@test.com");
@@ -150,7 +151,7 @@ public sealed class DirectGitAccessTests : IDisposable
   [Fact]
   public async Task StageAsync_OutsideRepo_SurfacesNotAGitRepository()
   {
-    string plain = Path.Combine(Path.GetTempPath(), "ethang-not-a-repo-" + Guid.NewGuid().ToString("N"));
+    string plain = Path.Combine(TestTempRoot.Root, "ethang-not-a-repo-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(plain);
     try
     {
@@ -186,7 +187,6 @@ public sealed class DirectGitAccessTests : IDisposable
     Assert.Equal("feature/demo", branch.Value);
   }
 
-
   [Fact]
   public async Task GetBranchAsync_DetachedHead_ReportsMarker()
   {
@@ -202,7 +202,7 @@ public sealed class DirectGitAccessTests : IDisposable
   [Fact]
   public async Task GetBranchAsync_NotARepo_Fails()
   {
-    string plain = Path.Combine(Path.GetTempPath(), "ethang-not-a-repo-" + Guid.NewGuid().ToString("N"));
+    string plain = Path.Combine(TestTempRoot.Root, "ethang-not-a-repo-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(plain);
     try
     {

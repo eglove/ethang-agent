@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -13,7 +14,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 ///     afterwards — and the failure names the hunk and why.</summary>
 public sealed class HunkEditIntegrationTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-hunks").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-hunks").FullName;
   private readonly DirectFileSystemAccess _access = new(LineEndingStub.For(LineEnding.Lf));
 
   public void Dispose()

@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -18,7 +19,7 @@ public class WorkspaceRootAcceptanceTests
   [Fact]
   public async Task ReadFile_WithDotPath_OnTrailingSeparatorRoot_Succeeds()
   {
-    DirectoryInfo root = Directory.CreateTempSubdirectory("ethang-accept");
+    DirectoryInfo root = TestTempRoot.CreateDirectory("ethang-accept");
     try
     {
       _ = Directory.CreateDirectory(Path.Combine(root.FullName, "src"));

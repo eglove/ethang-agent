@@ -1,4 +1,5 @@
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -21,7 +22,7 @@ internal sealed class TestAppDatabase : IDisposable
 
   public static TestAppDatabase Create()
   {
-    string path = Path.Combine(Path.GetTempPath(), $"ethang-comp-{Guid.NewGuid():N}.db");
+    string path = Path.Combine(TestTempRoot.Root, $"ethang-comp-{Guid.NewGuid():N}.db");
     return new TestAppDatabase(path, new AppDatabase(path));
   }
 

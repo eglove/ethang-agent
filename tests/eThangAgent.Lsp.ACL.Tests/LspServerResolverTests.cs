@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
@@ -137,7 +138,7 @@ public class LspServerResolverTests
   [Fact]
   public void TryResolveForWorkspace_ProjectLess_ReturnsNull()
   {
-    string root = Directory.CreateTempSubdirectory("lspprojless").FullName;
+    string root = TestTempRoot.CreateDirectory("lspprojless").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "notes.md"), "hello");
@@ -152,7 +153,7 @@ public class LspServerResolverTests
   [Fact]
   public void TryResolveForWorkspace_CSharpWithBundled_ReturnsLaunch()
   {
-    string root = Directory.CreateTempSubdirectory("lspcsharp").FullName;
+    string root = TestTempRoot.CreateDirectory("lspcsharp").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "app.sln"), "solution");
@@ -170,7 +171,7 @@ public class LspServerResolverTests
   [Fact]
   public void TryResolveForWorkspace_CSharpWithoutServer_ReturnsNull()
   {
-    string root = Directory.CreateTempSubdirectory("lspnoserver").FullName;
+    string root = TestTempRoot.CreateDirectory("lspnoserver").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "app.csproj"), "<Project />");

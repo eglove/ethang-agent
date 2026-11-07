@@ -2,6 +2,7 @@ using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -67,10 +68,12 @@ public class SkillListingE2ETests
   [Fact]
   public async Task SystemPrompt_ListingRegistered_ExactHeaderBetweenBootstrapAndPersona()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-ws");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-ws");
     try
     {
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
 
@@ -88,10 +91,12 @@ public class SkillListingE2ETests
   [Fact]
   public async Task SystemPrompt_ListingContainsEveryBuiltInSkillName()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-builtin");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-builtin");
     try
     {
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
 
@@ -131,10 +136,12 @@ public class SkillListingE2ETests
   [Fact]
   public async Task SystemPrompt_LearnedSkillNameListed_BodyTokenAbsent()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-learned");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-learned");
     try
     {
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
 
@@ -168,8 +175,8 @@ public class SkillListingE2ETests
   [Fact]
   public async Task SystemPrompt_FileSkillAppearsUnderDirectoryHeader()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-file-ws");
-    DirectoryInfo skills = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-dir");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-file-ws");
+    DirectoryInfo skills = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-dir");
     try
     {
       const string fileSkillName = "e2e-file-skill-listing";
@@ -188,7 +195,9 @@ public class SkillListingE2ETests
       await File.WriteAllLinesAsync(Path.Combine(skillFolder, "SKILL.md"), skillLines,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
 
@@ -221,8 +230,8 @@ public class SkillListingE2ETests
   [Fact]
   public async Task SystemPrompt_ManualFileSkill_NeverAppears()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-manual-ws");
-    DirectoryInfo skills = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-manual");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-manual-ws");
+    DirectoryInfo skills = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-manual");
     try
     {
       const string manualSkillName = "e2e-manual-file-skill";
@@ -242,7 +251,9 @@ public class SkillListingE2ETests
       await File.WriteAllLinesAsync(Path.Combine(skillFolder, "SKILL.md"), skillLines,
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
       _ = await host.Store.SetAsync(
@@ -264,15 +275,17 @@ public class SkillListingE2ETests
   [Fact]
   public async Task SecondSession_AfterPreferenceChange_ReflectsNewDirectories()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-change");
-    DirectoryInfo first = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-first");
-    DirectoryInfo second = Directory.CreateTempSubdirectory("ethang-e2e-skilllist-second");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-change");
+    DirectoryInfo first = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-first");
+    DirectoryInfo second = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-second");
     try
     {
       WriteFileSkill(first.FullName, "e2e-first-dir-skill");
       WriteFileSkill(second.FullName, "e2e-second-dir-skill");
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
       _ = await host.Store.SetAsync(

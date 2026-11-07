@@ -1,5 +1,6 @@
 using System.Text;
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.FileClaims;
 using eThangAgent.ToolDomain.Lsp;
@@ -77,7 +78,7 @@ public class LspProductionPathTests
   [Fact]
   public async Task WatcherForwarder_AnnouncementReachesDaemonOverPipe_AsDidOpen()
   {
-    string root = Directory.CreateTempSubdirectory("lspforwarder").FullName;
+    string root = TestTempRoot.CreateDirectory("lspforwarder").FullName;
     string ws = "ws-forwarder-" + Guid.NewGuid().ToString("N");
     try
     {
@@ -208,7 +209,7 @@ public class LspProductionPathTests
   {
     string ws = "ws-announced-" + Guid.NewGuid().ToString("N");
     string pipe = LspPipeNames.ForWorkspaceId(ws);
-    string root = Directory.CreateTempSubdirectory("lsp-announced").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-announced").FullName;
     try
     {
       await File.WriteAllTextAsync(Path.Combine(root, "a.cs"), "class A { }", TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -251,7 +252,7 @@ public class LspProductionPathTests
       connected = true;
       return Task.FromResult<LspPipeClient?>(null);
     });
-    string missing = Path.Combine(Path.GetTempPath(), "no-such-" + Guid.NewGuid().ToString("N") + ".cs");
+    string missing = Path.Combine(TestTempRoot.Root, "no-such-" + Guid.NewGuid().ToString("N") + ".cs");
     LspSymbolOutcome outcome = await access.ExecuteAsync(
         new LspSymbolCommand.DocumentSymbols(missing), TestContext.Current.CancellationToken);
     LspSymbolOutcome.Unsupported unsupported = Assert.IsType<LspSymbolOutcome.Unsupported>(outcome);

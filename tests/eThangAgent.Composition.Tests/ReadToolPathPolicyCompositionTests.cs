@@ -1,6 +1,7 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -16,7 +17,7 @@ public sealed class ReadToolPathPolicyCompositionTests
   [Fact]
   public async Task Read_Accepts_AbsolutePath_OutsideWorkspace()
   {
-    string outside = Path.Combine(Path.GetTempPath(), $"ethang-read-out-{Guid.NewGuid():N}.txt");
+    string outside = Path.Combine(TestTempRoot.Root, $"ethang-read-out-{Guid.NewGuid():N}.txt");
     await File.WriteAllTextAsync(outside, "outside marker", TestContext.Current.CancellationToken);
     try
     {
@@ -25,7 +26,7 @@ public sealed class ReadToolPathPolicyCompositionTests
           .AddEThangAgentCore(Settings(), Providers.OpenRouter,
               ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
               new AgentHostOptions(
-                  FixedWorkspaceContext.ForPath(Path.GetTempPath()), new WorkspacePathResolver(Path.GetTempPath())),
+                  FixedWorkspaceContext.ForPath(TestTempRoot.Root), new WorkspacePathResolver(TestTempRoot.Root)),
               db.Database)
           .BuildServiceProvider();
 
@@ -61,7 +62,7 @@ public sealed class ReadToolPathPolicyCompositionTests
         .AddEThangAgentCore(Settings(), Providers.OpenRouter,
             ModelConfig.Create("m", 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                FixedWorkspaceContext.ForPath(Path.GetTempPath()), new WorkspacePathResolver(Path.GetTempPath())),
+                FixedWorkspaceContext.ForPath(TestTempRoot.Root), new WorkspacePathResolver(TestTempRoot.Root)),
             db.Database)
         .BuildServiceProvider();
 

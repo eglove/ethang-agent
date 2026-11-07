@@ -6,3 +6,9 @@
 // only - so it cannot fire on the harness's own conversation host, which is a different
 // process tree. See eThangAgent.Tests.Shared for the reasoning and the policy tests.
 [assembly: AssemblyFixture(typeof(eThangAgent.TestSupport.ChildHostLeakGuardFixture))]
+
+// The run's temp root (issue #371): every scratch file, workspace and database this
+// assembly creates lands under one directory, and the fixture removes that directory
+// wholesale when the last test finishes. A root it cannot remove fails the assembly
+// instead of leaving debris nothing reclaims.
+[assembly: AssemblyFixture(typeof(eThangAgent.TestSupport.TestTempRootFixture))]

@@ -1,6 +1,7 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -25,7 +26,7 @@ public class ComputerUseProcessLevelWiringTests
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings settings)
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-f4-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-f4-{Guid.NewGuid():N}.db");
     return (new AgentSessionFactory(settings, new AppDatabase(dbPath)), dbPath);
   }
 
@@ -35,8 +36,8 @@ public class ComputerUseProcessLevelWiringTests
     (AgentSessionFactory factory, string dbPath) = CreateFactory(Settings(computerUse: true));
     try
     {
-      DirectoryInfo dirA = Directory.CreateTempSubdirectory("ethang-f4-ws-a");
-      DirectoryInfo dirB = Directory.CreateTempSubdirectory("ethang-f4-ws-b");
+      DirectoryInfo dirA = TestTempRoot.CreateDirectory("ethang-f4-ws-a");
+      DirectoryInfo dirB = TestTempRoot.CreateDirectory("ethang-f4-ws-b");
       try
       {
         Result<AgentSession> openA = await factory.CreateAsync(dirA.FullName, Providers.OpenRouter,

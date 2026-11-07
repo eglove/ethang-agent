@@ -1,5 +1,6 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.ChildHost;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Transport.ACL.Tests;
 
@@ -13,7 +14,7 @@ public class SessionHostWatchdogConfigTests
 {
   private static string WriteSettings(string json)
   {
-    string path = Path.Combine(Path.GetTempPath(), "ethang-w1x-" + Guid.NewGuid().ToString("N") + ".json");
+    string path = Path.Combine(TestTempRoot.Root, "ethang-w1x-" + Guid.NewGuid().ToString("N") + ".json");
     File.WriteAllText(path, json);
     return path;
   }
@@ -24,7 +25,7 @@ public class SessionHostWatchdogConfigTests
     string path = WriteSettings(/*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":\"sk-test\",\"BaseUrl\":\"http://openrouter.test\"},\"Zai\":{\"ApiKey\":null,\"BaseUrl\":\"http://zai.test\"},\"SubAgents\":{\"MaxConcurrentAgents\":1},\"Watchdog\":{\"IdleThreshold\":\"00:00:02\",\"TickInterval\":\"00:00:01\",\"MaxWrapUpAttempts\":2}}");
     try
     {
-      SessionHost host = SessionHost.Create(path, Path.Combine(Path.GetTempPath(), "ethang-w1x-" + Guid.NewGuid().ToString("N") + ".db"));
+      SessionHost host = SessionHost.Create(path, Path.Combine(TestTempRoot.Root, "ethang-w1x-" + Guid.NewGuid().ToString("N") + ".db"));
       WatchdogOptions options = host.EffectiveWatchdogOptions;
       Assert.Equal(TimeSpan.FromSeconds(2), options.IdleThreshold);
       Assert.Equal(TimeSpan.FromSeconds(1), options.TickInterval);
@@ -42,7 +43,7 @@ public class SessionHostWatchdogConfigTests
     string path = WriteSettings(/*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":\"sk-test\",\"BaseUrl\":\"http://openrouter.test\"},\"Zai\":{\"ApiKey\":null,\"BaseUrl\":\"http://zai.test\"},\"SubAgents\":{\"MaxConcurrentAgents\":1}}");
     try
     {
-      SessionHost host = SessionHost.Create(path, Path.Combine(Path.GetTempPath(), "ethang-w1x-" + Guid.NewGuid().ToString("N") + ".db"));
+      SessionHost host = SessionHost.Create(path, Path.Combine(TestTempRoot.Root, "ethang-w1x-" + Guid.NewGuid().ToString("N") + ".db"));
       Assert.Equal(WatchdogOptions.Default.IdleThreshold, host.EffectiveWatchdogOptions.IdleThreshold);
       Assert.Equal(WatchdogOptions.Default.TickInterval, host.EffectiveWatchdogOptions.TickInterval);
       Assert.Equal(WatchdogOptions.Default.MaxWrapUpAttempts, host.EffectiveWatchdogOptions.MaxWrapUpAttempts);
@@ -60,7 +61,7 @@ public class SessionHostWatchdogConfigTests
     try
     {
       InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-          () => SessionHost.Create(path, Path.Combine(Path.GetTempPath(), "ethang-w1x-" + Guid.NewGuid().ToString("N") + ".db")));
+          () => SessionHost.Create(path, Path.Combine(TestTempRoot.Root, "ethang-w1x-" + Guid.NewGuid().ToString("N") + ".db")));
       Assert.Contains("missing required member(s)", error.Message, StringComparison.Ordinal);
       Assert.Contains("OpenRouter", error.Message, StringComparison.Ordinal);
     }

@@ -1,4 +1,3 @@
-
 using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
@@ -14,7 +13,7 @@ public class VerificationGateE2ETests
   [Fact]
   public async Task TurnGate_NudgeAppears_AfterUnverifiedEditTurn()
   {
-    string ws = Directory.CreateTempSubdirectory("ethang-verify-gate").FullName;
+    string ws = TestTempRoot.CreateDirectory("ethang-verify-gate").FullName;
     try
     {
       // The gate needs a git repo: a non-repo workspace stands down by design.
@@ -26,7 +25,9 @@ public class VerificationGateE2ETests
       };
       using System.Diagnostics.Process proc = System.Diagnostics.Process.Start(psi)!;
       await proc.WaitForExitAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws);
 

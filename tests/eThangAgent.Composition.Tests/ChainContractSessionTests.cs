@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
@@ -34,9 +35,9 @@ public sealed class ChainContractSessionTests
   [Fact]
   public async Task AChainStepSession_CarriesTheContractInItsPrompt()
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-contract-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-contract-{Guid.NewGuid():N}.db");
     AgentSessionFactory factory = new(Settings(), new AppDatabase(dbPath));
-    DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-contract-ws");
+    DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-contract-ws");
     try
     {
       Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter,
@@ -68,9 +69,9 @@ public sealed class ChainContractSessionTests
   {
     // The ordinary way a user begins work. Its prompt must be the one it got before this
     // issue existed — asserted as an ABSENCE, because that is what the criterion is.
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-contract-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-contract-{Guid.NewGuid():N}.db");
     AgentSessionFactory factory = new(Settings(), new AppDatabase(dbPath));
-    DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-contract-ws");
+    DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-contract-ws");
     try
     {
       Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter,
@@ -101,9 +102,9 @@ public sealed class ChainContractSessionTests
     // The contract belongs to the SESSION, not the factory: the factory serves many sessions
     // over one workspace, so a contract held on it would make the second session claim the
     // first one's chain step.
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-contract-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-contract-{Guid.NewGuid():N}.db");
     AgentSessionFactory factory = new(Settings(), new AppDatabase(dbPath));
-    DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-contract-ws");
+    DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-contract-ws");
     try
     {
       Result<AgentSession> chained = await factory.CreateAsync(dir.FullName, Providers.OpenRouter,

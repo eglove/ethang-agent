@@ -1,10 +1,11 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.ToolDomain.Tests;
 
 public sealed class WorkspacePathResolverTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-ws").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-ws").FullName;
   private WorkspacePathResolver MakeResolver() => new(_root);
 
   public void Dispose()

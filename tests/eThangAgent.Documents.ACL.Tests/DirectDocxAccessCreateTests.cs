@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Documents.ACL.Tests;
@@ -49,7 +50,7 @@ public sealed class DirectDocxAccessCreateTests : IDisposable
   [Fact]
   public async Task Create_headings_bullets_numbers_bold_italic_table()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "created.docx");
     const string md = "# Top\n\n- bullet one\n- bullet two\n\n1. first\n2. second\n\n## Sub\n\nplain **bold** and *it* text\n\n| a | b |\n| 1 | 2 |\n";
@@ -79,7 +80,7 @@ public sealed class DirectDocxAccessCreateTests : IDisposable
   [Fact]
   public async Task Create_bold_and_italic_become_runs()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "spans.docx");
     Result<DocxSaveOutcome> r = await _access.CreateAsync(path, "plain **bold** and *it* end", TestContext.Current.CancellationToken);
@@ -97,7 +98,7 @@ public sealed class DirectDocxAccessCreateTests : IDisposable
   [Fact]
   public async Task Create_rejects_heading_level_4()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "h4.docx");
     Result<DocxSaveOutcome> r = await _access.CreateAsync(path, "#### deep", TestContext.Current.CancellationToken);
@@ -109,7 +110,7 @@ public sealed class DirectDocxAccessCreateTests : IDisposable
   [Fact]
   public async Task Create_rejects_unclosed_bold()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "unclosed.docx");
     Result<DocxSaveOutcome> r = await _access.CreateAsync(path, "**x", TestContext.Current.CancellationToken);
@@ -120,7 +121,7 @@ public sealed class DirectDocxAccessCreateTests : IDisposable
   [Fact]
   public async Task Create_rejects_existing_path()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "exists.docx");
     await File.WriteAllTextAsync(path, "existing", TestContext.Current.CancellationToken);
@@ -132,7 +133,7 @@ public sealed class DirectDocxAccessCreateTests : IDisposable
   [Fact]
   public async Task Create_enforces_markdown_char_cap()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "big.docx");
     string md = string.Create(DocxLimits.MaxMarkdownChars + 1, 'x', (span, c) => span.Fill(c));
@@ -144,7 +145,7 @@ public sealed class DirectDocxAccessCreateTests : IDisposable
   [Fact]
   public async Task Create_rejects_ragged_table()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "ragged.docx");
     Result<DocxSaveOutcome> r = await _access.CreateAsync(path, "| a | b |\n| 1 |", TestContext.Current.CancellationToken);

@@ -2,6 +2,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp-file cleanup in finally blocks is deliberate (CA1031).
@@ -17,7 +18,7 @@ public class SessionIdWiringTests
 {
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory()
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-sid-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-sid-{Guid.NewGuid():N}.db");
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
@@ -31,7 +32,7 @@ public class SessionIdWiringTests
     (AgentSessionFactory? factory, string? db) = CreateFactory();
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-sid-ws");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-sid-ws");
       try
       {
         Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);

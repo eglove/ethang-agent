@@ -1,4 +1,5 @@
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Mcp;
 
 namespace eThangAgent.Mcp.ACL.Tests;
@@ -10,7 +11,7 @@ public class McpServerAccessProviderTests
   [Fact]
   public async Task ForWorkspace_Returns_Access_Bound_To_The_Workspace()
   {
-    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpprov-{Guid.NewGuid():N}.db"));
+    AppDatabase database = new(Path.Combine(TestTempRoot.Root, $"ethang-mcpprov-{Guid.NewGuid():N}.db"));
     try
     {
       SqliteMcpServerStore store = new(database);
@@ -41,7 +42,7 @@ public class McpServerAccessProviderTests
   [Fact]
   public async Task Access_Lists_Configured_Servers_Through_The_Store()
   {
-    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpprov-{Guid.NewGuid():N}.db"));
+    AppDatabase database = new(Path.Combine(TestTempRoot.Root, $"ethang-mcpprov-{Guid.NewGuid():N}.db"));
     try
     {
       SqliteMcpServerStore store = new(database);

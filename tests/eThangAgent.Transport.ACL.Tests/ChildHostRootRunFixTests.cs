@@ -336,13 +336,13 @@ public sealed class ChildHostRootRunFixTests
     // Finding 6: mutating BuildRootRun to return null left the suite green, because the
     // tests reach the runner only through AttachRootRun. This drives the REAL path:
     // settings JSON -> SessionId -> composed container -> RootRun.
-    string settingsPath = Path.Combine(Path.GetTempPath(),
+    string settingsPath = Path.Combine(TestTempRoot.Root,
         "ethang-rootrun-settings-" + Guid.NewGuid().ToString("N") + ".json");
     File.WriteAllText(settingsPath, SettingsJson(Guid.NewGuid().ToString("D")));
     try
     {
       SessionHost host = SessionHost.Create(settingsPath,
-          Path.Combine(Path.GetTempPath(), "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".db"));
+          Path.Combine(TestTempRoot.Root, "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".db"));
 
       Assert.NotNull(host.RootRun);
     }
@@ -356,13 +356,13 @@ public sealed class ChildHostRootRunFixTests
   public void SessionHost_WithoutSessionIdInSettings_HasNoRootRunner()
   {
     // The other half of the same resolution: a host bound to no session must not guess one.
-    string settingsPath = Path.Combine(Path.GetTempPath(),
+    string settingsPath = Path.Combine(TestTempRoot.Root,
         "ethang-rootrun-settings-" + Guid.NewGuid().ToString("N") + ".json");
     File.WriteAllText(settingsPath, SettingsJson(sessionId: null));
     try
     {
       SessionHost host = SessionHost.Create(settingsPath,
-          Path.Combine(Path.GetTempPath(), "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".db"));
+          Path.Combine(TestTempRoot.Root, "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".db"));
 
       Assert.Null(host.RootRun);
     }
@@ -439,12 +439,12 @@ public sealed class ChildHostRootRunFixTests
   /// <summary>Stands up the REAL server over a real pipe with the runner attached.</summary>
   private static async Task<NamedPipeChildTransport> ConnectToRealHostAsync(RootRunHost runner)
   {
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".json");
     await File.WriteAllTextAsync(settings,
         /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":null},\"SubAgents\":{}}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     ChildHostServer server = new(settings,
-        Path.Combine(Path.GetTempPath(), "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".db"));
+        Path.Combine(TestTempRoot.Root, "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".db"));
     server.AttachRootRun(runner);
     string pipeName = "ethang-rootrun-" + Guid.NewGuid().ToString("N");
     Task<NamedPipeChildTransport> accept = NamedPipeChildTransport.AcceptAppAsync(pipeName,

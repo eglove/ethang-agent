@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
@@ -9,7 +10,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 // proven alone: these tests never touch IFileWatcher pub/sub.
 public class LspAnnouncementForwardingTests
 {
-  private static string NewTree() => Directory.CreateTempSubdirectory("lspforward").FullName;
+  private static string NewTree() => TestTempRoot.CreateDirectory("lspforward").FullName;
 
   private static void Write(string root, string relative, string content)
   {

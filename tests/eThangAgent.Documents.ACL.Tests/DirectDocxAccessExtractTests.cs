@@ -1,8 +1,8 @@
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
-
 
 // S3220/S3878 flag the OOXML element-constructor calls in the fixture builders;
 // the trees are built exactly this way by design (mirrors TestDocxFactory).
@@ -72,7 +72,7 @@ public sealed class DirectDocxAccessExtractTests : IDisposable
   [Fact]
   public async Task Extract_filters_by_name()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "two.docx");
     using (WordprocessingDocument doc = WordprocessingDocument.Create(path, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
@@ -114,7 +114,7 @@ public sealed class DirectDocxAccessExtractTests : IDisposable
   [Fact]
   public async Task Extract_skips_non_png_jpeg()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "bmp.docx");
     using (WordprocessingDocument doc = WordprocessingDocument.Create(path, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
@@ -138,7 +138,7 @@ public sealed class DirectDocxAccessExtractTests : IDisposable
   [Fact]
   public async Task Extract_returns_jpeg()
   {
-    string dir = TrackDir(Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N")));
+    string dir = TrackDir(Path.Combine(TestTempRoot.Root, "docx-tests-" + Guid.NewGuid().ToString("N")));
     _ = Directory.CreateDirectory(dir);
     string path = Path.Combine(dir, "jpeg.docx");
     using (WordprocessingDocument doc = WordprocessingDocument.Create(path, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))

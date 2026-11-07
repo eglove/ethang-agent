@@ -91,7 +91,9 @@ public sealed class ComputerUseWireE2ETests
   [Fact]
   public async Task Observe_Screenshot_ReachesNextProviderRequest()
   {
-    using E2E.HostHarness harness = new()
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness harness = new()
+#pragma warning restore CA2007
     {
       ComputerAccessProviderFactory = () => new FakeComputerAccessProvider(),
     };
@@ -116,7 +118,9 @@ public sealed class ComputerUseWireE2ETests
   [Fact]
   public async Task Observe_Screenshot_ConversationCarriesImagePart_AcrossTurnPersistence()
   {
-    using E2E.HostHarness harness = new() { ComputerAccessProviderFactory = () => new FakeComputerAccessProvider() };
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness harness = new() { ComputerAccessProviderFactory = () => new FakeComputerAccessProvider() };
+#pragma warning restore CA2007
     _ = await harness.StartAsync(computerUse: true).ConfigureAwait(true);
 
     _ = harness.Mock.Returns(E2E.ToolCall("c1", "exec", ObserveThroughExecArgs()));

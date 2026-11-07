@@ -2,6 +2,7 @@ using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,8 +20,8 @@ public sealed class TrustedDirectoryCompositionTests
   [Fact]
   public async Task Read_ReachesAnApprovedRoot()
   {
-    string vault = Path.Combine(Path.GetTempPath(), "ethang-trusted-" + Guid.NewGuid().ToString("N"));
-    string workspace = Path.Combine(Path.GetTempPath(), "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
+    string vault = Path.Combine(TestTempRoot.Root, "ethang-trusted-" + Guid.NewGuid().ToString("N"));
+    string workspace = Path.Combine(TestTempRoot.Root, "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(vault);
     _ = Directory.CreateDirectory(workspace);
     try
@@ -48,8 +49,8 @@ public sealed class TrustedDirectoryCompositionTests
   [Fact]
   public async Task Write_RefusedOnAReadOnlyRoot()
   {
-    string vault = Path.Combine(Path.GetTempPath(), "ethang-trusted-" + Guid.NewGuid().ToString("N"));
-    string workspace = Path.Combine(Path.GetTempPath(), "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
+    string vault = Path.Combine(TestTempRoot.Root, "ethang-trusted-" + Guid.NewGuid().ToString("N"));
+    string workspace = Path.Combine(TestTempRoot.Root, "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(vault);
     _ = Directory.CreateDirectory(workspace);
     try
@@ -77,8 +78,8 @@ public sealed class TrustedDirectoryCompositionTests
   [Fact]
   public async Task Write_ReachesAnEditableRoot()
   {
-    string vault = Path.Combine(Path.GetTempPath(), "ethang-trusted-" + Guid.NewGuid().ToString("N"));
-    string workspace = Path.Combine(Path.GetTempPath(), "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
+    string vault = Path.Combine(TestTempRoot.Root, "ethang-trusted-" + Guid.NewGuid().ToString("N"));
+    string workspace = Path.Combine(TestTempRoot.Root, "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(vault);
     _ = Directory.CreateDirectory(workspace);
     try
@@ -104,8 +105,8 @@ public sealed class TrustedDirectoryCompositionTests
   [Fact]
   public async Task NoApproval_StillRefusesTheExternalPath()
   {
-    string vault = Path.Combine(Path.GetTempPath(), "ethang-trusted-" + Guid.NewGuid().ToString("N"));
-    string workspace = Path.Combine(Path.GetTempPath(), "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
+    string vault = Path.Combine(TestTempRoot.Root, "ethang-trusted-" + Guid.NewGuid().ToString("N"));
+    string workspace = Path.Combine(TestTempRoot.Root, "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(vault);
     _ = Directory.CreateDirectory(workspace);
     try
@@ -138,9 +139,9 @@ public sealed class TrustedDirectoryCompositionTests
     // Containment is SEGMENT-aware: a sibling directory whose name merely starts with
     // the approved root's name is outside it, so an approval cannot be widened by
     // naming something similar.
-    string vault = Path.Combine(Path.GetTempPath(), "ethang-trusted-" + Guid.NewGuid().ToString("N"));
+    string vault = Path.Combine(TestTempRoot.Root, "ethang-trusted-" + Guid.NewGuid().ToString("N"));
     string sibling = vault + "-sibling";
-    string workspace = Path.Combine(Path.GetTempPath(), "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
+    string workspace = Path.Combine(TestTempRoot.Root, "ethang-trusted-ws-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(vault);
     _ = Directory.CreateDirectory(sibling);
     _ = Directory.CreateDirectory(workspace);

@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using UglyToad.PdfPig;
 
@@ -35,7 +36,7 @@ public sealed class PdfComposerTests : IDisposable
 
   private string TempDir()
   {
-    string dir = Path.Combine(Path.GetTempPath(), "pdf-compose-tests-" + Guid.NewGuid().ToString("N"));
+    string dir = Path.Combine(TestTempRoot.Root, "pdf-compose-tests-" + Guid.NewGuid().ToString("N"));
     _dirs.Add(dir);
     _ = Directory.CreateDirectory(dir);
     return dir;

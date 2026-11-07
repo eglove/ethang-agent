@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -14,7 +15,7 @@ public sealed class BranchE2ETests : IDisposable
 
   public BranchE2ETests()
   {
-    _repoDir = Path.Combine(Path.GetTempPath(), "ethang-branch-e2e-" + Guid.NewGuid().ToString("N"));
+    _repoDir = Path.Combine(TestTempRoot.Root, "ethang-branch-e2e-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_repoDir);
     RunGit("init");
     RunGit("config", "user.email", "test@test.com");
@@ -62,7 +63,9 @@ public sealed class BranchE2ETests : IDisposable
   [AvaloniaFact]
   public async Task RealSession_Shows_Workspace_Branch()
   {
-    using E2E.HostHarness host = await new E2E.HostHarness()
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = await new E2E.HostHarness()
+#pragma warning restore CA2007
         .StartAsync(workspaceRoot: _repoDir).ConfigureAwait(true);
 
     for (int i = 0; i < 100 && host.Vm.Status.Branch != "feature/e2e"; i++)
@@ -77,7 +80,9 @@ public sealed class BranchE2ETests : IDisposable
   [AvaloniaFact]
   public async Task CloseTab_Stops_The_Watcher()
   {
-    using E2E.HostHarness host = await new E2E.HostHarness()
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = await new E2E.HostHarness()
+#pragma warning restore CA2007
         .StartAsync(workspaceRoot: _repoDir).ConfigureAwait(true);
     await host.Shell.CloseTabAsync(host.Shell.Tabs[0]).ConfigureAwait(true);
 

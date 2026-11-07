@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using eThangAgent.AgentDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.Transport.ACL;
 
 namespace eThangAgent.Composition.Tests;
@@ -19,7 +20,7 @@ public class AgentHostKillIsolationTests
   public async Task KillingOneAgentsHost_LeavesTheOtherRunning()
   {
     CancellationToken ct = TestContext.Current.CancellationToken;
-    string root = Directory.CreateTempSubdirectory("ethang-kill-isolation").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-kill-isolation").FullName;
     try
     {
       string workspace = Directory.CreateDirectory(Path.Combine(root, "ws")).FullName;

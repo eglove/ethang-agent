@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.ToolDomain.Tests;
 
@@ -27,7 +28,7 @@ public sealed class DocxToolTests : IDisposable
 
   public DocxToolTests()
   {
-    _root = Path.Combine(Path.GetTempPath(), "docx-tool-tests-" + Guid.NewGuid().ToString("N"));
+    _root = Path.Combine(TestTempRoot.Root, "docx-tool-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_root);
   }
 

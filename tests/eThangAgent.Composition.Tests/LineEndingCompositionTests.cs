@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,7 +18,7 @@ namespace eThangAgent.Composition.Tests;
 ///     Drives the composed seams — no fake on the path under test.</summary>
 public sealed class LineEndingCompositionTests : IDisposable
 {
-  private readonly string _root = Directory.CreateTempSubdirectory("ethang-eolc").FullName;
+  private readonly string _root = TestTempRoot.CreateDirectory("ethang-eolc").FullName;
 
   public void Dispose()
   {

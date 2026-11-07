@@ -176,10 +176,10 @@ public class ChildHostRootTurnTests
     // The host side of the protocol (task 8's ChildHostServer case) driven over a real
     // pipe: no root turn RUNNER is wired in this build (task 9 owns it), so the host
     // must answer with a typed settle failure — a well-formed outcome, never silence.
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-rootturn-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-rootturn-" + Guid.NewGuid().ToString("N") + ".json");
     await File.WriteAllTextAsync(settings, /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":null},\"Zai\":{\"ApiKey\":null}}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
-    ChildHostServer server = new(settings, Path.Combine(Path.GetTempPath(), "ethang-rootturn-" + Guid.NewGuid().ToString("N") + ".db"));
+    ChildHostServer server = new(settings, Path.Combine(TestTempRoot.Root, "ethang-rootturn-" + Guid.NewGuid().ToString("N") + ".db"));
     string pipeName = "ethang-rootturn-" + Guid.NewGuid().ToString("N");
     Task<NamedPipeChildTransport> accept = NamedPipeChildTransport.AcceptAppAsync(pipeName, TestContext.Current.CancellationToken);
     // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
@@ -1085,11 +1085,11 @@ public class ChildHostRootTurnTests
   ///     contract), so it is deliberately never awaited.</summary>
   private static async Task<NamedPipeChildTransport> ConnectToRealHostAsync()
   {
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-rootturn-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-rootturn-" + Guid.NewGuid().ToString("N") + ".json");
     await File.WriteAllTextAsync(settings, /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":null},\"Zai\":{\"ApiKey\":null}}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     ChildHostServer server = new(settings,
-        Path.Combine(Path.GetTempPath(), "ethang-rootturn-" + Guid.NewGuid().ToString("N") + ".db"));
+        Path.Combine(TestTempRoot.Root, "ethang-rootturn-" + Guid.NewGuid().ToString("N") + ".db"));
     string pipeName = "ethang-rootturn-" + Guid.NewGuid().ToString("N");
     Task<NamedPipeChildTransport> accept = NamedPipeChildTransport.AcceptAppAsync(pipeName, TestContext.Current.CancellationToken);
     NamedPipeChildTransport app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,

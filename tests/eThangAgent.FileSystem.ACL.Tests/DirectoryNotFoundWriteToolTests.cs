@@ -1,5 +1,6 @@
 using System.Text.Json;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
@@ -13,7 +14,7 @@ public sealed class DirectoryNotFoundWriteToolTests
   [Fact]
   public async Task WriteTool_WithMissingParentDirectory_NamesDirectoryAndRemedy()
   {
-    string root = Directory.CreateTempSubdirectory("ethang-dnf").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-dnf").FullName;
     try
     {
       using DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
@@ -42,7 +43,7 @@ public sealed class DirectoryNotFoundWriteToolTests
   [Fact]
   public async Task WriteFileBytesAsync_WithMissingParentDirectory_NamesDirectoryAndRemedy()
   {
-    string root = Directory.CreateTempSubdirectory("ethang-dnfb").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-dnfb").FullName;
     try
     {
       using DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));

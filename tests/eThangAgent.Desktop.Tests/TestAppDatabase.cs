@@ -1,4 +1,5 @@
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -17,7 +18,7 @@ internal sealed class TestAppDatabase : IDisposable
   public AppDatabase Database { get; }
 
   public static TestAppDatabase Create() =>
-      new(Path.Combine(Path.GetTempPath(), $"ethang-desktop-{Guid.NewGuid():N}.db"));
+      new(Path.Combine(TestTempRoot.Root, $"ethang-desktop-{Guid.NewGuid():N}.db"));
 
   public void Dispose()
   {

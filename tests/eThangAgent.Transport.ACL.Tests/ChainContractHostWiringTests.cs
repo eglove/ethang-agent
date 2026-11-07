@@ -3,6 +3,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ChildHost;
 using eThangAgent.Composition;
 using eThangAgent.ModelDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -27,12 +28,12 @@ public sealed class ChainContractHostWiringTests
   ///     workspace it names is a fresh temp directory so the host anchors somewhere real.</summary>
   private static string WriteSettings(ChainContract? contract)
   {
-    string workspace = Directory.CreateTempSubdirectory("ethang-chain-contract-ws").FullName;
+    string workspace = TestTempRoot.CreateDirectory("ethang-chain-contract-ws").FullName;
     AgentSettings settings = new AgentSettings(
         new OpenRouterSettings("sk-test", BaseUrl),
         new AgentRunOptions(null, 1),
         WorkspaceRoot: workspace).WithChainContract(contract);
-    string path = Path.Combine(Path.GetTempPath(),
+    string path = Path.Combine(TestTempRoot.Root,
         "ethang-chain-contract-" + Guid.NewGuid().ToString("N") + ".json");
     File.WriteAllText(path, JsonSerializer.Serialize(settings));
     return path;
@@ -42,7 +43,7 @@ public sealed class ChainContractHostWiringTests
   ///     two tests never share a schema.</summary>
   private static SessionHost Host(string settingsPath) =>
       SessionHost.Create(settingsPath,
-          Path.Combine(Path.GetTempPath(), "ethang-cc-" + Guid.NewGuid().ToString("N") + ".db"));
+          Path.Combine(TestTempRoot.Root, "ethang-cc-" + Guid.NewGuid().ToString("N") + ".db"));
 
   [Fact]
   public void TheHostPrompt_CarriesTheContractShippedInTheSettings()

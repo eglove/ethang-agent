@@ -75,7 +75,6 @@ public class ChildHostInterruptScopeTests
     }
   }
 
-
   [Fact]
   public async Task SubtreeRootInterrupt_CancelsTheRealRunToken_NotJustBookkeepingState()
   {
@@ -271,10 +270,10 @@ public class ChildHostInterruptScopeTests
 
   private static async Task<(ChildHostServer Server, NamedPipeChildTransport App, Func<Task> Serve)> StartRigAsync()
   {
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-interruptrig-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-interruptrig-" + Guid.NewGuid().ToString("N") + ".json");
     await File.WriteAllTextAsync(settings, /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":null},\"Zai\":{\"ApiKey\":null}}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
-    ChildHostServer server = new(settings, Path.Combine(Path.GetTempPath(), "ethang-interruptrig.db"));
+    ChildHostServer server = new(settings, Path.Combine(TestTempRoot.Root, "ethang-interruptrig.db"));
     string pipeName = "ethang-interruptrig-" + Guid.NewGuid().ToString("N");
     Task<NamedPipeChildTransport> accept = NamedPipeChildTransport.AcceptAppAsync(pipeName, TestContext.Current.CancellationToken);
     NamedPipeChildTransport app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,

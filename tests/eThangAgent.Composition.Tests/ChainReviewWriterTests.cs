@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -15,7 +16,7 @@ public sealed class ChainReviewWriterTests : IDisposable
 {
   private const string Ws = "C:\\ws\\review";
   private readonly string _dbPath = Path.Combine(
-      Path.GetTempPath(), $"ethang-reviewwriter-{Guid.NewGuid():N}.db");
+      TestTempRoot.Root, $"ethang-reviewwriter-{Guid.NewGuid():N}.db");
 
   public void Dispose()
   {

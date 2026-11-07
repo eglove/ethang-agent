@@ -2,6 +2,7 @@ using System.Text.Json;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -18,15 +19,17 @@ public sealed class TrustedDirectoryE2ETests
   [Fact]
   public async Task Session_WithApprovedRoot_ReadsItThroughTheReadTool()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-trusted-ws");
-    DirectoryInfo vault = Directory.CreateTempSubdirectory("ethang-e2e-trusted-vault");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-trusted-ws");
+    DirectoryInfo vault = TestTempRoot.CreateDirectory("ethang-e2e-trusted-vault");
     try
     {
       string file = Path.Combine(vault.FullName, "notes.md");
       await File.WriteAllTextAsync(file, "trusted marker",
           TestContext.Current.CancellationToken);
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 
@@ -69,15 +72,17 @@ public sealed class TrustedDirectoryE2ETests
   [Fact]
   public async Task Session_WithoutApproval_RefusesTheSamePathAndDoesNotNameIt()
   {
-    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-trusted-none");
-    DirectoryInfo vault = Directory.CreateTempSubdirectory("ethang-e2e-trusted-unapproved");
+    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-trusted-none");
+    DirectoryInfo vault = TestTempRoot.CreateDirectory("ethang-e2e-trusted-unapproved");
     try
     {
       string file = Path.Combine(vault.FullName, "notes.md");
       await File.WriteAllTextAsync(file, "unapproved marker",
           TestContext.Current.CancellationToken);
 
-      using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+      await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 

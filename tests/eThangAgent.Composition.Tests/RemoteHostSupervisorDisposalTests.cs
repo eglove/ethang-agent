@@ -75,7 +75,6 @@ public class RemoteHostSupervisorDisposalTests : SessionOwningTest
     Assert.True(WasDisposed(captured), "disposal must release the running host's handle");
   }
 
-
   /// <summary>DISPOSAL MEANS THE HOST IS GONE, NOT THAT A KILL WAS REQUESTED.
   ///     <para>The defect this pins: <c>Process.Kill</c> returns as soon as the kernel
   ///     accepts the request, while the host keeps running and keeps holding its SQLite

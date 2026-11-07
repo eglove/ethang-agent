@@ -33,11 +33,11 @@ public sealed class ChildHostRootRunTests
   ///     awaited.</summary>
   private static async Task<NamedPipeChildTransport> ConnectToRealHostAsync(RootRunHost? runner)
   {
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".json");
     await File.WriteAllTextAsync(settings, /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":null},\"SubAgents\":{}}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     ChildHostServer server = new(settings,
-        Path.Combine(Path.GetTempPath(), "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".db"));
+        Path.Combine(TestTempRoot.Root, "ethang-rootrun-" + Guid.NewGuid().ToString("N") + ".db"));
     if (runner is not null)
     {
       server.AttachRootRun(runner);

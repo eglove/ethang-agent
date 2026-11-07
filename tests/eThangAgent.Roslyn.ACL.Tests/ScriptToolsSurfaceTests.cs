@@ -1,5 +1,6 @@
 using System.Reflection;
 using eThangAgent.CapabilityDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -43,7 +44,7 @@ public class ScriptToolsSurfaceTests
   public void ConvenienceMethod_DispatchesThroughTheRegistry()
   {
     EchoProvider provider = new();
-    ScriptGlobals globals = new(CapabilityRegistry.Create([provider]), ".", Path.GetTempPath(),
+    ScriptGlobals globals = new(CapabilityRegistry.Create([provider]), ".", TestTempRoot.Root,
         execBudget: TimeSpan.FromSeconds(30));
 
     string result = globals.Tools.command_output(/*lang=json,strict*/ """{"id":7}""");

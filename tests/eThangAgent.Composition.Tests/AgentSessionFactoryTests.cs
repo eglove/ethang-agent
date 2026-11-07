@@ -4,6 +4,7 @@ using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,7 +29,7 @@ public class AgentSessionFactoryTests
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings? settings = null)
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-factory-{Guid.NewGuid():N}.db");
+    string dbPath = Path.Combine(TestTempRoot.Root, $"ethang-factory-{Guid.NewGuid():N}.db");
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
     return (new AgentSessionFactory(settings ?? Settings()), dbPath);
   }
@@ -39,8 +40,8 @@ public class AgentSessionFactoryTests
     (AgentSessionFactory? factory, string? db) = CreateFactory();
     try
     {
-      DirectoryInfo dirA = Directory.CreateTempSubdirectory("ethang-ws-a");
-      DirectoryInfo dirB = Directory.CreateTempSubdirectory("ethang-ws-b");
+      DirectoryInfo dirA = TestTempRoot.CreateDirectory("ethang-ws-a");
+      DirectoryInfo dirB = TestTempRoot.CreateDirectory("ethang-ws-b");
       try
       {
         Result<AgentSession> a = await factory.CreateAsync(dirA.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
@@ -110,7 +111,7 @@ public class AgentSessionFactoryTests
     (AgentSessionFactory? factory, string? db) = CreateFactory();
     try
     {
-      string missing = Path.Combine(Path.GetTempPath(), $"ethang-missing-{Guid.NewGuid():N}");
+      string missing = Path.Combine(TestTempRoot.Root, $"ethang-missing-{Guid.NewGuid():N}");
       Result<AgentSession> result = await factory.CreateAsync(missing, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
 
       Assert.False(result.IsSuccess);
@@ -133,7 +134,7 @@ public class AgentSessionFactoryTests
     (AgentSessionFactory? factory, string? db) = CreateFactory();
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-u");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-u");
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, "anthropic", ct: TestContext.Current.CancellationToken);
@@ -166,7 +167,7 @@ public class AgentSessionFactoryTests
     (AgentSessionFactory? factory, string? db) = CreateFactory(Settings(openRouterKey: null));
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-z");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-z");
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
@@ -201,7 +202,7 @@ public class AgentSessionFactoryTests
     (AgentSessionFactory factory, string db) = CreateFactory(Settings(openRouterKey: null));
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-rebind");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-rebind");
       try
       {
         Assert.False((await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken)).IsSuccess);
@@ -269,7 +270,7 @@ public class AgentSessionFactoryTests
     Result<AgentSession>? session = null;
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-anchor");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-anchor");
       try
       {
         session = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
@@ -359,7 +360,7 @@ public class AgentSessionFactoryTests
     (AgentSessionFactory? factory, string? db) = CreateFactory();
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-stamp");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-stamp");
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
@@ -404,7 +405,7 @@ public class AgentSessionFactoryTests
     (AgentSessionFactory? factory, string? db) = CreateFactory();
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-seed");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-seed");
       try
       {
         List<Message> seed =
@@ -468,7 +469,7 @@ public class AgentSessionFactoryTests
     (AgentSessionFactory? factory, string? db) = CreateFactory();
     try
     {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-sp");
+      DirectoryInfo dir = TestTempRoot.CreateDirectory("ethang-ws-sp");
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);

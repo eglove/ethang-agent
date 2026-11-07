@@ -91,10 +91,12 @@ public class ChainGroupExecutionE2ETests
   [AvaloniaFact]
   public async Task Group_RunsTogether_Merges_AndIsReviewed()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync().ConfigureAwait(true);
-    string workspace = Directory.CreateTempSubdirectory("ethang-chain-group-e2e").FullName;
+    string workspace = TestTempRoot.CreateDirectory("ethang-chain-group-e2e").FullName;
     MainViewModel? shell = null;
     try
     {

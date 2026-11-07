@@ -8,7 +8,6 @@ using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
-
 using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;

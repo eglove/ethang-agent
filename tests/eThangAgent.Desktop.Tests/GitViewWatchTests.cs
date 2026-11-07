@@ -1,5 +1,6 @@
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
@@ -17,7 +18,7 @@ public sealed class GitViewWatchTests : IDisposable
 
   public GitViewWatchTests()
   {
-    _root = Path.Combine(Path.GetTempPath(), "ethang-gitview-" + Guid.NewGuid().ToString("N"));
+    _root = Path.Combine(TestTempRoot.Root, "ethang-gitview-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_root);
   }
 

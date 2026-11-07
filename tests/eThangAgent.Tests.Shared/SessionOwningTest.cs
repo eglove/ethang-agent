@@ -37,11 +37,11 @@ public abstract class SessionOwningTest : IAsyncLifetime
   {
     ArgumentNullException.ThrowIfNull(settings);
 
-    string dbPath = Track(Path.Combine(Path.GetTempPath(),
+    string dbPath = Track(Path.Combine(TestTempRoot.Root,
         "ethang-session-" + Guid.NewGuid().ToString("N") + ".db"));
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
 
-    string root = workspaceRoot ?? Track(Directory.CreateTempSubdirectory("ethang-ws").FullName);
+    string root = workspaceRoot ?? Track(TestTempRoot.CreateDirectory("ethang-ws").FullName);
     AgentSessionFactory factory = new(settings, new AppDatabase(dbPath));
     Result<AgentSession> created = await factory.CreateAsync(root, Providers.OpenRouter,
         ct: TestContext.Current.CancellationToken).ConfigureAwait(true);

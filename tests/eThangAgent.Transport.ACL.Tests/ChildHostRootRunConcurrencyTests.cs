@@ -201,7 +201,7 @@ public sealed class ChildHostRootRunConcurrencyTests
     // A REAL settings file, so the container build takes long enough for the race to be
     // reachable: with a missing file the build throws instantly and every caller sees null,
     // which would make this test pass against the broken latch.
-    string settingsPath = Path.Combine(Path.GetTempPath(),
+    string settingsPath = Path.Combine(TestTempRoot.Root,
         "ethang-latch-" + Guid.NewGuid().ToString("N") + ".json");
     string sessionId = Guid.NewGuid().ToString("D");
     await File.WriteAllTextAsync(settingsPath,
@@ -209,7 +209,7 @@ public sealed class ChildHostRootRunConcurrencyTests
             + "\"SubAgents\":{},\"SessionId\":\"" + sessionId + "\"}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     ChildHostServer server = new(settingsPath,
-        Path.Combine(Path.GetTempPath(), "ethang-latch-" + Guid.NewGuid().ToString("N") + ".db"));
+        Path.Combine(TestTempRoot.Root, "ethang-latch-" + Guid.NewGuid().ToString("N") + ".db"));
 
     Task<RootRunHost?>[] resolves =
     [
@@ -224,7 +224,6 @@ public sealed class ChildHostRootRunConcurrencyTests
     // report the false unbound.
     Assert.All(results, result => Assert.Same(results[0], result));
   }
-
 
   /// <summary>Reads frames until the event for <paramref name="turnId"/> of
   ///     <paramref name="kind"/> arrives, bounded by <paramref name="limit"/>.</summary>

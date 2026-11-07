@@ -15,7 +15,9 @@ public class PlanCapabilityE2ETests
   [Fact]
   public async Task Agent_DrivesPlanLifecycle_ThroughCapabilityDispatch()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 

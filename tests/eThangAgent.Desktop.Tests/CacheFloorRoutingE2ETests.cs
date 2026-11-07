@@ -12,7 +12,9 @@ public class CacheFloorRoutingE2ETests
   [Fact]
   public async Task CacheFloor_OrderAndReportedChargeReachTheSessionLedger()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
     host.Mock.EndpointsResponse = /*lang=json,strict*/ "{\"data\":{\"endpoints\":[{\"provider_name\":\"Expensive\",\"tag\":\"expensive\",\"context_length\":2000000,\"pricing\":{\"prompt\":\"0.000002\",\"completion\":\"0.000004\",\"input_cache_read\":\"0.000002\"}},{\"provider_name\":\"Cheap\",\"tag\":\"cheap/flex\",\"context_length\":2000000,\"pricing\":{\"prompt\":\"0.000001\",\"completion\":\"0.000002\",\"input_cache_read\":\"0.0000001\"}}]}}";
@@ -51,7 +53,9 @@ public class CacheFloorRoutingE2ETests
   [Fact]
   public async Task MissingCharge_StaysUnpricedInPersistedSummary()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
     _ = host.Mock.Returns(/*lang=json,strict*/ "{\"status\":\"completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}");
@@ -65,7 +69,9 @@ public class CacheFloorRoutingE2ETests
   [Fact]
   public async Task Standard_SendsNoProviderObject()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
     await host.Shell.ApplyModelChoiceAsync(E2E.SessionModel, ModelVariant.Standard);

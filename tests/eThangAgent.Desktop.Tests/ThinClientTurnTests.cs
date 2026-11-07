@@ -134,7 +134,7 @@ public sealed class ThinClientTurnTests
   [Fact]
   public async Task SubmitAsync_ReferenceBlock_CarriesTheReadOutputAsPreTurn()
   {
-    string root = Directory.CreateTempSubdirectory("ethang-thinclient-ref").FullName;
+    string root = TestTempRoot.CreateDirectory("ethang-thinclient-ref").FullName;
     try
     {
       await File.WriteAllLinesAsync(Path.Combine(root, "notes.txt"), ["alpha", "beta"],
@@ -505,7 +505,6 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
         ? Result.Failure<bool>(refusal)
         : Result.Success(true));
   }
-
 
   /// <summary>Answers the app sent for session-requests (issue #234): the request id with
   ///     either the new session's id or the refusal's typed code. The host side of the wire

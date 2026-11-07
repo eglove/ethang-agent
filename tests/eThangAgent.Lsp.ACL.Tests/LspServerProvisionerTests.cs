@@ -1,5 +1,6 @@
 using System.Text;
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
@@ -23,7 +24,7 @@ public class LspServerProvisionerTests
   [Fact]
   public async Task AlreadyResolvable_ReturnsItWithoutDownloading()
   {
-    string root = Directory.CreateTempSubdirectory("lspprov").FullName;
+    string root = TestTempRoot.CreateDirectory("lspprov").FullName;
     try
     {
       int downloads = 0;
@@ -42,7 +43,7 @@ public class LspServerProvisionerTests
   [Fact]
   public async Task Absent_InstallsAndReturnsTheInstalledPath()
   {
-    string root = Directory.CreateTempSubdirectory("lspprov").FullName;
+    string root = TestTempRoot.CreateDirectory("lspprov").FullName;
     try
     {
       byte[] nupkg = PackageWith("tools/net10.0/win-x64", "server.exe", "binary");
@@ -68,7 +69,7 @@ public class LspServerProvisionerTests
   [Fact]
   public async Task Absent_AndDownloadFails_ReturnsNull()
   {
-    string root = Directory.CreateTempSubdirectory("lspprov").FullName;
+    string root = TestTempRoot.CreateDirectory("lspprov").FullName;
     try
     {
       LspServerProvisioner provisioner = new(

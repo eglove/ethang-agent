@@ -1,6 +1,7 @@
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -13,7 +14,7 @@ public class SkillDirectoryReloadE2ETests
   [Fact]
   public async Task WriteThenReload_NewSkillVisibleAndAnnounced()
   {
-    string dir = Directory.CreateTempSubdirectory("ethang-hotreload").FullName;
+    string dir = TestTempRoot.CreateDirectory("ethang-hotreload").FullName;
     try
     {
       FakeBuiltIn builtIns = new();

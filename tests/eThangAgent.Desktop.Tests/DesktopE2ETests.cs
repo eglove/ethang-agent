@@ -1,5 +1,6 @@
 using System.Text.Json;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -17,7 +18,9 @@ public class DesktopE2ETests
   [Fact]
   public async Task Turn_SendsConfiguredDefaultModel_ToProvider()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
@@ -30,7 +33,9 @@ public class DesktopE2ETests
   [Fact]
   public async Task Turn_InjectsSkillsBootstrap_OncePerSession()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
@@ -58,7 +63,9 @@ public class DesktopE2ETests
   [Fact]
   public async Task ModelToolsContainOnlyExec()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
@@ -72,7 +79,9 @@ public class DesktopE2ETests
   [Fact]
   public async Task SendsExecGuide_InSystemPrompt()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
@@ -105,11 +114,13 @@ public class DesktopE2ETests
   [Fact]
   public async Task ExecutesExecTool_EndToEnd()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 
-    string tempFile = Path.Combine(Path.GetTempPath(), $"ethang-exec-{Guid.NewGuid():N}.txt");
+    string tempFile = Path.Combine(TestTempRoot.Root, $"ethang-exec-{Guid.NewGuid():N}.txt");
     await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line"], TestContext.Current.CancellationToken);
 
     string pathArg = tempFile.Replace("\\", "\\\\", StringComparison.Ordinal);
@@ -139,7 +150,9 @@ public class DesktopE2ETests
   [Fact]
   public async Task Exec_ParseErrorFeedsBack_AndCorrectedProgramSucceeds()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
 

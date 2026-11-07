@@ -197,7 +197,6 @@ public sealed class DeadPreferenceSweepTests : IDisposable
     Assert.Equal(payload, await _store.GetAsync(key, ct));
   }
 
-
   [Fact]
   public async Task Sweep_Leaves_The_Rest_Of_The_Database_Intact()
   {

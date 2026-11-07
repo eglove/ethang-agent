@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.FileClaims;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -10,7 +11,7 @@ public sealed class SqliteFileClaimStoreTests : IDisposable
   private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-01-01T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
 
   private readonly string _databasePath = Path.Combine(
-      Path.GetTempPath(), "claims-" + Guid.NewGuid().ToString("N") + ".db");
+      TestTempRoot.Root, "claims-" + Guid.NewGuid().ToString("N") + ".db");
 
   private SqliteFileClaimStore NewStore() => new(new AppDatabase(_databasePath));
 

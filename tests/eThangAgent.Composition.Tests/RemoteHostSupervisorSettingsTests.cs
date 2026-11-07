@@ -1,4 +1,5 @@
 using eThangAgent.AgentDomain;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -11,10 +12,10 @@ public class RemoteHostSupervisorSettingsTests
   [Fact]
   public async Task Supervisor_WritesTheWorkspaceRootIntoTheHostSettingsJson()
   {
-    string scratch = Directory.CreateTempSubdirectory("ethang-sup-ws").FullName;
+    string scratch = TestTempRoot.CreateDirectory("ethang-sup-ws").FullName;
     try
     {
-      string root = Directory.CreateTempSubdirectory("ethang-sup-root").FullName;
+      string root = TestTempRoot.CreateDirectory("ethang-sup-root").FullName;
       AgentSettings settings = new AgentSettings(
           new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
           new AgentRunOptions(null, 2)).WithWorkspaceRoot(root);

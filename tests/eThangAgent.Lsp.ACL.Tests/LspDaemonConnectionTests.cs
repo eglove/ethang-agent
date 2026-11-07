@@ -27,7 +27,7 @@ public class LspDaemonConnectionTests
 
     bool started = false;
     await using LspDaemonConnection connection = (await LspDaemonConnection.ConnectAsync(
-        ws, Path.GetTempPath(), "app-1",
+        ws, TestTempRoot.Root, "app-1",
         () =>
         {
           started = true;
@@ -46,7 +46,7 @@ public class LspDaemonConnectionTests
   {
     string ws = "conn-none-" + Guid.NewGuid().ToString("N");
     LspDaemonConnection? connection = await LspDaemonConnection.ConnectAsync(
-        ws, Path.GetTempPath(), "app-1",
+        ws, TestTempRoot.Root, "app-1",
         () => throw new InvalidOperationException("no daemon executable here"), Ct).ConfigureAwait(true);
 
     Assert.Null(connection);
@@ -57,7 +57,7 @@ public class LspDaemonConnectionTests
   {
     string ws = "conn-mux-" + Guid.NewGuid().ToString("N");
     string pipe = LspPipeNames.ForWorkspaceId(ws);
-    string root = Directory.CreateTempSubdirectory("lsp-mux").FullName;
+    string root = TestTempRoot.CreateDirectory("lsp-mux").FullName;
     try
     {
       await File.WriteAllTextAsync(Path.Combine(root, "a.cs"), "class A { }", Ct).ConfigureAwait(true);

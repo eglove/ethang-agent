@@ -7,7 +7,6 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-
 using eThangAgent.TestSupport;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -211,7 +210,7 @@ public class HungRemoteChildE2ETests
     using HangAfterFirstRequestServer mock = new();
     mock.Start();
 
-    string scratch = Path.Combine(Path.GetTempPath(), "e2e-" + Guid.NewGuid().ToString("N"));
+    string scratch = Path.Combine(TestTempRoot.Root, "e2e-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(scratch);
     string databasePath = Path.Combine(scratch, "db.sqlite");
     await File.WriteAllTextAsync(Path.Combine(scratch, "settings.json"), SettingsJson(mock.BaseUrl.ToString()),
@@ -256,7 +255,6 @@ public class HungRemoteChildE2ETests
       // pre-2026-10-04 fix mislabeled this ProviderError via the OCE crash path).
       // The ROW below still carries the watchdog's terminal verdict: Failed(Hung).
       Assert.Equal(AgentFailureReason.Interrupted, outcome.Value.Reason);
-
 
       // Audit rows were written by the HOST process: the test process never writes
       // watchdog_events to this database, so any row present is host-authored by

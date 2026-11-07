@@ -36,7 +36,7 @@ public class ReAttachE2ETests
     Assert.True(File.Exists(hostExe), "child host exe not built");
 
     string pipeName = "ethang-containment-" + Guid.NewGuid().ToString("N");
-    string scratch = Path.Combine(Path.GetTempPath(), "e2e-" + Guid.NewGuid().ToString("N"));
+    string scratch = Path.Combine(TestTempRoot.Root, "e2e-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(scratch);
     await File.WriteAllTextAsync(Path.Combine(scratch, "settings.json"), /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":null},\"Zai\":{\"ApiKey\":null}}",
         TestContext.Current.CancellationToken).ConfigureAwait(true);

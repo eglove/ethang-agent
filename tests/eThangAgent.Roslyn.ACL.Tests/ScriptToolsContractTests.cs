@@ -1,4 +1,5 @@
 using eThangAgent.CapabilityDomain;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
@@ -27,7 +28,7 @@ public class ScriptToolsContractTests
   private static ScriptTools Make()
   {
     CapabilityRegistry registry = CapabilityRegistry.Create([new StubProvider()]);
-    ScriptGlobals globals = new(registry, ".", Path.GetTempPath());
+    ScriptGlobals globals = new(registry, ".", TestTempRoot.Root);
     return globals.Tools;
   }
 
@@ -90,7 +91,7 @@ public class ScriptToolsContractTests
   public async Task ElapsedBudget_SurfacesInBand()
   {
     SlowProvider slow = new();
-    ScriptGlobals globals = new(CapabilityRegistry.Create([slow]), ".", Path.GetTempPath());
+    ScriptGlobals globals = new(CapabilityRegistry.Create([slow]), ".", TestTempRoot.Root);
     string result = await Task.Run(() => globals.Tools.Invoke("slow", new { timeoutSeconds = 1 })).ConfigureAwait(true);
     Assert.StartsWith("Error [ToolTimeout]", result, StringComparison.Ordinal);
   }
@@ -109,7 +110,7 @@ public class ScriptToolsContractTests
   {
     ScriptGlobals globals = new(
         CapabilityRegistry.Create([new CodedErrorProvider(code, validatesArgumentsBeforeDispatch: true)]),
-        ".", Path.GetTempPath());
+        ".", TestTempRoot.Root);
     string result = globals.Tools.Invoke("boom", new { timeoutSeconds = 30 });
     Assert.StartsWith($"Error [{code}]", result, StringComparison.Ordinal);
   }
@@ -121,7 +122,7 @@ public class ScriptToolsContractTests
   {
     ScriptGlobals globals = new(
         CapabilityRegistry.Create([new CodedErrorProvider("InvalidParameterValue", validatesArgumentsBeforeDispatch: true)]),
-        ".", Path.GetTempPath());
+        ".", TestTempRoot.Root);
     string result = globals.Tools.Invoke("boom", new { timeoutSeconds = 30 });
     Assert.StartsWith("Error [InvalidParameterValue]: nested call 'boom':", result, StringComparison.Ordinal);
   }
@@ -136,7 +137,7 @@ public class ScriptToolsContractTests
   {
     ScriptGlobals globals = new(
         CapabilityRegistry.Create([new CodedErrorProvider(code, validatesArgumentsBeforeDispatch: false)]),
-        ".", Path.GetTempPath());
+        ".", TestTempRoot.Root);
     Exception ex = Assert.Throws<ScriptToolException>(() => globals.Tools.Invoke("boom", new { timeoutSeconds = 30 }));
     Assert.Contains($"Error [{code}]", ex.Message, StringComparison.Ordinal);
   }
@@ -149,7 +150,7 @@ public class ScriptToolsContractTests
   [InlineData("ToolError")]
   public void EnvironmentalOutcomes_StayInBand(string code)
   {
-    ScriptGlobals globals = new(CapabilityRegistry.Create([new CodedErrorProvider(code)]), ".", Path.GetTempPath());
+    ScriptGlobals globals = new(CapabilityRegistry.Create([new CodedErrorProvider(code)]), ".", TestTempRoot.Root);
     string result = globals.Tools.Invoke("boom", new { timeoutSeconds = 30 });
     Assert.StartsWith($"Error [{code}]", result, StringComparison.Ordinal);
   }

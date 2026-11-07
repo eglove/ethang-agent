@@ -1,4 +1,5 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.PDF.ACL.Tests;
@@ -40,7 +41,7 @@ public sealed class PdfPageRendererTests : IDisposable
 
   private string TempDir()
   {
-    string dir = Path.Combine(Path.GetTempPath(), "pdf-render-tests-" + Guid.NewGuid().ToString("N"));
+    string dir = Path.Combine(TestTempRoot.Root, "pdf-render-tests-" + Guid.NewGuid().ToString("N"));
     _dirs.Add(dir);
     _ = Directory.CreateDirectory(dir);
     return dir;
@@ -126,7 +127,7 @@ public sealed class PdfPageRendererTests : IDisposable
   [Fact]
   public void Render_missing_file_returns_file_not_found()
   {
-    string path = Path.Combine(Path.GetTempPath(), "pdf-render-missing-" + Guid.NewGuid().ToString("N") + ".pdf");
+    string path = Path.Combine(TestTempRoot.Root, "pdf-render-missing-" + Guid.NewGuid().ToString("N") + ".pdf");
 
     Result<PdfRenderOutcome> r = PdfPageRenderer.Render(path, PageOne, PdfLimits.DefaultDpi);
     Assert.False(r.IsSuccess);

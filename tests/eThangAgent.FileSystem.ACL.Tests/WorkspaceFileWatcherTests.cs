@@ -9,7 +9,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 #pragma warning disable S1144 // Calls property is part of the test double surface
 public class WorkspaceFileWatcherTests
 {
-  private static string NewTree() => Directory.CreateTempSubdirectory("wswatch").FullName;
+  private static string NewTree() => TestTempRoot.CreateDirectory("wswatch").FullName;
 
   private static void Write(string root, string relative, string content)
   {

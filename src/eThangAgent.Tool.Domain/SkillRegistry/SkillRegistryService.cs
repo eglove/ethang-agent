@@ -306,8 +306,23 @@ public sealed class SkillRegistryService(
       return;
     }
 
+    // A clone leaves read-only files behind on Windows, and a read-only entry makes the
+    // recursive delete refuse the whole tree - so the attribute is cleared before each
+    // attempt rather than being reported as a cleanup that silently did nothing.
+    EnumerationOptions options = new()
+    {
+      RecurseSubdirectories = true,
+      IgnoreInaccessible = true,
+      AttributesToSkip = FileAttributes.None,
+    };
+
     try
     {
+      foreach (string entry in Directory.EnumerateFileSystemEntries(staging, "*", options))
+      {
+        File.SetAttributes(entry, FileAttributes.Normal);
+      }
+
       Directory.Delete(staging, recursive: true);
     }
     catch (IOException)

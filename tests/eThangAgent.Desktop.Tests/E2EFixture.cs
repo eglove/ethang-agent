@@ -27,7 +27,7 @@ internal static class E2E
 
   /// <summary>A disposable headless agent host: mock server + services + view-model,
   /// with storage isolated to a temp database via ETHANG_AGENT_DB.</summary>
-  internal sealed class HostHarness : IDisposable
+  internal sealed class HostHarness : IDisposable, IAsyncDisposable
   {
     private ServiceProvider? _services;
 
@@ -76,7 +76,24 @@ internal static class E2E
     /// <param name="lspDaemonExePath">When set, overrides where the language-server daemon
     ///     executable is looked for, so a test can point it at a path that does not exist and
     ///     pin the LSP-absent behavior.</param>
+    /// <summary>Starts the harness, or disposes everything it built before rethrowing. A
+    ///     harness whose start fails is never handed to a `using`, so without this the
+    ///     container - and the database connections it holds - outlives the test that failed.</summary>
     public async Task<HostHarness> StartAsync(string? reuseDatabasePath = null, string? workspaceRoot = null, bool computerUse = false, string? workspaceId = null, string? lspDaemonExePath = null)
+    {
+      try
+      {
+        return await StartCoreAsync(reuseDatabasePath, workspaceRoot, computerUse, workspaceId, lspDaemonExePath)
+            .ConfigureAwait(false);
+      }
+      catch
+      {
+        await DisposeAsync().ConfigureAwait(false);
+        throw;
+      }
+    }
+
+    private async Task<HostHarness> StartCoreAsync(string? reuseDatabasePath, string? workspaceRoot, bool computerUse, string? workspaceId, string? lspDaemonExePath)
     {
       Mock.Start();
       // Catalog the two mock models so the session's window source resolves them;
@@ -85,7 +102,7 @@ internal static class E2E
       // image modality; empty top_provider) so the routing pseudo-model resolves its
       // window from the catalog like every other model.
       _ = Mock.ReturnsCatalog(/*lang=json,strict*/ """{ "data": [ { "id": "mock/sub-model", "pricing": { "prompt": "0.000001", "completion": "0.000002" }, "context_length": 32768, "top_provider": { "max_completion_tokens": 8192 }, "architecture": { "modality": "text->text" } }, { "id": "openrouter/auto", "pricing": { "prompt": "-1", "completion": "-1" }, "context_length": 2000000, "supported_parameters": ["tools"], "architecture": { "modality": "text+image->text", "input_modalities": ["text", "image"] }, "top_provider": { "context_length": null, "max_completion_tokens": null } } ] }""");
-      DatabasePath = reuseDatabasePath ?? Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.db");
+      DatabasePath = reuseDatabasePath ?? Path.Combine(TestTempRoot.Root, $"ethang-e2e-{Guid.NewGuid():N}.db");
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", DatabasePath);
 
       AgentSettings settings = BuildSettings(computerUse: computerUse);
@@ -192,24 +209,51 @@ internal static class E2E
         _hostOwner = HostProcessLedger.OwnedBy(TestContext.Current.Test?.TestDisplayName
             ?? GetType().Name);
 
+    /// <summary>Deletes the database file the harness owns. A connection the container opened
+    ///     returns to the process-wide pool when it closes, and the pool keeps its handle on the
+    ///     file, so the file outlives the container until the pool is cleared. The file is the
+    ///     harness's own, and a delete that fails throws rather than leaving it behind.</summary>
+    private void ReleaseDatabaseFile()
+    {
+      if (DatabasePath.Length == 0)
+      {
+        return;
+      }
+
+      Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+      if (File.Exists(DatabasePath))
+      {
+        File.Delete(DatabasePath);
+      }
+    }
+
+    /// <summary>Closes the shell the way a user closing the app does - every tab's session
+    ///     stopped and every container disposed - before the harness releases its own storage.
+    ///     A session that never reached a tab (a chain step, a launched agent) is only retired
+    ///     by that walk, so a harness that skipped it would leave a live host holding the
+    ///     database file.</summary>
+    internal async Task ShutdownAsync()
+    {
+      if (Shell is not null)
+      {
+        await Shell.ShutdownAllAsync().ConfigureAwait(false);
+      }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+      await ShutdownAsync().ConfigureAwait(false);
+      Dispose();
+    }
+
     public void Dispose()
     {
       _hostOwner?.Dispose();
       _hostOwner = null;
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
-      // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
-      try
-      {
-        if (DatabasePath.Length > 0)
-        {
-          File.Delete(DatabasePath);
-        }
-      }
-      catch { /* best effort */ }
-#pragma warning restore CA1031
       _services?.Dispose();
       Mock.Dispose();
+      ReleaseDatabaseFile();
     }
   }
 
@@ -223,7 +267,6 @@ internal static class E2E
     await vm.SubmitAsync(input).WaitAsync(TestCeiling.Value).ConfigureAwait(false);
     await vm.WaitForTurnAsync().WaitAsync(TestCeiling.Value).ConfigureAwait(false);
   }
-
 
   /// <summary>A minimal Responses-API request body naming one model — how the mock
   ///     concurrency test addresses the per-model scripts directly.</summary>
@@ -302,7 +345,6 @@ internal static class E2E
     Assert.Fail($"no decoded tool result containing '{marker}' found in {bodies.Count} request bodies");
     return "";
   }
-
 
   /// <summary>Returns the decoded content of the LAST tool result (function_call_output
   ///     input item) in a request body (never raw-substring on escaped bodies).</summary>

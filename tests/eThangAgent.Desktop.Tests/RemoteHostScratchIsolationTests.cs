@@ -1,6 +1,7 @@
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -16,10 +17,12 @@ public class RemoteHostScratchIsolationTests
   [Fact]
   public async Task RemoteSessionOpen_NeverWritesHostSettingsIntoTheWorkspace()
   {
-    using E2E.HostHarness host = new();
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
-    string ws = Directory.CreateTempSubdirectory("ethang-scratch-iso").FullName;
+    string ws = TestTempRoot.CreateDirectory("ethang-scratch-iso").FullName;
     try
     {
       AgentSessionFactory factory = new(

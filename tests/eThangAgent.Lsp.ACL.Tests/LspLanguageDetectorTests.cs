@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
@@ -7,7 +8,7 @@ public class LspLanguageDetectorTests
   [Fact]
   public void Sln_DetectsCSharp()
   {
-    string root = Directory.CreateTempSubdirectory("det").FullName;
+    string root = TestTempRoot.CreateDirectory("det").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "app.sln"), "x");
@@ -20,7 +21,7 @@ public class LspLanguageDetectorTests
   [Fact]
   public void Csproj_DetectsCSharp()
   {
-    string root = Directory.CreateTempSubdirectory("det").FullName;
+    string root = TestTempRoot.CreateDirectory("det").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "app.csproj"), "x");
@@ -32,7 +33,7 @@ public class LspLanguageDetectorTests
   [Fact]
   public void Slnx_DetectsCSharp()
   {
-    string root = Directory.CreateTempSubdirectory("det").FullName;
+    string root = TestTempRoot.CreateDirectory("det").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "app.slnx"), "x");
@@ -44,7 +45,7 @@ public class LspLanguageDetectorTests
   [Fact]
   public void ProjectLess_ReturnsNull()
   {
-    string root = Directory.CreateTempSubdirectory("det").FullName;
+    string root = TestTempRoot.CreateDirectory("det").FullName;
     try
     {
       File.WriteAllText(Path.Combine(root, "notes.md"), "hello");
@@ -56,5 +57,5 @@ public class LspLanguageDetectorTests
 
   [Fact]
   public void MissingRoot_ReturnsNull() =>
-    Assert.Null(LspLanguageDetector.DetectLanguage(Path.Combine(Path.GetTempPath(), "no-such-dir-xyz")));
+    Assert.Null(LspLanguageDetector.DetectLanguage(Path.Combine(TestTempRoot.Root, "no-such-dir-xyz")));
 }

@@ -1,4 +1,5 @@
 using eThangAgent.CapabilityDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -33,7 +34,7 @@ public class ScriptToolsTimeoutTests
   {
     CapturingProvider provider = new();
     CapabilityRegistry registry = CapabilityRegistry.Create([provider]);
-    ScriptGlobals globals = new(registry, ".", Path.GetTempPath(), execBudget: execBudget);
+    ScriptGlobals globals = new(registry, ".", TestTempRoot.Root, execBudget: execBudget);
     return (globals.Tools, provider);
   }
 
@@ -65,7 +66,7 @@ public class ScriptToolsTimeoutTests
   {
     DeclaringProvider declaring = new();
     CapabilityRegistry registry = CapabilityRegistry.Create([declaring]);
-    ScriptGlobals globals = new(registry, ".", Path.GetTempPath(), execBudget: TimeSpan.FromSeconds(45));
+    ScriptGlobals globals = new(registry, ".", TestTempRoot.Root, execBudget: TimeSpan.FromSeconds(45));
 
     string result = globals.Tools.Invoke("declarer", new { x = "y" });
 
@@ -81,7 +82,7 @@ public class ScriptToolsTimeoutTests
   {
     DeclaringProvider declaring = new();
     CapabilityRegistry registry = CapabilityRegistry.Create([declaring]);
-    ScriptGlobals globals = new(registry, ".", Path.GetTempPath(), execBudget: TimeSpan.FromSeconds(45));
+    ScriptGlobals globals = new(registry, ".", TestTempRoot.Root, execBudget: TimeSpan.FromSeconds(45));
 
     string result = globals.Tools.Invoke("declarer", new { x = "y", timeoutSeconds = 90 });
 
@@ -116,7 +117,7 @@ public class ScriptToolsTimeoutTests
   {
     SlowProvider slow = new();
     CapabilityRegistry registry = CapabilityRegistry.Create([slow]);
-    ScriptGlobals globals = new(registry, ".", Path.GetTempPath());
+    ScriptGlobals globals = new(registry, ".", TestTempRoot.Root);
 
     string result = await Task.Run(() => globals.Tools.Invoke("slow", new { timeoutSeconds = 1 })).ConfigureAwait(true);
 
@@ -147,7 +148,7 @@ public class ScriptToolsTimeoutTests
   {
     DelayingProvider selfManaged = new(TimeoutPolicy.SelfManaged);
     ScriptGlobals globals = new(
-        CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
+        CapabilityRegistry.Create([selfManaged]), ".", TestTempRoot.Root);
 
     // The stated nested budget bounds EVERY action: a hung nested call must not hang
     // the script. SelfManaged's remaining meaning is contract-level (the tool
@@ -162,7 +163,7 @@ public class ScriptToolsTimeoutTests
   {
     DelayingProvider selfManaged = new(TimeoutPolicy.SelfManaged);
     ScriptGlobals globals = new(
-        CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
+        CapabilityRegistry.Create([selfManaged]), ".", TestTempRoot.Root);
 
     Exception ex = Assert.Throws<ScriptToolException>(() => globals.Tools.Invoke("waiter", new { }));
     Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
@@ -177,7 +178,7 @@ public class ScriptToolsTimeoutTests
     // production): a nested call that omits timeoutSeconds is still bounded by it.
     DelayingProvider selfManaged = new(TimeoutPolicy.SelfManaged);
     ScriptGlobals globals = new(
-        CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath(),
+        CapabilityRegistry.Create([selfManaged]), ".", TestTempRoot.Root,
         execBudget: TimeSpan.FromSeconds(1));
 
     string result = await Task.Run(() => globals.Tools.Invoke("waiter", new { })).ConfigureAwait(true);

@@ -5,6 +5,7 @@ using eThangAgent.ChildHost;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 using Ag = eThangAgent.AgentDomain.Agent;
@@ -96,8 +97,6 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     the ROOT container's forwarder is subscribed at all.</summary>
   public long ForwardedEventCount => Server.ForwardedEventCount;
 
-
-
   /// <summary>Builds a host whose provider streams <paramref name="deltas"/> and then
   ///     completes with <paramref name="answer"/>. <paramref name="betweenDeltas"/> runs
   ///     between the first and second delta, so a test can observe what the caller had
@@ -163,10 +162,10 @@ internal sealed class ScriptedRootHost : IDisposable
     // The REAL server, over a throwaway settings file and database: the tests that drive
     // envelopes need the production dispatch path, and the runner is attached through the
     // server's own seam so no provider stack is built.
-    string settings = Path.Combine(Path.GetTempPath(), "ethang-scripted-" + Guid.NewGuid().ToString("N") + ".json");
+    string settings = Path.Combine(TestTempRoot.Root, "ethang-scripted-" + Guid.NewGuid().ToString("N") + ".json");
     File.WriteAllText(settings, /*lang=json,strict*/ "{\"OpenRouter\":{\"ApiKey\":null},\"SubAgents\":{}}");
     ChildHostServer server = new(settings,
-        Path.Combine(Path.GetTempPath(), "ethang-scripted-" + Guid.NewGuid().ToString("N") + ".db"));
+        Path.Combine(TestTempRoot.Root, "ethang-scripted-" + Guid.NewGuid().ToString("N") + ".db"));
     server.AttachRootRun(runner);
     return new ScriptedRootHost(services, runner, carrier, provider, server);
   }

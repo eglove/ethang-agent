@@ -1,5 +1,6 @@
 using eThangAgent.Composition;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -14,7 +15,7 @@ public class DesktopHostWatchdogOptionsTests
   [Fact]
   public async Task PrepareAsync_ShipsWatchdogOptionsFromStoredSettings()
   {
-    string dbPath = Path.Combine(Path.GetTempPath(),
+    string dbPath = Path.Combine(TestTempRoot.Root,
         "ethang-watchdog-opts-" + Guid.NewGuid().ToString("N") + ".db");
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
     try

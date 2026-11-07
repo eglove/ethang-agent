@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
@@ -211,7 +212,7 @@ public sealed class OutputCeilingTests
   }
 
   private static ScriptGlobals GlobalsWith(long truncateBytes, long killBytes, CancellationToken ct) =>
-      new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
+      new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root,
           ceilings: new ScriptCeilings(256, truncateBytes, killBytes),
           shellToken: ct);
 

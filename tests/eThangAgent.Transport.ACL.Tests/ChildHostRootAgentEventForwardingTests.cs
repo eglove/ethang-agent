@@ -156,7 +156,7 @@ public class ChildHostRootChildEventForwardingTests
 
     public static async Task<HostRig> StartAsync()
     {
-      string directory = Directory.CreateTempSubdirectory("ethang-281-").FullName;
+      string directory = TestTempRoot.CreateDirectory("ethang-281-").FullName;
       Guid rootId = Guid.NewGuid();
       string settings = Path.Combine(directory, "settings.json");
       // The host builds a REAL container, so the provider needs a key to resolve. The

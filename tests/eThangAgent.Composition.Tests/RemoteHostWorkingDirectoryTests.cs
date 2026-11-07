@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -17,7 +18,7 @@ public class RemoteHostWorkingDirectoryTests
   [Fact]
   public void StartInfo_WorkingDirectory_IsTheHostScratchFolder()
   {
-    string scratch = Directory.CreateTempSubdirectory("ethang-host-wd").FullName;
+    string scratch = TestTempRoot.CreateDirectory("ethang-host-wd").FullName;
     try
     {
       ProcessStartInfo psi = RemoteHostSupervisor.BuildStartInfo(
@@ -36,7 +37,7 @@ public class RemoteHostWorkingDirectoryTests
   {
     // A folder that no longer exists must NOT fail the spawn: the working directory
     // is a convenience, not a requirement.
-    string missing = Path.Combine(Path.GetTempPath(), "ethang-host-wd-missing-" + Guid.NewGuid().ToString("N"));
+    string missing = Path.Combine(TestTempRoot.Root, "ethang-host-wd-missing-" + Guid.NewGuid().ToString("N"));
 
     ProcessStartInfo psi = RemoteHostSupervisor.BuildStartInfo(
         "host.exe", "pipe", "settings.json", "app.db", missing);

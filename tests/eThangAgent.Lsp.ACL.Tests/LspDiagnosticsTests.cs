@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 
 // JSON002 fires only in the format/IDE host; the pragma pair is the repo's named pattern.
 #pragma warning disable JSON002 // Probable JSON string detected
@@ -14,7 +15,7 @@ namespace eThangAgent.Lsp.ACL.Tests;
 // pull (textDocument/diagnostic + previous-result-id) is secondary.
 public class LspDiagnosticsTests
 {
-  private static string NewTree() => Directory.CreateTempSubdirectory("lspdiag").FullName;
+  private static string NewTree() => TestTempRoot.CreateDirectory("lspdiag").FullName;
 
   private static void Write(string root, string relative, string content)
   {

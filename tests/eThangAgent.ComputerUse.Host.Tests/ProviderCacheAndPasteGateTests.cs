@@ -1,5 +1,6 @@
 using System.Text.Json;
 using eThangAgent.ComputerUse.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.Host.Tests;
@@ -15,7 +16,7 @@ public class BrokerComputerAccessProviderTests
   {
     BrokerRegistry registry = new(() => "host-exe-does-not-matter", root => "pipe-" + root);
     BrokerComputerAccessProvider provider = new(registry);
-    string root = Path.Combine(Path.GetTempPath(), "ethang-f4-" + Guid.NewGuid().ToString("N"));
+    string root = Path.Combine(TestTempRoot.Root, "ethang-f4-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(root);
     try
     {
@@ -34,8 +35,8 @@ public class BrokerComputerAccessProviderTests
   {
     BrokerRegistry registry = new(() => "host-exe-does-not-matter", root => "pipe-" + root);
     BrokerComputerAccessProvider provider = new(registry);
-    string rootA = Path.Combine(Path.GetTempPath(), "ethang-f4a-" + Guid.NewGuid().ToString("N"));
-    string rootB = Path.Combine(Path.GetTempPath(), "ethang-f4b-" + Guid.NewGuid().ToString("N"));
+    string rootA = Path.Combine(TestTempRoot.Root, "ethang-f4a-" + Guid.NewGuid().ToString("N"));
+    string rootB = Path.Combine(TestTempRoot.Root, "ethang-f4b-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(rootA);
     _ = Directory.CreateDirectory(rootB);
     try
