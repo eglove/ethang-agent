@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.TestSupport;
@@ -290,7 +289,6 @@ public class DiagnosticsEndToEndE2ETests
       await File.WriteAllTextAsync(Path.Combine(ws, "a.cs"), "class A\n{\n  int x = 1;\n}\n", Ct).ConfigureAwait(true);
       await File.WriteAllTextAsync(Path.Combine(ws, "a.csproj"),
           "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n", Ct).ConfigureAwait(true);
-      int before = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
 
 #pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
       await using E2E.HostHarness host = new();
@@ -302,8 +300,11 @@ public class DiagnosticsEndToEndE2ETests
           E2E.RawCompletion("edited"));
       await host.Vm.RunTurnAsync("edit the file").WaitAsync(TestCeiling.Value, Ct).ConfigureAwait(true);
 
-      int after = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
-      Assert.True(after > before, "the edit did not start the workspace's language-server daemon");
+      // ATTRIBUTED BY WORKSPACE, never by a global process count: a daemon another test
+      // module started for a workspace of its own is not this workspace's daemon, and counting
+      // every process by image name made this assertion depend on what else the machine ran.
+      // Joining with a start delegate that refuses proves a listener already existed.
+      await AssertDaemonListeningAsync(wsId, ws).ConfigureAwait(true);
     }
     finally
     {
@@ -319,7 +320,6 @@ public class DiagnosticsEndToEndE2ETests
     try
     {
       await File.WriteAllTextAsync(Path.Combine(ws, "notes.md"), "# notes\n\nold line\n", Ct).ConfigureAwait(true);
-      int daemonsBefore = Process.GetProcessesByName("eThangAgent.Lsp.Host").Length;
 
 #pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
       await using E2E.HostHarness host = new();
@@ -333,11 +333,56 @@ public class DiagnosticsEndToEndE2ETests
 
       string toolResult = E2E.GetLastToolMessage(host.Mock.RequestBodies[^1]);
       Assert.DoesNotContain("[diagnostics]", toolResult, StringComparison.Ordinal);
-      Assert.Equal(daemonsBefore, Process.GetProcessesByName("eThangAgent.Lsp.Host").Length);
+      // No daemon is listening for THIS workspace: a start delegate that refuses is never
+      // reached, so a null answer means nothing was there to join.
+      await AssertNoDaemonListeningAsync(wsId, ws).ConfigureAwait(true);
     }
     finally
     {
       DeleteWorkspace(ws);
+    }
+  }
+
+  /// <summary>Asserts a daemon is already listening for the workspace by JOINING it. The
+  ///     start delegate refuses, so a connection can only come from a daemon that was already
+  ///     running - which is what an edit starting one has to leave behind.</summary>
+  private static async Task AssertDaemonListeningAsync(string workspaceId, string workspaceRoot)
+  {
+    LspDaemonConnection? joined = await LspDaemonConnection.ConnectAsync(
+        workspaceId, workspaceRoot, "e2e-probe",
+        () => throw new InvalidOperationException("no daemon was started for this workspace"),
+        Ct).ConfigureAwait(true);
+    try
+    {
+      Assert.NotNull(joined);
+    }
+    finally
+    {
+      if (joined is not null)
+      {
+        await joined.DisposeAsync().ConfigureAwait(true);
+      }
+    }
+  }
+
+  /// <summary>Asserts NO daemon is listening for the workspace: the same join, with the same
+  ///     refusing start delegate, has nothing to reach.</summary>
+  private static async Task AssertNoDaemonListeningAsync(string workspaceId, string workspaceRoot)
+  {
+    LspDaemonConnection? joined = await LspDaemonConnection.ConnectAsync(
+        workspaceId, workspaceRoot, "e2e-probe",
+        () => throw new InvalidOperationException("no daemon was started for this workspace"),
+        Ct).ConfigureAwait(true);
+    try
+    {
+      Assert.Null(joined);
+    }
+    finally
+    {
+      if (joined is not null)
+      {
+        await joined.DisposeAsync().ConfigureAwait(true);
+      }
     }
   }
 

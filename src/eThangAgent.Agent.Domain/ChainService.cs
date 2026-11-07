@@ -199,38 +199,56 @@ public sealed class ChainService(IChainStore store)
         (before, after) => StatusChanged?.Invoke(new ChainStatusChanged(
             id, before.Status, target, actor, after.ParkReason, now)), ct);
 
+  /// <summary>How many times a mutation re-reads and re-applies after losing the CAS race.
+  ///     A group's members settle concurrently, so a lost race is ordinary; a store that keeps
+  ///     conflicting is not, and the last attempt's conflict is returned as the answer.</summary>
+  private const int SaveAttempts = 5;
+
   /// <summary>Loads, applies the mutation, and CAS-saves at the version it loaded. A version
-  ///     drift between the load and the save surfaces as VersionConflict with the current
-  ///     version named, so the caller can re-read and retry.</summary>
+  ///     drift between the load and the save is RE-READ AND RE-APPLIED up to
+  ///     <see cref="SaveAttempts"/> times: the mutation is a function of the chain, so applying
+  ///     it to the version that won the race is the same intent expressed against current state.
+  ///     Reporting the conflict instead would discard the caller's write - a completion that
+  ///     never lands leaves its step Running while the chain waits for it.</summary>
   private async Task<Result<Chain>> MutateAsync(int id, Func<Chain, Chain> mutate, DateTimeOffset now,
       Action<Chain, Chain> onSaved, CancellationToken ct)
   {
     ArgumentNullException.ThrowIfNull(mutate);
-    Result<Chain> loaded = await _store.GetAsync(id, ct).ConfigureAwait(false);
-    if (!loaded.IsSuccess)
+    Result<Chain> saved = Result.Failure<Chain>(new DomainError("VersionConflict",
+        $"chain #{id} was never loaded"));
+    for (int attempt = 0; attempt < SaveAttempts; attempt++)
     {
-      return loaded;
+      Result<Chain> loaded = await _store.GetAsync(id, ct).ConfigureAwait(false);
+      if (!loaded.IsSuccess)
+      {
+        return loaded;
+      }
+
+      Chain mutated;
+      try
+      {
+        mutated = mutate(loaded.Value);
+      }
+      catch (ChainInputException ex)
+      {
+        return Result.Failure<Chain>(new DomainError("InvalidTransition", ex.Message));
+      }
+
+      saved = await _store
+          .SaveAsync(mutated with { UpdatedAt = now }, loaded.Value.Version, ct)
+          .ConfigureAwait(false);
+      if (saved.IsSuccess)
+      {
+        onSaved(loaded.Value, saved.Value);
+        return saved;
+      }
+
+      if (!string.Equals(saved.Error.Code, "VersionConflict", StringComparison.Ordinal))
+      {
+        return saved;
+      }
     }
 
-    Chain mutated;
-    try
-    {
-      mutated = mutate(loaded.Value);
-    }
-    catch (ChainInputException ex)
-    {
-      return Result.Failure<Chain>(new DomainError("InvalidTransition", ex.Message));
-    }
-
-    Result<Chain> saved = await _store
-        .SaveAsync(mutated with { UpdatedAt = now }, loaded.Value.Version, ct)
-        .ConfigureAwait(false);
-    if (!saved.IsSuccess)
-    {
-      return saved;
-    }
-
-    onSaved(loaded.Value, saved.Value);
     return saved;
   }
 

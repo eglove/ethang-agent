@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace eThangAgent.Agent.Application.Tests;
@@ -52,6 +53,18 @@ public sealed partial class DoctrineTests
 
   [GeneratedRegex(@"Path\.GetTempPath\(\)|Directory\.CreateTempSubdirectory\(")]
   private static partial Regex AmbientTempPattern();
+
+  [GeneratedRegex("<Project\\s+Path=\"([^\"]+)\"", RegexOptions.CultureInvariant)]
+  private static partial Regex SolutionProjectPattern();
+
+  /// <summary>The projects a solution filter keeps, as the filter file spells them.</summary>
+  private static string[] FilterProjects(string filterPath)
+  {
+    using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Path.Combine(RepoRoot(), filterPath)));
+    return [.. document.RootElement.GetProperty("solution").GetProperty("projects")
+        .EnumerateArray()
+        .Select(project => project.GetString()!.Replace('\\', '/'))];
+  }
 
   /// <summary>R5.1: no NEW polling. Wait idioms are event-driven (WhenSettledAsync,
   ///     push delivery); timed waits appear only in the named allowlist — the
@@ -249,6 +262,41 @@ public sealed partial class DoctrineTests
     Assert.True(violations.Count == 0,
         "tests reading the ambient temp directory instead of the run root (use TestTempRoot.Root "
         + "for a path and TestTempRoot.CreateDirectory for a directory): " + string.Join(", ", violations));
+  }
+
+  /// <summary>Issue #370: the suite runs as three commands - the batch filter plus the two heavyweight
+  ///     projects on their own - so a test project that joins the solution must join exactly one of
+  ///     them. A project in none of the three is a project whose tests never run, and a project in two
+  ///     is a project that runs twice.</summary>
+  [Fact]
+  public void TestProjects_AreEachRunByExactlyOneOfTheDocumentedCommands()
+  {
+    string[] heavyweight =
+    [
+      "tests/eThangAgent.Composition.Tests/eThangAgent.Composition.Tests.csproj",
+      "tests/eThangAgent.Storage.ACL.Tests/eThangAgent.Storage.ACL.Tests.csproj",
+    ];
+
+    string[] inSolution = [.. SolutionProjectPattern()
+        .Matches(File.ReadAllText(Path.Combine(RepoRoot(), "eThangAgent.slnx")))
+        .Select(match => match.Groups[1].Value.Replace('\\', '/'))
+        .Where(path => path.StartsWith("tests/", StringComparison.Ordinal)
+            && path.EndsWith(".Tests.csproj", StringComparison.Ordinal))];
+    string[] inBatch = FilterProjects("eThangAgent.Batch.slnf");
+
+    List<string> violations = [];
+    foreach (string project in inSolution)
+    {
+      int commands = (inBatch.Contains(project) ? 1 : 0) + (heavyweight.Contains(project) ? 1 : 0);
+      if (commands != 1)
+      {
+        violations.Add(project + " (" + (commands == 0 ? "no command runs it" : "run by more than one command") + ")");
+      }
+    }
+
+    Assert.True(violations.Count == 0,
+        "test projects not covered by exactly one documented command (add it to eThangAgent.Batch.slnf, "
+        + "or to the heavyweight list in this test and the README): " + string.Join(", ", violations));
   }
 
   /// <summary>Issue #366: every test assembly takes its ceiling from Tests.Shared. A project that

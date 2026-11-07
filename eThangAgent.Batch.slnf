@@ -1,0 +1,31 @@
+{
+  "solution": {
+    "path": "eThangAgent.slnx",
+    "projects": [
+      "tests/eThangAgent.Agent.Application.Tests/eThangAgent.Agent.Application.Tests.csproj",
+      "tests/eThangAgent.Agent.Domain.Tests/eThangAgent.Agent.Domain.Tests.csproj",
+      "tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj",
+      "tests/eThangAgent.Capability.Domain.Tests/eThangAgent.Capability.Domain.Tests.csproj",
+      "tests/eThangAgent.ComputerUse.ACL.Tests/eThangAgent.ComputerUse.ACL.Tests.csproj",
+      "tests/eThangAgent.ComputerUse.Host.Tests/eThangAgent.ComputerUse.Host.Tests.csproj",
+      "tests/eThangAgent.Conversation.Domain.Tests/eThangAgent.Conversation.Domain.Tests.csproj",
+      "tests/eThangAgent.Desktop.Tests/eThangAgent.Desktop.Tests.csproj",
+      "tests/eThangAgent.Documents.ACL.Tests/eThangAgent.Documents.ACL.Tests.csproj",
+      "tests/eThangAgent.FileSystem.ACL.Tests/eThangAgent.FileSystem.ACL.Tests.csproj",
+      "tests/eThangAgent.Lsp.ACL.Tests/eThangAgent.Lsp.ACL.Tests.csproj",
+      "tests/eThangAgent.Mcp.ACL.Tests/eThangAgent.Mcp.ACL.Tests.csproj",
+      "tests/eThangAgent.Model.Domain.Tests/eThangAgent.Model.Domain.Tests.csproj",
+      "tests/eThangAgent.OpenRouter.ACL.Tests/eThangAgent.OpenRouter.ACL.Tests.csproj",
+      "tests/eThangAgent.PDF.ACL.Tests/eThangAgent.PDF.ACL.Tests.csproj",
+      "tests/eThangAgent.Plan.Domain.Tests/eThangAgent.Plan.Domain.Tests.csproj",
+      "tests/eThangAgent.Provider.Wire.Tests/eThangAgent.Provider.Wire.Tests.csproj",
+      "tests/eThangAgent.Roslyn.ACL.Tests/eThangAgent.Roslyn.ACL.Tests.csproj",
+      "tests/eThangAgent.SharedKernel.Tests/eThangAgent.SharedKernel.Tests.csproj",
+      "tests/eThangAgent.Skill.Domain.Tests/eThangAgent.Skill.Domain.Tests.csproj",
+      "tests/eThangAgent.State.Domain.Tests/eThangAgent.State.Domain.Tests.csproj",
+      "tests/eThangAgent.Tool.Domain.Tests/eThangAgent.Tool.Domain.Tests.csproj",
+      "tests/eThangAgent.Transport.ACL.Tests/eThangAgent.Transport.ACL.Tests.csproj",
+      "tests/eThangAgent.Web.ACL.Tests/eThangAgent.Web.ACL.Tests.csproj"
+    ]
+  }
+}

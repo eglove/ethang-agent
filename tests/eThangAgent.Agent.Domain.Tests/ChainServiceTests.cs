@@ -17,6 +17,10 @@ public class ChainServiceTests
 
     public List<int> SavedAtVersion { get; } = [];
 
+    /// <summary>How many of the next saves are refused with VersionConflict, as if another
+    ///     writer committed between this caller's load and its save.</summary>
+    public int ConflictNextSave { get; set; }
+
     public Task<Result<Chain>> CreateAsync(Chain draft, CancellationToken ct = default)
     {
       Chain saved = draft with { Id = _next++, Version = 1 };
@@ -40,6 +44,14 @@ public class ChainServiceTests
       {
         return Task.FromResult(Result.Failure<Chain>(
             new DomainError("ChainNotFound", $"no chain #{chain.Id}")));
+      }
+
+      if (ConflictNextSave > 0)
+      {
+        ConflictNextSave--;
+        _chains[chain.Id] = current with { Version = current.Version + 1 };
+        return Task.FromResult(Result.Failure<Chain>(new DomainError("VersionConflict",
+            $"chain #{chain.Id} is at v{current.Version + 1}; expectedVersion was {expectedVersion}")));
       }
 
       if (current.Version != expectedVersion)
@@ -160,6 +172,41 @@ public class ChainServiceTests
         "not needed", T0, TestContext.Current.CancellationToken);
 
     Assert.Equal(["failed", "skipped"], changed.Select(c => c.Kind));
+  }
+
+  /// <summary>Issue #370: a settle that loses the CAS race must RETRY against the version it
+  ///     now sees, not report a conflict and drop the completion. Group members complete
+  ///     concurrently, so a lost race used to leave the step Running forever while the chain
+  ///     waited for a completion that had already been discarded.</summary>
+  [Fact]
+  public async Task SettleStepAsync_LosingTheCasRace_RetriesAndLandsTheCompletion()
+  {
+    (ChainService service, FakeStore store) = New();
+    Chain chain = Must(await CreateChainAsync(service, 1, 2));
+    store.ConflictNextSave = 1;
+
+    Result<Chain> settled = await service.SettleStepAsync(chain.Id, 1, ChainStepStatus.Done,
+        ChainActor.Session("session-a"), null, T0, TestContext.Current.CancellationToken);
+
+    Assert.True(settled.IsSuccess, settled.Error?.Message ?? "a lost race must be retried");
+    Assert.Equal(ChainStepStatus.Done, settled.Value.Steps.Single(step => step.Position == 1).Status);
+    Assert.Equal(2, store.SavedAtVersion.Count);
+  }
+
+  /// <summary>The retry is BOUNDED: a store that never stops conflicting is a real failure and
+  ///     must be reported rather than retried forever.</summary>
+  [Fact]
+  public async Task SettleStepAsync_WhenEveryAttemptConflicts_ReportsTheConflict()
+  {
+    (ChainService service, FakeStore store) = New();
+    Chain chain = Must(await CreateChainAsync(service, 1));
+    store.ConflictNextSave = 1000;
+
+    Result<Chain> settled = await service.SettleStepAsync(chain.Id, 1, ChainStepStatus.Done,
+        ChainActor.Session("session-a"), null, T0, TestContext.Current.CancellationToken);
+
+    Assert.False(settled.IsSuccess);
+    Assert.Equal("VersionConflict", settled.Error.Code);
   }
 
   [Fact]

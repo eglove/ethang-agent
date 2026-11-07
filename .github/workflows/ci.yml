@@ -18,17 +18,176 @@ permissions:
   contents: read
 
 jobs:
-  build-test-coverage:
-    name: Build & Test (coverage)
+  # The suite runs as three jobs so the two heavyweight projects stop competing with the
+  # other 24 modules for the runner's cores. Measured on a 24-core machine: the whole suite
+  # in one process costs 2m 34s, and the same suite split this way costs 2m 13s while
+  # removing the contention that made Composition's tests flake under load.
+  #
+  # Coverage is collected per job and merged afterwards; a single job cannot wrap three
+  # invocations in one dotnet-coverage collect.
+  build-test-batch:
+    name: Build & Test (batch)
     runs-on: windows-latest
-    timeout-minutes: 60  # outer bound: no step may hold the runner hostage past this (30 was exceeded by the keep-alive Desktop suite under coverage instrumentation — no hangdump fired, the testhost was progressing)
+    timeout-minutes: 60  # outer bound: no step may hold the runner hostage past this (30 was exceeded by the keep-alive Desktop suite under coverage instrumentation - no hangdump fired, the testhost was progressing)
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install dotnet-coverage
+        run: dotnet tool update --global dotnet-coverage
+
+      - name: Build
+        run: dotnet build eThangAgent.slnx -c Release --nologo
+
+      # The loaded shape: eThangAgent.Batch.slnf is every test project except the two
+      # heavyweight ones, which run in their own jobs below. The --hangdump switches ride
+      # after the argument separator and work under dotnet-coverage wrapping.
+      - name: Test (batch)
+        shell: powershell
+        run: |
+          dotnet-coverage collect "dotnet test --solution eThangAgent.Batch.slnf -c Release --no-build --max-parallel-test-modules 8 -- --hangdump --hangdump-timeout 5m --hangdump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\batch.coveragexml"
+          exit $LASTEXITCODE
+
+      - name: Upload coverage
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-batch
+          path: ./coverage-vs/batch.coveragexml
+          if-no-files-found: error
+
+      # Autopsy material: when the MTP HangDump circuit breaker fires it writes a
+      # minidump plus the hung-test log here. CI-only testhost lingering (all tests pass,
+      # host refuses to exit) has no local repro - these files are the evidence.
+      - name: Upload test diagnostics
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-diagnostics-batch
+          path: |
+            ./TestResults/**/*.dmp
+            ./TestResults/**/*.log
+          if-no-files-found: ignore
+
+  build-test-composition:
+    name: Build & Test (Composition)
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install dotnet-coverage
+        run: dotnet tool update --global dotnet-coverage
+
+      - name: Build
+        run: dotnet build eThangAgent.slnx -c Release --nologo
+
+      - name: Test (Composition)
+        shell: powershell
+        run: |
+          dotnet-coverage collect "dotnet test --project tests/eThangAgent.Composition.Tests -c Release --no-build -- --hangdump --hangdump-timeout 5m --hangdump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\composition.coveragexml"
+          exit $LASTEXITCODE
+
+      - name: Upload coverage
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-composition
+          path: ./coverage-vs/composition.coveragexml
+          if-no-files-found: error
+
+      - name: Upload test diagnostics
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-diagnostics-composition
+          path: |
+            ./TestResults/**/*.dmp
+            ./TestResults/**/*.log
+          if-no-files-found: ignore
+
+  build-test-storage:
+    name: Build & Test (Storage)
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install dotnet-coverage
+        run: dotnet tool update --global dotnet-coverage
+
+      - name: Build
+        run: dotnet build eThangAgent.slnx -c Release --nologo
+
+      - name: Test (Storage)
+        shell: powershell
+        run: |
+          dotnet-coverage collect "dotnet test --project tests/eThangAgent.Storage.ACL.Tests -c Release --no-build -- --hangdump --hangdump-timeout 5m --hangdump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\storage.coveragexml"
+          exit $LASTEXITCODE
+
+      - name: Upload coverage
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-storage
+          path: ./coverage-vs/storage.coveragexml
+          if-no-files-found: error
+
+      - name: Upload test diagnostics
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-diagnostics-storage
+          path: |
+            ./TestResults/**/*.dmp
+            ./TestResults/**/*.log
+          if-no-files-found: ignore
+
+  # SonarQube Cloud analysis runs once, over the merged coverage of all three test jobs.
+  # The merge is what keeps coverage whole: each job's report holds only its own modules,
+  # and importing one of them alone collapsed master coverage from 88% to 11.5%.
+  analysis:
+    name: Analysis (SonarQube Cloud)
+    needs: [build-test-batch, build-test-composition, build-test-storage]
+    if: success() || failure()
+    runs-on: windows-latest
+    timeout-minutes: 60
 
     steps:
       - name: Set up JDK 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
         with:
           java-version: 17
-          distribution: 'zulu' # Alternative distribution options are available.
+          distribution: 'zulu'
 
       - name: Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -63,17 +222,29 @@ jobs:
           New-Item -Path ${{ runner.temp }}\scanner -ItemType Directory
           dotnet tool update dotnet-sonarscanner --tool-path ${{ runner.temp }}\scanner
 
-      # Always run (not cache-gated): coverage collection depends on it.
-      # 'update' installs when missing, so this is idempotent.
       - name: Install dotnet-coverage
         run: dotnet tool update --global dotnet-coverage
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: ${{ github.workspace }}\coverage-parts
+          merge-multiple: true
+
+      - name: Merge coverage
+        shell: powershell
+        run: |
+          New-Item -Path "${{ github.workspace }}\coverage-vs" -ItemType Directory -Force
+          dotnet-coverage merge "${{ github.workspace }}\coverage-parts\*.coveragexml" -f xml -o "${{ github.workspace }}\coverage-vs\merged.coveragexml"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         shell: powershell
         run: |
-          # Coverage imports VS-XML produced by dotnet-coverage below.
+          # Coverage imports the VS-XML merged above.
           # NOTE: SonarSource C# properties end in 'reporTSPaths' (plural) - the
           # previously used 'cs.cobertura.reportPaths' (singular) was silently
           # ignored, yielding green analyses with 0% coverage every run.
@@ -82,22 +253,9 @@ jobs:
           ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"eglove_ethang-agent" /o:"eglove" /d:sonar.cs.vscoveragexml.reportsPaths="${{ github.workspace }}/coverage-vs/merged.coveragexml"
           dotnet build eThangAgent.slnx -c Release --nologo
           $buildExit = $LASTEXITCODE
-          # Circuit breaker: a hung test produces a dump + log under TestResults/
-          # instead of freezing the runner until the next push cancels it (runs
-          # 32923889217, 32918551633) - the MTP --hangdump switches ride after the
-          # argument separator and work under wrapping. Coverage collection wraps
-          # the WHOLE dotnet test invocation: a solution run fans out to one test
-          # executable per test project (18), and the per-process MTP --coverage
-          # switch makes every project write the same output file - last writer
-          # wins, so Sonar imported a single project's modules and master coverage
-          # collapsed 88% -> 11.5% (analyses of 2026-08-29). Wrapping merges all
-          # modules into the one VS-XML report Sonar imports.
-          dotnet-coverage collect "dotnet test --solution eThangAgent.slnx -c Release --no-build -- --hangdump --hangdump-timeout 5m --hangdump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\merged.coveragexml"
-          $testExit = $LASTEXITCODE
           ${{ runner.temp }}\scanner\dotnet-sonarscanner end
           $endExit = $LASTEXITCODE
           if ($buildExit -ne 0) { exit $buildExit }
-          if ($testExit -ne 0) { exit $testExit }
           exit $endExit
 
       - name: Upload coverage reports
@@ -107,17 +265,3 @@ jobs:
           name: coverage-reports
           path: ./coverage-vs/merged.coveragexml
           if-no-files-found: error
-
-      # Autopsy material: when the MTP HangDump circuit breaker fires it writes a
-      # minidump plus the hung-test log here. CI-only testhost lingering (all tests pass,
-      # host refuses to exit) has no local repro - these files are the evidence.
-      - name: Upload test diagnostics
-        if: success() || failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: test-diagnostics
-          path: |
-            ./TestResults/**/*.dmp
-            ./TestResults/**/*.log
-          if-no-files-found: ignore
-
