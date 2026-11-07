@@ -167,6 +167,85 @@ public class ChainAdvanceReviewTests
     Assert.Contains("[cites: R2]", target.Outcome, StringComparison.Ordinal);
   }
 
+  /// <summary>A chain of implement(1), implement(2) in group 1, reconciler(3), review(4),
+  ///     with the two members and the reconciler already Done and the reviewer holding step 4.</summary>
+  private static async Task<(ChainAdvanceService Service, FakeStore Store, FakeHost Host,
+      FakeReviews Reviews, Chain Chain)> NewGroupReviewChainAsync()
+  {
+    FakeStore store = new();
+    FakeHost host = new();
+    FakeReviews reviews = new();
+    ChainService chains = new(store);
+    Chain chain = Must(await chains.CreateAsync(
+        new ChainCreation("C:\\ws", 3, 1, "t", "session-root",
+            [
+              new ChainStepSeed(1, ChainStepRole.Implement, Group: 1),
+              new ChainStepSeed(2, ChainStepRole.Implement, Group: 1),
+              ChainStepSeed.Implementing(3),
+              new ChainStepSeed(4, ChainStepRole.Review("vendor/reviewer")),
+            ]), T0, TestContext.Current.CancellationToken).ConfigureAwait(true));
+    foreach ((int position, string session) in new[] { (1, "session-a"), (2, "session-b"),
+        (3, "session-c") })
+    {
+      _ = Must(await chains.ClaimStepAsync(chain.Id, position, session, T0,
+          TestContext.Current.CancellationToken).ConfigureAwait(true));
+      _ = Must(await chains.SettleStepAsync(chain.Id, position, ChainStepStatus.Done,
+          ChainActor.Session(session), null, T0,
+          TestContext.Current.CancellationToken).ConfigureAwait(true));
+    }
+
+    _ = Must(await chains.ClaimStepAsync(chain.Id, 4, "session-reviewer", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    ChainAdvanceService service = new(chains, host, reviews: reviews);
+    return (service, store, host, reviews, chain);
+  }
+
+  [Fact]
+  public async Task Advance_OnDenyAfterAGroup_ReopensTheMemberTheFindingCites()
+  {
+    // D11: the review judges the MERGED result, so the nearest preceding Done step is the
+    // RECONCILER. A finding about a member's work must reopen that member - sending the
+    // reconciler back would re-merge branches nobody changed.
+    (ChainAdvanceService service, FakeStore store, FakeHost host, FakeReviews reviews, Chain chain)
+        = await NewGroupReviewChainAsync().ConfigureAwait(true);
+    reviews.BySession["session-reviewer"] = Deny(Finding("1"));
+
+    ChainAdvance decision = Must(await service.OnCompletionAsync("session-reviewer", planId: 3, T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Assert.Equal(ChainAdvanceKind.StartStep, decision.Kind);
+    Assert.Equal(1, decision.Position);
+    Assert.Equal(1, Assert.Single(host.Started).Position);
+    Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true));
+    Assert.Equal(ChainStepStatus.Running, stored.StepAt(1)!.Status);
+    Assert.Equal(1, stored.StepAt(1)!.ReviewAttempts);
+    // THE RECONCILER IS NOT REOPENED: its merge stands, only the member goes back.
+    Assert.Equal(ChainStepStatus.Done, stored.StepAt(3)!.Status);
+    Assert.Equal(0, stored.StepAt(3)!.ReviewAttempts);
+  }
+
+  [Fact]
+  public async Task Advance_OnDenyAfterAGroupCitingTheMerge_ReopensTheReconciler()
+  {
+    // A finding about the merge itself is the reconciler's work, so the sequential rule stands.
+    (ChainAdvanceService service, FakeStore store, FakeHost host, FakeReviews reviews, Chain chain)
+        = await NewGroupReviewChainAsync().ConfigureAwait(true);
+    reviews.BySession["session-reviewer"] = Deny(Finding("3"));
+
+    ChainAdvance decision = Must(await service.OnCompletionAsync("session-reviewer", planId: 3, T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Assert.Equal(3, decision.Position);
+    Assert.Equal(3, Assert.Single(host.Started).Position);
+    Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true));
+    // Reopened and claimed by the fix session, which is the SendBack order.
+    Assert.Equal(ChainStepStatus.Running, stored.StepAt(3)!.Status);
+    Assert.Equal(1, stored.StepAt(3)!.ReviewAttempts);
+    Assert.Equal(ChainStepStatus.Done, stored.StepAt(1)!.Status);
+  }
+
   [Fact]
   public async Task Advance_OnApprove_AdvancesPastTheReviewStep()
   {

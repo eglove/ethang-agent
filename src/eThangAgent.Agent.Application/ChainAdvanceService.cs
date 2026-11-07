@@ -264,8 +264,11 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       string sessionId, ChainReviewRecord? review, DateTimeOffset now, CancellationToken ct)
   {
     ChainStep? target = chain.FixTargetFor(position);
+    IReadOnlyList<int>? members = GroupMembersJudgedBy(chain, target);
+    int? cited = ChainReviewPolicy.CitedMember(review, members);
     ChainReviewDecision decision = ChainReviewPolicy.Decide(review, target?.Position,
-        target?.ReviewAttempts ?? 0);
+        (cited is { } citedPosition ? chain.StepAt(citedPosition) : target)?.ReviewAttempts ?? 0,
+        members);
     return decision.Kind switch
     {
       ChainReviewDecisionKind.SendBack =>
@@ -279,6 +282,19 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       _ => Result.Failure<ChainAdvance>(UnknownDecision(decision)),
     };
   }
+
+  /// <summary>The positions of the group members a review at this step judges, or null when
+  ///     the step it judges is not a group's reconciler (D11).
+  ///     <para>A REVIEW AFTER A GROUP JUDGES THE MERGED RESULT, so the step it judges is the
+  ///     RECONCILER and the work behind it belongs to the group whose last member sits
+  ///     immediately before that reconciler - the position chain creation requires a reconciler
+  ///     to occupy.</para></summary>
+  /// <param name="chain">The chain the review settled on.</param>
+  /// <param name="target">The nearest preceding Done step, or null when there is none.</param>
+  private static IReadOnlyList<int>? GroupMembersJudgedBy(Chain chain, ChainStep? target)
+    => target is { } reconciler && chain.GroupAt(reconciler.Position - 1) is { } group
+        ? [.. chain.GroupMembers(group).Select(step => step.Position)]
+        : null;
 
   /// <summary>A refused review reported as a refusal the model can act on, never thrown:
   ///     the reviewer reads it and corrects itself (the <see cref="ChainAdvance"/> contract).

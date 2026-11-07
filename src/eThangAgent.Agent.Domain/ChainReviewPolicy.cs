@@ -56,34 +56,69 @@ public static class ChainReviewPolicy
   ///     into the next session's brief</item>
   ///     </list></summary>
   /// <param name="review">The recorded verdict, or null when the reviewer recorded none.</param>
-  /// <param name="fixTarget">The step a denial would send back, or null when there is none.</param>
-  /// <param name="reviewAttempts">Review round trips already recorded on that step.</param>
-  public static ChainReviewDecision Decide(ChainReviewRecord? review, int? fixTarget,
-      int reviewAttempts)
+  /// <param name="targetPosition">The step a denial would send back when no finding cites a
+  ///     member, or null when there is none.</param>
+  /// <param name="reviewAttempts">Review round trips already recorded on the step the denial
+  ///     reopens.</param>
+  /// <param name="memberPositions">The positions of the group members a review judges, or null
+  ///     when the step it judges is not a group's reconciler. A finding whose citation names one
+  ///     of them routes the denial there instead of to
+  ///     <paramref name="targetPosition"/>.</param>
+  public static ChainReviewDecision Decide(ChainReviewRecord? review, int? targetPosition,
+      int reviewAttempts, IReadOnlyList<int>? memberPositions = null)
   {
     ArgumentOutOfRangeException.ThrowIfNegative(reviewAttempts);
     return review is null
         ? ChainReviewDecision.Refused(ChainReviewCode.NoVerdict, NoVerdictMessage)
-        : DecideFor(review, fixTarget, reviewAttempts);
+        : DecideFor(review, targetPosition, reviewAttempts, memberPositions);
+  }
+
+  /// <summary>The group member a denial routes to: the first finding whose citation parses as a
+  ///     position held by <paramref name="memberPositions"/>, or null when none does.
+  ///     <para>A CITATION IS ROUTING INFORMATION ONLY WHEN IT NAMES A MEMBER. Anything else - a
+  ///     requirement id, a position outside the group, a sentence - routes nowhere, and the
+  ///     denial goes to the step it would without a citation.</para>
+  ///     <para>THE FIRST CITED MEMBER WINS, because the findings are in the order the reviewer
+  ///     wrote them and the earliest one is what the reviewer addressed first.</para></summary>
+  /// <param name="review">The recorded verdict, or null when the reviewer recorded none.</param>
+  /// <param name="memberPositions">The group members' positions, or null when there is no
+  ///     group.</param>
+  public static int? CitedMember(ChainReviewRecord? review, IReadOnlyList<int>? memberPositions)
+  {
+    if (review is null || memberPositions is not { Count: > 0 } members)
+    {
+      return null;
+    }
+
+    foreach (ChainReviewFinding finding in review.Findings)
+    {
+      if (int.TryParse(finding.Citation, NumberStyles.Integer, CultureInfo.InvariantCulture,
+              out int cited) && members.Contains(cited))
+      {
+        return cited;
+      }
+    }
+
+    return null;
   }
 
   /// <summary>The decision for a review that WAS recorded. Extracted so the missing-review
   ///     case is one statement rather than the first branch of a nested conditional (S3358).
   ///     </summary>
-  private static ChainReviewDecision DecideFor(ChainReviewRecord review, int? fixTarget,
-      int reviewAttempts)
+  private static ChainReviewDecision DecideFor(ChainReviewRecord review, int? targetPosition,
+      int reviewAttempts, IReadOnlyList<int>? memberPositions)
   {
     return !review.IsDenial
         ? new ChainReviewDecision(ChainReviewDecisionKind.Advance, null,
             ChainReviewNotes.Render(review.Findings), null)
-        : DenialFor(review, fixTarget, reviewAttempts);
+        : DenialFor(review, targetPosition, reviewAttempts, memberPositions);
   }
 
   /// <summary>The denial half, split out so the two branches read as two statements.</summary>
-  private static ChainReviewDecision DenialFor(ChainReviewRecord review, int? fixTarget,
-      int reviewAttempts)
+  private static ChainReviewDecision DenialFor(ChainReviewRecord review, int? targetPosition,
+      int reviewAttempts, IReadOnlyList<int>? memberPositions)
   {
-    return fixTarget is not { } target
+    return (CitedMember(review, memberPositions) ?? targetPosition) is not { } target
         ? ChainReviewDecision.Refused(ChainReviewCode.NoFixTarget, NoFixTargetMessage)
         : Denial(review, target, reviewAttempts);
   }

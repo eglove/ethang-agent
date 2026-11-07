@@ -32,7 +32,7 @@ public class ChainReviewPolicyTests
   {
     // THE SILENT DISCARD, CLOSED: a review step that completed without a review is refused,
     // because advancing past it would be the harness ignoring the job the step exists for.
-    ChainReviewDecision decision = ChainReviewPolicy.Decide(null, fixTarget: 1, reviewAttempts: 0);
+    ChainReviewDecision decision = ChainReviewPolicy.Decide(null, targetPosition: 1, reviewAttempts: 0);
 
     Assert.Equal(ChainReviewDecisionKind.Refused, decision.Kind);
     Assert.Equal(ChainReviewCode.NoVerdict, decision.Code);
@@ -43,7 +43,7 @@ public class ChainReviewPolicyTests
   [Fact]
   public void Decide_OnApprove_Advances()
   {
-    ChainReviewDecision decision = ChainReviewPolicy.Decide(Approve, fixTarget: 1, reviewAttempts: 0);
+    ChainReviewDecision decision = ChainReviewPolicy.Decide(Approve, targetPosition: 1, reviewAttempts: 0);
 
     Assert.Equal(ChainReviewDecisionKind.Advance, decision.Kind);
     Assert.True(decision.IsActionable);
@@ -59,7 +59,7 @@ public class ChainReviewPolicyTests
     ChainReviewRecord conditions = new(ChainReviewVerdict.ApproveWithConditions,
         [Finding("requirement R2 has no step", "R2")]);
 
-    ChainReviewDecision decision = ChainReviewPolicy.Decide(conditions, fixTarget: 1,
+    ChainReviewDecision decision = ChainReviewPolicy.Decide(conditions, targetPosition: 1,
         reviewAttempts: 0);
 
     Assert.Equal(ChainReviewDecisionKind.Advance, decision.Kind);
@@ -71,7 +71,7 @@ public class ChainReviewPolicyTests
   {
     ChainReviewDecision decision = ChainReviewPolicy.Decide(
         Deny(Finding("step 3 has no acceptance criterion for requirement R2", "R2")),
-        fixTarget: 2, reviewAttempts: 1);
+        targetPosition: 2, reviewAttempts: 1);
 
     Assert.Equal(ChainReviewDecisionKind.SendBack, decision.Kind);
     Assert.Equal(2, decision.Target);
@@ -83,7 +83,7 @@ public class ChainReviewPolicyTests
   [Fact]
   public void Decide_OnDenyAtTheCap_ParksNamingTheStep()
   {
-    ChainReviewDecision decision = ChainReviewPolicy.Decide(Deny(Finding()), fixTarget: 2,
+    ChainReviewDecision decision = ChainReviewPolicy.Decide(Deny(Finding()), targetPosition: 2,
         reviewAttempts: ChainReviewPolicy.MaxReviewAttempts);
 
     Assert.Equal(ChainReviewDecisionKind.ParkAtCap, decision.Kind);
@@ -98,7 +98,7 @@ public class ChainReviewPolicyTests
   {
     // 'the reviewer denied' with no notes makes a session guess, which is the failure the rule
     // exists to prevent (issue #219's surviving rule).
-    ChainReviewDecision decision = ChainReviewPolicy.Decide(Deny(), fixTarget: 1, reviewAttempts: 0);
+    ChainReviewDecision decision = ChainReviewPolicy.Decide(Deny(), targetPosition: 1, reviewAttempts: 0);
 
     Assert.Equal(ChainReviewDecisionKind.Refused, decision.Kind);
     Assert.Equal(ChainReviewCode.NoFindings, decision.Code);
@@ -108,7 +108,7 @@ public class ChainReviewPolicyTests
   public void Decide_OnDenyWithNoStepToSendBack_Refuses()
   {
     // A review at the chain's first position judges nothing that can be reopened.
-    ChainReviewDecision decision = ChainReviewPolicy.Decide(Deny(Finding()), fixTarget: null,
+    ChainReviewDecision decision = ChainReviewPolicy.Decide(Deny(Finding()), targetPosition: null,
         reviewAttempts: 0);
 
     Assert.Equal(ChainReviewDecisionKind.Refused, decision.Kind);
