@@ -422,7 +422,10 @@ internal static class E2E
 }
 
 /// <summary>All desktop E2E classes share one xUnit collection: they mutate the process-wide
-///     ETHANG_AGENT_DB variable, so parallel classes must not race it.</summary>
+///     ETHANG_AGENT_DB variable, so parallel classes must not race it.
+///     <para>The membership is enforced, not remembered: <c>DoctrineTests.ProcessGlobalState_IsSerializedByRuleNotConvention</c>
+///     fails the build for a test file that sets this variable, or moves the process working
+///     directory, without a collection attribute.</para></summary>
 // Named decision (CA1515): xUnit requires the collection definition type to be public
 // for discovery; internal would silently split the collection into per-class runs.
 #pragma warning disable CA1515 // Types can be made internal

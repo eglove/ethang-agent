@@ -57,6 +57,18 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@"Path\.GetTempPath\(\)|Directory\.CreateTempSubdirectory\(")]
   private static partial Regex AmbientTempPattern();
 
+  [GeneratedRegex(@"Environment\.SetEnvironmentVariable\s*\(\s*""ETHANG_AGENT_DB""")]
+  private static partial Regex DatabaseGlobalWritePattern();
+
+  [GeneratedRegex(@":\s*SessionOwningTest\b")]
+  private static partial Regex SessionOwningDerivationPattern();
+
+  [GeneratedRegex(@"SetCurrentDirectory\s*\(|Environment\.CurrentDirectory\s*=")]
+  private static partial Regex WorkingDirectoryWritePattern();
+
+  [GeneratedRegex(@"\[Collection\(""")]
+  private static partial Regex CollectionAttributePattern();
+
   [GeneratedRegex("<Project\\s+Path=\"([^\"]+)\"", RegexOptions.CultureInvariant)]
   private static partial Regex SolutionProjectPattern();
 
@@ -424,6 +436,56 @@ public sealed partial class DoctrineTests
 
     Assert.True(violations.Count == 0,
         "test projects without a Tests.Shared reference (the ceiling has one source of truth): "
+        + string.Join(", ", violations));
+  }
+
+  /// <summary>Issue #372: process-global state is serialized by RULE, not by convention. A test
+  ///     that sets <c>ETHANG_AGENT_DB</c> or moves the process working directory mutates state
+  ///     every other test in the run shares, so it must join a serialized collection - the
+  ///     collection is what makes the write safe, so the write and the membership are checked
+  ///     together.
+  ///     <para>Nothing enforced this before, and three classes had escaped: a race here fails a
+  ///     test in a file its author never touched, which is the least debuggable failure the
+  ///     suite can produce.</para></summary>
+  [Fact]
+  public void ProcessGlobalState_IsSerializedByRuleNotConvention()
+  {
+    string[] testAttributes = ["[Fact", "[Theory", "[AvaloniaFact", "[AvaloniaTheory"];
+
+    // This file names every marker as data, so it matches its own list by construction.
+    string[] allowlist = ["tests/eThangAgent.Agent.Application.Tests/DoctrineTests.cs"];
+
+    List<string> violations = [];
+    foreach (string file in SourceFiles("tests"))
+    {
+      string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
+      if (allowlist.Contains(relative))
+      {
+        continue;
+      }
+
+      string text = File.ReadAllText(file);
+      if (!testAttributes.Any(attribute => text.Contains(attribute, StringComparison.Ordinal)))
+      {
+        continue;
+      }
+
+      if (CollectionAttributePattern().IsMatch(text))
+      {
+        continue;
+      }
+
+      if (DatabaseGlobalWritePattern().IsMatch(text)
+          || WorkingDirectoryWritePattern().IsMatch(text)
+          || SessionOwningDerivationPattern().IsMatch(text))
+      {
+        violations.Add(relative);
+      }
+    }
+
+    Assert.True(violations.Count == 0,
+        "tests touching process-global state outside a serialized collection (join a "
+        + "[Collection] whose definition says it runs serially, or stop touching the global): "
         + string.Join(", ", violations));
   }
 }

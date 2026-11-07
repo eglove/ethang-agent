@@ -17,6 +17,7 @@ namespace eThangAgent.Desktop.Tests;
 /// assistant text end-to-end. This is the desktop counterpart of the CLI piped E2E suite.
 /// </summary>
 [Trait("Category", "Process")]
+[Collection("Desktop E2E")]
 public class DesktopPipelineSmokeTests
 {
   [AvaloniaFact]

@@ -17,6 +17,7 @@ using eThangAgent.TestSupport;
 namespace eThangAgent.Desktop.Tests;
 
 [Trait("Category", "Process")]
+[Collection("Desktop E2E")]
 public class CatalogRefreshE2ETests
 {
   private static ModelProviderEntry Cached(string id) => new(
