@@ -249,9 +249,11 @@ public class ConversationHostSupervisionTests
         TimeSpan.FromMilliseconds(200),
         TestContext.Current.CancellationToken);
 
-    // The bound: a regression cannot hang the suite, it fails here.
+    // The bound: a regression cannot hang the suite, it fails here. It is the CEILING, not a
+    // span tuned to an idle machine: the wait's own deadline is 200 ms, so what this races is
+    // how long a loaded machine takes to run the continuation, not how long the wait takes.
     Task finished = await Task.WhenAny(
-        wait, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken))
+        wait, Task.Delay(TestCeiling.Value, TestContext.Current.CancellationToken))
         .ConfigureAwait(true);
     Assert.Same(wait, finished);
     Assert.Equal(RemoteHostSupervisor.StartedLineOutcome.TimedOut, await wait.ConfigureAwait(true));

@@ -93,6 +93,9 @@ public class WorkspaceFileWatcherTests
       int passes = 0;
       WorkspaceChangeSet? last = null;
       TaskCompletionSource tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+      // A LONG debounce is what makes 'one burst, one pass' a property of the coalescing
+      // rather than of how fast this machine writes five files: the writes land inside the
+      // window on any machine, so the second pass can only come from a real defect.
       await using WorkspaceFileWatcher watcher = new(root, new DirectWorkspaceSnapshotAccess(),
           changes =>
           {
@@ -100,7 +103,8 @@ public class WorkspaceFileWatcherTests
             last = changes;
             _ = tcs.TrySetResult();
             return Task.CompletedTask;
-          });
+          },
+          debounce: TimeSpan.FromSeconds(2));
       watcher.Start();
       for (int i = 0; i < 5; i++)
       {

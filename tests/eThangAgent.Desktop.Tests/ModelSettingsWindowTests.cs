@@ -33,24 +33,20 @@ public class ModelSettingsWindowTests
     Views.ModelSettingsWindow window = new(vm);
 
     window.Show();
-    // The load is fire-and-forget from the Opened handler; pump the dispatcher
-    // (bounded — no infinite wait) until it lands or the budget is spent. The budget
-    // is a WALL-CLOCK bound, not a pump count: under load a pump takes longer and the
-    // continuation lands later, so a fixed count expired before the load did and the
-    // test failed on a busy machine (2026-10-22).
+    // The load is fire-and-forget from the Opened handler, so the pump waits for the ROWS
+    // rather than for a count of pumps. The predicate is 'no rows yet': the scripted catalog
+    // holds exactly one entry, so a 'one row or fewer' condition is true both before and after
+    // the load lands and the loop would spend its whole budget on a machine that had already
+    // finished. The bound is the ceiling, so a loaded machine is waited out instead of raced.
     DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
-    for (int i = 0; i < 5_000 && vm.ModelSection!.FilteredRows.Count <= 1; i++)
+    while (DateTimeOffset.UtcNow < deadline && vm.ModelSection!.FilteredRows.Count == 0)
     {
-      if (DateTimeOffset.UtcNow > deadline)
-      {
-        break;
-      }
-
       await Dispatcher.UIThread.InvokeAsync(() => { });
     }
     window.Close();
 
-    _ = Assert.Single(vm.ModelSection!.FilteredRows); // the loaded entry
+    Assert.False(vm.ModelSection!.IsLoading, "the catalog load must have settled");
+    _ = Assert.Single(vm.ModelSection.FilteredRows); // the loaded entry
   }
 
   /// <summary>The window opens ON the choice the session is serving, and a re-render must not drop it.</summary>

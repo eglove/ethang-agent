@@ -18,9 +18,10 @@ public sealed class WorkspaceFileWatcher(
     IWorkspaceSnapshotAccess snapshots,
     Func<WorkspaceChangeSet, Task> onPass,
     TimeSpan? pollingInterval = null,
-    TimeSpan? resyncInterval = null) : IAsyncDisposable, IFileWatcher
+    TimeSpan? resyncInterval = null,
+    TimeSpan? debounce = null) : IAsyncDisposable, IFileWatcher
 {
-  private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(250);
+  private static readonly TimeSpan DefaultDebounce = TimeSpan.FromMilliseconds(250);
   private static readonly TimeSpan DefaultPollingInterval = TimeSpan.FromSeconds(5);
   private static readonly TimeSpan DefaultResyncInterval = TimeSpan.FromSeconds(30);
 
@@ -30,6 +31,7 @@ public sealed class WorkspaceFileWatcher(
       ?? throw new ArgumentNullException(nameof(snapshots));
   private readonly Func<WorkspaceChangeSet, Task> _onPass = onPass
       ?? throw new ArgumentNullException(nameof(onPass));
+  private readonly TimeSpan _debounce = debounce ?? DefaultDebounce;
   private readonly TimeSpan _pollingInterval = pollingInterval ?? DefaultPollingInterval;
   private readonly TimeSpan _resyncInterval = resyncInterval ?? DefaultResyncInterval;
   private readonly List<Func<FileChangeAnnouncement, Task>> _subscribers = [];
@@ -156,7 +158,7 @@ public sealed class WorkspaceFileWatcher(
           {
             try
             {
-              await Task.Delay(Debounce, _cts.Token).ConfigureAwait(false);
+              await Task.Delay(_debounce, _cts.Token).ConfigureAwait(false);
               await CheckOnceAsync(_cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
