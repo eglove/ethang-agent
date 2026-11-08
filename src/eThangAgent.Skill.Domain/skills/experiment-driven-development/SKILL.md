@@ -122,8 +122,8 @@ net for conflicts that emerge only from implementation.
 **You do not write task briefs.** The harness renders each step's brief from the plan record when it
 starts that step's session: the step, the plan's goal, the ledger key, the gate, the predecessors,
 and the completion contract. That is why the plan's step detail must carry everything the step needs
-— exact values, signatures, file paths, test cases. A detail that says "see the earlier discussion"
-reaches a session that has no such discussion.
+— examples, behaviors, acceptance criteria, interfaces, file paths, and exact values. A detail that
+says "see the earlier discussion" reaches a session that has no such discussion.
 
 ### Choosing which steps execute, and their roles
 
@@ -249,14 +249,21 @@ The brief a step's session receives is RENDERED from the plan record — you do 
 cannot add to it after the chain starts. So the plan's step detail is the only place your intent
 survives. Write it for a stranger who has the record and nothing else:
 
-- **Files:** exact paths to create, modify, and test. Not "the relevant module".
-- **Interfaces:** the exact names and signatures this step produces, so a later step can call them.
-- **Tests:** the actual test code, not "write tests for the above".
-- **Exact values:** version floors, dependency limits, naming and copy rules — verbatim.
+- **Examples** — a concrete input and its expected result, one per interesting case, including the
+  awkward ones: empty, boundary, failure.
+- **Behaviors** — named, ordered statements of what the system must do.
+- **Acceptance criteria** — what a check would observe when the behavior is true.
+- **Architecture** — exact file paths, and the names and shapes of anything one step hands to
+  another.
+- **Exact values** — version floors, dependency limits, naming and copy rules, verbatim.
 - **Traps you already ruled out**, so the step does not spend its budget rediscovering them.
 
 Anything not in the record does not reach the session. A detail that says "see the earlier
 discussion" reaches a session that has no such discussion.
+
+That is why the detail is dense, and density is not a procedure. What the detail does not carry is
+the method: the test list, the test code, and the implementation belong to the session that can read
+the code and run the tests, and no step detail reaches for them.
 
 ## Common rationalizations
 
