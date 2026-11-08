@@ -90,6 +90,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
   ///     succeeds and a key that is typed by hand take the same path out of this dialog.</summary>
   public IAsyncRelayCommand SignInCommand { get; }
 
+  /// <summary>Clears the configured model key so the dialog is signed out. Save is what
+  ///     removes the stored key; the field comes back as the paste path.</summary>
+  public IRelayCommand SignOutCommand { get; }
+
   /// <summary>The three commit styles, in display order.</summary>
   public IReadOnlyList<CommitStyleOption> CommitStyles { get; } =
       [CommitStyleOption.Conventional, CommitStyleOption.Gitmoji, CommitStyleOption.None];
@@ -104,6 +108,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
+  [NotifyPropertyChangedFor(nameof(IsSignedIn))]
+  [NotifyPropertyChangedFor(nameof(ShowsKeyField))]
+  [NotifyPropertyChangedFor(nameof(SignInStatus))]
+  [NotifyPropertyChangedFor(nameof(ShowsSignInButton))]
   public partial string OpenRouterKey { get; set; }
 
   /// <summary>The OpenRouter MANAGEMENT key (provisioning-key API) as raw text -
@@ -234,6 +242,21 @@ internal sealed partial class SettingsViewModel : ObservableObject
           ? parsed
           : new Uri(OpenRouterSettings.DefaultBaseUrl);
 
+  /// <summary>Whether a model key is configured in the form. The dialog states this
+  ///     instead of showing a masked field the user can neither read nor act on.</summary>
+  public bool IsSignedIn => !string.IsNullOrWhiteSpace(OpenRouterKey);
+
+  /// <summary>Whether the key field is shown: only while nothing is configured, where it
+  ///     is the paste path beside sign-in.</summary>
+  public bool ShowsKeyField => !IsSignedIn;
+
+  /// <summary>The sign-in state in words, shown beside the button.</summary>
+  public string SignInStatus => IsSignedIn ? "Signed in to OpenRouter" : "Not signed in";
+
+  /// <summary>Whether the sign-in button is offered: the host wired the seam and no key is
+  ///     configured yet. A signed-in dialog offers sign-out instead.</summary>
+  public bool ShowsSignInButton => ProviderSignIn is not null && !IsSignedIn;
+
   /// <summary>True while a sign-in is in flight: the button is disabled and its label says
   ///     what is happening, so a second click cannot start a second attempt.</summary>
   [ObservableProperty]
@@ -284,6 +307,13 @@ internal sealed partial class SettingsViewModel : ObservableObject
     // is load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
     // button is only one of several ways this command can be invoked.
     SignInCommand = new AsyncRelayCommand(SignInAsync, () => CanSignIn);
+    SignOutCommand = new RelayCommand(
+        () =>
+        {
+          OpenRouterKey = string.Empty;
+          SignInError = null;
+        },
+        () => IsSignedIn);
     SaveCommand = new RelayCommand(
         () =>
         {
@@ -340,9 +370,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
     }
   }
 
-  /// <summary>Sign-in is offered only when the host wired the seam and no attempt is
-  ///     already running.</summary>
-  private bool CanSignIn => ProviderSignIn is not null && !IsSigningIn;
+  /// <summary>Sign-in is offered only when the host wired the seam, no attempt is already
+  ///     running, and no key is configured (a signed-in dialog offers sign-out).</summary>
+  private bool CanSignIn => ProviderSignIn is not null && !IsSigningIn && !IsSignedIn;
 
   /// <summary>Seeds every observable property from the opening values. Runs AFTER
   ///     SaveCommand exists: each assignment raises the changed hooks, which requery
@@ -384,7 +414,12 @@ internal sealed partial class SettingsViewModel : ObservableObject
   };
 
   // Validation edits must requery the Save button's CanExecute.
-  partial void OnOpenRouterKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+  partial void OnOpenRouterKeyChanged(string value)
+  {
+    SaveCommand.NotifyCanExecuteChanged();
+    SignOutCommand.NotifyCanExecuteChanged();
+    SignInCommand.NotifyCanExecuteChanged();
+  }
 
   partial void OnIsSigningInChanged(bool value) => SignInCommand.NotifyCanExecuteChanged();
 

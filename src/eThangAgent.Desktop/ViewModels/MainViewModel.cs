@@ -884,7 +884,7 @@ internal sealed partial class MainViewModel : ObservableObject
     _settings = rebuilt.WithApiKeys(openRouterKey).WithManagementKey(managementKey);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
-    PushLiveManagementKey(managementKey);
+    PushLiveKeys(openRouterKey, managementKey);
     RefreshProviderSurface(_settings);
   }
 
@@ -947,16 +947,26 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>Live management-key push: every open session's carrier takes the saved key
+  /// <summary>Live key push: every open session's carriers take the saved keys
   ///     immediately — the frozen OpenRouterConfiguration snapshot forced a session
-  ///     restart to pick a key up (2026-10-08). The openrouter_management tool reads
-  ///     the carrier at dispatch, so the NEXT call uses the key. Sessions without a
+  ///     restart to pick a key up (2026-10-08). Both clients read their carrier at
+  ///     dispatch, so the NEXT model call and the next openrouter_management call use
+  ///     the key just saved, including a key minted by sign-in. Sessions without a
   ///     carrier (headless stubs) skip the push silently.</summary>
-  private void PushLiveManagementKey(string? managementKey)
+  private void PushLiveKeys(string? openRouterKey, string? managementKey)
   {
     foreach (AgentTabViewModel tab in Tabs)
     {
-      tab.Container.Services.GetService<OpenRouterManagementKeyCarrier>()?.Current = managementKey;
+      IServiceProvider services = tab.Container.Services;
+      if (services.GetService<OpenRouterApiKeyCarrier>() is { } modelKey)
+      {
+        modelKey.Current = openRouterKey;
+      }
+
+      if (services.GetService<OpenRouterManagementKeyCarrier>() is { } management)
+      {
+        management.Current = managementKey;
+      }
     }
   }
 

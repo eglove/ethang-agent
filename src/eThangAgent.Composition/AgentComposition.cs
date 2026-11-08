@@ -1586,6 +1586,13 @@ public static class AgentComposition
           {
             Current = settings.OpenRouter.ManagementKey,
           })
+          // The model key rides the same kind of LIVE carrier: a key saved mid-session
+          // is pushed by the host and the next request presents it, instead of the
+          // snapshot this container was built with.
+          .AddSingleton(new OpenRouterApiKeyCarrier
+          {
+            Current = settings.OpenRouter.ApiKey,
+          })
           // App attribution (openrouter.ai/docs/app-attribution): every request the
           // shared client sends — model calls and catalog fetches alike — identifies
           // the app. One Apply point covers the root and every remote child host,
@@ -1618,7 +1625,8 @@ public static class AgentComposition
           .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
               sp.GetRequiredService<OpenRouterConfiguration>(),
               sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
-              sp.GetRequiredService<IModelCatalog>()))
+              sp.GetRequiredService<IModelCatalog>(),
+              sp.GetRequiredService<OpenRouterApiKeyCarrier>()))
           // Management API client (the 'openrouter_management' tool's seam): the SAME
           // named HttpClient (attribution + timeouts) and the SAME configuration - the
           // management key rides OpenRouterConfiguration.ManagementKey.
@@ -1630,7 +1638,8 @@ public static class AgentComposition
               sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
               sp.GetRequiredService<OpenRouterConfiguration>(),
               sp.GetRequiredService<IModelCatalogCache>(),
-              Providers.OpenRouter)),
+              Providers.OpenRouter,
+              keySource: sp.GetRequiredService<OpenRouterApiKeyCarrier>())),
       _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id."),
     };
   }

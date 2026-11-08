@@ -15,7 +15,8 @@ public sealed class OpenRouterCatalogClient(
     OpenRouterConfiguration config,
     IModelCatalogCache? cache = null,
     string? provider = null,
-    Action<Exception>? onRefreshFault = null) : IModelCatalog, IDisposable
+    Action<Exception>? onRefreshFault = null,
+    OpenRouterApiKeyCarrier? keySource = null) : IModelCatalog, IDisposable
 {
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly OpenRouterConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -26,6 +27,13 @@ public sealed class OpenRouterCatalogClient(
       ? null
       : $"{provider}|{config.Endpoint("/api/v1/models").AbsoluteUri}";
   private readonly Action<Exception>? _onRefreshFault = onRefreshFault;
+
+  /// <summary>The live key carrier, or null when the caller wired none.</summary>
+  private readonly OpenRouterApiKeyCarrier? _keySource = keySource;
+
+  /// <summary>The key this request presents: the carrier's live value when one is set, the
+  ///     configuration's snapshot otherwise.</summary>
+  private string ApiKey => _keySource?.Current ?? _config.ApiKey;
   private readonly SemaphoreSlim _gate = new(1, 1);
   private readonly CancellationTokenSource _lifetime = new();
   private bool _disposed;
@@ -286,7 +294,7 @@ public sealed class OpenRouterCatalogClient(
   private async Task<Result<List<IntermediateModel>>> FetchModelsAsync(CancellationToken ct)
   {
     using HttpRequestMessage request = new(HttpMethod.Get, _config.Endpoint("/api/v1/models"));
-    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ApiKey);
+    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ApiKey);
     using HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 
     if (!response.IsSuccessStatusCode)
@@ -630,7 +638,7 @@ public sealed class OpenRouterCatalogClient(
   {
     using HttpRequestMessage request = new(HttpMethod.Get,
         _config.Endpoint($"/api/v1/models/{model.Id}/endpoints"));
-    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ApiKey);
+    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ApiKey);
 
     try
     {

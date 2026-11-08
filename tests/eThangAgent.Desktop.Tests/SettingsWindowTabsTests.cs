@@ -46,6 +46,29 @@ public class SettingsWindowTabsTests
   }
 
   [AvaloniaFact]
+  public void A_Configured_Key_Is_Stated_And_The_Key_Field_Is_Hidden()
+  {
+    SettingsWindow signedIn = new(new SettingsValues { OpenRouterKey = "sk-or-v1-abc" });
+    signedIn.Show();
+    TabControl tabs = signedIn.GetControl<TabControl>("SettingsTabs");
+    tabs.SelectedIndex = 0;
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.False(signedIn.GetControl<TextBox>("OpenRouterKeyBox").IsVisible);
+    Assert.Equal("Signed in to OpenRouter", signedIn.GetControl<TextBlock>("SignInStatusText").Text);
+    Assert.True(signedIn.GetControl<Button>("SignOutButton").IsVisible);
+
+    SettingsWindow signedOut = new(new SettingsValues());
+    signedOut.Show();
+    TabControl tabsOut = signedOut.GetControl<TabControl>("SettingsTabs");
+    tabsOut.SelectedIndex = 0;
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.True(signedOut.GetControl<TextBox>("OpenRouterKeyBox").IsVisible);
+    Assert.Equal("Not signed in", signedOut.GetControl<TextBlock>("SignInStatusText").Text);
+  }
+
+  [AvaloniaFact]
   public void Compaction_Models_Live_In_The_Models_Tab()
   {
     SettingsWindow window = new();

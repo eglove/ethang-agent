@@ -4,8 +4,9 @@ using eThangAgent.Desktop.ViewModels;
 
 namespace eThangAgent.Desktop.Views;
 
-/// <summary>The settings modal: six categorized tabs - API Keys (one masked key
-///     field), Skills (registry default target), Models (compaction model), Agents
+/// <summary>The settings modal: six categorized tabs - API Keys (the sign-in state,
+///     the key field while nothing is configured, and the masked management key),
+///     Skills (registry default target), Models (compaction model), Agents
 ///     (sub-agent and watchdog knobs), Advanced (provider base URL), Git (commit
 ///     style) - with a shared validation-error + Save/Cancel footer outside the
 ///     tabs. Session files and skill directories are NOT here: they are configured

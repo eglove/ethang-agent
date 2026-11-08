@@ -11,7 +11,8 @@ namespace eThangAgent.OpenRouter.ACL;
 public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration config,
     Func<TimeSpan, CancellationToken, Task>? delay = null,
     Func<double>? jitter = null,
-    IModelCatalog? catalog = null) : IModelProvider
+    IModelCatalog? catalog = null,
+    OpenRouterApiKeyCarrier? keySource = null) : IModelProvider
 {
   private const string ProviderError = "ProviderError";
   private const string ContextWindowExceeded = "ContextWindowExceeded";
@@ -49,6 +50,13 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   ///     none. OPTIONAL ON PURPOSE: the variant then degrades to the provider's own routing
   ///     instead of failing a turn over a missing seam.</summary>
   private readonly IModelCatalog? _catalog = catalog;
+
+  /// <summary>The live key carrier, or null when the caller wired none.</summary>
+  private readonly OpenRouterApiKeyCarrier? _keySource = keySource;
+
+  /// <summary>The key this request presents: the carrier's live value when one is set, the
+  ///     configuration's snapshot otherwise.</summary>
+  private string ApiKey => _keySource?.Current ?? _config.ApiKey;
 
   public async Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
   {
@@ -230,7 +238,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     {
       Content = JsonContent.Create(body)
     };
-    httpRequest.Headers.Add("Authorization", $"Bearer {_config.ApiKey}");
+    httpRequest.Headers.Add("Authorization", $"Bearer {ApiKey}");
     return httpRequest;
   }
 
