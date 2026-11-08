@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -253,11 +254,7 @@ public sealed class SqlitePlanReviewStore(AppDatabase database, string workspace
   private static DomainError Unavailable(SqliteException ex)
       => new("StorageUnavailable", $"the plan review store could not complete the operation: {ex.Message}");
 
-  private static string ValidateWorkspace(string workspaceId)
-  {
-    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
-    return workspaceId;
-  }
+  private static string ValidateWorkspace(string workspaceId) => WorkspaceIdentity.Require(workspaceId);
 
   private static void Add(SqliteCommand command, string name, object? value)
       => command.Parameters.AddWithValue(name, value ?? DBNull.Value);

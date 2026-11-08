@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -506,11 +507,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
   private static DomainError Unavailable(SqliteException ex)
       => new("StorageUnavailable", $"the chain store could not complete the operation: {ex.Message}");
 
-  private static string ValidateWorkspace(string workspaceId)
-  {
-    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
-    return workspaceId;
-  }
+  private static string ValidateWorkspace(string workspaceId) => WorkspaceIdentity.Require(workspaceId);
 
   /// <summary>Internal read model mirroring the chains row before hydration.</summary>
   private sealed record ChainRow(int Id, int PlanId, int PlanVersion, string Title, ChainStatus Status,

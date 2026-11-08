@@ -35,11 +35,41 @@ public static class WorkspaceIdentity
   /// <summary>The comparable form of a workspace root: trimmed of trailing separators.
   ///     Deliberately NOT full-path canonicalized - the stores record what the caller opened,
   ///     and two spellings of one directory compare equal here without inventing a third
-  ///     spelling to store.</summary>
+  ///     spelling to store.
+  ///     <para>A ROOT KEEPS ONE SEPARATOR. <c>C:\</c> is the root of a drive and <c>C:</c> is a
+  ///     relative path to its current directory, so trimming the last separator of a root would
+  ///     mint a different directory rather than a shorter spelling of the same one.</para></summary>
   public static string Normalize(string path)
-      => string.IsNullOrWhiteSpace(path)
-          ? string.Empty
-          : path.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+  {
+    if (string.IsNullOrWhiteSpace(path))
+    {
+      return string.Empty;
+    }
+
+    string trimmed = path.Trim();
+    string withoutSeparators = trimmed.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    return withoutSeparators.EndsWith(':') && trimmed.Length > withoutSeparators.Length
+        ? withoutSeparators + trimmed[withoutSeparators.Length]
+        : withoutSeparators;
+  }
+
+  /// <summary>The identity a durable store binds at construction: <paramref name="workspaceId"/>
+  ///     when it is already normalized, and a refusal otherwise.
+  ///     <para>REFUSING RATHER THAN NORMALIZING: an unnormalized id can only have been minted by
+  ///     a caller that did not apply the rule, and a store that repaired it silently would leave
+  ///     that caller writing rows under the other spelling while reading them under this one.
+  ///     </para></summary>
+  /// <exception cref="ArgumentException">The id is blank or is not already normalized.</exception>
+  public static string Require(string workspaceId)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+    string normalized = Normalize(workspaceId);
+    return string.Equals(workspaceId, normalized, StringComparison.Ordinal)
+        ? workspaceId
+        : throw new ArgumentException(
+            $"the workspace id '{workspaceId}' is not a normalized workspace identity; the normalized form is '{normalized}'.",
+            nameof(workspaceId));
+  }
 }
 
 /// <summary>Persistence port for workspace identity bindings. The implementation lives in

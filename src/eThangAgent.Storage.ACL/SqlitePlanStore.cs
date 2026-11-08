@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -371,11 +372,7 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
   private static DomainError Unavailable(SqliteException ex)
       => new("StorageUnavailable", $"the plan store could not complete the operation: {ex.Message}");
 
-  private static string ValidateWorkspace(string workspaceId)
-  {
-    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
-    return workspaceId;
-  }
+  private static string ValidateWorkspace(string workspaceId) => WorkspaceIdentity.Require(workspaceId);
 
   /// <summary>Internal read model mirroring the plans row before hydration.</summary>
   private sealed record PlanRow(int Id, string SessionId, string Title, string Goal, PlanStatus Status, int Version, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);

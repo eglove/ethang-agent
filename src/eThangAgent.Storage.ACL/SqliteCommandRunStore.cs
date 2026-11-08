@@ -15,9 +15,7 @@ namespace eThangAgent.Storage.ACL;
 public sealed class SqliteCommandRunStore(AppDatabase database, string workspaceId) : ICommandRunStore
 {
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
-  private readonly string _workspaceId = string.IsNullOrWhiteSpace(workspaceId)
-      ? throw new ArgumentException("Workspace id must be a non-empty string.", nameof(workspaceId))
-      : workspaceId;
+  private readonly string _workspaceId = WorkspaceIdentity.Require(workspaceId);
 
   public async Task<Result<CommandRun>> AddAsync(CommandRun run, CancellationToken ct = default)
   {

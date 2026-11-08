@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -19,7 +20,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
 #pragma warning restore CA2007
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT value, version FROM state_keys WHERE workspace_id=@w AND ns=@ns AND name=@n;";
-    Add(command, "@w", workspaceId);
+    Add(command, "@w", Scope(workspaceId));
     Add(command, "@ns", ns);
     Add(command, "@n", name);
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -42,7 +43,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
     command.CommandText = "SELECT ns, name, value, version FROM state_keys WHERE workspace_id=@w (@nsFilter) ORDER BY ns, name;"
         .Replace("(@nsFilter)", ns is null ? "" : "AND ns=@ns", StringComparison.Ordinal);
 #pragma warning restore CA2100 // Review SQL query for security vulnerabilities
-    Add(command, "@w", workspaceId);
+    Add(command, "@w", Scope(workspaceId));
     if (ns is not null)
     {
       Add(command, "@ns", ns);
@@ -80,7 +81,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
                 WHERE workspace_id=@w AND ns=@ns AND name=@n AND version=@exp;
                 """;
       Add(update, "@v", value);
-      Add(update, "@w", workspaceId);
+      Add(update, "@w", Scope(workspaceId));
       Add(update, "@ns", ns);
       Add(update, "@n", name);
       Add(update, "@now", now);
@@ -101,7 +102,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
                 ON CONFLICT(workspace_id, ns, name) DO UPDATE SET
                     value=@v, version=state_keys.version+1, updated_at=@now;
                 """;
-      Add(upsert, "@w", workspaceId);
+      Add(upsert, "@w", Scope(workspaceId));
       Add(upsert, "@ns", ns);
       Add(upsert, "@n", name);
       Add(upsert, "@v", value);
@@ -114,7 +115,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
     {
       select.Transaction = transaction;
       select.CommandText = "SELECT value, version FROM state_keys WHERE workspace_id=@w AND ns=@ns AND name=@n;";
-      Add(select, "@w", workspaceId);
+      Add(select, "@w", Scope(workspaceId));
       Add(select, "@ns", ns);
       Add(select, "@n", name);
       using SqliteDataReader reader = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -135,7 +136,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
 #pragma warning restore CA2007
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "DELETE FROM state_keys WHERE workspace_id=@w AND ns=@ns AND name=@n AND (@exp IS NULL OR version=@exp);";
-    Add(command, "@w", workspaceId);
+    Add(command, "@w", Scope(workspaceId));
     Add(command, "@ns", ns);
     Add(command, "@n", name);
 #pragma warning disable CA1508 // Avoid dead conditional code
@@ -153,7 +154,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
 #pragma warning restore CA2007
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "DELETE FROM state_keys WHERE workspace_id=@w AND (ns=@p OR ns LIKE @like);";
-    _ = command.Parameters.AddWithValue("@w", workspaceId);
+    _ = command.Parameters.AddWithValue("@w", Scope(workspaceId));
     _ = command.Parameters.AddWithValue("@p", nsPrefix);
     _ = command.Parameters.AddWithValue("@like", nsPrefix + ".%");
     return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
@@ -174,7 +175,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
             ORDER BY rank
             LIMIT @limit;
             """;
-    _ = command.Parameters.AddWithValue("@w", workspaceId);
+    _ = command.Parameters.AddWithValue("@w", Scope(workspaceId));
     _ = command.Parameters.AddWithValue("@q", query);
     _ = command.Parameters.AddWithValue("@limit", limit);
     try
@@ -209,7 +210,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
             """;
     ArgumentNullException.ThrowIfNull(transition);
     Add(command, "@id", transition.Id);
-    Add(command, "@w", workspaceId);
+    Add(command, "@w", Scope(workspaceId));
     Add(command, "@from", transition.From);
     Add(command, "@to", transition.To);
     Add(command, "@summary", transition.Summary);
@@ -234,7 +235,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
     command.CommandText = transitionIds.Count == 0
         ? "SELECT id, from_state, to_state, summary, evidence_json, status, created_at FROM transitions WHERE workspace_id=@w AND status='pending' ORDER BY created_at;"
         : BuildIdQuery(transitionIds);
-    Add(command, "@w", workspaceId);
+    Add(command, "@w", Scope(workspaceId));
     for (int i = 0; i < transitionIds.Count; i++)
     {
       Add(command, $"@id{i}", transitionIds[i]);
@@ -264,7 +265,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "UPDATE transitions SET status=@s WHERE workspace_id=@w AND id=@id;";
     Add(command, "@s", status);
-    Add(command, "@w", workspaceId);
+    Add(command, "@w", Scope(workspaceId));
     Add(command, "@id", transitionId);
     _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
   }
@@ -278,7 +279,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
 #pragma warning restore CA2007
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "INSERT INTO state_events (workspace_id, kind, payload_json, occurred_at) VALUES (@w, @k, @p, @t);";
-    Add(command, "@w", workspaceId);
+    Add(command, "@w", Scope(workspaceId));
     Add(command, "@k", kind);
     Add(command, "@p", payloadJson);
     Add(command, "@t", DateTimeOffset.UtcNow.ToString("o"));
@@ -294,7 +295,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
 #pragma warning restore CA2007
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT id, kind, payload_json, occurred_at FROM state_events WHERE workspace_id=@w ORDER BY id DESC LIMIT @limit;";
-    Add(command, "@w", workspaceId);
+    Add(command, "@w", Scope(workspaceId));
     Add(command, "@limit", limit);
     List<StateEvent> events = [];
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -305,6 +306,11 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
 
     return events;
   }
+
+  /// <summary>The workspace scope every statement binds: the id must already be a normalized
+  ///     workspace identity, so two spellings of one directory cannot read different rows.
+  ///     </summary>
+  private static string Scope(string workspaceId) => WorkspaceIdentity.Require(workspaceId);
 
   private static string BuildIdQuery(IReadOnlyList<string> ids)
   {

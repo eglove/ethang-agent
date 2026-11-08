@@ -1,4 +1,5 @@
 using System.Globalization;
+using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.FileClaims;
 using Microsoft.Data.Sqlite;
 
@@ -34,12 +35,12 @@ public sealed class SqliteFileClaimStore : IFileClaimStore
 
   public FileClaimResult Acquire(string workspaceId, string path, string sessionId, DateTimeOffset now)
   {
-    ArgumentException.ThrowIfNullOrEmpty(workspaceId);
+    string scope = WorkspaceIdentity.Require(workspaceId);
     ArgumentException.ThrowIfNullOrEmpty(path);
     ArgumentException.ThrowIfNullOrEmpty(sessionId);
     using SqliteConnection connection = Open();
     using SqliteTransaction transaction = connection.BeginTransaction();
-    FileClaim? live = Read(connection, transaction, workspaceId, path, now);
+    FileClaim? live = Read(connection, transaction, scope, path, now);
     if (live is not null && !string.Equals(live.SessionId, sessionId, StringComparison.Ordinal))
     {
       transaction.Commit();
@@ -47,19 +48,19 @@ public sealed class SqliteFileClaimStore : IFileClaimStore
     }
 
     DateTimeOffset expiry = now + FileClaimPolicy.ClaimTtl;
-    Write(connection, transaction, workspaceId, path, sessionId, expiry);
+    Write(connection, transaction, scope, path, sessionId, expiry);
     transaction.Commit();
     return new FileClaimResult(true, sessionId, expiry);
   }
 
   public FileClaimResult Renew(string workspaceId, string path, string sessionId, DateTimeOffset now)
   {
-    ArgumentException.ThrowIfNullOrEmpty(workspaceId);
+    string scope = WorkspaceIdentity.Require(workspaceId);
     ArgumentException.ThrowIfNullOrEmpty(path);
     ArgumentException.ThrowIfNullOrEmpty(sessionId);
     using SqliteConnection connection = Open();
     using SqliteTransaction transaction = connection.BeginTransaction();
-    FileClaim? live = Read(connection, transaction, workspaceId, path, now);
+    FileClaim? live = Read(connection, transaction, scope, path, now);
     if (live is null)
     {
       transaction.Commit();
@@ -73,19 +74,19 @@ public sealed class SqliteFileClaimStore : IFileClaimStore
     }
 
     DateTimeOffset expiry = now + FileClaimPolicy.ClaimTtl;
-    Write(connection, transaction, workspaceId, path, sessionId, expiry);
+    Write(connection, transaction, scope, path, sessionId, expiry);
     transaction.Commit();
     return new FileClaimResult(true, sessionId, expiry);
   }
 
   public bool Release(string workspaceId, string path, string sessionId, DateTimeOffset now)
   {
-    ArgumentException.ThrowIfNullOrEmpty(workspaceId);
+    string scope = WorkspaceIdentity.Require(workspaceId);
     ArgumentException.ThrowIfNullOrEmpty(path);
     ArgumentException.ThrowIfNullOrEmpty(sessionId);
     using SqliteConnection connection = Open();
     using SqliteTransaction transaction = connection.BeginTransaction();
-    FileClaim? live = Read(connection, transaction, workspaceId, path, now);
+    FileClaim? live = Read(connection, transaction, scope, path, now);
     if (live is null || !string.Equals(live.SessionId, sessionId, StringComparison.Ordinal))
     {
       transaction.Commit();
@@ -95,7 +96,7 @@ public sealed class SqliteFileClaimStore : IFileClaimStore
     using SqliteCommand command = connection.CreateCommand();
     command.Transaction = transaction;
     command.CommandText = "DELETE FROM file_claims WHERE workspace_id = $ws AND path = $path;";
-    _ = command.Parameters.AddWithValue("$ws", workspaceId);
+    _ = command.Parameters.AddWithValue("$ws", scope);
     _ = command.Parameters.AddWithValue("$path", path);
     _ = command.ExecuteNonQuery();
     transaction.Commit();
@@ -104,11 +105,11 @@ public sealed class SqliteFileClaimStore : IFileClaimStore
 
   public FileClaim? Peek(string workspaceId, string path, DateTimeOffset now)
   {
-    ArgumentException.ThrowIfNullOrEmpty(workspaceId);
+    string scope = WorkspaceIdentity.Require(workspaceId);
     ArgumentException.ThrowIfNullOrEmpty(path);
     using SqliteConnection connection = Open();
     using SqliteTransaction transaction = connection.BeginTransaction();
-    FileClaim? live = Read(connection, transaction, workspaceId, path, now);
+    FileClaim? live = Read(connection, transaction, scope, path, now);
     transaction.Commit();
     return live;
   }

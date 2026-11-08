@@ -3,6 +3,7 @@ using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -27,7 +28,9 @@ public sealed class SqliteChainBaselineSource(AppDatabase database, string works
     : IChainBaselineSource
 {
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
-  private readonly string _workspaceId = workspaceId ?? string.Empty;
+  private readonly string _workspaceId = string.IsNullOrWhiteSpace(workspaceId)
+      ? string.Empty
+      : WorkspaceIdentity.Require(workspaceId);
 
   /// <summary>The baseline runs: every CHILD agent row, which is what the subagent era's work
   ///     actually was.

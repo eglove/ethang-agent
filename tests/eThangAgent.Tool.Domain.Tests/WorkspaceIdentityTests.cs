@@ -44,4 +44,39 @@ public class WorkspaceIdentityTests
   [Fact]
   public void Normalize_OfBlankInput_IsEmpty()
       => Assert.Equal(string.Empty, WorkspaceIdentity.Normalize("   "));
+
+  /// <summary>A drive root keeps its separator: <c>C:\</c> is the root of a drive and
+  ///     <c>C:</c> is a relative path to that drive's current directory, so trimming the last
+  ///     separator would mint a different directory rather than a shorter spelling of one.
+  ///     </summary>
+  [Theory]
+  [InlineData("C:\\", "C:\\")]
+  [InlineData("C:\\\\", "C:\\")]
+  [InlineData("C:\\work\\", "C:\\work")]
+  [InlineData("C:\\work", "C:\\work")]
+  public void Normalize_KeepsTheSeparatorOfADriveRoot(string path, string expected)
+      => Assert.Equal(expected, WorkspaceIdentity.Normalize(path));
+
+  /// <summary>The store boundary: an id that is already the normalized form is accepted, and one
+  ///     that is not is refused rather than silently repaired - a store that repaired it would
+  ///     leave the caller writing rows under the other spelling.</summary>
+  [Fact]
+  public void Require_AcceptsANormalizedId()
+      => Assert.Equal("C:\\work\\repo", WorkspaceIdentity.Require("C:\\work\\repo"));
+
+  [Theory]
+  [InlineData("C:\\work\\repo\\")]
+  [InlineData(" C:\\work\\repo")]
+  public void Require_RefusesAnIdThatIsNotNormalized(string id)
+  {
+    ArgumentException refused = Assert.Throws<ArgumentException>(() => WorkspaceIdentity.Require(id));
+    Assert.Contains(WorkspaceIdentity.Normalize(id), refused.Message, StringComparison.Ordinal);
+  }
+
+  [Theory]
+  [InlineData(null)]
+  [InlineData("")]
+  [InlineData("   ")]
+  public void Require_OfABlankId_IsRefused(string? id)
+      => _ = Assert.ThrowsAny<ArgumentException>(() => WorkspaceIdentity.Require(id!));
 }

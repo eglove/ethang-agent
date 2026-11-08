@@ -1,6 +1,7 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -21,9 +22,7 @@ public sealed class SqliteChainReviewTelemetrySource(AppDatabase database, strin
     : IChainReviewTelemetrySource
 {
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
-  private readonly string _workspaceId = string.IsNullOrWhiteSpace(workspaceId)
-      ? throw new ArgumentException("A workspace id is required.", nameof(workspaceId))
-      : workspaceId;
+  private readonly string _workspaceId = WorkspaceIdentity.Require(workspaceId);
 
   /// <summary>Every review of this workspace's plans, oldest first, with the plan's CURRENT
   ///     version beside it.

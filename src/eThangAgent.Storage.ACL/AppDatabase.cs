@@ -1,4 +1,5 @@
 using System.Globalization;
+using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -101,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 38;
+  public const int LatestSchemaVersion = 39;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -146,6 +147,7 @@ public sealed class AppDatabase
     (36, ApplyV36),
     (37, ApplyV37),
     (38, ApplyV38),
+    (39, ApplyV39),
   ];
 
   private void Migrate()
@@ -1697,4 +1699,158 @@ public sealed class AppDatabase
       Execute(connection, "PRAGMA foreign_keys = ON;");
     }
   }
+
+  /// <summary>V39 collapses workspace ids that are the SAME DIRECTORY spelled differently (issue
+  ///     #374): a trailing separator made one folder two workspaces, so rows written under one
+  ///     spelling were invisible to a session bound to the other - a plan its own chain could not
+  ///     read, a ledger forked in two.
+  ///     <para>THE TARGET SPELLING IS THE NORMALIZED ONE, the form <c>WorkspaceIdentity.For</c>
+  ///     mints, and the repair runs in the order that keeps every reference intact: rows are MOVED
+  ///     to the target spelling first and the identity table is re-pointed last, so a chain never
+  ///     loses its plan and a review never loses its plan while the two disagree.</para>
+  ///     <para>A COLLISION IS RESOLVED BY THE STORE'S OWN SEMANTICS. A state key keeps the value
+  ///     stamped LATEST, because the last write is what a key holds; a claim and an archived tool
+  ///     output keep the row already under the target, because both are leases or content-addressed
+  ///     copies with nothing to lose; an append-only event log keeps BOTH rows, because an event
+  ///     that happened is not a duplicate of one that also happened.</para>
+  ///     <para>THE USAGE LEDGER IS REPAIRED IN PLACE: a usage event carries the workspace id in its
+  ///     JSON payload and the spend read matches that string exactly, so moving the row without
+  ///     rewriting the payload would leave the spend attributed to a spelling that no longer exists
+  ///     anywhere else.</para>
+  ///     <para>IDEMPOTENT BY CONSTRUCTION: the step looks for ids that differ from their normalized
+  ///     form, and after it runs there are none left.</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV39(SqliteConnection connection)
+  {
+    string[] respelled = [.. DistinctWorkspaceIds(connection)
+        .Where(id => !string.Equals(id, WorkspaceIdentity.Normalize(id), StringComparison.Ordinal))];
+    if (respelled.Length == 0)
+    {
+      return;
+    }
+
+    using SqliteTransaction transaction = connection.BeginTransaction();
+    foreach (string source in respelled)
+    {
+      string target = WorkspaceIdentity.Normalize(source);
+      foreach ((string table, string statement) in WorkspaceRespellStatements)
+      {
+        if (!TableExists(connection, table))
+        {
+          continue;
+        }
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        // Named decision (CA2100): every statement is a constant whose identifiers are literals;
+        // the two values it carries arrive as parameters.
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+        command.CommandText = statement;
+#pragma warning restore CA2100 // Review SQL query for security vulnerabilities
+        _ = command.Parameters.AddWithValue("@source", source);
+        _ = command.Parameters.AddWithValue("@target", target);
+        _ = command.ExecuteNonQuery();
+      }
+    }
+
+    transaction.Commit();
+  }
+
+  /// <summary>Every workspace id this database holds, read from each column that carries one and
+  ///     from the usage payloads that stamp their own.</summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static List<string> DistinctWorkspaceIds(SqliteConnection connection)
+  {
+    (string Table, string Sql)[] sources =
+    [
+        ("state_keys", "SELECT DISTINCT workspace_id FROM state_keys WHERE workspace_id IS NOT NULL;"),
+        ("transitions", "SELECT DISTINCT workspace_id FROM transitions WHERE workspace_id IS NOT NULL;"),
+        ("state_events", "SELECT DISTINCT workspace_id FROM state_events WHERE workspace_id IS NOT NULL;"),
+        ("plans", "SELECT DISTINCT workspace_id FROM plans WHERE workspace_id IS NOT NULL;"),
+        ("chains", "SELECT DISTINCT workspace_id FROM chains WHERE workspace_id IS NOT NULL;"),
+        ("agents", "SELECT DISTINCT workspace_id FROM agents WHERE workspace_id IS NOT NULL;"),
+        ("command_runs", "SELECT DISTINCT workspace_id FROM command_runs WHERE workspace_id IS NOT NULL;"),
+        ("file_claims", "SELECT DISTINCT workspace_id FROM file_claims WHERE workspace_id IS NOT NULL;"),
+        ("tool_output_archive", "SELECT DISTINCT workspace_id FROM tool_output_archive WHERE workspace_id IS NOT NULL;"),
+        ("mcp_servers", "SELECT DISTINCT workspace_id FROM mcp_servers WHERE workspace_id IS NOT NULL;"),
+        ("workspace_identities", "SELECT DISTINCT id FROM workspace_identities;"),
+        ("workspace_identities", "SELECT DISTINCT root FROM workspace_identities;"),
+        ("agent_events", "SELECT DISTINCT json_extract(payload_json, '$.WorkspaceId') FROM agent_events WHERE type = 'usage' AND json_valid(payload_json) AND json_extract(payload_json, '$.WorkspaceId') IS NOT NULL;"),
+    ];
+
+    List<string> ids = [];
+    foreach ((string table, string sql) in sources)
+    {
+      if (!TableExists(connection, table))
+      {
+        continue;
+      }
+
+      using SqliteCommand command = connection.CreateCommand();
+      // Named decision (CA2100): every statement is a literal declared in this class.
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+      command.CommandText = sql;
+#pragma warning restore CA2100 // Review SQL query for security vulnerabilities
+      using SqliteDataReader reader = command.ExecuteReader();
+      while (reader.Read())
+      {
+        ids.Add(reader.GetString(0));
+      }
+    }
+
+    return ids;
+  }
+
+  /// <summary>The repair itself, in the order that keeps every reference intact: the records move
+  ///     to the target spelling, then the identity table is re-pointed.
+  ///     <para>EACH STATEMENT NAMES THE TABLE IT TOUCHES, because a migration runs against every
+  ///     historical shape of this database and one of these tables (<c>tool_output_archive</c>)
+  ///     was created by a build this migration table no longer contains.</para></summary>
+  private static readonly (string Table, string Sql)[] WorkspaceRespellStatements =
+  [
+      // Records first: ids are global, so moving both sides of a plan/chain or plan/review
+      // reference keeps it resolving.
+      ("plans", "UPDATE plans SET workspace_id=@target WHERE workspace_id=@source;"),
+      ("chains", "UPDATE chains SET workspace_id=@target WHERE workspace_id=@source;"),
+      ("transitions", "UPDATE transitions SET workspace_id=@target WHERE workspace_id=@source;"),
+      ("state_events", "UPDATE state_events SET workspace_id=@target WHERE workspace_id=@source;"),
+      ("command_runs", "UPDATE command_runs SET workspace_id=@target WHERE workspace_id=@source;"),
+      ("agents", "UPDATE agents SET workspace_id=@target WHERE workspace_id=@source;"),
+      // A key holds its LAST WRITE, so the later-stamped fork is the value the merged key keeps.
+      ("state_keys", """
+      UPDATE state_keys SET
+          value = (SELECT s.value FROM state_keys s WHERE s.workspace_id=@source
+              AND s.ns=state_keys.ns AND s.name=state_keys.name),
+          version = (SELECT s.version FROM state_keys s WHERE s.workspace_id=@source
+              AND s.ns=state_keys.ns AND s.name=state_keys.name),
+          updated_at = (SELECT s.updated_at FROM state_keys s WHERE s.workspace_id=@source
+              AND s.ns=state_keys.ns AND s.name=state_keys.name)
+          WHERE workspace_id=@target
+              AND EXISTS (SELECT 1 FROM state_keys s WHERE s.workspace_id=@source
+                  AND s.ns=state_keys.ns AND s.name=state_keys.name
+                  AND s.updated_at > state_keys.updated_at);
+      DELETE FROM state_keys WHERE workspace_id=@source
+          AND EXISTS (SELECT 1 FROM state_keys t WHERE t.workspace_id=@target
+              AND t.ns=state_keys.ns AND t.name=state_keys.name);
+      UPDATE state_keys SET workspace_id=@target WHERE workspace_id=@source;
+      """),
+      // A claim is a lease and an archived output is a content-addressed copy: the row already
+      // under the target is the one to keep.
+      ("file_claims", "DELETE FROM file_claims WHERE workspace_id=@source AND EXISTS (SELECT 1 FROM file_claims t WHERE t.workspace_id=@target AND t.path=file_claims.path);"),
+      ("file_claims", "UPDATE file_claims SET workspace_id=@target WHERE workspace_id=@source;"),
+      ("tool_output_archive", "DELETE FROM tool_output_archive WHERE workspace_id=@source AND EXISTS (SELECT 1 FROM tool_output_archive t WHERE t.workspace_id=@target AND t.handle=tool_output_archive.handle);"),
+      ("tool_output_archive", "UPDATE tool_output_archive SET workspace_id=@target WHERE workspace_id=@source;"),
+      ("mcp_servers", "DELETE FROM mcp_servers WHERE workspace_id=@source AND EXISTS (SELECT 1 FROM mcp_servers t WHERE t.workspace_id=@target AND t.name=mcp_servers.name);"),
+      ("mcp_servers", "UPDATE mcp_servers SET workspace_id=@target WHERE workspace_id=@source;"),
+      // The spend read matches the payload's own stamp, so the stamp moves with the row.
+      ("agent_events", "UPDATE agent_events SET payload_json = json_set(payload_json, '$.WorkspaceId', @target) WHERE type = 'usage' AND json_valid(payload_json) AND json_extract(payload_json, '$.WorkspaceId') = @source;"),
+      // The identity table last: it is what every other row's spelling is resolved against.
+      // Its two columns are each UNIQUE, so a value is only ever moved onto one that is free -
+      // and a row left holding a value another row already claims is dropped, because one
+      // directory has one identity and one identity has one directory.
+      ("workspace_identities", "UPDATE workspace_identities SET id=@target WHERE id=@source AND NOT EXISTS (SELECT 1 FROM workspace_identities t WHERE t.id=@target);"),
+      ("workspace_identities", "DELETE FROM workspace_identities WHERE id=@source;"),
+      ("workspace_identities", "UPDATE workspace_identities SET root=@target WHERE root=@source AND NOT EXISTS (SELECT 1 FROM workspace_identities t WHERE t.root=@target);"),
+      ("workspace_identities", "DELETE FROM workspace_identities WHERE root=@source;"),
+  ];
 }

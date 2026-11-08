@@ -1,4 +1,5 @@
 using eThangAgent.StateDomain;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Composition;
 
@@ -10,8 +11,13 @@ namespace eThangAgent.Composition;
 ///     that have nothing but a directory.</para></summary>
 public sealed class FixedWorkspaceContext(string workspaceId, string workspaceRoot) : IWorkspaceContext
 {
-  /// <summary>The identity, or the path itself when no separate identity is known.</summary>
-  public string WorkspaceId { get; } = Validate(workspaceId, nameof(workspaceId));
+  /// <summary>The identity, or the path itself when no separate identity is known.
+  ///     <para>IT MUST ALREADY BE NORMALIZED (issue #374). Every durable store refuses an id that
+  ///     is not, so a context built on a second spelling of one directory would make every write
+  ///     in the session fail at the store boundary; refusing here names the caller that minted it
+  ///     instead, and <see cref="ForPath"/> normalizes because a directory path is exactly the
+  ///     input the rule is defined for.</para></summary>
+  public string WorkspaceId { get; } = WorkspaceIdentity.Require(workspaceId);
 
   /// <summary>The directory the session is rooted at.</summary>
   public string WorkspaceRoot { get; } = Validate(workspaceRoot, nameof(workspaceRoot));
@@ -19,7 +25,7 @@ public sealed class FixedWorkspaceContext(string workspaceId, string workspaceRo
   /// <summary>A context whose id IS its path: the pre-#317 shape, for a caller that has only a
   ///     directory (a test harness, a headless stub, a workspace that predates the identity
   ///     table). Explicitly named so the equivalence reads as a decision, not an oversight.</summary>
-  public static FixedWorkspaceContext ForPath(string path) => new(path, path);
+  public static FixedWorkspaceContext ForPath(string path) => new(WorkspaceIdentity.For(path), path);
 
   /// <summary>A context for a caller that knows a workspace's IDENTITY but not, or not yet, its
   ///     directory (issue #285): the Open Workspace dialog writes a gate key for a workspace it

@@ -1,5 +1,6 @@
 using System.Globalization;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.Mcp;
 using Microsoft.Data.Sqlite;
 
@@ -20,7 +21,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
 
   public async Task<Result<IReadOnlyList<McpServerConfig>>> ListAsync(string workspaceId, CancellationToken ct = default)
   {
-    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+    string scope = WorkspaceIdentity.Require(workspaceId);
     try
     {
       // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
@@ -34,7 +35,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
           WHERE workspace_id IS NULL OR workspace_id = @ws
           ORDER BY name;
           """;
-      _ = command.Parameters.AddWithValue("@ws", workspaceId);
+      _ = command.Parameters.AddWithValue("@ws", scope);
       List<McpServerConfig> servers = [];
       using (SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
       {
@@ -53,14 +54,14 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
 
   public async Task<Result<McpServerConfig>> GetAsync(int id, string workspaceId, CancellationToken ct = default)
   {
-    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+    string scope = WorkspaceIdentity.Require(workspaceId);
     try
     {
       // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
 #pragma warning disable CA2007
       await using SqliteConnection connection = _database.Open();
 #pragma warning restore CA2007
-      return await ReadAsync(connection, null, id, workspaceId, ct).ConfigureAwait(false);
+      return await ReadAsync(connection, null, id, scope, ct).ConfigureAwait(false);
     }
     catch (SqliteException ex)
     {
@@ -155,7 +156,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
 
   public async Task<Result<bool>> DeleteAsync(int id, string workspaceId, CancellationToken ct = default)
   {
-    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+    string scope = WorkspaceIdentity.Require(workspaceId);
     try
     {
       // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
@@ -167,7 +168,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
       // Scope check first: an id outside the reading workspace's scope fails
       // McpServerNotFound rather than deleting another workspace's row. An unknown
       // id inside the scope is an honest false, not a failure.
-      Result<McpServerConfig> existing = await ReadAsync(connection, transaction, id, workspaceId, ct).ConfigureAwait(false);
+      Result<McpServerConfig> existing = await ReadAsync(connection, transaction, id, scope, ct).ConfigureAwait(false);
       if (!existing.IsSuccess)
       {
         // Distinguish unknown id (honest false) from foreign scope (McpServerNotFound)
@@ -436,7 +437,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
   }
 
   private static async Task<Result<McpServerConfig>> ReadAsync(
-      SqliteConnection connection, SqliteTransaction? transaction, int id, string workspaceId, CancellationToken ct)
+      SqliteConnection connection, SqliteTransaction? transaction, int id, string scope, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
     command.Transaction = transaction;
@@ -446,7 +447,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
         WHERE id = @id AND (workspace_id IS NULL OR workspace_id = @ws);
         """;
     _ = command.Parameters.AddWithValue("@id", id);
-    _ = command.Parameters.AddWithValue("@ws", workspaceId);
+    _ = command.Parameters.AddWithValue("@ws", scope);
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
     return !await reader.ReadAsync(ct).ConfigureAwait(false)
         ? Result.Failure<McpServerConfig>(NotFound(id))
