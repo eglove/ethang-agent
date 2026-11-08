@@ -7,8 +7,11 @@ using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.Composition;
+using eThangAgent.Desktop.Markdown;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
+using eThangAgent.ModelDomain;
+using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,7 +36,8 @@ internal sealed record DesktopBootstrap(
     CommitStyle CommitStyle,
     IWatchdogEventStore WatchdogEvents,
     WatchdogOptions WatchdogOptions,
-    bool CompactionHandoff);
+    bool CompactionHandoff,
+    Func<Uri, IProviderSignIn> OpenRouterSignIn);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads settings from app preferences (provider API keys live DPAPI-
@@ -94,7 +98,24 @@ internal static class DesktopHost
         commitStyle,
         new SqliteWatchdogEventStore(database),
         watchdogOptions,
-        compactionHandoff);
+        compactionHandoff,
+        SignInFor);
+  }
+
+  /// <summary>Builds the OpenRouter sign-in for a base URL: the browser is the OS default
+  ///     handler, and the key is minted by the provider and handed back to the dialog - it is
+  ///     stored by the ordinary settings save, exactly like a key the user typed.</summary>
+  private static OpenRouterSignIn SignInFor(Uri baseUrl)
+  {
+    OpenRouterConfiguration config = new(string.Empty, baseUrl);
+    // The client's lifetime is the sign-in's: the exchange holds it for every request the
+    // flow makes, and a sign-in is a handful of calls, so a shared pool buys nothing.
+#pragma warning disable CA2000 // the exchange owns the client for the flow's lifetime
+    HttpClient http = new() { Timeout = TimeSpan.FromSeconds(30) };
+#pragma warning restore CA2000
+    OpenRouterAppAttribution.Apply(http);
+    return new OpenRouterSignIn(new OpenRouterCodeExchange(http, config), config,
+        url => MarkdownLinkLauncher.TryOpen(url.ToString()));
   }
 
   /// <summary>Issue #298: removes preference rows whose feature was deleted and logs what
@@ -244,6 +265,7 @@ internal static class DesktopHost
           Settings = boot.Settings,
           SessionFactory = boot.Sessions,
           ApiKeyProtector = boot.ApiKeys,
+          ProviderSignIn = boot.OpenRouterSignIn,
           SessionCatalog = boot.Catalog,
           ChainAdvance = AdvanceFor,
           // ROOT SUPERVISION (issue #301 D5, wired by #323). The SAME loop and the SAME policy

@@ -2,6 +2,8 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Composition;
+using eThangAgent.ModelDomain;
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -53,6 +55,10 @@ internal sealed record SettingsValues
   public bool CompactionHandoff { get; init; }
   public string? SkillRegistryDefaultTarget { get; init; }
   public string? OpenRouterManagementKey { get; init; }
+
+  /// <summary>Builds the provider sign-in for a base URL, or null when the dialog offers
+  ///     no sign-in.</summary>
+  public Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; init; }
 }
 
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle CommitStyle,
@@ -78,6 +84,11 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public event EventHandler<SettingsUpdate>? SaveRequested;
 
   public IRelayCommand SaveCommand { get; }
+
+  /// <summary>Runs the provider sign-in and writes the minted key into the field. The
+  ///     field stays the single source of truth for what Save persists, so a sign-in that
+  ///     succeeds and a key that is typed by hand take the same path out of this dialog.</summary>
+  public IAsyncRelayCommand SignInCommand { get; }
 
   /// <summary>The three commit styles, in display order.</summary>
   public IReadOnlyList<CommitStyleOption> CommitStyles { get; } =
@@ -205,6 +216,43 @@ internal sealed partial class SettingsViewModel : ObservableObject
   ///     with them.</summary>
   public string? WorkspaceRoot { get; }
 
+  private Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; }
+
+  /// <summary>The sign-in for the base URL currently in the form, or null when this host
+  ///     offers none (tests, and any host that has not wired the flow) - the dialog then
+  ///     shows no sign-in button and the key field is the only way in.
+  ///     <para>BUILT FROM THE FIELD, NOT FROM A SNAPSHOT: a host pointed at a proxy must
+  ///     authorize against the host it will actually call, and the base URL is editable in
+  ///     this same dialog.</para></summary>
+  public IProviderSignIn? ProviderSignIn => ProviderSignInFactory?.Invoke(EffectiveBaseUrl);
+
+  /// <summary>The provider host the sign-in authorizes against: the form's base URL when it
+  ///     parses, the provider default otherwise (a malformed URL is the field's own
+  ///     validation error, not a reason to refuse a sign-in).</summary>
+  private Uri EffectiveBaseUrl =>
+      Uri.TryCreate(OpenRouterBaseUrlText.Trim(), UriKind.Absolute, out Uri? parsed)
+          ? parsed
+          : new Uri(OpenRouterSettings.DefaultBaseUrl);
+
+  /// <summary>True while a sign-in is in flight: the button is disabled and its label says
+  ///     what is happening, so a second click cannot start a second attempt.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(SignInLabel))]
+  public partial bool IsSigningIn { get; set; }
+
+  /// <summary>The sign-in button's label, which states the wait rather than leaving the
+  ///     user watching a disabled button.</summary>
+  public string SignInLabel => IsSigningIn ? "Waiting for browser..." : "Sign in with OpenRouter";
+
+  /// <summary>The sign-in failure to show under the button, or null when the last attempt
+  ///     succeeded (or none ran).</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(HasSignInError))]
+  public partial string? SignInError { get; set; }
+
+  /// <summary>Whether <see cref="SignInError"/> has something to show.</summary>
+  public bool HasSignInError => SignInError is not null;
+
   /// <summary>Whether a workspace is open; kept for the compaction model's
   ///     per-workspace capture (the dialog opened from a tab edits that
   ///     workspace's summarizer).</summary>
@@ -235,6 +283,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     // the changed hooks, which requery save availability. The guard in the action
     // is load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
     // button is only one of several ways this command can be invoked.
+    SignInCommand = new AsyncRelayCommand(SignInAsync, () => CanSignIn);
     SaveCommand = new RelayCommand(
         () =>
         {
@@ -256,8 +305,44 @@ internal sealed partial class SettingsViewModel : ObservableObject
     // Read-only properties: they must be assigned in the constructor body.
     CompactionModels = values.CompactionModels ?? [CompactionModelOption.Automatic];
     WorkspaceRoot = values.WorkspaceRoot;
+    ProviderSignInFactory = values.ProviderSignInFactory;
     SeedFrom(values);
   }
+
+  /// <summary>Runs the provider sign-in and puts the minted key in the field. The key
+  ///     is NOT persisted here: Save persists whatever the field holds, so a sign-in and a
+  ///     typed key leave the dialog the same way, and a user who signs in and then cancels
+  ///     keeps the key they had. A host that wires no sign-in seam shows no button.</summary>
+  private async Task SignInAsync()
+  {
+    if (ProviderSignIn is not { } signIn)
+    {
+      return;
+    }
+
+    IsSigningIn = true;
+    SignInError = null;
+    try
+    {
+      Result<string> outcome = await signIn.SignInAsync(CancellationToken.None);
+      if (outcome.IsSuccess)
+      {
+        OpenRouterKey = outcome.Value;
+      }
+      else
+      {
+        SignInError = outcome.Error.Message;
+      }
+    }
+    finally
+    {
+      IsSigningIn = false;
+    }
+  }
+
+  /// <summary>Sign-in is offered only when the host wired the seam and no attempt is
+  ///     already running.</summary>
+  private bool CanSignIn => ProviderSignIn is not null && !IsSigningIn;
 
   /// <summary>Seeds every observable property from the opening values. Runs AFTER
   ///     SaveCommand exists: each assignment raises the changed hooks, which requery
@@ -300,6 +385,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   // Validation edits must requery the Save button's CanExecute.
   partial void OnOpenRouterKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnIsSigningInChanged(bool value) => SignInCommand.NotifyCanExecuteChanged();
 
   partial void OnOpenRouterManagementKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 

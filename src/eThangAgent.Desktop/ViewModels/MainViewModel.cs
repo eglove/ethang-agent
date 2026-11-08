@@ -109,6 +109,11 @@ internal sealed record MainViewModelOptions
   ///     key saves are not persisted at all.</summary>
   public IApiKeyProtector? ApiKeyProtector { get; init; }
 
+  /// <summary>Builds the provider sign-in for a base URL. When null (tests, hosts without
+  ///     a browser), the settings modal offers no sign-in and the key field is the only way
+  ///     in.</summary>
+  public Func<Uri, IProviderSignIn>? ProviderSignIn { get; init; }
+
   /// <summary>Lists resumable root sessions for the Sessions dialog. When null (hosts
   ///     that compose sessions without a shared store), the Sessions entry reports the
   ///     catalog as unavailable.</summary>
@@ -317,6 +322,9 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     no key is set or settings editing is disabled).</summary>
   public string? ConfiguredOpenRouterKey => _settings?.OpenRouter.ApiKey;
 
+  /// <summary>The sign-in the settings modal offers, or null when this host wired none.</summary>
+  public Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; }
+
   /// <summary>The configured OpenRouter management key - the settings modal's
   ///     prefill (null when unset or settings editing is disabled).</summary>
   public string? ConfiguredOpenRouterManagementKey => _settings?.OpenRouter.ManagementKey;
@@ -417,6 +425,7 @@ internal sealed partial class MainViewModel : ObservableObject
     SeedWatchdogSeams(options, out _watchdogLoop, out _watchdogPolicy);
     _sessionFactory = options?.SessionFactory;
     _keyProtector = options?.ApiKeyProtector;
+    ProviderSignInFactory = SignInFactoryFrom(options);
     _sessionCatalog = options?.SessionCatalog;
     _createSession = CreateSessionDelegate(createSession);
     _createSeededSession = SeededDelegate(options, createSession);
@@ -434,6 +443,10 @@ internal sealed partial class MainViewModel : ObservableObject
     InitializeProviders(options);
     Tabs.CollectionChanged += OnTabsChanged;
   }
+
+  /// <summary>The host's sign-in factory, or null when it wired none.</summary>
+  private static Func<Uri, IProviderSignIn>? SignInFactoryFrom(MainViewModelOptions? options)
+      => options?.ProviderSignIn;
 
   /// <summary>Refuses a shell with no session source at all: neither a creation
   ///     delegate nor the settings/factory pair settings editing needs.</summary>
@@ -994,7 +1007,7 @@ internal sealed partial class MainViewModel : ObservableObject
     return new AgentSettings(
         new OpenRouterSettings(null, AgentSettingsLoader.BindBaseUrl(Normalize(update.OpenRouterBaseUrlText),
 #pragma warning disable S1075 // Anchored provider default; the loader's own seam carries the same named decision.
-            AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai")),
+            AgentPreferenceKeys.OpenRouterBaseUrl, OpenRouterSettings.DefaultBaseUrl)),
 #pragma warning restore S1075
         subAgents,
         Watchdog: watchdog);

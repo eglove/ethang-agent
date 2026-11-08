@@ -151,6 +151,7 @@ internal partial class MainWindow : Window
       CompactionHandoff = _vm.ConfiguredCompactionHandoff,
       SkillRegistryDefaultTarget = await _vm.GetSkillRegistryDefaultTargetAsync(),
       OpenRouterManagementKey = _vm.ConfiguredOpenRouterManagementKey,
+      ProviderSignInFactory = _vm.ProviderSignInFactory,
     });
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)

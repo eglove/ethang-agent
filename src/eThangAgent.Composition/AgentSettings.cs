@@ -12,6 +12,11 @@ namespace eThangAgent.Composition;
 ///     it never gates the provider or the model loop.</summary>
 public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl, string? ManagementKey = null)
 {
+  /// <summary>The provider host used when no base URL is configured.</summary>
+#pragma warning disable S1075 // the provider's documented public host, not a machine-local path
+  public const string DefaultBaseUrl = "https://openrouter.ai";
+#pragma warning restore S1075
+
   /// <summary>App-preference key the Desktop stores the (protected) OpenRouter key under.</summary>
   public const string PreferenceKey = "openrouter_api_key";
 

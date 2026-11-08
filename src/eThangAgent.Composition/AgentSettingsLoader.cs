@@ -80,7 +80,7 @@ public static class AgentSettingsLoader
     return new AgentSettings(
         new OpenRouterSettings(null, await ReadBaseUrlAsync(preferences,
 #pragma warning disable S1075 // Anchored provider default; per-host preference overrides it.
-            AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai").ConfigureAwait(false)),
+            AgentPreferenceKeys.OpenRouterBaseUrl, OpenRouterSettings.DefaultBaseUrl).ConfigureAwait(false)),
 #pragma warning restore S1075
         subAgents,
         ComputerUse: computerUse,

@@ -22,6 +22,14 @@
       <TabItem Header="API Keys">
         <StackPanel Spacing="10">
           <TextBlock Text="OpenRouter" FontWeight="Bold"/>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button x:Name="SignInButton" Content="{Binding SignInLabel}"
+                    Command="{Binding SignInCommand}"
+                    IsVisible="{Binding ProviderSignIn, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            <TextBlock Text="{Binding SignInError}" Foreground="OrangeRed" TextWrapping="Wrap"
+                       VerticalAlignment="Center" FontSize="12"
+                       IsVisible="{Binding HasSignInError}"/>
+          </StackPanel>
           <TextBox x:Name="OpenRouterKeyBox" Text="{Binding OpenRouterKey}"
                    PasswordChar="{Binding KeyPasswordChar}"
                    PlaceholderText="No OpenRouter API key configured"/>
@@ -31,7 +39,7 @@
                    PlaceholderText="No OpenRouter management key configured"/>
           <CheckBox x:Name="ShowKeysCheck" Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
           <TextBlock
-              Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key. The management key (sk-or-... from openrouter.ai/settings/keys, marked as a management key) unlocks the openrouter_management tool; it never touches model calls."
+              Text="Sign in to create a key in your own OpenRouter account, or paste one. Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key. The management key (sk-or-... from openrouter.ai/settings/keys, marked as a management key) unlocks the openrouter_management tool; it never touches model calls."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>

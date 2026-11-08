@@ -340,6 +340,7 @@ public sealed partial class DoctrineTests
         "Shell(\"",
         "TcpListener",
         "HttpListener",
+        "LoopbackCallbackListener.Start",
         "NamedPipeServerStream",
         "NamedPipeClientStream",
         "AddEThangAgentCore",
