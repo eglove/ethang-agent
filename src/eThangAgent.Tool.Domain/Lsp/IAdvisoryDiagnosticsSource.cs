@@ -37,7 +37,8 @@ public sealed record AdvisoryDiagnostic(
 /// with zero items unless the server has actually reported for it.</summary>
 public sealed record AdvisoryDiagnosticsResult(
     AdvisoryDiagnosticsState State,
-    IReadOnlyList<AdvisoryDiagnostic> Diagnostics);
+    IReadOnlyList<AdvisoryDiagnostic> Diagnostics,
+    string? Reason = null);
 
 /// <summary>One recorded advisory lookup: the file, its honesty label, and the
 /// diagnostics scoped to the changed lines at query time.</summary>

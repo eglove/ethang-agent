@@ -82,7 +82,7 @@ server.AttachRestartHook(async ct =>
 });
 try
 {
-  await server.ServeUntilClosedAsync();
+  await server.ServeUntilClosedAsync(server.ShutdownToken);
 }
 catch (Exception ex)
 {

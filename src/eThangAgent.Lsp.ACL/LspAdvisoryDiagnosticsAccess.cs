@@ -34,9 +34,9 @@ public sealed class LspAdvisoryDiagnosticsAccess : IAdvisoryDiagnosticsSource
     // Named decision (CA1031): a diagnostics fault must never fail the edit that
     // produced it - the edit result is worth more than the append.
 #pragma warning disable CA1031 // Do not catch general exception types
-    catch (Exception)
+    catch (Exception ex)
     {
-      return new AdvisoryDiagnosticsResult(AdvisoryDiagnosticsState.Degraded, []);
+      return new AdvisoryDiagnosticsResult(AdvisoryDiagnosticsState.Degraded, [], ex.Message);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }

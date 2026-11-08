@@ -16,6 +16,13 @@ public sealed class LspRoslynWorkspaceModel : ILspWorkspaceModel
   private readonly TaskCompletionSource<bool> _loadCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
   private bool _loadRequested;
   private bool _loaded;
+  private DateTimeOffset _lastRequestAttempt;
+
+  /// <summary>How long a failed load request waits before the next attempt. The send is a
+  ///     single notification to a daemon that may still be starting, so a transient failure
+  ///     is expected; a permanent one costs one retry per interval rather than a workspace
+  ///     that never loads again.</summary>
+  private static readonly TimeSpan RequestRetryInterval = TimeSpan.FromSeconds(2);
 
   public LspRoslynWorkspaceModel(LspJsonRpcTransport transport, LspDocumentSync documents, string workspaceRoot)
   {
@@ -73,10 +80,13 @@ public sealed class LspRoslynWorkspaceModel : ILspWorkspaceModel
     return IsLoaded;
   }
 
-  /// <summary>Sends solution/open once and returns without waiting. The load runs
-  ///     dotnet restore and a build host, which takes far longer than an edit's advisory
-  ///     budget, so a query during the load reports Starting and a later one finds the
-  ///     model ready. Waiting here would delay the edit for a diagnostic it cannot show.</summary>
+  /// <summary>Sends solution/open and returns without waiting. The load runs dotnet
+  ///     restore and a build host, which takes far longer than an edit's advisory budget, so
+  ///     a query during the load reports Starting and a later one finds the model ready.
+  ///     Waiting here would delay the edit for a diagnostic it cannot show.
+  ///     <para>THE REQUEST IS RETRIED, not attempted once: the flag is set only after the
+  ///     send returns, so a send that throws leaves the model free to ask again on the next
+  ///     query instead of reporting Starting for the life of the daemon.</para></summary>
   private async Task RequestLoadAsync(CancellationToken ct)
   {
     string? solutionPath = _solutionPath;
@@ -92,11 +102,17 @@ public sealed class LspRoslynWorkspaceModel : ILspWorkspaceModel
         return;
       }
 
-      _loadRequested = true;
+      if (DateTimeOffset.UtcNow - _lastRequestAttempt < RequestRetryInterval)
+      {
+        return;
+      }
+
+      _lastRequestAttempt = DateTimeOffset.UtcNow;
     }
 
     string parameters = "{\"solution\":\"" + LspUriMapper.ToUri(solutionPath) + "\"}";
     await _transport.SendNotificationAsync("solution/open", parameters, ct).ConfigureAwait(false);
+    lock (_gate) { _loadRequested = true; }
   }
 
   /// <summary>Records the server's load-complete announcement, which is the only signal

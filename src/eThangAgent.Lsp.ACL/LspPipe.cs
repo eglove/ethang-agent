@@ -19,6 +19,15 @@ public sealed class LspPipeClient : IDisposable
 {
   private readonly NamedPipeClientStream _pipe;
   private readonly SemaphoreSlim _writeLock = new(1, 1);
+  private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonObject>> _pending = new();
+  private readonly CancellationTokenSource _readerCts = new();
+
+  /// <summary>Bytes read past the last newline. A single pipe read can carry the tail of
+  ///     one frame and the whole of the next, so the remainder is kept here instead of
+  ///     being dropped: a dropped tail desynchronizes the stream for every later reply.</summary>
+  private readonly List<byte> _carry = [];
+
+  private Task? _reader;
 
   private LspPipeClient(NamedPipeClientStream pipe) => _pipe = pipe;
 
@@ -26,6 +35,7 @@ public sealed class LspPipeClient : IDisposable
   public int ProtocolVersion { get; private set; }
 
   private volatile bool _broken;
+  private int _disposed;
 
   /// <summary>True once this client can no longer reach its daemon: the server has hung
   ///     up, or a write or read on the pipe has failed. The owner discards a broken client
@@ -58,6 +68,7 @@ public sealed class LspPipeClient : IDisposable
     try
     {
       await client.HandshakeAsync(workspaceId, appInstanceId, ct).ConfigureAwait(false);
+      client.StartReader();
       return client;
     }
     catch
@@ -81,7 +92,8 @@ public sealed class LspPipeClient : IDisposable
       }
     };
     await WriteLineAsync(hello.ToJsonString(), ct).ConfigureAwait(false);
-    string line = await ReadLineAsync(ct).ConfigureAwait(false);
+    string line = await ReadLineAsync(ct).ConfigureAwait(false)
+        ?? throw new IOException("daemon closed during hello");
     using JsonDocument doc = JsonDocument.Parse(line);
     JsonElement root = doc.RootElement;
     if (root.TryGetProperty("error", out JsonElement err))
@@ -110,52 +122,133 @@ public sealed class LspPipeClient : IDisposable
     }
   }
 
-  private async Task<string> ReadLineAsync(CancellationToken ct)
+  /// <summary>Reads one newline-terminated frame, keeping any bytes that follow the
+  ///     newline for the next call. Returns null when the daemon closed the pipe. Only the
+  ///     handshake and the reader loop call this, and the handshake finishes before the loop
+  ///     starts, so the carry buffer is never entered concurrently.</summary>
+  private async Task<string?> ReadLineAsync(CancellationToken ct)
   {
-    List<byte> lineBytes = [];
     byte[] buffer = new byte[8192];
     while (true)
     {
-      int read = await _pipe.ReadAsync(buffer, ct).ConfigureAwait(false);
-      if (read == 0) throw new IOException("daemon closed during hello");
-      for (int i = 0; i < read; i++)
+      int newline = _carry.IndexOf((byte)'\n');
+      if (newline >= 0)
       {
-        if (buffer[i] == (byte)'\n')
-        {
-          return Encoding.UTF8.GetString([.. lineBytes]);
-        }
-        lineBytes.Add(buffer[i]);
-        if (lineBytes.Count > LspProtocol.MaxFrameBytes) throw new IOException("frame too large");
+        string line = Encoding.UTF8.GetString([.. _carry.Take(newline)]);
+        _carry.RemoveRange(0, newline + 1);
+        return line;
       }
+
+      if (_carry.Count > LspProtocol.MaxFrameBytes) throw new IOException("frame too large");
+      int read = await _pipe.ReadAsync(buffer, ct).ConfigureAwait(false);
+      if (read == 0) return null;
+      _carry.AddRange(buffer.AsSpan(0, read).ToArray());
     }
   }
 
   private int _nextRequestId = 2;
 
+  /// <summary>How long one request may wait for its reply before the caller is told it
+  ///     timed out. Independent of the caller's own budget, so a request that outlives its
+  ///     caller cannot hold a pending entry for the life of the connection.</summary>
+  private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
+
+  /// <summary>Reads frames for the life of the connection and completes the request each
+  ///     reply belongs to. Replies are matched by id, so a reply that arrives while another
+  ///     request is in flight - or two replies coalesced into one pipe read - reaches the
+  ///     right caller instead of being consumed in write order.</summary>
+  private void StartReader() => _reader ??= Task.Run(ReadLoopAsync, CancellationToken.None);
+
+  private async Task ReadLoopAsync()
+  {
+    try
+    {
+      while (true)
+      {
+        string? line = await ReadLineAsync(_readerCts.Token).ConfigureAwait(false);
+        if (line is null)
+        {
+          break;
+        }
+
+        Dispatch(line);
+      }
+    }
+    catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
+    {
+    }
+
+    _broken = true;
+    FailAllPending();
+  }
+
+  private void Dispatch(string line)
+  {
+    JsonObject reply;
+    try
+    {
+      reply = JsonNode.Parse(line)?.AsObject() ?? [];
+    }
+    catch (JsonException)
+    {
+      return;
+    }
+
+    if (reply["id"] is JsonValue idValue && idValue.TryGetValue(out int id)
+        && _pending.TryRemove(id, out TaskCompletionSource<JsonObject>? waiter))
+    {
+      _ = waiter.TrySetResult(reply);
+    }
+  }
+
+  private void FailAllPending()
+  {
+    foreach (KeyValuePair<int, TaskCompletionSource<JsonObject>> entry in _pending)
+    {
+      _ = entry.Value.TrySetException(new IOException("the daemon connection was lost"));
+    }
+
+    _pending.Clear();
+  }
+
   private async Task<JsonObject> RequestAsync(string method, JsonObject parameters, CancellationToken ct)
   {
+    if (_broken)
+    {
+      throw new IOException("the daemon connection is broken");
+    }
+
     int id = Interlocked.Increment(ref _nextRequestId);
     JsonObject request = new() { ["id"] = id, ["method"] = method, ["params"] = parameters };
-    string line;
+    TaskCompletionSource<JsonObject> waiter = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    _pending[id] = waiter;
     try
     {
       await WriteLineAsync(request.ToJsonString(), ct).ConfigureAwait(false);
-      line = await ReadLineAsync(ct).ConfigureAwait(false);
-    }
-    catch (Exception ex) when (ex is IOException or ObjectDisposedException)
-    {
-      _broken = true;
-      throw;
-    }
+      JsonObject reply;
+      using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+      deadline.CancelAfter(RequestTimeout);
+      try
+      {
+        reply = await waiter.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+      {
+        throw new TimeoutException(method + " timed out");
+      }
 
-    using JsonDocument doc = JsonDocument.Parse(line);
-    JsonElement root = doc.RootElement;
-    if (root.TryGetProperty("error", out JsonElement err))
-    {
-      string code = err.TryGetProperty("code", out JsonElement c) ? c.GetString() ?? "unknown" : "unknown";
-      throw new InvalidOperationException(method + " error: " + code);
+      if (reply["error"] is JsonObject error)
+      {
+        string code = error["code"]?.ToString() ?? "unknown";
+        throw new InvalidOperationException(method + " error: " + code);
+      }
+
+      return reply["result"]?.AsObject() ?? [];
     }
-    return JsonNode.Parse(root.GetProperty("result").GetRawText())!.AsObject();
+    finally
+    {
+      _ = _pending.TryRemove(id, out _);
+    }
   }
 
   private static FileClaimResult MapClaim(JsonObject result)
@@ -254,6 +347,22 @@ public sealed class LspPipeClient : IDisposable
         result["message"]?.GetValue<string>());
   }
 
+  /// <summary>Asks the daemon to stop when this is its last client. Answers true when the
+  ///     daemon accepted and is exiting, false when other hosts still hold it. A daemon that
+  ///     cannot answer is already gone, which is the outcome the caller wanted.</summary>
+  public async Task<bool> ShutdownIfIdleAsync(CancellationToken ct = default)
+  {
+    try
+    {
+      JsonObject result = await RequestAsync("daemon.shutdown-if-idle", [], ct).ConfigureAwait(false);
+      return result["shutdown"]?.GetValue<bool>() ?? false;
+    }
+    catch (Exception ex) when (ex is IOException or ObjectDisposedException or TimeoutException or InvalidOperationException)
+    {
+      return false;
+    }
+  }
+
   /// <summary>Sends one watcher.announce notification over the pipe.</summary>
   public async Task SendWatcherAnnouncementAsync(WatcherAnnouncement announcement, CancellationToken ct = default)
   {
@@ -263,8 +372,17 @@ public sealed class LspPipeClient : IDisposable
 
   public void Dispose()
   {
-    _writeLock.Dispose();
+    if (Interlocked.Exchange(ref _disposed, 1) != 0)
+    {
+      return;
+    }
+
+    _broken = true;
+    _readerCts.Cancel();
+    FailAllPending();
     _pipe.Dispose();
+    _writeLock.Dispose();
+    _readerCts.Dispose();
   }
 }
 
@@ -280,6 +398,14 @@ public sealed class LspDaemonServer : IDisposable
   private readonly IFileClaimStore _claimStore;
   private readonly ConcurrentDictionary<NamedPipeServerStream, byte> _connections = new();
   private Func<CancellationToken, Task>? _restartHook;
+  private readonly CancellationTokenSource _shutdownCts = new();
+
+  /// <summary>Cancelled when the last client asks the daemon to stop. A workspace's daemon
+  ///     serves every host in that workspace, so it outlives the session that happened to
+  ///     start it - otherwise one session's exit destroys the warm server every sibling is
+  ///     using, and the next session pays a full solution load again. The stop is a request
+  ///     from the departing client, not a timer: nothing polls for idleness.</summary>
+  public CancellationToken ShutdownToken => _shutdownCts.Token;
 
   public LspDaemonServer(string pipeName, string workspaceId, Func<Task> onConnected, IFileClaimStore? claimStore = null)
   {
@@ -473,6 +599,11 @@ public sealed class LspDaemonServer : IDisposable
         await HandleDiagnosticsRequestAsync(server, line, ct).ConfigureAwait(false);
         return;
       }
+      if (method == "daemon.shutdown-if-idle")
+      {
+        await HandleShutdownIfIdleAsync(server, line, ct).ConfigureAwait(false);
+        return;
+      }
       if (method != "lsp.symbol" || _symbolService is null) return;
       if (!root.TryGetProperty("id", out JsonElement idEl)) return;
       if (!root.TryGetProperty("params", out JsonElement p)) return;
@@ -532,6 +663,27 @@ public sealed class LspDaemonServer : IDisposable
       }
       JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["diagnostics"] = diagnostics } };
       await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
+    }
+    catch (JsonException) { }
+    catch (IOException) { }
+  }
+
+  /// <summary>Stops the daemon when the asking connection is its only client. The count is
+  ///     read before the reply is written, so the answer describes the state the caller is
+  ///     leaving behind: one connection means this caller, and nobody is left to serve.</summary>
+  private async Task HandleShutdownIfIdleAsync(NamedPipeServerStream server, string line, CancellationToken ct)
+  {
+    try
+    {
+      using JsonDocument doc = JsonDocument.Parse(line);
+      if (!doc.RootElement.TryGetProperty("id", out JsonElement idEl)) return;
+      bool last = _connections.Count <= 1;
+      JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["shutdown"] = last } };
+      await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
+      if (last)
+      {
+        await _shutdownCts.CancelAsync().ConfigureAwait(false);
+      }
     }
     catch (JsonException) { }
     catch (IOException) { }
@@ -605,5 +757,6 @@ public sealed class LspDaemonServer : IDisposable
     }
 
     _connections.Clear();
+    _shutdownCts.Dispose();
   }
 }

@@ -89,9 +89,9 @@ public static class AdvisoryDiagnosticsAppender
     // Named decision (CA1031): a diagnostics fault must never fail the edit that
     // produced it - the edit result is worth more than the append.
 #pragma warning disable CA1031 // Do not catch general exception types
-    catch (Exception)
+    catch (Exception ex)
     {
-      return new AdvisoryDiagnosticsResult(AdvisoryDiagnosticsState.Degraded, []);
+      return new AdvisoryDiagnosticsResult(AdvisoryDiagnosticsState.Degraded, [], ex.Message);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }
@@ -109,7 +109,9 @@ public static class AdvisoryDiagnosticsAppender
       AdvisoryDiagnosticsState.Ready => RenderReady(scoped),
       AdvisoryDiagnosticsState.Starting => "[diagnostics] Starting: server starting \u2014 no evidence yet.",
       AdvisoryDiagnosticsState.Stale => "[diagnostics] stale: diagnostics may be outdated.",
-      AdvisoryDiagnosticsState.Degraded => "[diagnostics] Degraded: diagnostics unavailable.",
+      AdvisoryDiagnosticsState.Degraded => result.Reason is null
+        ? "[diagnostics] Degraded: diagnostics unavailable."
+        : "[diagnostics] Degraded: " + result.Reason,
       // No language server for this workspace is the ordinary state of a workspace whose
       // language is not served; nothing is appended, so the result is byte-identical.
       AdvisoryDiagnosticsState.Unavailable => null,

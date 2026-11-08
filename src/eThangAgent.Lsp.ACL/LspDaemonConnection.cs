@@ -115,14 +115,41 @@ public sealed class LspDaemonConnection : IAsyncDisposable
     process.Dispose();
   }
 
-  public ValueTask DisposeAsync()
+  /// <summary>Releases this connection. A daemon this app started is NOT killed here:
+  ///     it serves every host in the workspace, so killing it on one session's exit destroys
+  ///     the warm language server its siblings are still using and forces the next session to
+  ///     reload the whole solution. The daemon is asked to stop only when no client remains,
+  ///     and the kill-on-close job still reaps it when the app itself dies.</summary>
+  public async ValueTask DisposeAsync()
   {
-    _client?.Dispose();
-    if (_process is not null)
+    if (_client is not null)
     {
-      KillQuietly(_process);
+      _ = await _client.ShutdownIfIdleAsync().ConfigureAwait(false);
+      _client.Dispose();
     }
 
-    return ValueTask.CompletedTask;
+    if (_process is not null)
+    {
+      WaitQuietly(_process);
+    }
   }
+
+  /// <summary>Reaps a daemon that agreed to stop, without waiting on one that did not.
+  ///     A daemon still serving siblings is left running; the job handle owns it from there.</summary>
+  private static void WaitQuietly(Process process)
+  {
+    try
+    {
+      _ = process.WaitForExit(ShutdownWaitMilliseconds);
+    }
+    catch (InvalidOperationException)
+    {
+    }
+
+    process.Dispose();
+  }
+
+  /// <summary>How long a stopping daemon is given to exit before this process stops
+  ///     waiting for it. The daemon exits on its own; this is not a kill.</summary>
+  private const int ShutdownWaitMilliseconds = 3000;
 }
