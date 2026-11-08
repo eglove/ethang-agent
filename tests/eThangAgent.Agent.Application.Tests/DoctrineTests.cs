@@ -51,6 +51,9 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@"static\s+readonly\s+TimeSpan\s+(Limit|TestTimeout|WaitLimit|Timeout)\s*=\s*TimeSpan\.From")]
   private static partial Regex LocalCeilingPattern();
 
+  [GeneratedRegex(@"\b\w*(deadline|Deadline|limit|Limit|timeout|Timeout|until|Until|bound|Bound)\w*\s*=\s*DateTime(Offset)?\.(UtcNow|Now)\s*(\+\s*TimeSpan\.From\w*\s*\(\s*\d|\.Add\w*\s*\(\s*\d)")]
+  private static partial Regex ClockDeadlinePattern();
+
   [GeneratedRegex(@"Assert\.\w+\s*\([^;]*?\.Elapsed\s*<=")]
   private static partial Regex ElapsedAssertionPattern();
 
@@ -216,7 +219,13 @@ public sealed partial class DoctrineTests
   ///     load the machine is saturated by the suite's own child-host processes, so a bound tuned to
   ///     an idle machine expires before the work settles and the assertion proves nothing about the
   ///     code. Ceilings have one source of truth (<c>TestCeiling</c> in Tests.Shared); a test that
-  ///     genuinely measures latency declares it with <c>Category=LatencyContract</c>.</summary>
+  ///     genuinely measures latency declares it with <c>Category=LatencyContract</c>.
+  ///     <para>Issue #377: the rule is enforced for the SHAPE, not for one spelling of it. A local
+  ///     variable is the most natural way to write a bounded wait, and the static-field pattern below
+  ///     could not see it - which is how a literal ten-second deadline sat in a passing test until a
+  ///     loaded machine reached it first. A bound built from a literal duration is therefore caught
+  ///     wherever it is declared; a bound built from <c>TestCeiling.Value</c> or from a variable
+  ///     holding it is what remains.</para></summary>
   [Fact]
   public void NoWallClockLatencyBounds_EveryWaitIsACeilingOrDeclaresLatency()
   {
@@ -233,6 +242,11 @@ public sealed partial class DoctrineTests
       if (LocalCeilingPattern().IsMatch(text))
       {
         violations.Add(relative + " (local wall-clock ceiling constant)");
+      }
+
+      if (ClockDeadlinePattern().IsMatch(text))
+      {
+        violations.Add(relative + " (wall-clock deadline built from a literal duration)");
       }
 
       if (ElapsedAssertionPattern().IsMatch(text))

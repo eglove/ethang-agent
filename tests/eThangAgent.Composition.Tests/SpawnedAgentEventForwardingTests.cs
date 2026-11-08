@@ -251,7 +251,7 @@ public class SpawnedAgentEventForwardingTests
   ///     under test (issue #326); waiting on a runtime await would test a different seam.</summary>
   private static async Task<AgentSettledEvent> AwaitSettledAsync(ParentHost parent, AgentRecord child)
   {
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(60);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (DateTimeOffset.UtcNow < deadline)
     {
       AgentSettledEvent? settled = parent.Events.Snapshot()
@@ -322,7 +322,7 @@ public class SpawnedAgentEventForwardingTests
 
     // The run completes on the host either way — the legacy shape changes what the APP
     // observes, never what the agent does.
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(60);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (DateTimeOffset.UtcNow < deadline)
     {
       Result<AgentRecord> row = await parent.Store.GetAsync(child.Id, ct).ConfigureAwait(true);

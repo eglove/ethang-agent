@@ -6,6 +6,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -323,7 +324,7 @@ public class CellPhaseChipTests
   /// <param name="condition">The outcome to wait for.</param>
   private static async Task WaitUntilAsync(Func<bool> condition)
   {
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (!condition() && DateTimeOffset.UtcNow < deadline)
     {
       await Task.Delay(TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken)
@@ -395,7 +396,7 @@ public class CellPhaseChipTests
     /// <param name="agent">The agent whose cell to wait for.</param>
     public static async Task<AgentCellViewModel> WaitForCellAsync(AgentTabViewModel tab, AgentId agent)
     {
-      DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+      DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
       while (tab.FindCell(agent) is null && DateTimeOffset.UtcNow < deadline)
       {
         await Task.Delay(TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken)

@@ -38,7 +38,7 @@ public class InProcessAgentRuntimeResumeTests
     ///     deadline fires loudly instead of hanging (deadlock vigilance).</summary>
     public async Task WaitForDispatchAsync(int count)
     {
-      DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+      DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
       while (Volatile.Read(ref _dispatched) < count)
       {
         if (DateTime.UtcNow > deadline)
@@ -177,7 +177,7 @@ public class InProcessAgentRuntimeResumeTests
   ///     the finally block ran, so the terminal persist is final — deterministic, no sleep.</summary>
   private static async Task WaitForRetirementAsync(InProcessAgentRuntime runtime, AgentId id)
   {
-    DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
     while (runtime.ActiveChildren.Contains(id.Value))
     {
       if (DateTime.UtcNow > deadline)

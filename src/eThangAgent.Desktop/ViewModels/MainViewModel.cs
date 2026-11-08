@@ -1535,7 +1535,7 @@ internal sealed partial class MainViewModel : ObservableObject
   private static AgentSessionViewModel SessionViewModelOf(AgentTabViewModel tab, AgentId? sessionId)
     => (sessionId is { } id ? tab.FindCell(id)?.ViewModel : null)
         ?? tab.LiveViewModel
-        ?? tab.Cells[0].ViewModel;
+        ?? tab.Snapshot()[0].ViewModel;
 
   /// <summary>The refusal a launch earns when the tab cannot receive it, or null when it can:
   ///     a closed tab has nowhere to put the session, and a busy cell is a turn in flight that
@@ -1661,8 +1661,8 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="predecessorId">The session the launch supersedes, or null.</param>
   private static AgentCellViewModel NamedOrFirstLive(AgentTabViewModel tab, AgentId? predecessorId)
     => (predecessorId is { } previous ? tab.FindCell(previous) : null)
-        ?? tab.Cells.FirstOrDefault(c => c.Container is not null)
-        ?? tab.Cells[0];
+        ?? tab.Snapshot().FirstOrDefault(c => c.Container is not null)
+        ?? tab.Snapshot()[0];
   /// <summary>Starts a new session in <paramref name="tab"/> as a NEW CELL (issue #332): the
   ///     successor is appended beside the agent it supersedes, that agent's card stays where it
   ///     is as a finished record, and — when <paramref name="prompt"/> is non-empty — the new
@@ -1994,7 +1994,7 @@ internal sealed partial class MainViewModel : ObservableObject
   public bool NudgeChainStepSession(AgentId rootId, string message)
   {
     AgentCellViewModel? cell = Tabs
-        .SelectMany(t => t.Cells)
+        .SelectMany(t => t.Snapshot())
         .FirstOrDefault(c => c.RootId == rootId);
     if (cell is null || cell.ViewModel.IsBusy)
     {
@@ -2018,7 +2018,7 @@ internal sealed partial class MainViewModel : ObservableObject
   public bool ResumeChainStepSessionAsync(AgentId rootId, string message)
   {
     AgentCellViewModel? cell = Tabs
-        .SelectMany(t => t.Cells)
+        .SelectMany(t => t.Snapshot())
         .FirstOrDefault(c => c.RootId == rootId);
     if (cell is null)
     {
@@ -3797,7 +3797,7 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     // Snapshot BEFORE teardown: a cell swap during shutdown must not change what is closed.
-    List<AgentCellViewModel> cells = [.. tab.Cells];
+    List<AgentCellViewModel> cells = [.. tab.Snapshot()];
     foreach (AgentCellViewModel cell in cells)
     {
       // An agent running in its own host owns nothing here (issue #329): there is no session
@@ -3867,7 +3867,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     into 'not delivered' - a message to nobody must not consume the wrap-up budget.</para></summary>
   /// <param name="rootId">The session to find.</param>
   public AgentSession? SessionFor(AgentId rootId) => Tabs
-      .SelectMany(t => t.Cells)
+      .SelectMany(t => t.Snapshot())
       .FirstOrDefault(c => c.RootId == rootId)?.Container;
 
   public async Task CloseSessionAsync(AgentId rootId)
@@ -3883,7 +3883,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // of what ran and the tab lives on. Closing on cell zero - which is what the pre-#332 code
     // did - would destroy every card in the grid the moment the tab's first agent finished,
     // including the ones D7 keeps so the work can be read.
-    if (tab.Cells.Count <= 1)
+    if (tab.Snapshot().Length <= 1)
     {
       await CloseTabAsync(tab).ConfigureAwait(true);
       return;

@@ -444,7 +444,7 @@ public class ChildHostSpawnedAgentSteerTests
       if (Interlocked.Increment(ref _requests) == 1)
       {
         // HELD: the first turn stays in flight until the test has steered the run.
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(45);
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
         while (Volatile.Read(ref _released) == 0 && DateTimeOffset.UtcNow < deadline)
         {
           await Task.Delay(TimeSpan.FromMilliseconds(25), _cts.Token).ConfigureAwait(false);

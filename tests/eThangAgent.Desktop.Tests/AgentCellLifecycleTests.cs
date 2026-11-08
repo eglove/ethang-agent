@@ -1,4 +1,5 @@
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -195,5 +196,41 @@ public class AgentCellLifecycleTests
     Assert.Equal("demo", cell.Title);
     Assert.Equal("demo", tab.Title);
     Assert.False(cell.IsFinished);
+  }
+
+  /// <summary>Issue #377: a cell lands after an asynchronous store read, so the collection is
+  ///     appended to OFF the UI thread while the grid, the shell's lookups, and a waiting test
+  ///     walk it. An <c>ObservableCollection</c> enumerated during an append throws, and the
+  ///     subscriber contains that fault - the started fact is lost and no cell ever appears.
+  ///     <para>THE APPEND RACES THE LOOKUP HERE, which is the shape of the failure: the
+  ///     assertions below are the ones a caller makes while the append is in flight.</para></summary>
+  [Fact]
+  public async Task CellsAppendedWhileTheTabIsRead_NeverFaultTheLookup()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTab();
+    // A faulted append surfaces at the await below: the append itself is what must not throw.
+    Task appender = Task.Run(() =>
+    {
+      for (int i = 0; i < 500; i++)
+      {
+        _ = tab.AddCell(
+            TestFixtures.FakeSessionFor(TestFixtures.CreateViewModel()),
+            TestFixtures.CreateViewModel());
+      }
+    }, TestContext.Current.CancellationToken);
+
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
+    while (!appender.IsCompleted && DateTimeOffset.UtcNow < deadline)
+    {
+      _ = tab.FindCell(tab.Cells[0].RootId);
+      _ = tab.LiveViewModel;
+      _ = tab.LiveContainer;
+      _ = tab.IsEmpty;
+      _ = tab.IsFullyFinished;
+      _ = tab.Snapshot();
+    }
+
+    await appender.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.Equal(501, tab.Snapshot().Length);
   }
 }

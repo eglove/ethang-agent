@@ -7,6 +7,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -161,7 +162,7 @@ public class AgentCellTests
   /// <param name="agentId">The agent's id.</param>
   private static async Task<AgentCellViewModel> AwaitCellAsync(AgentTabViewModel tab, AgentId agentId)
   {
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (DateTimeOffset.UtcNow < deadline)
     {
       if (tab.FindCell(agentId) is { } cell)
@@ -285,7 +286,7 @@ public class AgentCellTests
     shell.Events.Publish(new AgentSettledEvent(agent, DateTimeOffset.UtcNow,
         AgentStatus.Completed, null, 12));
 
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (!cell.IsFinished && DateTimeOffset.UtcNow < deadline)
     {
       await Task.Delay(TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken);
@@ -314,7 +315,7 @@ public class AgentCellTests
     shell.Events.Publish(new AgentStartedEvent(agent, DateTimeOffset.UtcNow, "test/model", 1));
     AgentCellViewModel cell = await AwaitCellAsync(tab, agent);
 
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (!cell.ViewModel.Transcript.AssistantText.Contains("the diff is correct", StringComparison.Ordinal)
         && DateTimeOffset.UtcNow < deadline)
     {

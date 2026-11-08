@@ -211,8 +211,12 @@ internal static class E2E
 
     /// <summary>Deletes the database file the harness owns. A connection the container opened
     ///     returns to the process-wide pool when it closes, and the pool keeps its handle on the
-    ///     file, so the file outlives the container until the pool is cleared. The file is the
-    ///     harness's own, and a delete that fails throws rather than leaving it behind.</summary>
+    ///     file, so the file outlives the container until the pool is cleared.
+    ///     <para>THE DELETE IS RETRIED AGAINST THE CEILING, not attempted once. Clearing the pool
+    ///     drops this process's handles, but a host this harness started can still be releasing
+    ///     its own, and a machine saturated by the suite widens that window. The invariant stays
+    ///     'the file is not left behind': a handle that never releases still throws, naming the
+    ///     file, and a reap that merely takes a moment is not reported as a failed test.</para></summary>
     private void ReleaseDatabaseFile()
     {
       if (DatabasePath.Length == 0)
@@ -221,10 +225,46 @@ internal static class E2E
       }
 
       Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-      if (File.Exists(DatabasePath))
+      if (!File.Exists(DatabasePath))
       {
-        File.Delete(DatabasePath);
+        return;
       }
+
+      System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+      while (true)
+      {
+        try
+        {
+          File.Delete(DatabasePath);
+          return;
+        }
+        catch (IOException ex)
+        {
+          RetryOrThrow(ex, clock);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+          RetryOrThrow(ex, clock);
+        }
+      }
+    }
+
+    /// <summary>Waits for one more delete attempt, or throws once the ceiling is spent: a handle
+    ///     that never releases is debris nothing reclaims, which is the defect this delete exists
+    ///     to prevent.</summary>
+    /// <param name="failure">What the last attempt reported.</param>
+    /// <param name="clock">How long the delete has been retrying.</param>
+    private void RetryOrThrow(Exception failure, System.Diagnostics.Stopwatch clock)
+    {
+      if (clock.Elapsed >= TestCeiling.Value)
+      {
+        throw new InvalidOperationException(
+            "the harness database file could not be removed: '" + DatabasePath + "' ("
+            + failure.GetType().Name + ": " + failure.Message + ").",
+            failure);
+      }
+
+      Thread.Sleep(TimeSpan.FromMilliseconds(50));
     }
 
     /// <summary>Closes the shell the way a user closing the app does - every tab's session

@@ -4,6 +4,7 @@ using Avalonia.Threading;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -37,7 +38,7 @@ public class ModelSettingsWindowTests
     // is a WALL-CLOCK bound, not a pump count: under load a pump takes longer and the
     // continuation lands later, so a fixed count expired before the load did and the
     // test failed on a busy machine (2026-10-22).
-    DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     for (int i = 0; i < 5_000 && vm.ModelSection!.FilteredRows.Count <= 1; i++)
     {
       if (DateTimeOffset.UtcNow > deadline)
@@ -74,7 +75,7 @@ public class ModelSettingsWindowTests
     // Pump until the WHOLE load has landed: the catalog, then the rebuild that re-renders the
     // list. That last re-render is the one that used to drop the selection, so stopping at the
     // first non-null selection would miss the defect.
-    DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (DateTimeOffset.UtcNow < deadline && vm.ModelSection!.IsLoading)
     {
       await Dispatcher.UIThread.InvokeAsync(() => { });

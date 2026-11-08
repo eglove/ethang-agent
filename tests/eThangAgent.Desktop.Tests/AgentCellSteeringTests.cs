@@ -6,6 +6,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.TestSupport;
 using eThangAgent.Transport.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -607,7 +608,7 @@ public class AgentCellSteeringTests
   ///     message instead of hanging the suite.</summary>
   private static async Task WaitUntilAsync(Func<bool> condition)
   {
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (!condition())
     {
       if (DateTimeOffset.UtcNow > deadline)

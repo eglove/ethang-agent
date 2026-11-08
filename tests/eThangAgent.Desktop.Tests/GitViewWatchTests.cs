@@ -74,7 +74,7 @@ public sealed class GitViewWatchTests : IDisposable
     await File.WriteAllTextAsync(Path.Combine(_root, "a.txt"), "edited elsewhere",
         TestContext.Current.CancellationToken);
 
-    await WaitForAsync(() => git.Reads > baseline, TimeSpan.FromMilliseconds(2500));
+    await WaitForAsync(() => git.Reads > baseline);
     Assert.True(git.Reads > baseline, "an edit in another program must refresh the view.");
   }
 
@@ -152,7 +152,7 @@ public sealed class GitViewWatchTests : IDisposable
             new DomainError("NotAGitRepository", $"Not a git repository: {repoPath}")));
   }
 
-  private static Task WaitForAsync(Func<bool> condition) => WaitForAsync(condition, TimeSpan.FromSeconds(10));
+  private static Task WaitForAsync(Func<bool> condition) => WaitForAsync(condition, TestCeiling.Value);
 
   private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)
   {

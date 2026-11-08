@@ -118,7 +118,7 @@ public class InProcessAgentRuntimeQueueTests
 
   private static async Task<bool> SpinUntilAsync(Func<bool> condition)
   {
-    DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
     while (!condition())
     {
       if (DateTime.UtcNow > deadline)

@@ -70,7 +70,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     paths that genuinely cannot proceed without a session, and the few that can - the
   ///     workspace identity, the branch watcher - read this instead.</para></summary>
   public AgentSession? LiveContainer
-    => Cells.Select(cell => cell.Container).FirstOrDefault(s => s is not null);
+    => Snapshot().Select(cell => cell.Container).FirstOrDefault(s => s is not null);
 
   /// <summary>The live cell's view-model (see <see cref="Container"/>): the cell whose session
   ///     the tab is anchored on, so the pre-#307 surface keeps addressing a LIVE conversation
@@ -90,7 +90,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   /// <summary>The live cell's view-model, or null when every cell is retired or the tab holds
   ///     none (see <see cref="LiveContainer"/>).</summary>
   public AgentSessionViewModel? LiveViewModel
-    => Cells.Select(cell => cell.ViewModel).FirstOrDefault(vm => !vm.IsRetired);
+    => Snapshot().Select(cell => cell.ViewModel).FirstOrDefault(vm => !vm.IsRetired);
 
   /// <summary>The workspace this tab shows, as the stable identity its durable rows key on.
   ///     Null when the tab was built over a session whose container carries no workspace
@@ -100,6 +100,26 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   /// <summary>The workspace tab's agent cells, in the order they were started (D7: position
   ///     carries meaning, so a finished cell keeps its place rather than reflowing).</summary>
   public ObservableCollection<AgentCellViewModel> Cells { get; }
+
+  /// <summary>Serializes every read and write of <see cref="Cells"/>.
+  ///     <para>THE COLLECTION IS APPENDED TO OFF THE UI THREAD AND ENUMERATED ON IT. A cell
+  ///     lands after an asynchronous store read (<c>AgentCellSubscriber</c>), while the grid,
+  ///     the shell's lookups, and a waiting test all walk the collection. Enumerating an
+  ///     <c>ObservableCollection</c> while another thread appends throws
+  ///     <c>InvalidOperationException</c>, and the subscriber contains that fault - so the
+  ///     started fact is lost and no cell ever appears for that agent.</para></summary>
+  private readonly Lock _cellsGate = new();
+
+  /// <summary>A copy of <see cref="Cells"/> taken under the gate, which is the only safe way to
+  ///     walk it: the live collection can be appended to from another thread at any moment.
+  ///     </summary>
+  internal AgentCellViewModel[] Snapshot()
+  {
+    lock (_cellsGate)
+    {
+      return [.. Cells];
+    }
+  }
 
   /// <summary>The tab's workbench rail (D6): workspace-scoped, shared by every cell, and
   ///     unchanged by a cell's arrival or departure.</summary>
@@ -115,7 +135,16 @@ internal sealed partial class AgentTabViewModel : ObservableObject
 
   /// <summary>Whether the tab holds no agent at all, so it renders its empty-state prompt
   ///     rather than a blank pane.</summary>
-  public bool IsEmpty => Cells.Count == 0;
+  public bool IsEmpty
+  {
+    get
+    {
+      lock (_cellsGate)
+      {
+        return Cells.Count == 0;
+      }
+    }
+  }
 
   /// <summary>Whether this tab shows the workspace identified by <paramref name="workspaceId"/>.
   ///     The identity is compared when the tab carries one, and the directory path when it does
@@ -175,7 +204,11 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   {
     AgentCellViewModel cell = new(session, sessionVm, placement, label);
     cell.PropertyChanged += OnCellPropertyChanged;
-    Cells.Add(cell);
+    lock (_cellsGate)
+    {
+      Cells.Add(cell);
+    }
+
     return cell;
   }
 
@@ -203,7 +236,11 @@ internal sealed partial class AgentTabViewModel : ObservableObject
 
     AgentCellViewModel cell = new(agentId, label, store, sessionVm, placement);
     cell.PropertyChanged += OnCellPropertyChanged;
-    Cells.Add(cell);
+    lock (_cellsGate)
+    {
+      Cells.Add(cell);
+    }
+
     cell.StartFollowing();
     return cell;
   }
@@ -279,7 +316,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     none. The one lookup every caller uses, because a cell's identity is its agent rather
   ///     than its position (D7).</summary>
   public AgentCellViewModel? FindCell(AgentId agentId)
-    => Cells.FirstOrDefault(c => c.RootId == agentId);
+    => Snapshot().FirstOrDefault(c => c.RootId == agentId);
 
   /// <summary>Removes a cell the user closed (D7), whatever state its agent is in.
   ///     <para>A LIVE RUN IS STOPPED FIRST: detaching it without stopping would leave the agent
@@ -291,9 +328,12 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   public bool DismissCell(AgentCellViewModel cell)
   {
     ArgumentNullException.ThrowIfNull(cell);
-    if (!Cells.Contains(cell))
+    lock (_cellsGate)
     {
-      return false;
+      if (!Cells.Contains(cell))
+      {
+        return false;
+      }
     }
 
     if (cell.ViewModel.IsBusy)
@@ -303,7 +343,10 @@ internal sealed partial class AgentTabViewModel : ObservableObject
 
     cell.PropertyChanged -= OnCellPropertyChanged;
     cell.Detach();
-    return Cells.Remove(cell);
+    lock (_cellsGate)
+    {
+      return Cells.Remove(cell);
+    }
   }
 
   /// <summary>Marks the cell owning <paramref name="rootId"/> finished (its session closed).
@@ -318,7 +361,14 @@ internal sealed partial class AgentTabViewModel : ObservableObject
 
   /// <summary>Whether every cell in the tab is finished: the tab is then only a record of
   ///     what ran, which the shell may close as a whole.</summary>
-  public bool IsFullyFinished => Cells.Count == 0 || Cells.All(c => c.IsFinished);
+  public bool IsFullyFinished
+  {
+    get
+    {
+      AgentCellViewModel[] cells = Snapshot();
+      return cells.Length == 0 || cells.All(c => c.IsFinished);
+    }
+  }
 
   /// <summary>Re-raises the grid's own derived state when a cell's outline inputs move.
   ///     The cell raises its own properties; the tab mirrors the ones the grid binds to.</summary>

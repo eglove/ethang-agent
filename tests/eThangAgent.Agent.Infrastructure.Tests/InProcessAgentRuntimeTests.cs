@@ -36,7 +36,7 @@ public class InProcessAgentRuntimeTests
     ///     released-slot test uses for its second dispatch).</summary>
     public async Task WaitForDispatchAsync(int count)
     {
-      DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+      DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
       while (Volatile.Read(ref _dispatched) < count)
       {
         if (DateTime.UtcNow > deadline)
@@ -242,7 +242,7 @@ public class InProcessAgentRuntimeTests
 
     public async Task WaitForDispatchAsync(int count)
     {
-      DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+      DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
       while (Volatile.Read(ref _dispatched) < count)
       {
         if (DateTime.UtcNow > deadline)
@@ -313,7 +313,7 @@ public class InProcessAgentRuntimeTests
   ///     terminal writes are background continuations, so a bounded wait beats a sleep.</summary>
   private static async Task<bool> SpinUntilAsync(Func<bool> condition)
   {
-    DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
     while (!condition())
     {
       if (DateTime.UtcNow > deadline)
@@ -428,7 +428,7 @@ public class InProcessAgentRuntimeTests
     _ = await store.FirstUpdate.ConfigureAwait(true); // terminal update landed
 
     // The freed slot admits the queued child WITHOUT any further Start call (FR-B6 push).
-    DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
     while (runner.Started.Count < 2 && DateTime.UtcNow < deadline)
     {
       await Task.Delay(10, TestContext.Current.CancellationToken);
@@ -460,7 +460,7 @@ public class InProcessAgentRuntimeTests
   ///     the finally block ran, so the terminal persist is final — deterministic, no sleep.</summary>
   private static async Task WaitForRetirementAsync(InProcessAgentRuntime runtime, AgentId id)
   {
-    DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
     while (runtime.ActiveChildren.Contains(id.Value))
     {
       if (DateTime.UtcNow > deadline)

@@ -1,5 +1,6 @@
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
@@ -238,7 +239,7 @@ public sealed class GitViewViewModelTests
 
   private static async Task WaitForAsync(Func<bool> condition)
   {
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (DateTimeOffset.UtcNow < deadline)
     {
       if (condition())
@@ -249,6 +250,6 @@ public sealed class GitViewViewModelTests
       await Task.Delay(25, TestContext.Current.CancellationToken).ConfigureAwait(true);
     }
 
-    Assert.Fail("the view never reached the expected state within 10 seconds.");
+    Assert.Fail("the view never reached the expected state within the test ceiling.");
   }
 }

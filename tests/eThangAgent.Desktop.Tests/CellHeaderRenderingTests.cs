@@ -9,6 +9,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -186,7 +187,7 @@ public class CellHeaderRenderingTests
   /// <param name="condition">The outcome to wait for.</param>
   private static void PumpUntil(Func<bool> condition)
   {
-    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (!condition() && DateTimeOffset.UtcNow < deadline)
     {
       Dispatcher.UIThread.RunJobs();
