@@ -30,7 +30,8 @@ public class PlanReviewActionTests
           TestContext.Current.CancellationToken).ConfigureAwait(true);
 
   private const string Scores =
-      "\"scores\":{\"requirementCoverage\":4,\"testability\":2,\"blastRadius\":3}";
+      "\"scores\":{\"requirementCoverage\":4,\"testability\":2,\"blastRadius\":3,"
+      + "\"stepDesign\":5}";
 
   [Fact]
   public void Review_IsOnTheSurface()
@@ -57,6 +58,7 @@ public class PlanReviewActionTests
     Assert.Equal(7, draft.PlanId);
     Assert.Equal(PlanReviewVerdict.Deny, draft.Verdict);
     Assert.Equal(4, draft.Scores.RequirementCoverage);
+    Assert.Equal(5, draft.Scores.StepDesign);
   }
 
   [Fact]
@@ -126,12 +128,32 @@ public class PlanReviewActionTests
 
     CapabilityInvocationResult result = await InvokeAsync(provider,
         "{\"id\":7,\"verdict\":\"approve\","
-        + "\"scores\":{\"requirementCoverage\":-1,\"testability\":2,\"blastRadius\":3},"
+        + "\"scores\":{\"requirementCoverage\":-1,\"testability\":2,\"blastRadius\":3,"
+        + "\"stepDesign\":5},"
         + "\"findings\":[]}")
         .ConfigureAwait(true);
 
     Assert.True(result.IsError);
     Assert.Contains("cannot be negative", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Review_WithoutAStepDesignScore_IsRefusedNamingTheField()
+  {
+    // The fourth dimension is REQUIRED at the write boundary. A silent zero would record a
+    // measurement no reviewer made, and the record could not then be told apart from a review
+    // that scored the dimension badly.
+    PlanCapabilityProvider provider = New(out List<PlanReviewDraft> written);
+
+    CapabilityInvocationResult result = await InvokeAsync(provider,
+        "{\"id\":7,\"verdict\":\"approve\","
+        + "\"scores\":{\"requirementCoverage\":4,\"testability\":2,\"blastRadius\":3},"
+        + "\"findings\":[]}")
+        .ConfigureAwait(true);
+
+    Assert.True(result.IsError);
+    Assert.Contains("stepDesign", result.Content, StringComparison.Ordinal);
+    Assert.Empty(written);
   }
 
   [Fact]

@@ -38,6 +38,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   private const string CoverageField = "requirementCoverage";
   private const string TestabilityField = "testability";
   private const string BlastRadiusField = "blastRadius";
+  private const string StepDesignField = "stepDesign";
   private const string FindingText = "text";
   private const string FindingCitation = "citation";
 
@@ -95,11 +96,11 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position.")],
             [IdParam, Position]),
         new("review", "Record a review verdict with its rubric scores and cited findings.",
-              "Records a review of THIS plan version: the verdict, the three rubric dimensions, and every finding with its citation. A reviewer must call this BEFORE marking its review step done - the harness reads the RECORD, and a review step that completes with no review recorded is refused. Output contract: '[plan] recorded <verdict> review #<id> of #<planId> v<version>' followed by one line per finding, each carrying its citation. verdict must be exactly approve|deny|approve-with-conditions; scores are non-negative integers for requirement-coverage, testability, and blast-radius; every finding needs both text and a citation (a finding that cites nothing is refused, and the refusal names its index). Errors: InvalidActionInput (bad params), UnknownVerdict, UncitedFinding, InvalidRubricScore, PlanNotFound.",
+              "Records a review of THIS plan version: the verdict, the four rubric dimensions, and every finding with its citation. A reviewer must call this BEFORE marking its review step done - the harness reads the RECORD, and a review step that completes with no review recorded is refused. Output contract: '[plan] recorded <verdict> review #<id> of #<planId> v<version>' followed by one line per finding, each carrying its citation. verdict must be exactly approve|deny|approve-with-conditions; scores are non-negative integers for requirement-coverage, testability, and blast-radius; every finding needs both text and a citation (a finding that cites nothing is refused, and the refusal names its index). Errors: InvalidActionInput (bad params), UnknownVerdict, UncitedFinding, InvalidRubricScore, PlanNotFound.",
               [
                 new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
                 new ActionParameter(VerdictParam, ActionParameterTypes.StringType, "Required. Exactly approve|deny|approve-with-conditions."),
-                new ActionParameter(ScoresParam, "Object", "Required. { 'requirementCoverage', 'testability', 'blastRadius' } - non-negative integers."),
+                new ActionParameter(ScoresParam, "Object", "Required. { 'requirementCoverage', 'testability', 'blastRadius', 'stepDesign' } - non-negative integers."),
                 new ActionParameter(FindingsParam, "Array", "Required. Findings: [{ 'text' (non-empty), 'citation' (non-empty: a requirement id or a step position) }]. An empty array is legal for a clean approve and refused for a denial."),
                 new ActionParameter(NotesParam, ActionParameterTypes.StringType, "Optional. Free-text context from the reviewer."),
               ],
@@ -443,7 +444,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     return decoded.IsSuccess ? decoded.Value : throw new PlanInputException(decoded.Error.Message);
   }
 
-  /// <summary>The three rubric dimensions, each a non-negative integer. The scale is the
+  /// <summary>The four rubric dimensions, each a non-negative integer. The scale is the
   ///     rubric's (#217); this reads the numbers and enforces only what the record enforces.
   ///     </summary>
   /// <param name="args">The parsed arguments.</param>
@@ -454,12 +455,12 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     {
       throw new PlanInputException(
           $"'{ScoresParam}' is required and must be an object with '{CoverageField}', "
-          + $"'{TestabilityField}', and '{BlastRadiusField}'.");
+          + $"'{TestabilityField}', '{BlastRadiusField}', and '{StepDesignField}'.");
     }
 
     Result<PlanReviewScores> scores = PlanReviewScores.Create(
         ReqIntField(element, CoverageField), ReqIntField(element, TestabilityField),
-        ReqIntField(element, BlastRadiusField));
+        ReqIntField(element, BlastRadiusField), ReqIntField(element, StepDesignField));
     return scores.IsSuccess ? scores.Value : throw new PlanInputException(scores.Error.Message);
   }
 

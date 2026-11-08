@@ -33,7 +33,7 @@ namespace eThangAgent.PlanDomain;
 /// <param name="Verdict">What the reviewer concluded.</param>
 /// <param name="ReviewerSessionId">The session that produced the verdict (D6).</param>
 /// <param name="ReviewerModel">The model that session ran on (D6).</param>
-/// <param name="Scores">The three rubric dimensions (D3).</param>
+/// <param name="Scores">The four rubric dimensions (D3).</param>
 /// <param name="Findings">The cited findings (D4); empty is legal for a clean approve.</param>
 /// <param name="Notes">Optional free-text context from the reviewer.</param>
 /// <param name="CreatedAt">When the review was recorded.</param>
@@ -120,7 +120,7 @@ public sealed record PlanReview(
       : null;
 
   private DomainError? ScoreRefusal() => PlanReviewScores.RefusalFor(
-      Scores.RequirementCoverage, Scores.Testability, Scores.BlastRadius);
+      Scores.RequirementCoverage, Scores.Testability, Scores.BlastRadius, Scores.StepDesign);
 
   private DomainError? FindingRefusal()
   {

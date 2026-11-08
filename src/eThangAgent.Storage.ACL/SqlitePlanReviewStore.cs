@@ -53,10 +53,10 @@ public sealed class SqlitePlanReviewStore(AppDatabase database, string workspace
         insert.Transaction = transaction;
         insert.CommandText = """
             INSERT INTO plan_reviews (plan_id, plan_version, verdict, reviewer_session_id,
-                reviewer_model, requirement_coverage, testability, blast_radius, findings_json,
-                notes, created_at)
+                reviewer_model, requirement_coverage, testability, blast_radius, step_design,
+                findings_json, notes, created_at)
             VALUES (@planId, @planVersion, @verdict, @session, @model, @coverage, @testability,
-                @blast, @findings, @notes, @created);
+                @blast, @stepDesign, @findings, @notes, @created);
             """;
         Add(insert, "@planId", review.PlanId);
         Add(insert, "@planVersion", review.PlanVersion);
@@ -66,6 +66,7 @@ public sealed class SqlitePlanReviewStore(AppDatabase database, string workspace
         Add(insert, "@coverage", review.Scores.RequirementCoverage);
         Add(insert, "@testability", review.Scores.Testability);
         Add(insert, "@blast", review.Scores.BlastRadius);
+        Add(insert, "@stepDesign", review.Scores.StepDesign);
         Add(insert, "@findings", SerializeFindings(review.Findings));
         Add(insert, "@notes", review.Notes);
         Add(insert, "@created", Format(review.CreatedAt));
@@ -136,7 +137,8 @@ public sealed class SqlitePlanReviewStore(AppDatabase database, string workspace
     // plan this workspace owns, because the table carries no workspace column of its own.
     command.CommandText = """
         SELECT r.id, r.plan_id, r.plan_version, r.verdict, r.reviewer_session_id, r.reviewer_model,
-            r.requirement_coverage, r.testability, r.blast_radius, r.findings_json, r.notes, r.created_at
+            r.requirement_coverage, r.testability, r.blast_radius, r.step_design, r.findings_json,
+            r.notes, r.created_at
         FROM plan_reviews r
         JOIN plans p ON p.id = r.plan_id
         WHERE r.plan_id = @planId AND p.workspace_id = @ws
@@ -171,7 +173,7 @@ public sealed class SqlitePlanReviewStore(AppDatabase database, string workspace
       return false;
     }
 
-    if (!TryReadFindings(reader.GetString(9), out List<PlanReviewFinding>? findings, out string? findingReason))
+    if (!TryReadFindings(reader.GetString(10), out List<PlanReviewFinding>? findings, out string? findingReason))
     {
       review = null;
       reason = $"review #{id}: {findingReason}";
@@ -185,10 +187,11 @@ public sealed class SqlitePlanReviewStore(AppDatabase database, string workspace
         decoded.Value,
         reader.GetString(4),
         reader.GetString(5),
-        new PlanReviewScores(reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8)),
+        new PlanReviewScores(reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8),
+            reader.GetInt32(9)),
         findings,
-        reader.IsDBNull(10) ? null : reader.GetString(10),
-        ParseTimestamp(reader.GetString(11)));
+        reader.IsDBNull(11) ? null : reader.GetString(11),
+        ParseTimestamp(reader.GetString(12)));
     reason = null;
     return true;
   }

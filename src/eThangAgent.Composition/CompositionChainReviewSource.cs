@@ -17,7 +17,7 @@ namespace eThangAgent.Composition;
 ///     compile error rather than a silent default - and a test pins the two token sets against
 ///     each other so the spellings cannot drift.</para>
 ///     <para>THE SCORES ARE NOT ASKED FOR HERE. <c>plan.review</c> carries them from the
-///     reviewer (the rubric's three dimensions, #217); this port records the verdict and the
+///     reviewer (the rubric's four dimensions, #217); this port records the verdict and the
 ///     findings the CURSOR needs, and re-scores nothing. A port that invented scores would put
 ///     numbers in the record that no reviewer wrote.</para></summary>
 internal sealed class CompositionChainReviewSource(IPlanReviewStore reviews) : IChainReviewSource
@@ -34,7 +34,8 @@ internal sealed class CompositionChainReviewSource(IPlanReviewStore reviews) : I
     ChainReviewScores scores = review.EffectiveScores;
     PlanReview draft = new(0, planId, planVersion, Map(review.Verdict),
         reviewerSessionId, review.ReviewerModel,
-        new PlanReviewScores(scores.RequirementCoverage, scores.Testability, scores.BlastRadius),
+        new PlanReviewScores(scores.RequirementCoverage, scores.Testability, scores.BlastRadius,
+            scores.StepDesign),
         [.. review.Findings.Select(finding => new PlanReviewFinding(finding.Text, finding.Citation))],
         Notes: null,
         DateTimeOffset.UtcNow);
@@ -70,7 +71,7 @@ internal sealed class CompositionChainReviewSource(IPlanReviewStore reviews) : I
           [.. review.Findings.Select(finding =>
               new ChainReviewFinding(finding.Text, finding.Citation))],
           new ChainReviewScores(review.Scores.RequirementCoverage, review.Scores.Testability,
-              review.Scores.BlastRadius),
+              review.Scores.BlastRadius, review.Scores.StepDesign),
           review.ReviewerModel);
 
   /// <summary>The chain verdict as the record's verdict. EXHAUSTIVE, so a new chain verdict

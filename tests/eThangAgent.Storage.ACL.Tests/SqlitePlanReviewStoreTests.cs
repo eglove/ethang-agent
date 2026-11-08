@@ -50,7 +50,7 @@ public sealed class SqlitePlanReviewStoreTests : IDisposable
       PlanReviewVerdict verdict = PlanReviewVerdict.Deny,
       IReadOnlyList<PlanReviewFinding>? findings = null) =>
       PlanReview.New(new PlanReview(0, planId, planVersion, verdict, "sess-reviewer",
-          "vendor/reviewer", new PlanReviewScores(4, 3, 2),
+          "vendor/reviewer", new PlanReviewScores(4, 3, 2, 5),
           findings ?? [new PlanReviewFinding("step 3 has no acceptance criterion", "R2")],
           "no rubric was installed", DateTimeOffset.UtcNow));
 
@@ -81,6 +81,7 @@ public sealed class SqlitePlanReviewStoreTests : IDisposable
     Assert.Equal(4, back.Scores.RequirementCoverage);
     Assert.Equal(3, back.Scores.Testability);
     Assert.Equal(2, back.Scores.BlastRadius);
+    Assert.Equal(5, back.Scores.StepDesign);
     Assert.Equal("no rubric was installed", back.Notes);
     Assert.Equal(2, back.Findings.Count);
     Assert.Equal("R2", back.Findings[0].Citation);

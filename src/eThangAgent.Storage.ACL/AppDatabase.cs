@@ -101,7 +101,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 37;
+  public const int LatestSchemaVersion = 38;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -145,6 +145,7 @@ public sealed class AppDatabase
     (35, ApplyV35),
     (36, ApplyV36),
     (37, ApplyV37),
+    (38, ApplyV38),
   ];
 
   private void Migrate()
@@ -1614,6 +1615,36 @@ public sealed class AppDatabase
     {
       Execute(connection, "PRAGMA foreign_keys = ON;");
     }
+  }
+
+  /// <summary>V38 adds <c>plan_reviews.step_design</c>: the fourth rubric dimension a review
+  ///     scores - whether each step states what must be observably true rather than a procedure
+  ///     to follow (#217).
+  ///     <para>A PLAIN COLUMN ADD WITH A CONSTANT DEFAULT, unlike the V35/V37 rebuild: the column
+  ///     carries a CHECK constraint a rebuild would have to carry forward, but adding it with a
+  ///     constant default is legal in SQLite and <see cref="AddColumnIfMissing"/> makes the one
+  ///     non-idempotent statement safe to re-run, so no table is dropped and no row is copied.
+  ///     </para>
+  ///     <para>EXISTING ROWS BECOME 0. A review recorded before this dimension existed genuinely
+  ///     has no value for it, and 0 is the only number that says so without fabricating a
+  ///     mid-scale measurement no reviewer wrote. The WRITE path is where a missing score is
+  ///     refused: <c>plan.review</c> names <c>stepDesign</c> as required, so the default is
+  ///     reachable only by a row that predates the column.</para>
+  ///     <para>CONDITIONAL ON <c>plan_reviews</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database and one stamped below V27 does not have the table yet
+  ///     (the V26/V28/V36 precedent).</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV38(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "plan_reviews"))
+    {
+      return;
+    }
+
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('plan_reviews') WHERE name = 'step_design';",
+        "ALTER TABLE plan_reviews ADD COLUMN step_design INTEGER NOT NULL DEFAULT 0 "
+        + "CHECK (step_design >= 0);");
   }
   private static void ApplyV32(SqliteConnection connection)
   {

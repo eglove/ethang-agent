@@ -98,7 +98,7 @@ public static class ChainContractRenderer
     // reviewer to put its verdict in the step's outcome, and the advance settled with
     // outcome: null — so the work was done and nothing kept it. plan.review writes the typed
     // record the cursor reads.
-    lines.Add("Record your verdict with plan.review — the verdict, the three rubric scores, and every");
+    lines.Add("Record your verdict with plan.review — the verdict, the four rubric scores, and every");
     lines.Add("finding with its citation — then mark the step done. That single write is the completion");
     lines.Add("fact the harness reacts to, and it is the only step of this plan you may mark done.");
     lines.Add("");

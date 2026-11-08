@@ -11,8 +11,9 @@ public class PlanReviewTests
 {
   private static readonly DateTimeOffset Now = new(2026, 10, 29, 12, 0, 0, TimeSpan.Zero);
 
-  private static PlanReviewScores Scores(int coverage = 4, int testability = 3, int blast = 2) =>
-      new(coverage, testability, blast);
+  private static PlanReviewScores Scores(int coverage = 4, int testability = 3, int blast = 2,
+      int stepDesign = 5) =>
+      new(coverage, testability, blast, stepDesign);
 
   private static PlanReview Draft(
       PlanReviewVerdict verdict = PlanReviewVerdict.Approve,
@@ -91,12 +92,15 @@ public class PlanReviewTests
   }
 
   [Theory]
-  [InlineData(-1, 3, 2)]
-  [InlineData(4, -1, 2)]
-  [InlineData(4, 3, -1)]
-  public void Validate_RefusesANegativeRubricScore(int coverage, int testability, int blast)
+  [InlineData(-1, 3, 2, 5)]
+  [InlineData(4, -1, 2, 5)]
+  [InlineData(4, 3, -1, 5)]
+  [InlineData(4, 3, 2, -1)]
+  public void Validate_RefusesANegativeRubricScore(int coverage, int testability, int blast,
+      int stepDesign)
   {
-    Result<PlanReview> invalid = Draft(scores: Scores(coverage, testability, blast)).Validate();
+    Result<PlanReview> invalid = Draft(scores: Scores(coverage, testability, blast, stepDesign))
+        .Validate();
     Assert.False(invalid.IsSuccess, "a negative rubric score must be refused");
     Assert.Equal("InvalidRubricScore", invalid.Error.Code);
   }
@@ -104,7 +108,7 @@ public class PlanReviewTests
   [Fact]
   public void Validate_AcceptsAZeroScore_WhichIsARealScore()
   {
-    Result<PlanReview> valid = Draft(scores: Scores(0, 0, 0)).Validate();
+    Result<PlanReview> valid = Draft(scores: Scores(0, 0, 0, 0)).Validate();
     Assert.True(valid.IsSuccess, "zero is a measurement, not an absence");
   }
 
@@ -177,10 +181,12 @@ public class PlanReviewTests
   public void ScoresCreate_RefusesEachNegativeDimensionByName()
   {
     Assert.Contains("requirement coverage",
-        PlanReviewScores.Create(-1, 0, 0).Error?.Message ?? "", StringComparison.Ordinal);
+        PlanReviewScores.Create(-1, 0, 0, 0).Error?.Message ?? "", StringComparison.Ordinal);
     Assert.Contains("testability",
-        PlanReviewScores.Create(0, -1, 0).Error?.Message ?? "", StringComparison.Ordinal);
+        PlanReviewScores.Create(0, -1, 0, 0).Error?.Message ?? "", StringComparison.Ordinal);
     Assert.Contains("blast radius",
-        PlanReviewScores.Create(0, 0, -1).Error?.Message ?? "", StringComparison.Ordinal);
+        PlanReviewScores.Create(0, 0, -1, 0).Error?.Message ?? "", StringComparison.Ordinal);
+    Assert.Contains("step design",
+        PlanReviewScores.Create(0, 0, 0, -1).Error?.Message ?? "", StringComparison.Ordinal);
   }
 }

@@ -52,7 +52,7 @@ public sealed record ChainReviewFinding(string Text, string Citation)
 ///     </para></summary>
 /// <param name="Verdict">What the reviewer concluded.</param>
 /// <param name="Findings">The cited findings, in the order the reviewer wrote them.</param>
-/// <param name="Scores">The three rubric dimensions the reviewer scored (issue #216 D3). They
+/// <param name="Scores">The four rubric dimensions the reviewer scored (issue #216 D3). They
 ///     ride the record because a review row must round-trip with its scores: a review without
 ///     them cannot be compared with any other, which is the whole reason the dimensions are
 ///     named rather than free text. Defaults to all-zero for a caller that scores nothing - the
@@ -64,7 +64,7 @@ public sealed record ChainReviewRecord(ChainReviewVerdict Verdict,
     string? ReviewerModel = null)
 {
 
-  /// <summary>The three rubric dimensions, never null: an absent set reads as all-zero, the
+  /// <summary>The four rubric dimensions, never null: an absent set reads as all-zero, the
   ///     same way an absent role reads as implement. The scale is the rubric's (#217), so this
   ///     record carries the numbers and judges nothing about them.</summary>
   public ChainReviewScores EffectiveScores => Scores ?? ChainReviewScores.Unscored;
@@ -81,7 +81,7 @@ public sealed record ChainReviewRecord(ChainReviewVerdict Verdict,
   public bool HasFindings => Findings.Count > 0;
 }
 
-/// <summary>The three rubric dimensions a review scores (issue #216 D3), mirrored across the
+/// <summary>The four rubric dimensions a review scores (issue #216 D3), mirrored across the
 ///     domain boundary for the reason stated on <see cref="ChainReviewVerdict"/>.
 ///     <para>NAMED DIMENSIONS, NOT A FREE-TEXT SCORE: named dimensions compare across reviews
 ///     and trend, which free text cannot. Only non-negativity is enforced here, because the
@@ -90,15 +90,18 @@ public sealed record ChainReviewRecord(ChainReviewVerdict Verdict,
 /// <param name="RequirementCoverage">How completely the plan covers its requirements.</param>
 /// <param name="Testability">How checkable the plan's steps are.</param>
 /// <param name="BlastRadius">How much of the workspace the plan touches.</param>
-public sealed record ChainReviewScores(int RequirementCoverage, int Testability, int BlastRadius)
+/// <param name="StepDesign">Whether each step states what must be observably true rather than a
+///     procedure to follow.</param>
+public sealed record ChainReviewScores(int RequirementCoverage, int Testability, int BlastRadius,
+    int StepDesign)
 {
   /// <summary>All-zero: what a review that recorded no scores says. A real 0 and an unrecorded
   ///     score are the same value here, which is why the record states them rather than
   ///     inferring a mid-scale number.</summary>
-  public static ChainReviewScores Unscored { get; } = new(0, 0, 0);
+  public static ChainReviewScores Unscored { get; } = new(0, 0, 0, 0);
 
   /// <summary>True when every dimension is non-negative - the predicate the write gate reads.
   ///     </summary>
   public bool IsWellFormed =>
-      RequirementCoverage >= 0 && Testability >= 0 && BlastRadius >= 0;
+      RequirementCoverage >= 0 && Testability >= 0 && BlastRadius >= 0 && StepDesign >= 0;
 }

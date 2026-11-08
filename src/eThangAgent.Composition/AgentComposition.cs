@@ -738,7 +738,7 @@ public static class AgentComposition
     ChainReviewRecord review = new(MapVerdict(draft.Verdict),
         [.. draft.Findings.Select(finding => new ChainReviewFinding(finding.Text, finding.Citation))],
         new ChainReviewScores(draft.Scores.RequirementCoverage, draft.Scores.Testability,
-            draft.Scores.BlastRadius),
+            draft.Scores.BlastRadius, draft.Scores.StepDesign),
         sp.GetService<ModelConfig>()?.ModelId);
     Result<Chain> recorded = await reviews.RecordAsync(reviewer.ToString(), review, ct)
         .ConfigureAwait(false);

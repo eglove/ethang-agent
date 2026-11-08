@@ -3,7 +3,7 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.PlanDomain;
 
 /// <summary>What <c>plan.review</c> collects before anything is written (issue #320): the
-///     verdict, the three rubric scores, and the cited findings, all as the model stated them.
+///     verdict, the four rubric scores, and the cited findings, all as the model stated them.
 ///     <para>WHY A DRAFT TYPE AND NOT A <see cref="PlanReview"/>: the reviewer does not know
 ///     the session id or the plan version it is judging - the harness resolves both, because a
 ///     reviewer that named its own version could record a verdict against content nobody
@@ -12,7 +12,7 @@ namespace eThangAgent.PlanDomain;
 ///     identity and clock belong to the store, not to the model.</para></summary>
 /// <param name="PlanId">The plan the review judges.</param>
 /// <param name="Verdict">What the reviewer concluded.</param>
-/// <param name="Scores">The three rubric dimensions.</param>
+/// <param name="Scores">The four rubric dimensions.</param>
 /// <param name="Findings">The cited findings; empty is legal for a clean approve.</param>
 /// <param name="Notes">Optional free-text context from the reviewer.</param>
 public sealed record PlanReviewDraft(int PlanId, PlanReviewVerdict Verdict,

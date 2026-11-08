@@ -53,8 +53,8 @@ public sealed record PlanReviewFinding(string Text, string Citation)
   };
 }
 
-/// <summary>The three rubric dimensions a review scores (issue #216 D3): requirement
-///     coverage, testability, and blast radius.
+/// <summary>The four rubric dimensions a review scores (issue #216 D3, #217): requirement
+///     coverage, testability, blast radius, and step design.
 ///     <para>NAMED DIMENSIONS, NOT A FREE-TEXT SCORE. Named dimensions are what a
 ///     rubric-scored judge is for: they can be compared across reviews and trended, which
 ///     free text cannot.</para>
@@ -66,30 +66,39 @@ public sealed record PlanReviewFinding(string Text, string Citation)
 /// <param name="RequirementCoverage">How completely the plan covers its requirements.</param>
 /// <param name="Testability">How checkable the plan's steps are.</param>
 /// <param name="BlastRadius">How much of the workspace the plan touches.</param>
-public sealed record PlanReviewScores(int RequirementCoverage, int Testability, int BlastRadius)
+/// <param name="StepDesign">Whether each step states what must be observably true rather than a
+///     procedure to follow.</param>
+public sealed record PlanReviewScores(int RequirementCoverage, int Testability, int BlastRadius,
+    int StepDesign)
 {
   /// <summary>Builds a score set, refusing any negative dimension with a typed
   ///     <c>InvalidRubricScore</c> error naming the dimension and the value.</summary>
   /// <param name="requirementCoverage">How completely the plan covers its requirements.</param>
   /// <param name="testability">How checkable the plan's steps are.</param>
   /// <param name="blastRadius">How much of the workspace the plan touches.</param>
-  public static Result<PlanReviewScores> Create(int requirementCoverage, int testability, int blastRadius) =>
-      RefusalFor(requirementCoverage, testability, blastRadius) is { } refusal
+  /// <param name="stepDesign">Whether each step states what must be observably true.</param>
+  public static Result<PlanReviewScores> Create(int requirementCoverage, int testability,
+      int blastRadius, int stepDesign) =>
+      RefusalFor(requirementCoverage, testability, blastRadius, stepDesign) is { } refusal
           ? Result.Failure<PlanReviewScores>(refusal)
-          : Result.Success(new PlanReviewScores(requirementCoverage, testability, blastRadius));
+          : Result.Success(
+              new PlanReviewScores(requirementCoverage, testability, blastRadius, stepDesign));
 
   /// <summary>True when every dimension is non-negative - the predicate
   ///     <see cref="PlanReview.Validate"/> reads at write time.</summary>
-  public bool IsWellFormed => RequirementCoverage >= 0 && Testability >= 0 && BlastRadius >= 0;
+  public bool IsWellFormed =>
+      RequirementCoverage >= 0 && Testability >= 0 && BlastRadius >= 0 && StepDesign >= 0;
 
   /// <summary>The first negative dimension as a typed refusal, or null. One guard chain,
   ///     so the rule reads in the order it is stated.</summary>
-  internal static DomainError? RefusalFor(int coverage, int testability, int blastRadius) =>
-      (coverage, testability, blastRadius) switch
+  internal static DomainError? RefusalFor(int coverage, int testability, int blastRadius,
+      int stepDesign) =>
+      (coverage, testability, blastRadius, stepDesign) switch
       {
         _ when coverage < 0 => Negative("requirement coverage", coverage),
         _ when testability < 0 => Negative("testability", testability),
         _ when blastRadius < 0 => Negative("blast radius", blastRadius),
+        _ when stepDesign < 0 => Negative("step design", stepDesign),
         _ => null,
       };
 

@@ -243,8 +243,9 @@ public sealed class ChainTelemetryStorageTests : IDisposable
     // it only when the constraint is absent, so it skips cleanly when the schema holds.
     command.CommandText = """
         INSERT INTO plan_reviews (plan_id, plan_version, verdict, reviewer_session_id,
-            reviewer_model, requirement_coverage, testability, blast_radius, findings_json, created_at)
-        VALUES (@plan, @version, @verdict, 'reviewer', 'test/model', 1, 1, 1, '[]', @at);
+            reviewer_model, requirement_coverage, testability, blast_radius, step_design,
+            findings_json, created_at)
+        VALUES (@plan, @version, @verdict, 'reviewer', 'test/model', 1, 1, 1, 1, '[]', @at);
         """;
     _ = command.Parameters.AddWithValue("@plan", planId);
     _ = command.Parameters.AddWithValue("@version", judgedVersion);

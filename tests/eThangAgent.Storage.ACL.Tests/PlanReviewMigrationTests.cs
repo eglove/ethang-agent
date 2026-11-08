@@ -114,9 +114,9 @@ public sealed class PlanReviewMigrationTests : IDisposable
 
     Execute($"""
         INSERT INTO plan_reviews (plan_id, plan_version, verdict, reviewer_session_id,
-            reviewer_model, requirement_coverage, testability, blast_radius, findings_json,
-            notes, created_at)
-            VALUES (1, 1, '{token}', 'sess-r', 'vendor/m', 3, 3, 3, '[]', NULL,
+            reviewer_model, requirement_coverage, testability, blast_radius, step_design,
+            findings_json, notes, created_at)
+            VALUES (1, 1, '{token}', 'sess-r', 'vendor/m', 3, 3, 3, 4, '[]', NULL,
                 '2026-10-29T00:00:00.0000000+00:00');
         """);
 
@@ -137,9 +137,9 @@ public sealed class PlanReviewMigrationTests : IDisposable
     // script's SQL never passes through PlanReviewVerdictCodec.
     SqliteException refused = Assert.Throws<SqliteException>(() => Execute("""
         INSERT INTO plan_reviews (plan_id, plan_version, verdict, reviewer_session_id,
-            reviewer_model, requirement_coverage, testability, blast_radius, findings_json,
-            notes, created_at)
-            VALUES (1, 1, 'maybe', 'sess-r', 'vendor/m', 3, 3, 3, '[]', NULL,
+            reviewer_model, requirement_coverage, testability, blast_radius, step_design,
+            findings_json, notes, created_at)
+            VALUES (1, 1, 'maybe', 'sess-r', 'vendor/m', 3, 3, 3, 4, '[]', NULL,
                 '2026-10-29T00:00:00.0000000+00:00');
         """));
     Assert.Contains("CHECK", refused.Message, StringComparison.Ordinal);
@@ -157,9 +157,9 @@ public sealed class PlanReviewMigrationTests : IDisposable
 
     SqliteException refused = Assert.Throws<SqliteException>(() => Execute("""
         INSERT INTO plan_reviews (plan_id, plan_version, verdict, reviewer_session_id,
-            reviewer_model, requirement_coverage, testability, blast_radius, findings_json,
-            notes, created_at)
-            VALUES (1, 1, 'approve', 'sess-r', 'vendor/m', -1, 3, 3, '[]', NULL,
+            reviewer_model, requirement_coverage, testability, blast_radius, step_design,
+            findings_json, notes, created_at)
+            VALUES (1, 1, 'approve', 'sess-r', 'vendor/m', -1, 3, 3, 4, '[]', NULL,
                 '2026-10-29T00:00:00.0000000+00:00');
         """));
     Assert.Contains("CHECK", refused.Message, StringComparison.Ordinal);
@@ -174,11 +174,82 @@ public sealed class PlanReviewMigrationTests : IDisposable
     // a review of a plan that does not exist is not a fact about anything.
     SqliteException refused = Assert.Throws<SqliteException>(() => Execute("""
         INSERT INTO plan_reviews (plan_id, plan_version, verdict, reviewer_session_id,
-            reviewer_model, requirement_coverage, testability, blast_radius, findings_json,
-            notes, created_at)
-            VALUES (999, 1, 'approve', 'sess-r', 'vendor/m', 3, 3, 3, '[]', NULL,
+            reviewer_model, requirement_coverage, testability, blast_radius, step_design,
+            findings_json, notes, created_at)
+            VALUES (999, 1, 'approve', 'sess-r', 'vendor/m', 3, 3, 3, 4, '[]', NULL,
                 '2026-10-29T00:00:00.0000000+00:00');
         """));
     Assert.Contains("FOREIGN KEY", refused.Message, StringComparison.Ordinal);
+  }
+
+  /// <summary>The schema version immediately BEFORE V38, which is the state a database that has
+  ///     not yet seen the fourth rubric dimension is in. A literal for the reason
+  ///     <see cref="VersionBeforeV27"/> states: the version before a given migration is a fact
+  ///     about THAT migration, and migrations are never renumbered.</summary>
+  private const int VersionBeforeV38 = 37;
+
+  /// <summary>Builds a database at V37 and stamps it, so V38 is the only step pending.</summary>
+  private void SeedVersionBeforeV38()
+  {
+    _ = new AppDatabase(_dbPath);
+    Execute($"ALTER TABLE plan_reviews DROP COLUMN step_design; "
+        + $"PRAGMA user_version = {VersionBeforeV38};");
+  }
+
+  [Fact]
+  public void V38_AddsTheStepDesignColumn_AndStampsTheLatestVersion()
+  {
+    SeedVersionBeforeV38();
+    _ = new AppDatabase(_dbPath);
+
+    Assert.Equal(AppDatabase.LatestSchemaVersion, Scalar<long>("PRAGMA user_version;"));
+    Assert.Equal(1L, Scalar<long>(
+        "SELECT COUNT(*) FROM pragma_table_info('plan_reviews') WHERE name='step_design';"));
+  }
+
+  [Fact]
+  public void V38_PreservesEveryPreExistingReview_AndReadsItsStepDesignAsZero()
+  {
+    SeedVersionBeforeV38();
+    Execute("""
+        INSERT INTO plans (workspace_id, session_id, title, goal, status, version, created_at, updated_at)
+            VALUES ('C:\\ws\\alpha', 'sess-planner', 'legacy plan', 'goal', 'Active', 3,
+                '2026-10-29T00:00:00.0000000+00:00', '2026-10-29T00:00:00.0000000+00:00');
+        INSERT INTO plan_reviews (plan_id, plan_version, verdict, reviewer_session_id,
+            reviewer_model, requirement_coverage, testability, blast_radius, findings_json,
+            notes, created_at)
+            VALUES (1, 3, 'approve-with-conditions', 'sess-r', 'vendor/m', 4, 3, 2,
+                '[{"Text":"step 2 has no check","Citation":"step 2"}]', 'legacy note',
+                '2026-10-29T00:00:00.0000000+00:00');
+        """);
+
+    _ = new AppDatabase(_dbPath);
+
+    // A review recorded before the dimension existed has no value for it, and 0 is the only
+    // number that says so without fabricating a measurement no reviewer made.
+    Assert.Equal(1L, Scalar<long>("SELECT COUNT(*) FROM plan_reviews;"));
+    Assert.Equal(0L, Scalar<long>("SELECT step_design FROM plan_reviews WHERE id=1;"));
+    Assert.Equal(4L, Scalar<long>("SELECT requirement_coverage FROM plan_reviews WHERE id=1;"));
+    Assert.Equal("legacy note", Scalar<string>("SELECT notes FROM plan_reviews WHERE id=1;"));
+  }
+
+  [Fact]
+  public void V38_RefusesANegativeStepDesign_FromADirectWriter()
+  {
+    _ = new AppDatabase(_dbPath);
+    Execute("""
+        INSERT INTO plans (workspace_id, session_id, title, goal, status, version, created_at, updated_at)
+            VALUES ('C:\\ws\\alpha', 's', 't', 'g', 'Active', 1, '2026-10-29T00:00:00.0000000+00:00',
+                '2026-10-29T00:00:00.0000000+00:00');
+        """);
+
+    SqliteException refused = Assert.Throws<SqliteException>(() => Execute("""
+        INSERT INTO plan_reviews (plan_id, plan_version, verdict, reviewer_session_id,
+            reviewer_model, requirement_coverage, testability, blast_radius, step_design,
+            findings_json, notes, created_at)
+            VALUES (1, 1, 'approve', 'sess-r', 'vendor/m', 3, 3, 3, -1, '[]', NULL,
+                '2026-10-29T00:00:00.0000000+00:00');
+        """));
+    Assert.Contains("CHECK", refused.Message, StringComparison.Ordinal);
   }
 }

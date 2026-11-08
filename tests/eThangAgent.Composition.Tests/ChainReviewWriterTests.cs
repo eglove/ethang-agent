@@ -62,7 +62,7 @@ public sealed class ChainReviewWriterTests : IDisposable
     ChainReviewRecord review = new(
         ChainReviewVerdict.Deny,
         [new ChainReviewFinding("step 3 cites no requirement", "R2")],
-        new ChainReviewScores(4, 2, 3),
+        new ChainReviewScores(4, 2, 3, 5),
         "vendor/reviewer");
 
     _ = Must(await writer.RecordAsync(planId, planVersion: 3, review,
@@ -77,6 +77,7 @@ public sealed class ChainReviewWriterTests : IDisposable
     Assert.Equal(4, row.Scores.RequirementCoverage);
     Assert.Equal(2, row.Scores.Testability);
     Assert.Equal(3, row.Scores.BlastRadius);
+    Assert.Equal(5, row.Scores.StepDesign);
     Assert.Equal("session-reviewer", row.ReviewerSessionId);
     Assert.Equal("vendor/reviewer", row.ReviewerModel);
     PlanReviewFinding finding = Assert.Single(row.Findings);
