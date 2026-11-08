@@ -1,23 +1,20 @@
 ---
 name: writing-plans
-description: Write a detailed, bite-sized implementation plan from an approved spec, stored as a plan record. Use when requirements are settled and the work needs an executable task list.
+description: Write a plan whose steps state what must be observably true, stored as a plan record. Use when requirements are settled and the work needs an executable task list.
 ---
 
 # Writing Plans
-
-## Overview
 
 This is the prediction leg of the scientific loop: a plan's acceptance criteria are the
 predictions, and each criterion names the check that would falsify it. The plan is the
 experiment design.
 
-Write comprehensive implementation plans assuming the engineer has zero context for our codebase and
-questionable taste. Document everything they need to know: which files to touch for each task, code,
-testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks.
-DRY. YAGNI. TDD. Frequent commits.
+Write comprehensive implementation plans. Assume the engineer has zero context for our
+codebase and questionable taste: they know the files to touch, the names and shapes they
+hand on, the exact values, and what must be observably true — and nothing else about our
+problem domain.
 
-Assume they are a skilled developer, but know almost nothing about our toolset or problem domain.
-Assume they don't know good test design very well.
+Assume they are a skilled developer, but know almost nothing about our toolset.
 
 **Announce at start:** "I'm using the writing-plans skill to create the implementation plan."
 
@@ -26,14 +23,59 @@ Assume they don't know good test design very well.
 
 **Save plans to:** persist the implementation plan as a plan record — `plan.create` with the plan as
 `goal` (announce the plan id), then one `plan.add-step` per task (the step title carries the task
-name; the step detail carries the file paths, the interfaces, the test code, and the exact values).
+name; the step detail carries the file paths, the interfaces, the examples, and the exact values).
 
-## Speaking to the user
+## A step is a slice of context
 
-Every message addressed TO THE USER speaks to them as a user/stakeholder, not a developer — plain
-language, user-visible consequences, no code vocabulary. Where a decision genuinely requires
-technical framing, present it as a recommendation the user approves or rejects rather than a
-technical question. This governs messages to the user only: plans and task specs stay technical.
+A step exists to bound what one session must hold: the files it touches, the names it hands
+on, the behavior it must produce, and the traps already ruled out. It is not a set of orders.
+The red-green-refactor cycle, the test list, and the design decisions belong to the session
+doing the work — it can read the code, run the tests, and revise; you cannot.
+
+So a step states what must be observably true and hands over the context that makes it
+achievable. Everything else is the session's to decide.
+
+## What a step's detail carries
+
+- **Examples** — a concrete input and its expected result, one per interesting case,
+  including the awkward ones: empty, boundary, failure.
+- **Behaviors** — named, ordered statements of what the system must do.
+- **Acceptance criteria** — what a check would observe when the behavior is true.
+- **Architecture** — exact file paths, and the names and shapes of anything one step hands
+  to another.
+- **Exact values** — version floors, dependency limits, naming and copy rules, verbatim.
+- **Traps you already ruled out**, so the session does not spend its budget rediscovering
+  them.
+
+## What a step's detail forbids
+
+- **Test code and implementation code in any form**, including a complete snippet offered
+  as an illustration. A snippet is not a hint: it is a design decision taken out of the
+  hands of the session that can run the tests and see the code.
+- **A numbered procedure** the session must follow step by step. "Write a test, run it,
+  watch it fail, then add the field" is the session's method, not your instruction.
+- **An ordered test list.** The plan states behavior; the implementer derives the tests.
+
+### Before and after
+
+Before — a step whose detail prescribes the method and carries the code:
+
+> Write a test asserting that a review records four scores, run it, watch it fail, then add
+> the field.
+
+After — the same step stating what must be observably true:
+
+> A review recorded with four scores reads back with four. A review recorded with three is
+> refused, and the refusal names the missing dimension.
+
+Both describe one change. The second leaves the test, the field, and the order of work to
+the session that will run them, and it is the only one of the two a check can falsify.
+
+### Why this rule, in numbers
+
+The same specification passed 21% of hidden acceptance scenarios written as prose and 97%
+written as examples (codecentric, Emrich and Ade, EXACT Coding). Examples carry a
+specification; prose does not. So the examples are required and the code is not.
 
 ## Scope check
 
@@ -63,16 +105,6 @@ A task is the smallest unit that carries its own test cycle and is worth a fresh
 When drawing task boundaries: fold setup, configuration, scaffolding, and documentation steps into
 the task whose deliverable needs them; split only where a reviewer could meaningfully reject one
 task while approving its neighbor. Each task ends with an independently testable deliverable.
-
-## Bite-sized task granularity
-
-**Each step is one action (2-5 minutes):**
-
-- "Write the failing test" — a step
-- "Run it to make sure it fails" — a step
-- "Implement the minimal code to make the test pass" — a step
-- "Run the tests and make sure they pass" — a step
-- "Commit" — a step
 
 ## Plan document header
 
@@ -112,40 +144,20 @@ include this section.]
 - Test: `tests/exact/path/to/test.py`
 
 **Interfaces:**
-- Consumes: [what this task uses from earlier tasks — exact signatures]
-- Produces: [what later tasks rely on — exact function names, parameter
-  and return types. A task's session sees only its own step; this block is
-  how it learns the names and types neighboring tasks use.]
+- Consumes: [what this task uses from earlier tasks — exact names and shapes]
+- Produces: [what later tasks rely on — exact names, parameter and return types.
+  A task's session sees only its own step; this block is how it learns the names
+  and types neighboring tasks use.]
 
-- [ ] **Step 1: Write the failing test**
+**Behaviors:** [named, ordered statements of what the system must do]
 
-```python
-def test_specific_behavior():
-    result = function(input)
-    assert result == expected
-```
+**Examples:**
+- input `...` → `...`
+- the awkward case: empty / boundary / failure, one line each
 
-- [ ] **Step 2: Run test to verify it fails**
+**Acceptance criteria:** [what a check observes when each behavior is true]
 
-Run: `dotnet test tests/<Project>.Tests --filter <TestName>`
-Expected: FAIL (member missing / assertion unmet)
-
-- [ ] **Step 3: Write minimal implementation**
-
-```python
-def function(input):
-    return expected
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `dotnet test tests/<Project>.Tests --filter <TestName>`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-Stage the touched files (`git add ...` via exec), then commit with the
-`git_commit` tool — description `add specific feature`, with type/scope or emoji_key per the session's active commit-style guidance. Never raw shell commits.
+**Traps ruled out:** [what you already tried, and what it showed]
 ````
 
 ## The step detail is the only thing that reaches the session
@@ -157,8 +169,9 @@ else from your session travels.
 So the step detail is where your intent has to live. It must carry:
 
 - the exact file paths (create / modify / test),
-- the exact interfaces the step produces, with names and signatures,
-- the actual test code, not "write tests for the above",
+- the exact interfaces the step produces, with names and shapes,
+- the examples — a concrete input and its expected result, one per interesting case,
+- the acceptance criteria each behavior is checked against,
 - the exact values — version floors, dependency limits, naming and copy rules — verbatim,
 - the traps you already ruled out.
 
@@ -166,14 +179,16 @@ A detail that says "see the earlier discussion" reaches a session that has no su
 
 ## No placeholders
 
-Every step must contain the actual content an engineer needs. These are **plan failures** — never
-write them:
+Every step must carry the content an engineer needs. These are **plan failures** — never write
+them:
 
 - "TBD", "TODO", "implement later", "fill in details"
-- "Add appropriate error handling" / "add validation" / "handle edge cases"
-- "Write tests for the above" (without actual test code)
-- "Similar to Task N" (repeat the code — the engineer may be reading tasks out of order)
-- Steps that describe what to do without showing how (code blocks required for code steps)
+- "Add appropriate error handling" / "add validation" / "handle edge cases" — name the behavior
+  and the example that shows it instead
+- "Write tests for the above" — the tests are the session's; what is missing is the behavior and
+  its example
+- "Similar to Task N" (repeat the detail — the engineer may be reading tasks out of order)
+- A step whose completion nothing could observe
 - References to types, functions, or methods not defined in any task
 
 ## Self-review
@@ -187,9 +202,12 @@ implements it? List any gaps.
 **2. Placeholder scan:** Search your plan for red flags — any of the patterns from the "No
 placeholders" section above. Fix them.
 
-**3. Type consistency:** Do the types, method signatures, and property names you used in later tasks
-match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but
-`clearFullLayers()` in Task 7 is a bug.
+**3. Type consistency:** Do the names and shapes you used in later tasks match what you defined in
+earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a
+bug.
+
+**4. Behavior, not code:** Does any step carry test code, implementation code, or an ordered
+procedure? Rewrite it as the behavior it was trying to produce, with an example.
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec
 requirement with no task, add the task.
@@ -207,6 +225,30 @@ with review steps where an independent verdict is worth the round trip.
 with checkpoints.
 
 **Which approach?"**
+
+### The plan review comes before implementation
+
+A plan written this way is reviewed by an independent session before anything is implemented. The
+planner's own confidence is not evidence that the plan is worth executing, and a step that states
+behavior instead of code is exactly the kind that reads as complete to its author and as vague to
+everyone else.
+
+The mechanism already exists: the chain's `review` role and its deny back-edge. `chain.start` takes
+a role per step, so the review is step 1 of the chain, not a pause inside a session:
+
+```text
+chain.start id=<planId> steps=[{"position":1,"role":"review"},{"position":2,"role":"implement"}]
+```
+
+A `deny` verdict starts a fix session seeded with the findings and their citations, and the plan is
+revised before any implementer step runs; an `approve-with-conditions` carries its conditions into
+the next step's brief. The review follows `reviewing-plans`.
+
+One review of the whole plan, before implementation. There is no per-phase pause inside a session
+and no checkpoint between steps — a step's session runs to its own completion.
+
+For inline execution the review happens the same way, in a session of its own, before the first
+step runs.
 
 **If a chain is chosen:**
 
