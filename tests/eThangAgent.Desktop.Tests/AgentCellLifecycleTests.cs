@@ -1,3 +1,4 @@
+using eThangAgent.AgentDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.TestSupport;
 
@@ -208,10 +209,14 @@ public class AgentCellLifecycleTests
   public async Task CellsAppendedWhileTheTabIsRead_NeverFaultTheLookup()
   {
     AgentTabViewModel tab = TestFixtures.CreateTab();
-    // A faulted append surfaces at the await below: the append itself is what must not throw.
+    AgentId first = tab.Cells[0].RootId;
+    const int Appends = 1_000;
+    const int Reads = 1_000;
+
+    // A faulted append or lookup surfaces at the await below: neither may throw.
     Task appender = Task.Run(() =>
     {
-      for (int i = 0; i < 500; i++)
+      for (int i = 0; i < Appends; i++)
       {
         _ = tab.AddCell(
             TestFixtures.FakeSessionFor(TestFixtures.CreateViewModel()),
@@ -219,18 +224,20 @@ public class AgentCellLifecycleTests
       }
     }, TestContext.Current.CancellationToken);
 
-    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
-    while (!appender.IsCompleted && DateTimeOffset.UtcNow < deadline)
+    // The reader YIELDS between passes rather than spinning: a tight loop on this thread would
+    // starve the pool the appender runs on and turn the race into a hang.
+    for (int i = 0; i < Reads; i++)
     {
-      _ = tab.FindCell(tab.Cells[0].RootId);
+      _ = tab.FindCell(first);
       _ = tab.LiveViewModel;
       _ = tab.LiveContainer;
       _ = tab.IsEmpty;
       _ = tab.IsFullyFinished;
       _ = tab.Snapshot();
+      await Task.Yield();
     }
 
     await appender.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.Equal(501, tab.Snapshot().Length);
+    Assert.Equal(Appends + 1, tab.Snapshot().Length);
   }
 }
