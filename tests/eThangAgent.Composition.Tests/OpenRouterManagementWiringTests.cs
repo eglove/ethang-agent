@@ -15,11 +15,17 @@ namespace eThangAgent.Composition.Tests;
 [Trait("Category", "Process")]
 public class OpenRouterManagementWiringTests
 {
+  /// <summary>A loopback port nothing listens on: a request to it fails at transport at once,
+  ///     with no name resolution and no network. A reserved domain name would do the same job on
+  ///     an idle machine and a different one on a loaded machine, where the lookup can outlast the
+  ///     tool's own budget and turn a transport failure into a timeout.</summary>
+  private static readonly Uri UnreachableBaseUrl = new("http://127.0.0.1:1");
+
   private static ServiceProvider Build(string? managementKey)
   {
     using TestAppDatabase db = TestAppDatabase.Create();
     AgentSettings settings = new(
-        new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test"), ManagementKey: managementKey),
+        new OpenRouterSettings("sk-or-test", UnreachableBaseUrl, ManagementKey: managementKey),
         new AgentRunOptions(null, 2));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
