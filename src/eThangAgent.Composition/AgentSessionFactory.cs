@@ -276,6 +276,18 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
           $"agent {sessionId} was persisted before workspace binding and carries no workspace or provider; it cannot be resumed."));
     }
 
+    // A SESSION BOUND TO A SECOND SPELLING CANNOT BE RESUMED (issue #374): every durable store
+    // refuses an id that is not normalized, so a container built on one would fail every write
+    // it attempted. Repairing the id here is not an option either - the id is what the session's
+    // rows key on, and re-spelling it would move the conversation away from the workspace it ran
+    // in - so the resume says so and names both forms.
+    string normalizedId = WorkspaceIdentity.Normalize(record.WorkspaceId);
+    if (!string.Equals(record.WorkspaceId, normalizedId, StringComparison.Ordinal))
+    {
+      return Result.Failure<AgentSession>(new DomainError("WorkspaceNotNormalized",
+          $"agent {sessionId} is bound to the workspace id '{record.WorkspaceId}', which is not a normalized workspace identity; the normalized form is '{normalizedId}'. It cannot be resumed because every durable store refuses that id."));
+    }
+
     Result<string> validated = ValidateProvider(record.WorkspaceId, record.Provider);
     if (!validated.IsSuccess)
     {

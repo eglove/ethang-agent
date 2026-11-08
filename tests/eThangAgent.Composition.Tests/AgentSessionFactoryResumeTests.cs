@@ -253,6 +253,37 @@ public class AgentSessionFactoryResumeTests
     }
   }
 
+  /// <summary>Issue #374: a session bound to a workspace id that is not a normalized identity
+  ///     cannot be resumed. Every durable store refuses that id, so a container built on it would
+  ///     fail every write it attempted - and re-spelling the id here would move the conversation
+  ///     away from the workspace it ran in.</summary>
+  [Fact]
+  public async Task ResumeAsync_OfASessionWhoseWorkspaceIdIsNotNormalized_Fails_Structured()
+  {
+    (AgentSessionFactory factory, string db) = CreateFactory();
+    try
+    {
+      SqliteAgentStore store = new(new AppDatabase(db));
+      AgentId rootId = AgentId.NewId();
+      string workspace = Directory.CreateDirectory(
+          Path.Combine(TestTempRoot.Root, $"ethang-resume-spelling-{Guid.NewGuid():N}")).FullName;
+      // The trailing separator is the second spelling one directory can arrive as.
+      _ = await store.SaveAsync(
+          AgentRecord.Root(rootId, DateTimeOffset.UtcNow, workspace + Path.DirectorySeparatorChar, Providers.OpenRouter),
+          ct: TestContext.Current.CancellationToken);
+
+      Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
+
+      Assert.False(resumed.IsSuccess);
+      Assert.Equal("WorkspaceNotNormalized", resumed.Error.Code);
+      Assert.Contains(workspace, resumed.Error.Message, StringComparison.Ordinal);
+    }
+    finally
+    {
+      DeleteDb(db);
+    }
+  }
+
   [Fact]
   public async Task ResumeAsync_MissingWorkspaceDirectory_Fails_Structured()
   {
