@@ -20,7 +20,7 @@ public sealed class AnchorHintTests : IDisposable
   private const string ReadyAnchorMarker = "ready-to-use 'old'";
 
   private readonly string _root = TestTempRoot.CreateDirectory("ethang-anchor").FullName;
-  private readonly DirectFileSystemAccess _access = new(LineEndingStub.For(LineEnding.Lf));
+  private readonly DirectFileSystemAccess _access = new(TextConventionStub.For(LineEnding.Lf));
 
   public void Dispose()
   {

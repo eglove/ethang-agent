@@ -41,7 +41,7 @@ public sealed class DirectFileSystemAccessVersionTests : IDisposable
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "one\ntwo\nthree", TestContext.Current.CancellationToken);
 
-    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
+    DirectFileSystemAccess access = new(TextConventionStub.For(LineEnding.Lf));
     Result<FileRead> r = await access.ReadLinesAsync(path, 1, 3, ct: TestContext.Current.CancellationToken);
 
     Assert.True(r.IsSuccess);
@@ -58,7 +58,7 @@ public sealed class DirectFileSystemAccessVersionTests : IDisposable
     string path = Path.Combine(_tempDir, "f.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "one\ntwo", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
+    DirectFileSystemAccess access = new(TextConventionStub.For(LineEnding.Lf));
 
     Result<FileRead> first = await access.ReadLinesAsync(path, 1, 2, ct: TestContext.Current.CancellationToken);
     await File.WriteAllTextAsync(path, "one\ntwo\nthree", TestContext.Current.CancellationToken);
@@ -79,7 +79,7 @@ public sealed class DirectFileSystemAccessVersionTests : IDisposable
     string path = Path.Combine(_tempDir, "f.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "aaaa\nbbbb", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
+    DirectFileSystemAccess access = new(TextConventionStub.For(LineEnding.Lf));
 
     Result<FileRead> first = await access.ReadLinesAsync(path, 1, 2, ct: TestContext.Current.CancellationToken);
     // Cross a clock tick: two same-length writes inside one timer tick can share a
@@ -101,7 +101,7 @@ public sealed class DirectFileSystemAccessVersionTests : IDisposable
   [Fact]
   public async Task ReadLinesAsync_FileNotFound_FailureCarriesNoVersion()
   {
-    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
+    DirectFileSystemAccess access = new(TextConventionStub.For(LineEnding.Lf));
     Result<FileRead> r = await access.ReadLinesAsync(Path.Combine(_tempDir, "nope.txt"), 1, 5, ct: TestContext.Current.CancellationToken);
 
     Assert.False(r.IsSuccess);

@@ -104,7 +104,7 @@ public sealed class ServerToolImageStoreTests : IDisposable
       // The session's real wiring: a workspace-rooted resolver decorated with the harness's own
       // artifact folder. The artifact lives in temp, outside the workspace, so this proves the
       // route the model actually takes to open an image it generated.
-      using DirectFileSystemAccess files = new(new EditorConfigLineEndingPolicy(workspace));
+      using DirectFileSystemAccess files = new(new EditorConfigTextConventionPolicy(workspace));
       TrustedDirectoryPathResolver resolver = new(
           new WorkspacePathResolver(workspace),
           [new TrustedDirectory(ServerToolImageStore.ArtifactRoot)],

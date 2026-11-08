@@ -6,21 +6,24 @@ using eThangAgent.ToolDomain;
 #pragma warning disable CA1849 // Call async methods when in an async method
 namespace eThangAgent.FileSystem.ACL;
 
-/// <summary>Resolves a write's line-ending convention from the project's own
-///     declarations, in a fixed order: the nearest <c>.editorconfig</c> chain's
-///     <c>end_of_line</c> (section globs via <see cref="SectionGlob"/>, later matching
-///     sections winning within one file, nearer files winning across the chain), then
-///     the nearest <c>.gitattributes</c> <c>eol=</c>, then the workspace's existing
-///     majority, then LF. An unrecognised value is ignored — a typo in a config file
-///     is information, never a failed write — so resolution continues down the order.
-///     <para><c>end_of_line = unset</c> WITHDRAWS the setting: it stops the search in
-///     the file it appears in, exactly as the editorconfig spec defines 'unset', so a
-///     broader section above it cannot silently keep voting.</para></summary>
-public sealed class EditorConfigLineEndingPolicy(string workspaceRoot) : ILineEndingPolicy
+/// <summary>Resolves a write's textual conventions from the project's own declarations.
+///     <para>The LINE ENDING follows a fixed order: the nearest <c>.editorconfig</c> chain's
+///     <c>end_of_line</c> (section globs via <see cref="SectionGlob"/>, later matching sections
+///     winning within one file, nearer files winning across the chain), then the nearest
+///     <c>.gitattributes</c> <c>eol=</c>, then the workspace's existing majority, then LF.</para>
+///     <para>The FINAL NEWLINE is the editorconfig <c>insert_final_newline</c> setting and nothing
+///     else: true appends a terminator to text that lacks one, and an undeclared setting leaves
+///     the text verbatim rather than imposing a convention the project never asked for.</para>
+///     <para>An unrecognised value is ignored — a typo in a config file is information, never a
+///     failed write — so resolution continues down the order. <c>unset</c> WITHDRAWS a setting: it
+///     stops the search in the file it appears in, exactly as the editorconfig spec defines it, so
+///     a broader section above it cannot silently keep voting.</para></summary>
+public sealed class EditorConfigTextConventionPolicy(string workspaceRoot) : ITextConventionPolicy
 {
   private const string EditorConfigName = ".editorconfig";
   private const string GitAttributesName = ".gitattributes";
   private const string EndOfLineKey = "end_of_line";
+  private const string InsertFinalNewlineKey = "insert_final_newline";
   private const string EolKey = "eol";
 
   /// <summary>Bound on how far the chain walk climbs, so a run that somehow escapes
@@ -29,22 +32,32 @@ public sealed class EditorConfigLineEndingPolicy(string workspaceRoot) : ILineEn
 
   private readonly string _workspaceRoot = NormalizeRoot(workspaceRoot);
 
-  public LineEnding Resolve(string filePath)
+  public TextConvention Resolve(string filePath)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
     string full = Path.GetFullPath(filePath);
     string directory = Path.GetDirectoryName(full) ?? _workspaceRoot;
 
-    return FromEditorConfigChain(full, directory)
+    LineEnding ending = FromEditorConfigChain<LineEnding>(full, directory, EndOfLineKey, TryParseEndOfLine)
         ?? FromGitAttributes(full, directory)
         ?? MajorityOfWorkspace()
         ?? LineEnding.Lf;
+
+    bool insertFinalNewline =
+        FromEditorConfigChain<bool>(full, directory, InsertFinalNewlineKey, TryParseBoolean) ?? false;
+
+    return new TextConvention(ending, insertFinalNewline);
   }
+
+  /// <summary>Parses one setting's value. False means the value is not in this setting's
+  ///     vocabulary (a typo, or a value nothing here emits) and resolution keeps walking.</summary>
+  private delegate bool TryParse<T>(string value, out T parsed) where T : struct;
 
   /// <summary>Walks from the file's own directory toward the root, applying each
   ///     <c>.editorconfig</c> found. The NEAREST file that decides wins, so the walk
   ///     stops there; a file claiming <c>root = true</c> ends the chain regardless.</summary>
-  private static LineEnding? FromEditorConfigChain(string filePath, string directory)
+  private static T? FromEditorConfigChain<T>(string filePath, string directory, string key, TryParse<T> parse)
+      where T : struct
   {
     DirectoryInfo? current = new(directory);
     for (int depth = 0; depth < MaxClimbDepth && current is not null; depth++)
@@ -52,7 +65,7 @@ public sealed class EditorConfigLineEndingPolicy(string workspaceRoot) : ILineEn
       EditorConfigDocument? document = LoadEditorConfig(Path.Combine(current.FullName, EditorConfigName));
       if (document is not null)
       {
-        LineEnding? decided = DecideFor(document, current.FullName, filePath);
+        T? decided = DecideFor(document, current.FullName, filePath, key, parse);
         if (decided is not null)
         {
           return decided;
@@ -71,23 +84,25 @@ public sealed class EditorConfigLineEndingPolicy(string workspaceRoot) : ILineEn
   }
 
   /// <summary>Applies one .editorconfig's sections to a file: the LAST matching section
-  ///     that names <c>end_of_line</c> is the answer. A matching section declaring
+  ///     that names <paramref name="key"/> is the answer. A matching section declaring
   ///     'unset' withdraws the setting and is itself the final word in this file —
   ///     returning a sentinel-free null here lets the caller keep walking outward.
   ///     </summary>
-  private static LineEnding? DecideFor(EditorConfigDocument document, string configDirectory, string filePath)
+  private static T? DecideFor<T>(
+      EditorConfigDocument document, string configDirectory, string filePath, string key, TryParse<T> parse)
+      where T : struct
   {
     string relative = RelativeFor(configDirectory, filePath);
-    LineEnding? decided = null;
+    T? decided = null;
     foreach (EditorConfigSection section in document.Sections)
     {
       bool applies = section.Glob is null || SectionGlob.Matches(section.Glob, relative);
-      if (!applies || !section.TryGet(EndOfLineKey, out string value))
+      if (!applies || !section.TryGet(key, out string value))
       {
         continue;
       }
 
-      if (TryParseEndOfLine(value, out LineEnding parsed))
+      if (parse(value, out T parsed))
       {
         decided = parsed;
       }
@@ -185,9 +200,8 @@ public sealed class EditorConfigLineEndingPolicy(string workspaceRoot) : ILineEn
     }
   }
 
-  /// <summary>The value vocabulary this tool can produce: lf and crlf. A bare 'cr' names
-  ///     a convention nothing here emits, and anything else is a typo — both decline
-  ///     rather than guessing.</summary>
+  /// <summary>The values this tool can produce: lf and crlf. A bare 'cr' names a convention
+  ///     nothing here emits, and anything else is a typo — both decline rather than guessing.</summary>
   private static bool TryParseEndOfLine(string value, out LineEnding ending)
   {
     bool recognized;
@@ -203,6 +217,30 @@ public sealed class EditorConfigLineEndingPolicy(string workspaceRoot) : ILineEn
         break;
       default:
         ending = LineEnding.Lf;
+        recognized = false;
+        break;
+    }
+
+    return recognized;
+  }
+
+  /// <summary>editorconfig's boolean vocabulary is 'true' and 'false'; anything else is a typo
+  ///     and declines, leaving the text verbatim.</summary>
+  private static bool TryParseBoolean(string value, out bool parsed)
+  {
+    bool recognized;
+    switch (value.Trim().ToUpperInvariant())
+    {
+      case "TRUE":
+        parsed = true;
+        recognized = true;
+        break;
+      case "FALSE":
+        parsed = false;
+        recognized = true;
+        break;
+      default:
+        parsed = false;
         recognized = false;
         break;
     }

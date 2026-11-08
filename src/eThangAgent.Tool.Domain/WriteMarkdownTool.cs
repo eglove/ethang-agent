@@ -24,7 +24,8 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
       "is refused unless overwrite is exactly true (omitting overwrite keeps the call create-only); parent directories are never created. Output in write mode is a " +
       "single annotation line `[write_markdown <path>] created|overwritten, N bytes, LF|CRLF line endings` — the " +
       "rendered markdown's line endings are normalized to the target file's own convention (the project's for a new " +
-      "file), so no EOL handling is needed around this tool. Errors begin with `Error [Code]:`.",
+      "file) and a final newline is inserted when the project's .editorconfig asks for one, so no EOL or " +
+      "trailing-newline handling is needed around this tool. Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("document", ToolParameterType.Text,

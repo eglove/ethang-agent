@@ -127,9 +127,9 @@ public static class AgentComposition
         // The line-ending policy is workspace-scoped: it resolves the project convention for
         // a write by walking outward from the file's own directory, and the workspace root is
         // the anchor (the same identity seam state keys and plans scope to).
-        .AddSingleton<ILineEndingPolicy>(sp =>
-            new EditorConfigLineEndingPolicy(sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
-        .AddSingleton(sp => new DirectFileSystemAccess(sp.GetRequiredService<ILineEndingPolicy>()))
+        .AddSingleton<ITextConventionPolicy>(sp =>
+            new EditorConfigTextConventionPolicy(sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot))
+        .AddSingleton(sp => new DirectFileSystemAccess(sp.GetRequiredService<ITextConventionPolicy>()))
         .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<IFileSearchAccess, DirectFileSearchAccess>()
         .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())

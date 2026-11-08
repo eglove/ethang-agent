@@ -17,7 +17,7 @@ namespace eThangAgent.Composition.Tests;
 ///     applies it, and the advertised `write` tool description tells the model so.
 ///     Drives the composed seams — no fake on the path under test.</summary>
 [Trait("Category", "Process")]
-public sealed class LineEndingCompositionTests : IDisposable
+public sealed class TextConventionCompositionTests : IDisposable
 {
   private readonly string _root = TestTempRoot.CreateDirectory("ethang-eolc").FullName;
 
@@ -59,9 +59,9 @@ public sealed class LineEndingCompositionTests : IDisposable
     File.WriteAllText(Path.Combine(_root, ".editorconfig"), "root = true\n\n[*]\nend_of_line = crlf\n");
     using ServiceProvider services = Build();
 
-    ILineEndingPolicy policy = services.GetRequiredService<ILineEndingPolicy>();
+    ITextConventionPolicy policy = services.GetRequiredService<ITextConventionPolicy>();
 
-    Assert.Equal(LineEnding.CrLf, policy.Resolve(Path.Combine(_root, "brand-new.txt")));
+    Assert.Equal(LineEnding.CrLf, policy.Resolve(Path.Combine(_root, "brand-new.txt")).Ending);
   }
 
   [Fact]
@@ -78,6 +78,42 @@ public sealed class LineEndingCompositionTests : IDisposable
     Assert.True(written.IsSuccess);
     Assert.Equal(LineEnding.CrLf, written.Value.NormalizedTo);
     Assert.Equal("a\r\nb", await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken).ConfigureAwait(true));
+  }
+
+  [Fact]
+  public async Task ComposedWriteSeam_InsertsTheProjectsFinalNewline()
+  {
+    await File.WriteAllTextAsync(
+        Path.Combine(_root, ".editorconfig"),
+        "root = true\n\n[*]\nend_of_line = lf\ninsert_final_newline = true\n",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    using ServiceProvider services = Build();
+    IFileWriteAccess files = services.GetRequiredService<IFileWriteAccess>();
+    string target = Path.Combine(_root, "fresh.md");
+
+    Result<FileWriteOutcome> written = await files.WriteFileAsync(
+        target, "# Title\n\nbody", overwrite: false, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(written.IsSuccess);
+    Assert.Equal("# Title\n\nbody\n", await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken).ConfigureAwait(true));
+  }
+
+  [Fact]
+  public async Task ComposedWriteSeam_WithoutTheSetting_WritesVerbatim()
+  {
+    await File.WriteAllTextAsync(
+        Path.Combine(_root, ".editorconfig"),
+        "root = true\n\n[*]\nend_of_line = lf\n",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    using ServiceProvider services = Build();
+    IFileWriteAccess files = services.GetRequiredService<IFileWriteAccess>();
+    string target = Path.Combine(_root, "fresh.md");
+
+    Result<FileWriteOutcome> written = await files.WriteFileAsync(
+        target, "# Title\n\nbody", overwrite: false, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(written.IsSuccess);
+    Assert.Equal("# Title\n\nbody", await File.ReadAllTextAsync(target, TestContext.Current.CancellationToken).ConfigureAwait(true));
   }
 
   [Fact]

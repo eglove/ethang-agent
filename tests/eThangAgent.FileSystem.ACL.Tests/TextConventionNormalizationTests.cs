@@ -14,16 +14,18 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 /// regions keep their exact bytes. These drive the real ACL over a real temp tree.
 /// <para>Each write reports the convention it landed (<c>NormalizedTo</c>) so the tool
 /// layer can state it in its annotation line instead of leaving the model to guess.</para></summary>
-public sealed class LineEndingNormalizationTests : IDisposable
+public sealed class TextConventionNormalizationTests : IDisposable
 {
   private readonly string _root = TestTempRoot.CreateDirectory("ethang-eoln").FullName;
-  private readonly DirectFileSystemAccess _lf = new(LineEndingStub.For(LineEnding.Lf));
-  private readonly DirectFileSystemAccess _crlf = new(LineEndingStub.For(LineEnding.CrLf));
+  private readonly DirectFileSystemAccess _lf = new(TextConventionStub.For(LineEnding.Lf));
+  private readonly DirectFileSystemAccess _crlf = new(TextConventionStub.For(LineEnding.CrLf));
+  private readonly DirectFileSystemAccess _lfFinalNewline = new(TextConventionStub.InsertingFinalNewline(LineEnding.Lf));
 
   public void Dispose()
   {
     _lf.Dispose();
     _crlf.Dispose();
+    _lfFinalNewline.Dispose();
     try
     {
       Directory.Delete(_root, recursive: true);
@@ -235,6 +237,127 @@ public sealed class LineEndingNormalizationTests : IDisposable
 
     Assert.True(r.IsSuccess);
     Assert.Equal("first\nsecond", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  // ---- insert_final_newline (issue #120) ----
+
+  [Fact]
+  public async Task Write_MissingFinalNewline_AppendsExactlyOne()
+  {
+    string path = At("o.txt");
+
+    Result<FileWriteOutcome> r = await _lfFinalNewline.WriteFileAsync(
+        path, "line one\nline two", overwrite: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal("line one\nline two\n", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task Write_AlreadyEndsWithNewline_IsByteIdentical()
+  {
+    string path = At("p.txt");
+
+    Result<FileWriteOutcome> r = await _lfFinalNewline.WriteFileAsync(
+        path, "line one\nline two\n", overwrite: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal("line one\nline two\n", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task Write_FinalNewlineOff_WritesVerbatim()
+  {
+    // The escape hatch: a project that does not ask for a final newline gets the text
+    // exactly as handed over, so a file may deliberately end without one.
+    string path = At("q.txt");
+
+    Result<FileWriteOutcome> r = await _lf.WriteFileAsync(
+        path, "line one\nline two", overwrite: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal("line one\nline two", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task Write_FinalNewlineUsesTheResolvedEnding()
+  {
+    string path = At("r.txt");
+    DirectFileSystemAccess crlfFinalNewline = new(TextConventionStub.InsertingFinalNewline(LineEnding.CrLf));
+
+    Result<FileWriteOutcome> r = await crlfFinalNewline.WriteFileAsync(
+        path, "alpha\nbeta", overwrite: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal("alpha\r\nbeta\r\n", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task WriteLines_FinalNewlineOn_EndsWithOne()
+  {
+    string path = At("s.txt");
+
+    Result<FileWriteOutcome> r = await _lfFinalNewline.WriteFileLinesAsync(
+        path, ["first", "second"], overwrite: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal("first\nsecond\n", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  // ---- edit preserves the final-newline state (issue #120) ----
+
+  [Fact]
+  public async Task Edit_AnchorMode_KeepsTheTrailingNewlineOfTheFile()
+  {
+    string path = At("t.txt");
+    await File.WriteAllTextAsync(path, "alpha\nbeta\ngamma\n", TestContext.Current.CancellationToken);
+
+    Result<ReplaceOutcome> r = await _lf.ReplaceInFileAsync(
+        path, "beta", "BETA", occurrences: 1, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal('\n', (await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken))[^1]);
+  }
+
+  [Fact]
+  public async Task Edit_HunksMode_KeepsTheTrailingNewlineOfTheFile()
+  {
+    string path = At("u.txt");
+    await File.WriteAllTextAsync(path, "alpha\nbeta\ngamma\n", TestContext.Current.CancellationToken);
+
+    Result<HunkReplaceOutcome> r = await _lf.ReplaceHunksAsync(
+        path,
+        [new EditHunk("beta", "BETA", All: false, Occurrences: 1)],
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal('\n', (await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken))[^1]);
+  }
+
+  [Fact]
+  public async Task Edit_RangeMode_KeepsTheTrailingNewlineOfTheFile()
+  {
+    string path = At("v.txt");
+    await File.WriteAllTextAsync(path, "one\ntwo\nthree\n", TestContext.Current.CancellationToken);
+
+    Result<ReplaceOutcome> r = await _lf.ReplaceLineRangeAsync(
+        path, 2, 2, "TWO", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal('\n', (await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken))[^1]);
+  }
+
+  [Fact]
+  public async Task Edit_FileWithoutATrailingNewline_DoesNotGainOne()
+  {
+    string path = At("w.txt");
+    await File.WriteAllTextAsync(path, "alpha\nbeta", TestContext.Current.CancellationToken);
+
+    Result<ReplaceOutcome> r = await _lfFinalNewline.ReplaceInFileAsync(
+        path, "beta", "BETA", occurrences: 1, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal("alpha\nBETA", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
   }
 
   [Fact]

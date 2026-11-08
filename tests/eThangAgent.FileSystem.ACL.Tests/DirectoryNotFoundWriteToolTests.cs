@@ -17,7 +17,7 @@ public sealed class DirectoryNotFoundWriteToolTests
     string root = TestTempRoot.CreateDirectory("ethang-dnf").FullName;
     try
     {
-      using DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
+      using DirectFileSystemAccess access = new(TextConventionStub.For(LineEnding.Lf));
       WriteTool tool = new(new WorkspacePathResolver(root), access);
 
       string missing = Path.Combine(root, "no", "such");
@@ -46,7 +46,7 @@ public sealed class DirectoryNotFoundWriteToolTests
     string root = TestTempRoot.CreateDirectory("ethang-dnfb").FullName;
     try
     {
-      using DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
+      using DirectFileSystemAccess access = new(TextConventionStub.For(LineEnding.Lf));
 
       string missing = Path.Combine(root, "no", "such");
       Result<FileWriteOutcome> r = await access.WriteFileBytesAsync(

@@ -3,7 +3,7 @@ using System.Text;
 namespace eThangAgent.ToolDomain;
 
 /// <summary>Mechanical line-ending primitives. No IO, no project knowledge — the
-/// policy seam (<see cref="ILineEndingPolicy"/>) decides WHICH convention applies;
+/// policy seam (<see cref="ITextConventionPolicy"/>) decides WHICH convention applies;
 /// this type only counts and rewrites terminators.</summary>
 public static class LineEndings
 {
@@ -43,7 +43,8 @@ public static class LineEndings
   /// <summary>Rewrites every line terminator in <paramref name="text"/> to
   /// <paramref name="target"/>. Terminators are LF, CRLF, and bare CR; nothing else
   /// changes, and a missing trailing terminator stays missing (normalizing line
-  /// endings never adds or removes lines).</summary>
+  /// endings never adds or removes lines — <see cref="EnsureFinalNewline"/> is the
+  /// separate, opt-in step).</summary>
   public static string Normalize(string text, LineEnding target)
   {
     ArgumentNullException.ThrowIfNull(text);
@@ -66,6 +67,18 @@ public static class LineEndings
     }
 
     return sb.ToString();
+  }
+
+  /// <summary>Appends one terminator when <paramref name="text"/> does not already end with
+  /// one, and returns the text unchanged when it does: the editorconfig
+  /// <c>insert_final_newline</c> semantics, never a doubled newline. Empty text stays empty
+  /// (an empty file has no final line to terminate).</summary>
+  public static string EnsureFinalNewline(string text, LineEnding target)
+  {
+    ArgumentNullException.ThrowIfNull(text);
+    return text.Length == 0 || text[^1] is '\n' or '\r'
+        ? text
+        : text + Terminator(target);
   }
 
   /// <summary>The terminator text for a convention.</summary>

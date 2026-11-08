@@ -139,7 +139,7 @@ public sealed class ThinClientTurnTests
     {
       await File.WriteAllLinesAsync(Path.Combine(root, "notes.txt"), ["alpha", "beta"],
           TestContext.Current.CancellationToken).ConfigureAwait(true);
-      using DirectFileSystemAccess files = new(new EditorConfigLineEndingPolicy(root));
+      using DirectFileSystemAccess files = new(new EditorConfigTextConventionPolicy(root));
       FakeHostSession session = await FakeHostSession
           .StartAsync(["done"], references: new ReferenceInjector(files, null, root))
           .ConfigureAwait(true);

@@ -88,7 +88,7 @@ public class ReferenceSubmitTests
     }
 
     List<string> turns = [];
-    DirectFileSystemAccess fileAccess = new(new EditorConfigLineEndingPolicy(root));
+    DirectFileSystemAccess fileAccess = new(new EditorConfigTextConventionPolicy(root));
     CountingFiles counter = new(fileAccess);
     AgentSessionViewModel vm = new(
         (command, _, _, _) =>

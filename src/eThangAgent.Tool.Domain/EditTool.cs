@@ -41,6 +41,8 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
       "binary files are refused. LINE ENDINGS ARE NORMALIZED MECHANICALLY: the replacement is rewritten to " +
       "the file's own dominant convention before splicing (untouched lines keep their exact bytes), so an " +
       "edit never introduces a foreign terminator — do not convert line endings yourself in `replacement`. " +
+      "AN EDIT NEVER CHANGES THE FILE'S FINAL NEWLINE: text that ended with one still does, and text that " +
+      "did not still does not. " +
       "Output is annotation lines only. Anchor mode: `[edit <path>] replaced N occurrence(s), file now M lines, " +
       "LF|CRLF line endings`. Hunks mode: one `[edit <path>] hunk K/N: replaced C occurrence(s)` line per " +
       "hunk, then `[edit <path>] N hunk(s) applied, file now M lines, LF|CRLF line endings`. Range mode: " +

@@ -59,6 +59,26 @@ public class LineEndingsTests
       Assert.Equal("", LineEndings.Normalize("", LineEnding.CrLf));
 
   [Fact]
+  public void EnsureFinalNewline_MissingTerminator_AppendsExactlyOne()
+  {
+    Assert.Equal("a\nb\n", LineEndings.EnsureFinalNewline("a\nb", LineEnding.Lf));
+    Assert.Equal("a\nb\r\n", LineEndings.EnsureFinalNewline("a\nb", LineEnding.CrLf));
+  }
+
+  [Fact]
+  public void EnsureFinalNewline_AlreadyTerminated_IsByteIdentical()
+  {
+    Assert.Equal("a\nb\n", LineEndings.EnsureFinalNewline("a\nb\n", LineEnding.Lf));
+    Assert.Equal("a\nb\r\n", LineEndings.EnsureFinalNewline("a\nb\r\n", LineEnding.CrLf));
+  }
+
+  [Fact]
+  public void EnsureFinalNewline_EmptyText_StaysEmpty() =>
+      // An empty file has no final line to terminate, so the editorconfig setting does
+      // not turn it into a one-byte file.
+      Assert.Equal("", LineEndings.EnsureFinalNewline("", LineEnding.Lf));
+
+  [Fact]
   public void Terminator_And_Label_AreTheDocumentedForms()
   {
     Assert.Equal("\n", LineEndings.Terminator(LineEnding.Lf));

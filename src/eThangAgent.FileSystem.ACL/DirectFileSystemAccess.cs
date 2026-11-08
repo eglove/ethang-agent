@@ -9,10 +9,10 @@ using eThangAgent.ToolDomain;
 #pragma warning disable CA1031 // Do not catch general exception types
 namespace eThangAgent.FileSystem.ACL;
 
-public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFileSystemAccess, IFileWriteAccess, IFileEditAccess, IDisposable
+public sealed class DirectFileSystemAccess(ITextConventionPolicy conventions) : IFileSystemAccess, IFileWriteAccess, IFileEditAccess, IDisposable
 {
-  private readonly ILineEndingPolicy _lineEndings =
-      lineEndings ?? throw new ArgumentNullException(nameof(lineEndings));
+  private readonly ITextConventionPolicy _conventions =
+      conventions ?? throw new ArgumentNullException(nameof(conventions));
   public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine, CancellationToken ct = default)
   {
     if (!File.Exists(path))
@@ -77,11 +77,16 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
 
     bool created = !File.Exists(path);
     string? before = created ? null : ReadTextOrNull(path);
-    LineEnding normalizedTo = ResolveConvention(path);
-    string landed = LineEndings.Normalize(content, normalizedTo);
+    TextConvention convention = ResolveConvention(path, before);
+    string landed = LineEndings.Normalize(content, convention.Ending);
+    if (convention.InsertFinalNewline)
+    {
+      landed = LineEndings.EnsureFinalNewline(landed, convention.Ending);
+    }
+
     File.WriteAllText(path, landed, new UTF8Encoding(false));
     return Task.FromResult(Result.Success(
-        new FileWriteOutcome(created, new FileInfo(path).Length, normalizedTo, ChangedLineNumbers(before, landed))));
+        new FileWriteOutcome(created, new FileInfo(path).Length, convention.Ending, ChangedLineNumbers(before, landed))));
   }
 
   public Task<Result<FileWriteOutcome>> WriteFileLinesAsync(
@@ -91,18 +96,25 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
     return WriteFileAsync(path, JoinLines(path, lines), overwrite, ct);
   }
 
-  /// <summary>Joins one-per-line content with the convention this file should land in,
-  ///     so 'lines' mode never hardcodes LF.</summary>
+  /// <summary>Joins one-per-line content with the ending this file should land in, so
+  ///     'lines' mode never hardcodes LF. The final newline is the write's own business, so an
+  ///     empty array still writes an empty file.</summary>
   private string JoinLines(string path, IReadOnlyList<string> lines) =>
-      string.Join(LineEndings.Terminator(ResolveConvention(path)), lines);
+      string.Join(LineEndings.Terminator(ResolveConvention(path).Ending), lines);
 
   /// <summary>The convention a write to this path lands in: the existing file's own
-  ///     dominant convention when it has one (a tool never rewrites a file's house
-  ///     style), else the project convention the policy reports.</summary>
-  private LineEnding ResolveConvention(string path) =>
-      File.Exists(path) && ReadTextOrNull(path) is { } existing
-          ? LineEndings.DetectDominant(existing) ?? _lineEndings.Resolve(path)
-          : _lineEndings.Resolve(path);
+  ///     dominant ending when it has one (a tool never restyles a file's house style), else the
+  ///     project ending the policy reports. The final-newline setting is always the project's.</summary>
+  private TextConvention ResolveConvention(string path) =>
+      ResolveConvention(path, File.Exists(path) ? ReadTextOrNull(path) : null);
+
+  private TextConvention ResolveConvention(string path, string? existing)
+  {
+    TextConvention project = _conventions.Resolve(path);
+    return existing is null
+        ? project
+        : project with { Ending = LineEndings.DetectDominant(existing) ?? project.Ending };
+  }
 
   private static string? ReadTextOrNull(string path)
   {
@@ -198,7 +210,7 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
     // an anchor edit can never introduce a foreign terminator (issue #251). The
     // tolerant matching above is untouched: it runs on normalized views and the offset
     // map still splices untouched bytes verbatim.
-    LineEnding convention = LineEndings.DetectDominant(text) ?? _lineEndings.Resolve(path);
+    LineEnding convention = LineEndings.DetectDominant(text) ?? _conventions.Resolve(path).Ending;
     string normalizedNew = LineEndings.Normalize(newText, convention);
 
     // Normalized and original offsets line up only when no CR was stripped; build
@@ -259,7 +271,7 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
 
     // The replacement is rewritten into the FILE's own convention first, so range mode
     // cannot introduce a foreign terminator either (issue #251).
-    LineEnding convention = LineEndings.DetectDominant(text) ?? _lineEndings.Resolve(path);
+    LineEnding convention = LineEndings.DetectDominant(text) ?? _conventions.Resolve(path).Ending;
     string normalizedNew = LineEndings.Normalize(newText, convention);
 
     string result = SpliceRange(lines, startLine, endLine, normalizedNew);
@@ -292,7 +304,7 @@ public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFil
     }
 
     string matchText = NormalizeNewlines(text);
-    LineEnding convention = LineEndings.DetectDominant(text) ?? _lineEndings.Resolve(path);
+    LineEnding convention = LineEndings.DetectDominant(text) ?? _conventions.Resolve(path).Ending;
     Result<List<HunkMatch>> matched = MatchHunks(path, hunks, matchText, convention);
     if (!matched.IsSuccess)
     {

@@ -46,7 +46,7 @@ public class ExecRefusedWriteReportTests
 
   private static async Task<(ExecRunResult Run, ToolResult Formatted)> RunAsync(string root, string[] script)
   {
-    using DirectFileSystemAccess files = new(new EditorConfigLineEndingPolicy(root));
+    using DirectFileSystemAccess files = new(new EditorConfigTextConventionPolicy(root));
     AgentToolsProvider tools = new("tools",
     [
         new AgentToolBinding(new WriteTool(new WorkspacePathResolver(root), files), "Writes a file."),

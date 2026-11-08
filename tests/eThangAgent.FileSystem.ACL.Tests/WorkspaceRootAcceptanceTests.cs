@@ -28,7 +28,7 @@ public class WorkspaceRootAcceptanceTests
 
       // Production shape: trailing separator, exactly as DesktopHost receives it.
       WorkspacePathResolver resolver = new(root.FullName + Path.DirectorySeparatorChar);
-      DirectFileSystemAccess files = new(LineEndingStub.For(LineEnding.Lf));
+      DirectFileSystemAccess files = new(TextConventionStub.For(LineEnding.Lf));
 
       Result<string> resolved = resolver.Resolve(".");
       Assert.True(resolved.IsSuccess, $"resolve('.') failed: {resolved.Error?.Message}");

@@ -13,7 +13,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 public sealed class FileWriteIntegrationTests : IDisposable
 {
   private readonly string _root = TestTempRoot.CreateDirectory("ethang-w").FullName;
-  private readonly DirectFileSystemAccess _access = new(LineEndingStub.For(LineEnding.Lf));
+  private readonly DirectFileSystemAccess _access = new(TextConventionStub.For(LineEnding.Lf));
 
   public void Dispose()
   {

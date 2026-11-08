@@ -32,8 +32,12 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
       "MECHANICALLY: the text is rewritten to the target file's own dominant convention (an " +
       "existing file is never restyled), or for a new file to the project's convention resolved " +
       "from .editorconfig end_of_line, then .gitattributes eol=, then the workspace's existing " +
-      "majority, then LF. Do not convert line endings yourself — no scripts that rewrite files to " +
-      "fix EOLs; they already conform. Output is a single annotation line in [brackets]: " +
+      "majority, then LF. A FINAL NEWLINE IS INSERTED when the project's .editorconfig declares " +
+      "insert_final_newline = true and the text lacks one; with the setting false or undeclared the " +
+      "text is written verbatim in that respect, so a file that deliberately ends without a newline " +
+      "is still writable. Do not convert line endings or append trailing newlines yourself — no " +
+      "scripts that rewrite files to fix EOLs or final newlines; they already conform. Output is a " +
+      "single annotation line in [brackets]: " +
       "`[write <path>] created|overwritten, N bytes, LF|CRLF line endings` — metadata, not file " +
       "content. Errors begin with `Error [Code]:`.",
       [
