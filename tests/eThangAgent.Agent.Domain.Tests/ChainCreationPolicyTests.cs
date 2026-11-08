@@ -9,30 +9,13 @@ public class ChainCreationPolicyTests
   private static readonly int[] PlanSteps = [1, 2, 3];
 
   [Fact]
-  public void RefusalFor_B1_AReviewStepWithNoReviewerModel_IsRefusedNamingTheField()
-  {
-    // Issue #218 D1: the field is REQUIRED. Resolution otherwise falls back through the
-    // session's live model choice, which is the implementer's model in a single-model run.
-    DomainError? error = ChainCreationPolicy.RefusalFor(
-        [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review())], PlanSteps);
-
-    Assert.NotNull(error);
-    Assert.Equal(ReviewerSeparationCode.ModelMissing, error.Code);
-    Assert.Contains("step 2", error.Message, StringComparison.Ordinal);
-    Assert.Contains("'model'", error.Message, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void RefusalFor_AReviewStepThatNamesItsModel_IsAccepted() =>
+  public void RefusalFor_AReviewStepNeedsNoModel() =>
       Assert.Null(ChainCreationPolicy.RefusalFor(
-          [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review("vendor/reviewer"))],
+          [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review)],
           PlanSteps));
 
-  // D6: the rule applies to review steps only. Implementation steps have legitimate reasons to
-  // inherit the session's model, and a model on an implementer step is already refused by the
-  // capability provider's parser rather than by this rule.
   [Fact]
-  public void RefusalFor_B6_OrdinaryStepsAreUnaffected() =>
+  public void RefusalFor_OrdinaryStepsAreUnaffected() =>
       Assert.Null(ChainCreationPolicy.RefusalFor([ChainStepSeed.Implementing(1)], PlanSteps));
 
   [Fact]
@@ -78,7 +61,7 @@ public class ChainCreationPolicyTests
   public void RefusalFor_OnePositionWithTwoRoles_IsRefusedNamingBoth()
   {
     DomainError? error = ChainCreationPolicy.RefusalFor(
-        [ChainStepSeed.Implementing(1), new ChainStepSeed(1, ChainStepRole.Review("other/model"))],
+        [ChainStepSeed.Implementing(1), new ChainStepSeed(1, ChainStepRole.Review)],
         PlanSteps);
 
     Assert.NotNull(error);

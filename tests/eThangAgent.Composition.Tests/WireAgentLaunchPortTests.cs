@@ -76,12 +76,12 @@ public class WireAgentLaunchPortTests
   {
     SessionRequestPayload chain = new("req-1", "", HandoffSummary: null)
     {
-      ChainStep = new SessionRequestChainStep(2, 3, 1, "review", "prov/m"),
+      ChainStep = new SessionRequestChainStep(2, 3, 1, "review"),
     };
     SessionRequestPayload handoff = new("req-2", "", HandoffSummary: "the dense summary");
 
     Assert.Equal(
-        /*lang=json,strict*/ "{\"RequestId\":\"req-1\",\"Prompt\":\"\",\"HandoffSummary\":null,\"ChainStep\":{\"ChainId\":2,\"PlanId\":3,\"Position\":1,\"Role\":\"review\",\"Model\":\"prov/m\"}}",
+        /*lang=json,strict*/ "{\"RequestId\":\"req-1\",\"Prompt\":\"\",\"HandoffSummary\":null,\"ChainStep\":{\"ChainId\":2,\"PlanId\":3,\"Position\":1,\"Role\":\"review\"}}",
         JsonSerializer.Serialize(chain));
     Assert.Equal(
         /*lang=json,strict*/ "{\"RequestId\":\"req-2\",\"Prompt\":\"\",\"HandoffSummary\":\"the dense summary\",\"ChainStep\":null}",

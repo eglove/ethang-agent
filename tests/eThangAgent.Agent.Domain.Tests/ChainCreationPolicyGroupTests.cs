@@ -28,7 +28,7 @@ public class ChainCreationPolicyGroupTests
   {
     DomainError? error = Refusal(
         new ChainStepSeed(1, ChainStepRole.Implement, Group: 1),
-        new ChainStepSeed(2, ChainStepRole.Review("vendor/r"), Group: 1),
+        new ChainStepSeed(2, ChainStepRole.Review, Group: 1),
         new ChainStepSeed(3, ChainStepRole.Implement));
 
     Assert.Equal(ChainCreationCode.GroupReviewMember, error!.Code);

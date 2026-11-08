@@ -40,6 +40,9 @@ public sealed class PlanReviewMigrationTests : IDisposable
   private void SeedPreviousVersion()
   {
     _ = new AppDatabase(_dbPath);
+    // V26's chain_steps carried the two model columns V37 drops, so the fixture restores that
+    // shape before stamping the version: a pre-V27 database never had the present shape.
+    ChainStepsV36Shape.Restore(_dbPath);
     Execute($"DROP TABLE IF EXISTS plan_reviews; PRAGMA user_version = {VersionBeforeV27};");
   }
 

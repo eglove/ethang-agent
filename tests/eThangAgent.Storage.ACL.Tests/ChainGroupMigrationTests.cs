@@ -37,6 +37,9 @@ public sealed class ChainGroupMigrationTests : IDisposable
   private void SeedV34()
   {
     _ = new AppDatabase(_dbPath);
+    // V34's chain_steps carried the two model columns V37 drops, so the fixture restores that
+    // shape before stamping the version: a pre-V35 database never had the present shape.
+    ChainStepsV36Shape.Restore(_dbPath);
     Execute("""
         PRAGMA foreign_keys = OFF;
         CREATE TABLE chain_steps_v34 (
@@ -108,7 +111,7 @@ public sealed class ChainGroupMigrationTests : IDisposable
     AppDatabase database = new(_dbPath);
     SqliteChainStore store = new(database, Ws);
     Chain chain = Chain.NewFromSeeds(Ws, 7, 1, "Ship it", "session-root",
-        [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review("vendor/reviewer"))],
+        [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review)],
         T0);
     Result<Chain> created = store.CreateAsync(chain, TestContext.Current.CancellationToken)
         .GetAwaiter().GetResult();
@@ -119,7 +122,11 @@ public sealed class ChainGroupMigrationTests : IDisposable
   ///     <c>worktree_branch</c> - and stamps user_version 35, which is the exact pre-V36 state a
   ///     shipped database is in.</summary>
   private void SeedV35()
-    => Execute("""
+  {
+    // V35's chain_steps carried the two model columns V37 drops, so the fixture restores that
+    // shape before stamping the version: a pre-V36 database never had the present shape.
+    ChainStepsV36Shape.Restore(_dbPath);
+    Execute("""
         PRAGMA foreign_keys = OFF;
         CREATE TABLE chain_steps_v35b (
             chain_id INTEGER NOT NULL REFERENCES chains(id),
@@ -151,6 +158,7 @@ public sealed class ChainGroupMigrationTests : IDisposable
         PRAGMA user_version = 35;
         PRAGMA foreign_keys = ON;
         """);
+  }
 
   /// <summary>V36 stores the branch a member committed on. It is NULL for every row that
   ///     predates the column, because no step before it ran in a worktree at all.</summary>

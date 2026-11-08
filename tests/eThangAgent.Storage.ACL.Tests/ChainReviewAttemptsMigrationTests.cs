@@ -35,8 +35,12 @@ public sealed class ChainReviewAttemptsMigrationTests : IDisposable
   ///     <para>THE PRE-V29 VERSION IS A LITERAL, deliberately: 'latest minus one' would silently
   ///     change meaning the moment a V30 exists, and this fixture must reproduce V28 forever.</para>
   ///     </summary>
-  private void SeedV28() =>
-      Execute("""
+  private void SeedV28()
+  {
+    // V28's chain_steps carried the two model columns V37 drops, so the fixture restores that
+    // shape before stamping the version: a pre-V29 database never had the present shape.
+    ChainStepsV36Shape.Restore(_dbPath);
+    Execute("""
         PRAGMA foreign_keys = OFF;
         CREATE TABLE chain_steps_v28 (
             chain_id INTEGER NOT NULL REFERENCES chains(id),
@@ -62,6 +66,7 @@ public sealed class ChainReviewAttemptsMigrationTests : IDisposable
         PRAGMA user_version = 28;
         PRAGMA foreign_keys = ON;
         """);
+  }
 
   private void Execute(string sql)
   {
@@ -101,7 +106,7 @@ public sealed class ChainReviewAttemptsMigrationTests : IDisposable
     AppDatabase database = new(_dbPath);
     SqliteChainStore store = new(database, Ws);
     Chain chain = Chain.NewFromSeeds(Ws, 7, 1, "Ship it", "session-root",
-        [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review("vendor/reviewer"))],
+        [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review)],
         T0);
     Result<Chain> created = store.CreateAsync(chain, TestContext.Current.CancellationToken)
         .GetAwaiter().GetResult();
@@ -137,8 +142,7 @@ public sealed class ChainReviewAttemptsMigrationTests : IDisposable
 
     Assert.Equal(2L, rows);
     // NO BACKFILL VALUE NEEDED: every step that settled before this migration was never sent
-    // back, which is exactly what 0 says - unlike served_model (V28), where a guess would
-    // fabricate a comparison. The RETRY counter is carried forward untouched.
+    // back, which is exactly what 0 says. The RETRY counter is carried forward untouched.
     Assert.Equal(0L, sentBack);
     Assert.Equal("Review", role);
     Assert.Equal(2L, attempts);

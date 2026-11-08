@@ -119,7 +119,7 @@ public sealed class ChainContractRendererTests
   [Fact]
   public void Render_ForAReviewStep_TellsItToJudgeRatherThanToFinishTheWork()
   {
-    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Review("vendor/reviewer")));
+    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Review));
 
     // The standing rule, which is what survives a compaction that evicts the brief.
     Assert.Contains("assigned the review role", text, StringComparison.Ordinal);
@@ -131,7 +131,7 @@ public sealed class ChainContractRendererTests
   [Fact]
   public void Render_ForAReviewStep_StillSaysTheHarnessAdvancesTheChain()
   {
-    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Review()));
+    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Review));
 
     // A reviewer is still a chain step: it finishes by marking the step done, and the harness
     // - not the reviewer - decides what follows.

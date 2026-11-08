@@ -132,14 +132,6 @@ public sealed class ChainService(IChainStore store)
         (_, _) => StepChanged?.Invoke(
             new ChainStepChanged(id, position, "retried", ChainActor.Session(sessionId), now)), ct);
 
-  /// <summary>Records the model a step's session actually served on (issue #218). The
-  ///     implementer's model must outlive its session, because the separation rule compares the
-  ///     reviewer against it after that session has closed.</summary>
-  public Task<Result<Chain>> RecordServedModelAsync(int id, int position, string? modelId,
-      DateTimeOffset now, CancellationToken ct = default)
-    => MutateAsync(id, chain => chain.RecordServedModel(position, modelId, now), now,
-        (_, _) => { }, ct);
-
   /// <summary>Records the git worktree the step's session runs in and the branch checked out
   ///     there (issue #301's group rule).
   ///     <para>WRITTEN BEFORE THE LAUNCH, so both facts are on the record for the whole life of

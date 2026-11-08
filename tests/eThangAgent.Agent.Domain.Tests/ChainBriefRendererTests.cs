@@ -163,7 +163,7 @@ public sealed class ChainBriefRendererTests
   [Fact]
   public void Render_ForAReviewStep_TellsItToJudgeRatherThanToFinishTheWork()
   {
-    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review("vendor/reviewer"))).Value!;
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review)).Value!;
 
     // The defect this issue exists for: an implementer's contract handed to a reviewer.
     Assert.Contains("You are the REVIEWER for this step", brief.Content, StringComparison.Ordinal);
@@ -175,7 +175,7 @@ public sealed class ChainBriefRendererTests
   [Fact]
   public void Render_ForAReviewStep_StillNamesTheOneStepItMayMarkDone()
   {
-    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review())).Value!;
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review)).Value!;
 
     // A reviewer still has to COMPLETE its step - the ownership gate and the harness's advance
     // both read that write. What changes is what the step is for, not whether it finishes.
@@ -186,7 +186,7 @@ public sealed class ChainBriefRendererTests
   [Fact]
   public void Render_ForAReviewStep_StatesTheVerdictShapeAndTheCitationRule()
   {
-    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review())).Value!;
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review)).Value!;
 
     Assert.Contains("verdict: approve | deny | approve-with-conditions", brief.Content, StringComparison.Ordinal);
     Assert.Contains("citing a requirement id or a step position", brief.Content, StringComparison.Ordinal);
@@ -197,7 +197,7 @@ public sealed class ChainBriefRendererTests
   public void Render_ForAReviewStep_WithTheRubricSkill_NamesIt()
   {
     ChainBrief brief = ChainBriefRenderer.Render(
-        Facts(role: ChainStepRole.Review(), rubric: true)).Value!;
+        Facts(role: ChainStepRole.Review, rubric: true)).Value!;
 
     Assert.Contains("Load the `reviewing-plans` skill", brief.Content, StringComparison.Ordinal);
     Assert.DoesNotContain("no rubric to apply", brief.Content, StringComparison.Ordinal);
@@ -207,7 +207,7 @@ public sealed class ChainBriefRendererTests
   public void Render_ForAReviewStep_WithoutTheRubricSkill_SaysSoRatherThanInventingOne()
   {
     ChainBrief brief = ChainBriefRenderer.Render(
-        Facts(role: ChainStepRole.Review(), rubric: false)).Value!;
+        Facts(role: ChainStepRole.Review, rubric: false)).Value!;
 
     // An invented rubric is a verdict nobody can compare; an absent one is visibly absent.
     Assert.Contains("No `reviewing-plans` skill is installed", brief.Content, StringComparison.Ordinal);

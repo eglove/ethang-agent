@@ -40,15 +40,11 @@ public sealed class WireChainStartPort(SessionRequestChannel channel) : IChainSt
     // THE ROLE TRAVELS when the caller read it from the record; an assignment that did not
     // is an implementer step, which is the same default the record itself applies.
     ChainStepRole role = assignment.Role ?? ChainStepRole.Implement;
-    // THE REVIEWER'S MODEL TRAVELS WITH THE ROLE (issue #218). The app is where a session's model
-    // is set, so a role without its model would leave a review step inheriting the workspace's
-    // choice - the implementer's model in a single-model run, which is the condition the
-    // separation rule exists to remove.
     SessionRequestPayload payload = new(Guid.NewGuid().ToString("N"),
         Prompt: ChainKickoff.Line, HandoffSummary: null)
     {
       ChainStep = new SessionRequestChainStep(assignment.ChainId, assignment.PlanId,
-          assignment.Position, role.Encoded, role.Model),
+          assignment.Position, role.Encoded),
     };
     return await _channel.RequestAsync(payload, ct).ConfigureAwait(false);
   }

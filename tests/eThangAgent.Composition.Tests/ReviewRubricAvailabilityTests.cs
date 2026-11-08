@@ -128,6 +128,6 @@ public class ReviewRubricAvailabilityTests
           new ChainBriefPlanStep(2, "Judge the plan", "Review it.")],
       Predecessors: [],
       LedgerKey: "sci.dashboard-truth/ledger",
-      Role: ChainStepRole.Review("vendor/reviewer"),
+      Role: ChainStepRole.Review,
       ReviewRubricAvailable: rubricAvailable);
 }

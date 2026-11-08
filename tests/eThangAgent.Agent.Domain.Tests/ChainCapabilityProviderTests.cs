@@ -112,14 +112,14 @@ public class ChainCapabilityProviderTests
     return "{" + members + "}";
   }
 
-  /// <summary>One step object: the position, and optionally a role, a reviewer model,
-  ///     and a parallel group.</summary>
+  /// <summary>One step object: the position, and optionally a role, a parallel group, and an
+  ///     extra member the case states.</summary>
   /// <param name="position">The 1-based plan step position.</param>
   /// <param name="role">The role token, when the case states one.</param>
-  /// <param name="model">The reviewer model, when the case states one.</param>
   /// <param name="group">The parallel group id, when the case states one.</param>
-  private static string Step(int position, string? role = null, string? model = null,
-      int? group = null)
+  /// <param name="extraMember">An extra member's rendered body, for the refused-member cases.</param>
+  private static string Step(int position, string? role = null, int? group = null,
+      string? extraMember = null)
   {
     string members = $"\"position\": {position.ToString(CultureInfo.InvariantCulture)}";
     if (role is not null)
@@ -127,14 +127,14 @@ public class ChainCapabilityProviderTests
       members += $", \"role\": \"{role}\"";
     }
 
-    if (model is not null)
-    {
-      members += $", \"model\": \"{model}\"";
-    }
-
     if (group is { } id)
     {
       members += $", \"group\": {id.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    if (extraMember is not null)
+    {
+      members += ", " + extraMember;
     }
 
     return "{" + members + "}";
@@ -180,7 +180,7 @@ public class ChainCapabilityProviderTests
     FakeStart start = new();
     ChainService chains = new(store);
     return (new ChainCapabilityProvider(chains, new FakePlans(planSteps), start,
-        () => "session-creator", new FixedClock(T0), reviewers: null,
+        () => "session-creator", new FixedClock(T0),
         workspaceGit: new ChainWorkspaceGit(new FakeWorktrees(isRepository), "C:\\ws",
             new FakeProvisioner())),
         store, start);
@@ -361,14 +361,13 @@ public class ChainCapabilityProviderTests
     (ChainCapabilityProvider provider, FakeStore store, _, _) = New(1, 2);
 
     CapabilityInvocationResult result = await InvokeAsync(provider,
-        Plan(7, Step(1) + ", " + Step(2, "review", "vendor/reviewer"))).ConfigureAwait(true);
+        Plan(7, Step(1) + ", " + Step(2, "review"))).ConfigureAwait(true);
 
     Assert.False(result.IsError);
     Chain stored = Must(await store.GetAsync(1, TestContext.Current.CancellationToken)
         .ConfigureAwait(true));
     Assert.Equal(ChainStepRoleKind.Implement, stored.Steps[0].Role.Kind);
     Assert.Equal(ChainStepRoleKind.Review, stored.Steps[1].Role.Kind);
-    Assert.Equal("vendor/reviewer", stored.Steps[1].Role.Model);
   }
 
   [Fact]
@@ -385,37 +384,19 @@ public class ChainCapabilityProviderTests
   }
 
   [Fact]
-  public async Task Create_WithAModelAndNoRole_DeclaresAReviewStep()
+  public async Task Create_WithAModelOnAStep_IsRefusedByName()
   {
-    // A model is ONLY meaningful on a review step, so stating one IS the declaration:
-    // requiring the caller to also write role=review would be asking it to say the same
-    // thing twice, and a chain step that carries a reviewer model while claiming to
-    // implement would be a record that contradicts itself.
-    (ChainCapabilityProvider provider, FakeStore store, _, _) = New(1);
-
-    CapabilityInvocationResult result = await InvokeAsync(provider,
-        Plan(7, Step(1, model: "vendor/x"))).ConfigureAwait(true);
-
-    Assert.False(result.IsError);
-    Chain stored = Must(await store.GetAsync(1, TestContext.Current.CancellationToken)
-        .ConfigureAwait(true));
-    Assert.Equal(ChainStepRoleKind.Review, stored.Steps[0].Role.Kind);
-    Assert.Equal("vendor/x", stored.Steps[0].Role.Model);
-  }
-
-  [Fact]
-  public async Task Create_WithAModelOnAnExplicitImplementerStep_IsRefusedRatherThanIgnored()
-  {
-    // The CONTRADICTION is what is refused: the caller said implement AND named a reviewer
-    // model. Silently dropping the model would leave the caller believing a constraint was
-    // recorded that is not on the record.
+    // A STEP CARRIES NO MODEL. Refusing the member by name is the only honest answer: silently
+    // dropping it would leave the caller believing a model was recorded for the step, and a
+    // step's session runs on the workspace's model choice like every other session's.
     (ChainCapabilityProvider provider, _, _, FakeStart start) = New(1);
 
     CapabilityInvocationResult result = await InvokeAsync(provider,
-        Plan(7, Step(1, "implement", "vendor/x"))).ConfigureAwait(true);
+        Plan(7, Step(1, "review", extraMember: "\"model\": \"vendor/x\""))).ConfigureAwait(true);
 
     Assert.True(result.IsError);
-    Assert.Contains("only a review step carries one", result.Content, StringComparison.Ordinal);
+    Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
+    Assert.Contains("model", result.Content, StringComparison.Ordinal);
     Assert.Empty(start.Started);
   }
 

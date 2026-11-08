@@ -281,10 +281,10 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     insert.Transaction = transaction;
     insert.CommandText = """
         INSERT INTO chain_steps (chain_id, position, status, session_id, attempts, outcome, actor,
-            claimed_at, completed_at, role, role_model, served_model, review_attempts,
+            claimed_at, completed_at, role, review_attempts,
             invalidated_by, group_id, worktree_path, worktree_branch)
         VALUES (@chainId, @position, @status, @session, @attempts, @outcome, @actor, @claimedAt,
-            @completedAt, @role, @roleModel, @servedModel, @reviewAttempts, @invalidatedBy,
+            @completedAt, @role, @reviewAttempts, @invalidatedBy,
             @groupId, @worktreePath, @worktreeBranch);
         """;
     Add(insert, "@chainId", chainId);
@@ -297,8 +297,6 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     Add(insert, "@claimedAt", step.ClaimedAt is { } claimed ? Format(claimed) : null);
     Add(insert, "@completedAt", step.CompletedAt is { } completed ? Format(completed) : null);
     Add(insert, "@role", step.Role.Encoded);
-    Add(insert, "@roleModel", step.Role.Model);
-    Add(insert, "@servedModel", step.ServedModel);
     Add(insert, "@reviewAttempts", step.ReviewAttempts);
     // NULL is 'not invalidated', the ordinary case (issue #304 D5).
     Add(insert, "@invalidatedBy", step.InvalidatedBy);
@@ -335,7 +333,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
       SqliteConnection connection, int chainId, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
-    command.CommandText = "SELECT position, status, session_id, attempts, outcome, actor, claimed_at, completed_at, role, role_model, served_model, review_attempts, invalidated_by, group_id, worktree_path, worktree_branch FROM chain_steps WHERE chain_id=@chainId ORDER BY position;";
+    command.CommandText = "SELECT position, status, session_id, attempts, outcome, actor, claimed_at, completed_at, role, review_attempts, invalidated_by, group_id, worktree_path, worktree_branch FROM chain_steps WHERE chain_id=@chainId ORDER BY position;";
     Add(command, "@chainId", chainId);
     List<ChainStep> steps = [];
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -376,8 +374,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     }
 
     string rawRole = reader.GetString(8);
-    string? roleModel = await reader.IsDBNullAsync(9, ct).ConfigureAwait(false) ? null : reader.GetString(9);
-    if (!ChainStepRole.TryDecode(rawRole, roleModel, out ChainStepRole? role))
+    if (!ChainStepRole.TryDecode(rawRole, out ChainStepRole? role))
     {
       return (null, UnknownValueReason("step role", rawRole));
     }
@@ -391,8 +388,7 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
   ///     every nullable read below is another, and keeping them in one method pushed it past the
   ///     complexity bound the moment the invalidation column arrived.</para>
   ///     <para>NULL MEANS 'NOT RECORDED' for every one of these columns, never a fabricated
-  ///     value. <c>served_model</c> (issue #218) is nothing to compare against rather than a
-  ///     match; <c>invalidated_by</c> (issue #304 D5) is genuinely un-invalidated, because every
+  ///     value. <c>invalidated_by</c> (issue #304 D5) is genuinely un-invalidated, because every
   ///     step that predates the column is.</para></summary>
   private static async Task<ChainStep> BuildStepAsync(SqliteDataReader reader,
       ChainStepStatus stepStatus, ChainActor actor, ChainStepRole role, CancellationToken ct)
@@ -405,26 +401,23 @@ public sealed class SqliteChainStore(AppDatabase database, string workspaceId) :
     DateTimeOffset? completedAt = await reader.IsDBNullAsync(7, ct).ConfigureAwait(false)
         ? null
         : ParseTimestamp(reader.GetString(7));
-    string? servedModel = await reader.IsDBNullAsync(10, ct).ConfigureAwait(false)
-        ? null
-        : reader.GetString(10);
     // The review round-trip counter (issue #320). It is its own column rather than a count of
     // review rows because the cap is per STEP and plan_reviews is keyed per plan version.
-    int reviewAttempts = reader.GetInt32(11);
-    string? invalidatedBy = await reader.IsDBNullAsync(12, ct).ConfigureAwait(false)
+    int reviewAttempts = reader.GetInt32(9);
+    string? invalidatedBy = await reader.IsDBNullAsync(10, ct).ConfigureAwait(false)
+        ? null
+        : reader.GetString(10);
+    int? group = await reader.IsDBNullAsync(11, ct).ConfigureAwait(false)
+        ? null
+        : reader.GetInt32(11);
+    string? worktreePath = await reader.IsDBNullAsync(12, ct).ConfigureAwait(false)
         ? null
         : reader.GetString(12);
-    int? group = await reader.IsDBNullAsync(13, ct).ConfigureAwait(false)
+    string? worktreeBranch = await reader.IsDBNullAsync(13, ct).ConfigureAwait(false)
         ? null
-        : reader.GetInt32(13);
-    string? worktreePath = await reader.IsDBNullAsync(14, ct).ConfigureAwait(false)
-        ? null
-        : reader.GetString(14);
-    string? worktreeBranch = await reader.IsDBNullAsync(15, ct).ConfigureAwait(false)
-        ? null
-        : reader.GetString(15);
+        : reader.GetString(13);
     return new ChainStep(reader.GetInt32(0), stepStatus, sessionId, reader.GetInt32(3),
-        outcome, actor, claimedAt, completedAt, role, servedModel, reviewAttempts, invalidatedBy,
+        outcome, actor, claimedAt, completedAt, role, reviewAttempts, invalidatedBy,
         group, worktreePath, worktreeBranch);
   }
 

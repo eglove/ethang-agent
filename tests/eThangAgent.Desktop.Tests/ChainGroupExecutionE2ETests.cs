@@ -49,7 +49,7 @@ public class ChainGroupExecutionE2ETests
               new { position = 1, group = 1 },
               new { position = 2, group = 1 },
               new { position = 3 },
-              new { position = 4, role = "review", model = "mock/sub-model" } } });
+              new { position = 4, role = "review" } } });
       return created + "|" + started;
       """;
 
@@ -127,9 +127,6 @@ public class ChainGroupExecutionE2ETests
           E2E.RawCompletion("member done"),
           E2E.RawCompletion("member done"),
           E2E.RawCompletion("merged"));
-      // The review step runs on its own model, which is what keeps it separate from the
-      // implementers and what lets the mock serve it without racing the members' queue.
-      _ = host.Mock.ReturnsForModel("mock/sub-model", E2E.RawCompletion("reviewed"));
 
       Result<AgentTabViewModel> opened = await shell.OpenAgentAsync(workspace, Providers.OpenRouter)
           .ConfigureAwait(true);

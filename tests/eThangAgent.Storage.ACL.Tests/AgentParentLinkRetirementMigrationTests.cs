@@ -40,6 +40,9 @@ public sealed class AgentParentLinkRetirementMigrationTests : IDisposable
   ///     </para></summary>
   private void SeedV31(string parentId, string childId)
   {
+    // V31's chain_steps carried the two model columns V37 drops, so the fixture restores that
+    // shape before stamping the version: a pre-V31 database never had the present shape.
+    ChainStepsV36Shape.Restore(_dbPath);
     Execute($$"""
       PRAGMA foreign_keys = OFF;
       CREATE TABLE agents_v31 (

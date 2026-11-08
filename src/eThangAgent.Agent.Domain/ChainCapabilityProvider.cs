@@ -41,14 +41,11 @@ public sealed record ChainWorkspaceGit(IGitWorktreeAccess Worktrees, string Root
 ///     passes the session's persisted root id, and a child's create must stamp the owning
 ///     ROOT session rather than the child (the Plan provider's precedent).</param>
 /// <param name="clock">The clock the claim window is measured against.</param>
-/// <param name="reviewers">The reviewer-separation gate (issue #218), or null when the host
-///     wired no chain machinery - a null gate clears the step, exactly as the pre-#218
-///     behaviour.</param>
 /// <param name="workspaceGit">The git seam and the workspace directory it is asked of,
 ///     or null when the host wired no git machinery.</param>
 public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSource plans,
     IChainStartPort start, Func<string?> sessionId, TimeProvider clock,
-    ChainReviewerGate? reviewers = null, ChainWorkspaceGit? workspaceGit = null)
+    ChainWorkspaceGit? workspaceGit = null)
     : ICapabilityProvider
 {
   public const string ProviderId = "chain";
@@ -67,20 +64,18 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private const string StepsParam = "steps";
   private const string PositionParam = "position";
   private const string RoleParam = "role";
-  private const string ModelParam = "model";
   private const string GroupParam = "group";
   private const string ImplementRole = "implement";
   private const string ReviewRole = "review";
 
   private static readonly HashSet<string> StepAllowed =
-      new(StringComparer.Ordinal) { PositionParam, RoleParam, ModelParam, GroupParam };
+      new(StringComparer.Ordinal) { PositionParam, RoleParam, GroupParam };
 
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly IChainPlanSource _plans = plans ?? throw new ArgumentNullException(nameof(plans));
   private readonly IChainStartPort _start = start ?? throw new ArgumentNullException(nameof(start));
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-  private readonly ChainReviewerGate? _reviewers = reviewers;
   private readonly ChainWorkspaceGit? _workspaceGit = workspaceGit;
 
   public string Id => ProviderId;
@@ -91,7 +86,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             """
             Converts an existing plan into a chain the HARNESS executes: it claims step 1, starts a session for it seeded with the rendered brief, and returns. No session decides when the next step begins - completing a step is what advances the chain.
             A plan does NOT become a chain on its own. This action is the explicit statement 'execute this', so a plan can stay a design artifact indefinitely.
-            'steps' names which plan steps execute and in what role. Only steps you name become chain steps, so design and informational steps are simply left out. Roles are exactly implement | review; a step that names none is an implementer step. A review step may name the reviewer's model with 'model'.
+            'steps' names which plan steps execute and in what role. Only steps you name become chain steps, so design and informational steps are simply left out. Roles are exactly implement | review; a step that names none is an implementer step. A role decides what a step's session is asked to do, never which model it runs on: every step's session runs on the model the workspace has selected.
             'group' marks a step as a member of a parallel group: every member of one group starts at the same moment and runs in its own git worktree, and nothing after the group starts until every member has settled. A group needs at least two members, may not contain a review step, and must be followed immediately by a step with no group - that next step is the RECONCILER, which merges the members' branches into the workspace checkout. The workspace must be a git repository to declare a group (ChainGroupNeedsRepository). Refusals: ChainGroupTooSmall, ChainGroupReviewMember, ChainGroupReconcilerMissing, ChainReconcilerNotAdjacent, ChainGroupNeedsRepository.
             Validation is total and refuses before anything is created: a plan with no executable step (ChainNoExecutableSteps), a position the plan does not have (ChainStepMissing), one position declared with two roles (ChainStepRoleConflict), an unreadable plan (ChainPlanUnreadable). A session that is itself executing a chain step may not create a chain (ChainStepCannotCreateChain).
             Output contract:
@@ -100,7 +95,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             """,
             [
                 new ActionParameter(PlanIdParam, ActionParameterTypes.IntegerType, "Required. The plan to execute, >= 1."),
-                new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|review, default implement), 'model' (optional reviewer model), 'group' (optional parallel group id, >= 1) }]. Omit to execute EVERY plan step as an implementer step."),
+                new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|review, default implement), 'group' (optional parallel group id, >= 1) }]. Omit to execute EVERY plan step as an implementer step."),
             ],
             [PlanIdParam]),
   ];
@@ -213,23 +208,6 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
 
     Chain chain = created.Value;
     int first = chain.Steps[0].Position;
-    // THE SEPARATION RULE RUNS BEFORE STEP 1 IS CLAIMED (issue #218). Creation already refuses a
-    // review step with no model, so what this catches is a MATCH against an implementer recorded
-    // by an earlier run - and a refused step must spend no attempt and hold no claim.
-    Result<ChainReviewerCheck> separated = await CheckReviewerAsync(chain, first, now, ct)
-        .ConfigureAwait(false);
-    if (!separated.IsSuccess)
-    {
-      return Gutter(separated.Error);
-    }
-
-    if (separated.Value.Parked)
-    {
-      return CapabilityInvocationResult.Ok(string.Create(CultureInfo.InvariantCulture,
-          $"[chain] created #{chain.Id} from plan #{plan.PlanId} v{plan.Version}: "
-          + $"{chain.Steps.Count} step(s), PARKED - {separated.Value.Reason}"));
-    }
-
     // A GROUP'S MEMBERS ALL START AT CREATION (D2): the first position may open a group, and a
     // group whose members waited for one another would be a sequential chain.
     Result<string> started = chain.Steps[0].Group is { } opening
@@ -363,15 +341,6 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
         : Result.Failure<string?>(new DomainError(stamped.Error.Code,
             $"the worktree '{provisioned.Value.Path}' was provisioned but could not be recorded: {stamped.Error.Message}"));
   }
-
-  /// <summary>Runs the reviewer-separation rule for the step about to start (issue #218).
-  ///     <para>A GATE THAT IS NOT WIRED CLEARS THE STEP: a container with no chain machinery
-  ///     behaves exactly as it did before this issue.</para></summary>
-  private Task<Result<ChainReviewerCheck>> CheckReviewerAsync(Chain chain, int position,
-      DateTimeOffset now, CancellationToken ct) =>
-      _reviewers is null
-          ? Task.FromResult(Result.Success(ChainReviewerCheck.Cleared))
-          : _reviewers.CheckAsync(chain.Id, position, now, ct);
 
   /// <summary>Whether the workspace is a git repository, asked of the git seam that only
   ///     answers inside one: listing a repository's worktrees succeeds there and fails
@@ -557,38 +526,20 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   /// <summary>The step's role: exactly implement | review, defaulting to implement.
   ///     <para>THE VOCABULARY IS CLOSED (D7). An unknown token is refused by name rather
   ///     than defaulted, because a role a reader cannot name is a step nobody can start
-  ///     correctly - the same rule the persisted actor and status columns follow.</para>
-  ///     <para>A MODEL IS ONLY MEANINGFUL ON A REVIEW STEP. 'model' on an implementer step
-  ///     is refused rather than ignored: #218's separation rule reads a reviewer's model, and
-  ///     silently dropping one a caller stated would leave the caller believing a constraint
-  ///     was recorded.</para></summary>
+  ///     correctly - the same rule the persisted actor and status columns follow.</para></summary>
   private static Result<ChainStepRole> ParseRole(Dictionary<string, JsonElement> step, int index)
   {
     Result<string?> token = OptString(step, RoleParam, index);
-    if (!token.IsSuccess)
-    {
-      return Result.Failure<ChainStepRole>(token.Error);
-    }
-
-    Result<string?> model = OptString(step, ModelParam, index);
-    return model.IsSuccess ? RoleFrom(token.Value, model.Value, index) : Result.Failure<ChainStepRole>(model.Error);
+    return token.IsSuccess ? RoleFrom(token.Value, index) : Result.Failure<ChainStepRole>(token.Error);
   }
 
-  /// <summary>The role a step's two optional tokens name.
-  ///     <para>A MODEL IS ONLY MEANINGFUL ON A REVIEW STEP. 'model' on an implementer step
-  ///     is refused rather than ignored: #218's separation rule reads a reviewer's model, and
-  ///     silently dropping one a caller stated would leave the caller believing a constraint
-  ///     was recorded.</para></summary>
-  private static Result<ChainStepRole> RoleFrom(string? token, string? model, int index) =>
+  /// <summary>The role an optional token names.</summary>
+  private static Result<ChainStepRole> RoleFrom(string? token, int index) =>
       token switch
       {
-        null when model is null => Result.Success(ChainStepRole.Implement),
-        null => Result.Success(ChainStepRole.Review(model)),
-        ImplementRole when model is null => Result.Success(ChainStepRole.Implement),
-        ImplementRole => Result.Failure<ChainStepRole>(new DomainError("InvalidActionInput",
-            $"'{StepsParam}[{index}].{ModelParam}' names a reviewer model, but the step's role is "
-            + $"{ImplementRole}; only a {ReviewRole} step carries one.")),
-        ReviewRole => Result.Success(ChainStepRole.Review(model)),
+        null => Result.Success(ChainStepRole.Implement),
+        ImplementRole => Result.Success(ChainStepRole.Implement),
+        ReviewRole => Result.Success(ChainStepRole.Review),
         _ => Result.Failure<ChainStepRole>(new DomainError("InvalidActionInput",
             $"'{StepsParam}[{index}].{RoleParam}' must be exactly {ImplementRole}|{ReviewRole}.")),
       };

@@ -38,6 +38,9 @@ public sealed class MessagingTablesRemovalMigrationTests : IDisposable
   private void SeedV29Shape()
   {
     _ = new AppDatabase(_dbPath);
+    // V29's chain_steps carried the two model columns V37 drops, so the fixture restores that
+    // shape before stamping the version: a pre-V29 database never had the present shape.
+    ChainStepsV36Shape.Restore(_dbPath);
 
     using SqliteConnection connection = Open();
     using SqliteCommand command = connection.CreateCommand();

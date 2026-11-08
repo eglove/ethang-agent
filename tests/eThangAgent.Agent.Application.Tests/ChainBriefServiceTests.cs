@@ -149,7 +149,7 @@ public sealed class ChainBriefServiceTests
   {
     // The role reaches the brief from the ASSIGNMENT when the launcher read it (issue #306).
     ChainBriefService service = new(new FakeSource());
-    ChainStepAssignment review = Assignment.WithRole(ChainStepRole.Review("vendor/reviewer"));
+    ChainStepAssignment review = Assignment.WithRole(ChainStepRole.Review);
 
     Message message = Assert.Single(
         (await service.BuildSeedAsync(review, TestContext.Current.CancellationToken)).Value!);
@@ -166,7 +166,7 @@ public sealed class ChainBriefServiceTests
     ChainBriefService service = new(source);
 
     Message message = Assert.Single((await service
-        .BuildSeedAsync(Assignment.WithRole(ChainStepRole.Review()), TestContext.Current.CancellationToken)).Value!);
+        .BuildSeedAsync(Assignment.WithRole(ChainStepRole.Review), TestContext.Current.CancellationToken)).Value!);
 
     Assert.Equal(1, source.RubricReads);
     Assert.Contains("Load the `reviewing-plans` skill", message.Content, StringComparison.Ordinal);
@@ -190,7 +190,7 @@ public sealed class ChainBriefServiceTests
     // A launcher that has not read the chain still gets the record's answer rather than a
     // silent 'implement' - the fallback that keeps a review step from degrading to a work step.
     FakeSource source = new(chain: Result.Success(new ChainBriefChain(
-        7, "2026-08-24-dashboard-truth", 104, [], ChainStepRole.Review())));
+        7, "2026-08-24-dashboard-truth", 104, [], ChainStepRole.Review)));
     ChainBriefService service = new(source);
 
     Message message = Assert.Single(

@@ -22,7 +22,6 @@ public sealed record ChainStep(
   DateTimeOffset? ClaimedAt,
   DateTimeOffset? CompletedAt,
   ChainStepRole Role,
-  string? ServedModel = null,
   int ReviewAttempts = 0,
   string? InvalidatedBy = null,
   int? Group = null,
@@ -47,7 +46,7 @@ public sealed record ChainStep(
     ArgumentOutOfRangeException.ThrowIfLessThan(position, 1);
     ArgumentNullException.ThrowIfNull(role);
     return new ChainStep(position, ChainStepStatus.Pending, null, 0, null, ChainActor.Harness,
-        null, null, role, ServedModel: null, ReviewAttempts: 0, InvalidatedBy: null, Group: group);
+        null, null, role, ReviewAttempts: 0, InvalidatedBy: null, Group: group);
   }
 
   /// <summary>True when the step may be claimed: only a Pending step is. A Running step is
@@ -181,18 +180,6 @@ public sealed record ChainStep(
   ///     (<see cref="ChainReviewPolicy.MaxReviewAttempts"/>) and cannot drift from a
   ///     persisted copy of itself.</para></summary>
   public bool ReviewBudgetSpent => !ChainReviewPolicy.CanSendBack(ReviewAttempts);
-
-  /// <summary>Records the model this step's session actually SERVED on (issue #218).
-  ///     <para>WHY THE STEP CARRIES IT: the separation rule compares a reviewer's model to the
-  ///     IMPLEMENTER's, and the implementer's session is closed by the time the review runs. The
-  ///     chain record is the durable answer (D3) - a live parent's configuration is neither
-  ///     available after a restart nor authoritative about what ran.</para>
-  ///     <para>NULL MEANS 'NOT RECORDED', never 'no model'. A step that settled before this field
-  ///     existed carries none, and the rule treats that as 'nothing to compare against' rather
-  ///     than fabricating a match.</para></summary>
-  /// <param name="modelId">The model id the session served on, or null to clear it.</param>
-  public ChainStep WithServedModel(string? modelId) =>
-      this with { ServedModel = string.IsNullOrWhiteSpace(modelId) ? null : modelId.Trim() };
 
   /// <summary>Records the git worktree this step's session runs in and the branch checked out
   ///     there, or clears both with null.

@@ -24,7 +24,7 @@ public class ChainReviewCitationRoutingTests
             new ChainStepSeed(1, ChainStepRole.Implement, Group: 1),
             new ChainStepSeed(2, ChainStepRole.Implement, Group: 1),
             ChainStepSeed.Implementing(3),
-            new ChainStepSeed(4, ChainStepRole.Review("vendor/reviewer")),
+            new ChainStepSeed(4, ChainStepRole.Review),
           ], T0)
       .ClaimStep(1, "session-a", T0)
       .SettleStep(1, ChainStepStatus.Done, ChainActor.Session("session-a"), null, T0)
@@ -41,7 +41,7 @@ public class ChainReviewCitationRoutingTests
             ChainStepSeed.Implementing(1),
             ChainStepSeed.Implementing(2),
             ChainStepSeed.Implementing(3),
-            new ChainStepSeed(4, ChainStepRole.Review("vendor/reviewer")),
+            new ChainStepSeed(4, ChainStepRole.Review),
           ], T0)
       .ClaimStep(1, "session-a", T0)
       .SettleStep(1, ChainStepStatus.Done, ChainActor.Session("session-a"), null, T0)

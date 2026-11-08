@@ -21,8 +21,7 @@ twenty messages ago, and it cannot exhaust its window re-reading work that is al
 quality, fast iteration.
 
 **Models:** every session inherits the configured default model. There is no model selection —
-never choose, request, or mention models. A review step may name its reviewer's model on the chain
-record, and the separation rule enforces that it differs from the implementer's.
+never choose, request, or mention models. A chain step carries no model, review steps included.
 
 **Narration:** between tool calls, narrate at most one short line — the ledger and the tool
 results carry the record.
@@ -134,13 +133,12 @@ step as an implementer step.
 
 ```text
 chain.start id=<planId>
-chain.start id=<planId> steps=[{"position":1,"role":"implement"},{"position":2,"role":"review","model":"<reviewer model>"}]
+chain.start id=<planId> steps=[{"position":1,"role":"implement"},{"position":2,"role":"review"}]
 ```
 
 The role vocabulary is exactly `implement | review`. A step that names none is an implementer step.
-A review step SHOULD name its reviewer's model, and it must differ from the implementer's: the
-harness refuses a review session that would run on the same model as the work it judges, and it
-refuses a review step that names no model at all.
+A role decides what the step's session is asked to do, never which model it runs on: every session
+runs on the model the workspace has selected, so there is no model to name and none to choose.
 
 Creation validates before anything starts and refuses with a named code rather than producing a
 chain that cannot run: `ChainNoExecutableSteps` (an empty chain that immediately reports `Completed`

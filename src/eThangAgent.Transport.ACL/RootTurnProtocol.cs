@@ -82,21 +82,15 @@ public sealed record SessionRequestPayload(string RequestId, string Prompt, stri
 ///     and nothing else: the step's title and detail are read from the plan at brief time, so
 ///     carrying them here would freeze a copy that a plan revision could never reach.</para>
 ///     <para><see cref="Role"/> is the assigned role's name (<c>implement</c> |
-///     <c>review</c>). It travels because #218's separation rule reads it at session start,
-///     and a session that did not know it was a reviewer could not be refused for running on
-///     the implementer's model.</para></summary>
+///     <c>review</c>). It travels because the app renders the brief from it: a reviewer is
+///     asked for a verdict, an implementer for the work. It says nothing about which model
+///     the session runs on - a chain step inherits the workspace's model choice like every
+///     other session.</para></summary>
 /// <param name="ChainId">The chain the step belongs to.</param>
 /// <param name="PlanId">The plan the chain executes.</param>
 /// <param name="Position">The 1-based chain step position.</param>
 /// <param name="Role">The step's assigned role name.</param>
-/// <param name="Model">The reviewer's model for a review step, or null (issue #218).
-///     <para>IT TRAVELS BECAUSE THE APP IS WHERE A SESSION'S MODEL IS SET. The role name alone
-///     told the app a step was a review and left it inheriting this workspace's model choice,
-///     which is the implementer's model in a single-model run - the exact condition the
-///     separation rule exists to remove. Recording the reviewer's model without carrying it
-///     would make the rule a claim about a session that never ran on it.</para></param>
-public sealed record SessionRequestChainStep(int ChainId, int PlanId, int Position, string Role,
-    string? Model = null);
+public sealed record SessionRequestChainStep(int ChainId, int PlanId, int Position, string Role);
 
 /// <summary>One root turn sent to a conversation host (spec D6): the user's input, the
 ///     images attached to it, the app-supplied messages that precede it, and the seed the app

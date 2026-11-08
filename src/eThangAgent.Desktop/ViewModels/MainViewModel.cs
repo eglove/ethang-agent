@@ -1373,9 +1373,8 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     launch: the seed is the brief the session works from, the contract is the standing
   ///     rule its system prompt carries.</param>
   /// <param name="role">The chain step's assigned role, or null when this launch is not a chain
-  ///     step (issue #218). A review role carries the reviewer's model, which is applied to the
-  ///     new session AFTER the workspace's preferences restore - see
-  ///     <see cref="ApplyChainStepModel"/>.</param>
+  ///     step. The role decides what the session is asked to do; its model is the workspace's
+  ///     choice, like every other session's.</param>
   public async Task<Result<AgentTabViewModel>> StartNewSessionAsync(AgentTabViewModel tab,
       string? prompt, IReadOnlyList<Message>? seed, ChainContract? chainContract = null,
       ChainStepRole? role = null)
@@ -1701,14 +1700,9 @@ internal sealed partial class MainViewModel : ObservableObject
     session.DeliverPendingNotices();
     await RestorePinnedModelAsync(session, freshVm);
     await RestoreSessionPreferencesAsync(session, freshVm);
-    // THE REVIEWER'S MODEL IS APPLIED AFTER THE WORKSPACE RESTORES (issue #218), never before:
-    // RestoreSessionPreferencesAsync overwrites the live preference with this workspace's saved
-    // choice, so applying it earlier would leave the reviewer serving on the implementer's model
-    // while the record claimed separation.
-    ApplyChainStepModel(session, freshVm, options.Role);
-    // THE LAUNCH'S OWN MODEL IS APPLIED LAST (issue #338), for the reason the reviewer's is:
-    // the workspace restore above overwrites the live preference, so a model named by the
-    // caller would be lost if it were applied before it.
+    // THE LAUNCH'S OWN MODEL IS APPLIED AFTER THE WORKSPACE RESTORES (issue #338): the restore
+    // above overwrites the live preference, so a model named by the caller would be lost if it
+    // were applied before it.
     ApplyLaunchModel(session, freshVm, options.Launch);
     await freshVm.SeedUsageAsync().ConfigureAwait(true);
     freshVm.Transcript.Restore(session.Conversation.Messages);
@@ -1962,27 +1956,6 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     return new ChainPlacement(chain.Id, chain.Title, 0, chain.Steps.Count);
-  }
-
-  /// <summary>Applies a chain step's reviewer model to a launching session (issue #218).
-  ///     <para>ONLY A REVIEW STEP CARRIES ONE, and only when the record named it: an implementer
-  ///     step keeps the workspace's model choice, which is B6's inheritance rule, and a review
-  ///     step that named no model could not have been launched (the gate refuses it first).</para>
-  ///     <para>WITHOUT THIS THE RULE WOULD BE A CLAIM ABOUT A SESSION THAT NEVER RAN ON IT: the
-  ///     chain record would say the reviewer was separated while the session served on the
-  ///     workspace's model - the implementer's model in a single-model run.</para></summary>
-  /// <param name="session">The session being launched.</param>
-  /// <param name="sessionVm">Its view-model, whose live preferences the resolver reads.</param>
-  /// <param name="role">The step's assigned role, or null for a launch that is not a chain step.</param>
-  private static void ApplyChainStepModel(AgentSession session, AgentSessionViewModel sessionVm,
-      ChainStepRole? role)
-  {
-    if (role is not { IsReview: true, Model: { } reviewer } || session.Preferences is null)
-    {
-      return;
-    }
-
-    sessionVm.ApplyModelChoice(reviewer, variant: null);
   }
 
   /// <summary>Re-enters an IDLE chain step's session with a turn (stakeholder decision,
@@ -2497,10 +2470,6 @@ internal sealed partial class MainViewModel : ObservableObject
     // discarded here, so every review step's session was seeded as an implementer - which is
     // the defect this issue exists for. A role that does not parse is an IMPLEMENT step, the
     // same default the chain record applies, rather than a failed launch.
-    // THE REVIEWER'S MODEL SURVIVES TOO (issue #218): the role alone told this launch it was a
-    // review and left the session inheriting the workspace's model choice, which is the
-    // implementer's model in a single-model run. The model crossed the wire beside the role, so
-    // the assignment carries both.
     ChainStepRole role = RoleOf(request) ?? ChainStepRole.Implement;
     if (briefs is null)
     {
@@ -2634,11 +2603,11 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
   /// <summary>The role a session-request's chain step was assigned, or null when the request is
-  ///     not a chain launch (issue #218). One decode, used by both the seed and the model
-  ///     application, so the brief and the model that serves cannot disagree about the role.</summary>
+  ///     not a chain launch. One decode, used by both the seed and the placement, so the brief
+  ///     and the cell cannot disagree about the role.</summary>
   private static ChainStepRole? RoleOf(SessionRequestPayload request) =>
       request.ChainStep is { } step
-          && ChainStepRole.TryDecode(step.Role, step.Model, out ChainStepRole? decoded)
+          && ChainStepRole.TryDecode(step.Role, out ChainStepRole? decoded)
           ? decoded
           : null;
 

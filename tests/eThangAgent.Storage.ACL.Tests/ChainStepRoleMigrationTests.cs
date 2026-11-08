@@ -86,7 +86,7 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
   }
 
   [Fact]
-  public void V26_AddsBothRoleColumns_AndStampsTheLatestVersion()
+  public void V26_AddsTheRoleColumn_AndStampsTheLatestVersion()
   {
     SeedV25();
     _ = new AppDatabase(_dbPath);
@@ -94,8 +94,6 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
     Assert.Equal(AppDatabase.LatestSchemaVersion, Scalar<long>("PRAGMA user_version;"));
     Assert.Equal(1L, Scalar<long>(
         "SELECT COUNT(*) FROM pragma_table_info('chain_steps') WHERE name='role';"));
-    Assert.Equal(1L, Scalar<long>(
-        "SELECT COUNT(*) FROM pragma_table_info('chain_steps') WHERE name='role_model';"));
   }
 
   [Fact]
@@ -118,8 +116,6 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
 
     Assert.Equal("Implement", Scalar<string>(
         "SELECT role FROM chain_steps WHERE chain_id=1 AND position=1;"));
-    Assert.Equal(0L, Scalar<long>(
-        "SELECT COUNT(*) FROM chain_steps WHERE role_model IS NOT NULL;"));
     // The execution columns are copied VERBATIM: no chain changes identity or CAS state.
     Assert.Equal("Done", Scalar<string>(
         "SELECT status FROM chain_steps WHERE chain_id=1 AND position=1;"));
@@ -157,7 +153,7 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
     SqliteChainStore store = new(new AppDatabase(_dbPath), Ws);
     Result<Chain> created = await store.CreateAsync(
         Chain.NewFromSeeds(Ws, 5, 1, "reviewed", null,
-            [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review("vendor/reviewer"))],
+            [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review)],
             DateTimeOffset.UtcNow),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(created.IsSuccess, created.Error?.Message ?? "create must succeed");
@@ -167,6 +163,5 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
     Assert.True(reloaded.IsSuccess, reloaded.Error?.Message ?? "get must succeed");
     Assert.Equal(ChainStepRoleKind.Implement, reloaded.Value.Steps[0].Role.Kind);
     Assert.Equal(ChainStepRoleKind.Review, reloaded.Value.Steps[1].Role.Kind);
-    Assert.Equal("vendor/reviewer", reloaded.Value.Steps[1].Role.Model);
   }
 }

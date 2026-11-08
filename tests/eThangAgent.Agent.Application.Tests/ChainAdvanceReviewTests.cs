@@ -125,7 +125,7 @@ public class ChainAdvanceReviewTests
     Chain chain = Must(await chains.CreateAsync(
         new ChainCreation("C:\\ws", 3, 1, "t", "session-root",
             [ChainStepSeed.Implementing(1),
-                new ChainStepSeed(2, ChainStepRole.Review("vendor/reviewer")),
+                new ChainStepSeed(2, ChainStepRole.Review),
                 ChainStepSeed.Implementing(3)]), T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
     ChainAdvanceService service = new(chains, host, reviews: reviews);
@@ -182,7 +182,7 @@ public class ChainAdvanceReviewTests
               new ChainStepSeed(1, ChainStepRole.Implement, Group: 1),
               new ChainStepSeed(2, ChainStepRole.Implement, Group: 1),
               ChainStepSeed.Implementing(3),
-              new ChainStepSeed(4, ChainStepRole.Review("vendor/reviewer")),
+              new ChainStepSeed(4, ChainStepRole.Review),
             ]), T0, TestContext.Current.CancellationToken).ConfigureAwait(true));
     foreach ((int position, string session) in new[] { (1, "session-a"), (2, "session-b"),
         (3, "session-c") })

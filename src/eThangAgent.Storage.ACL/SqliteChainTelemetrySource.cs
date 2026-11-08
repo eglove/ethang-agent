@@ -34,7 +34,7 @@ public sealed class SqliteChainTelemetrySource(AppDatabase database, string work
   private const string Sql =
       @"SELECT c.id, c.title, c.status, c.park_reason, c.created_at, c.updated_at,
                s.position, s.status, s.session_id, s.attempts, s.review_attempts, s.role,
-               s.role_model, s.claimed_at, s.completed_at
+               s.claimed_at, s.completed_at
         FROM chains c
         LEFT JOIN chain_steps s ON s.chain_id = c.id
         WHERE c.workspace_id = @ws
@@ -150,7 +150,7 @@ public sealed class SqliteChainTelemetrySource(AppDatabase database, string work
 
       _steps.Add(new ChainTelemetryStep(reader.GetInt32(6), StepStatus(reader),
           reader.IsDBNull(8) ? null : reader.GetString(8), reader.GetInt32(9), reader.GetInt32(10),
-          StepRole(reader), Clock(reader, 13), Clock(reader, 14)));
+          StepRole(reader), Clock(reader, 12), Clock(reader, 13)));
     }
 
     /// <summary>The finished chain. Named <c>ToChain</c> rather than <c>Build</c> so it does
@@ -172,13 +172,10 @@ public sealed class SqliteChainTelemetrySource(AppDatabase database, string work
     ///     step with no declared role becomes), so an unreadable value degrades to the same
     ///     answer the domain would have given rather than inventing a third state.</para>
     ///     </summary>
-    private static ChainStepRole StepRole(SqliteDataReader reader)
-    {
-      string? model = reader.IsDBNull(12) ? null : reader.GetString(12);
-      return ChainStepRole.TryDecode(reader.GetString(11), model, out ChainStepRole? role)
-          ? role
-          : ChainStepRole.Implement;
-    }
+    private static ChainStepRole StepRole(SqliteDataReader reader) =>
+        ChainStepRole.TryDecode(reader.GetString(11), out ChainStepRole? role)
+            ? role
+            : ChainStepRole.Implement;
 
     /// <summary>One nullable clock column, or null when absent.</summary>
     private static DateTimeOffset? Clock(SqliteDataReader reader, int ordinal) =>

@@ -204,7 +204,7 @@ public class ChainTelemetryTests
         [new ChainTelemetryReview(7, 1, ChainReviewVerdict.Approve)],
         new Dictionary<int, int> { [7] = 1 });
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review()))],
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))],
         DefaultLimits() with { ReviewDenyShareMin = 0.15m }, reviews));
 
     ChainTelemetryMetric deny = Metric(report, "review-deny-share");
@@ -230,7 +230,7 @@ public class ChainTelemetryTests
   public void ReviewStepsWithNoRecordedVerdict_GetANote_NamingTheSilentDiscardShape()
   {
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review()))]));
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))]));
 
     // A reviewer that did the work and recorded nothing is a DEFECT, not an absence, and the
     // report distinguishes the two.
@@ -247,7 +247,7 @@ public class ChainTelemetryTests
          new ChainTelemetryReview(7, 2, ChainReviewVerdict.Deny)],
         new Dictionary<int, int> { [7] = 3 });
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review()))],
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))],
         DefaultLimits(), reviews));
 
     ChainTelemetryMetric changed = Metric(report, "plan-changed-after-deny");
@@ -261,7 +261,7 @@ public class ChainTelemetryTests
   public void PlanChangedAfterDeny_IsNotMeasuredWhenNoDenialWasRecorded()
   {
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review()))],
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))],
         DefaultLimits(), ChainTelemetryReviewFacts.Empty));
 
     // There is no share of nothing: reporting 0% would say every denial was ignored when in

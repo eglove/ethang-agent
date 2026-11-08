@@ -685,11 +685,6 @@ public static class AgentComposition
         .AddSingleton<IChainReviewSource>(sp => new CompositionChainReviewSource(
             sp.GetRequiredService<IPlanReviewStore>()))
         .AddSingleton<ChainReviewService>()
-        // The reviewer-separation gate (issue #218): the ONE place a review step's model is
-        // checked before its session starts. Both launch sites - the mechanical advance and the
-        // creation action - resolve it, so the rule cannot be enforced on one path and forgotten
-        // on the other.
-        .AddSingleton<ChainReviewerGate>()
         // The plan-to-execution transition (issue #313): the plan port the creation action
         // validates against, and the session-start port it launches step 1 through. The start
         // port rides the SAME session-request channel the compaction handoff uses - the act is
@@ -705,7 +700,6 @@ public static class AgentComposition
             sp.GetRequiredService<IChainStartPort>(),
             () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
             TimeProvider.System,
-            sp.GetRequiredService<ChainReviewerGate>(),
             // A group runs its members in worktrees, so creation asks the same git seam the
             // advance provisions them through whether the workspace is a repository at all.
             new ChainWorkspaceGit(sp.GetRequiredService<IGitWorktreeAccess>(),

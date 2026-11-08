@@ -183,24 +183,6 @@ public sealed record Chain(
           $"chain #{Id} step {position} is {step.Status}; only a running step's claim can be reassigned.");
   }
 
-  /// <summary>Records the model a step's session actually served on (issue #218).
-  ///     <para>WHY THE CHAIN OWNS THIS WRITE: the value is a fact about the step's SESSION, and
-  ///     the chain is the record of what each step did. The implementer's model must outlive its
-  ///     session (D3), so it is stamped on the step rather than read back from a live parent that
-  ///     is closed by the time the review runs.</para>
-  ///     <para>Deliberately NOT part of <see cref="ClaimStep"/>: the model is not known until the
-  ///     session exists and resolves one, which is AFTER the claim. Claiming is an attempt; this
-  ///     is what the attempt ran on.</para></summary>
-  /// <param name="position">The 1-based step position.</param>
-  /// <param name="modelId">The model id the session served on, or null to clear it.</param>
-  /// <param name="now">The clock.</param>
-  public Chain RecordServedModel(int position, string? modelId, DateTimeOffset now)
-  {
-    EnsureMutable();
-    int index = IndexOf(position);
-    return ReplaceStep(index, Steps[index].WithServedModel(modelId), now);
-  }
-
   /// <summary>Anchors the step at <paramref name="position"/> to the git worktree its session
   ///     runs in, and to the branch checked out there.</summary>
   /// <param name="position">The 1-based step position.</param>
@@ -271,9 +253,8 @@ public sealed record Chain(
   ///     <paramref name="reviewPosition"/> judges.
   ///     <para>WHY THE NEAREST PRECEDING STEP AND NOT A DECLARED PAIRING: chain steps are
   ///     INDEPENDENT (#299 D8), so the record carries no review-to-implementer link, and the
-  ///     honest reading is that a review judges the work that came before it — the same
-  ///     reasoning <see cref="ReviewerSeparationPolicy.ImplementerFor"/> already states. The
-  ///     back-edge is what makes the pairing explicit.</para>
+  ///     honest reading is that a review judges the work that came before it. The back-edge is
+  ///     what makes the pairing explicit.</para>
   ///     <para>ONLY A STEP THAT ALREADY RAN CAN BE SENT BACK, so the search skips anything
   ///     that is not Done: reopening a Pending step would be a reopen the aggregate refuses, and
   ///     a review at the chain's first position has nothing before it at all.</para></summary>

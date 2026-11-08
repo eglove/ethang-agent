@@ -89,7 +89,6 @@ public static class ChainCreationPolicy
     return NoExecutableSteps(steps)
         ?? StepMissing(steps, planStepPositions)
         ?? ConflictingRole(steps)
-        ?? ReviewerWithoutModel(steps)
         ?? GroupNeedsRepository(steps, workspaceIsRepository)
         ?? GroupTooSmall(steps)
         ?? GroupReviewMember(steps)
@@ -198,28 +197,6 @@ public static class ChainCreationPolicy
             + $"{next.Group}; a group's reconciler must be a step with no group, so it can "
             + "run once every member has settled. "
             + $"Declare step {last + 1} without a group.");
-      }
-    }
-
-    return null;
-  }
-
-  /// <summary>D1/B1 (issue #218): a review step must NAME its reviewer model, refused at the
-  ///     declaration.
-  ///     <para>WHY THIS CHECK LIVES AT CREATION AS WELL AS AT SESSION START. The separation
-  ///     COMPARISON cannot run here - it needs the implementer's recorded model, which does not
-  ///     exist until the implementer has run - but the MISSING-MODEL half needs nothing but the
-  ///     declaration, and a chain that cannot ever start its review step should be refused
-  ///     before it is created rather than parked after its implementer has already spent a
-  ///     session. Both call the SAME rule (<see cref="ReviewerSeparationPolicy.MissingModel"/>),
-  ///     so the two boundaries cannot drift into different spellings.</para></summary>
-  private static DomainError? ReviewerWithoutModel(IReadOnlyList<ChainStepSeed> steps)
-  {
-    foreach (ChainStepSeed step in steps.OrderBy(step => step.Position))
-    {
-      if (ReviewerSeparationPolicy.MissingModel(step.Role, step.Position) is { } refusal)
-      {
-        return refusal;
       }
     }
 
