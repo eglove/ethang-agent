@@ -44,6 +44,26 @@ public class KeepAliveTabsTests
       => root.GetVisualDescendants().OfType<AgentView>()
           .FirstOrDefault(v => ReferenceEquals(v.DataContext, vm));
 
+  /// <summary>Pumps the dispatcher until the view for <paramref name="vm"/> is in the visual tree,
+  ///     or the ceiling is spent. A single <c>RunJobs</c> only guarantees the queued jobs ran; the
+  ///     layout pass that builds the tab content is scheduled behind them, so on a loaded machine
+  ///     the view is not there yet and the lookup answers null for a correct shell.</summary>
+  /// <param name="root">The window to search.</param>
+  /// <param name="vm">The session view-model whose view is awaited.</param>
+  private static AgentView? AwaitViewFor(Avalonia.Visual root, AgentSessionViewModel vm)
+  {
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
+    AgentView? view = FindViewFor(root, vm);
+    while (view is null && DateTimeOffset.UtcNow < deadline)
+    {
+      Dispatcher.UIThread.RunJobs();
+      Thread.Sleep(5);
+      view = FindViewFor(root, vm);
+    }
+
+    return view;
+  }
+
   [AvaloniaFact]
   public async Task Tab_Switch_Retains_The_Same_AgentView_Instance()
   {
@@ -55,7 +75,7 @@ public class KeepAliveTabsTests
     Dispatcher.UIThread.RunJobs();
 
     AgentSessionViewModel one = shell.Tabs[0].ViewModel;
-    AgentView? viewOne = FindViewFor(window, one);
+    AgentView? viewOne = AwaitViewFor(window, one);
     Assert.NotNull(viewOne);
 
     // Switch away and back: the SAME view instance must still render the tab.
@@ -64,7 +84,7 @@ public class KeepAliveTabsTests
     shell.SelectedTab = shell.Tabs[0];
     Dispatcher.UIThread.RunJobs();
 
-    AgentView? viewAfter = FindViewFor(window, one);
+    AgentView? viewAfter = AwaitViewFor(window, one);
     Assert.NotNull(viewAfter);
     Assert.True(ReferenceEquals(viewOne, viewAfter),
         "tab content must be keep-alive: the same AgentView instance survives selection changes");
