@@ -38,7 +38,6 @@ public sealed record LspDiagnosticsResult(LspDiagnosticsState State, IReadOnlyLi
 public sealed class LspDiagnosticStore
 {
   private readonly Dictionary<string, List<LspDiagnostic>> _pushByUri = new(StringComparer.Ordinal);
-  private readonly Dictionary<string, int> _pushVersionByUri = new(StringComparer.Ordinal);
   private readonly Dictionary<string, List<LspDiagnostic>> _pullByUri = new(StringComparer.Ordinal);
   private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
   private readonly Lock _gate = new();
@@ -56,27 +55,11 @@ public sealed class LspDiagnosticStore
   public void OnPublishDiagnostics(string paramsJson)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(paramsJson);
-    (string uri, List<LspDiagnostic> diags, int? version) = Parse(paramsJson);
+    (string uri, List<LspDiagnostic> diags) = Parse(paramsJson);
     lock (_gate)
     {
       _pushByUri[uri] = diags;
       _reported.Add(uri);
-      if (version is not null)
-      {
-        _pushVersionByUri[uri] = version.Value;
-      }
-    }
-  }
-
-  /// <summary>The document version the last push report for <paramref name="uri"/>
-  ///     described, or null when the server sent no version (it may omit one, and a
-  ///     server that never received <c>versionSupport</c> always will).</summary>
-  public int? GetPushVersion(string uri)
-  {
-    ArgumentException.ThrowIfNullOrWhiteSpace(uri);
-    lock (_gate)
-    {
-      return _pushVersionByUri.TryGetValue(uri, out int version) ? version : null;
     }
   }
 
@@ -91,45 +74,6 @@ public sealed class LspDiagnosticStore
       _reported.Add(uri);
       if (resultId is not null) _resultIdByUri[uri] = resultId;
       _ = parsedUri;
-    }
-  }
-
-  /// <summary>The diagnostics for <paramref name="uri"/> as of the document version the
-  ///     caller currently holds, or <c>Starting</c> when the only report in hand describes
-  ///     different content.
-  ///     <para>WHY A VERSION MISMATCH IS NOT A RESULT: a server publishes diagnostics for the
-  ///     snapshot it analyzed, and it publishes them on its own schedule - often before the
-  ///     analysis that would make them meaningful has run. A report whose version is not the
-  ///     caller's version describes text the caller is no longer editing, so its claims are
-  ///     answers to a question nobody asked. Reporting them as evidence is how an editor is
-  ///     told to delete a line that is load-bearing in the content it actually holds.</para>
-  ///     <para>The rule is the protocol's own and names no language: LSP carries
-  ///     <c>version</c> on a publish only when the client advertised
-  ///     <c>versionSupport</c>, so the comparison is available wherever a server honours it.
-  ///     A server that sends no version yields no comparison, and the report stands as it
-  ///     always did.</para></summary>
-  /// <param name="uri">The document.</param>
-  /// <param name="currentVersion">The version the caller last sent, or null when unknown.</param>
-  public LspDiagnosticsResult GetForVersion(string uri, int? currentVersion)
-  {
-    ArgumentException.ThrowIfNullOrWhiteSpace(uri);
-    if (currentVersion is null)
-    {
-      return Get(uri);
-    }
-
-    lock (_gate)
-    {
-      if (!_reported.Contains(uri))
-      {
-        return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
-      }
-
-      bool describesCurrentContent = !_pushVersionByUri.TryGetValue(uri, out int reported)
-          || reported == currentVersion.Value;
-      return describesCurrentContent
-          ? new LspDiagnosticsResult(LspDiagnosticsState.Ready, Merge(uri))
-          : new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
     }
   }
 
@@ -181,13 +125,10 @@ public sealed class LspDiagnosticStore
     return "{\"textDocument\":{\"uri\":\"" + uri + "\"}}";
   }
 
-  private static (string Uri, List<LspDiagnostic> Diags, int? Version) Parse(string json)
+  private static (string Uri, List<LspDiagnostic> Diags) Parse(string json)
   {
     (string uri, List<LspDiagnostic> diags, string? _) = ParseWithResultId(json);
-    using JsonDocument doc = JsonDocument.Parse(json);
-    int? version = doc.RootElement.TryGetProperty("version", out JsonElement v)
-        && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
-    return (uri, diags, version);
+    return (uri, diags);
   }
 
   private static (string Uri, List<LspDiagnostic> Diags, string? ResultId) ParseWithResultId(string json)

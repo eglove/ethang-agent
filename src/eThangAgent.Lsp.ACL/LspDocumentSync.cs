@@ -44,24 +44,6 @@ public sealed class LspDocumentSync
     get { lock (_gate) { return [.. _openVersions.Keys]; } }
   }
 
-  /// <summary>The document version this forwarder last sent for <paramref name="uri"/>, or
-  ///     null when the document is not open. A diagnostics report carrying a different
-  ///     version describes content the server no longer has.</summary>
-  public int? OpenVersion(string uri)
-  {
-    ArgumentException.ThrowIfNullOrWhiteSpace(uri);
-    string? relative = RelativeToRoot(LspUriMapper.FromUri(uri));
-    if (relative is null)
-    {
-      return null;
-    }
-
-    lock (_gate)
-    {
-      return _openVersions.TryGetValue(relative, out int version) ? version : null;
-    }
-  }
-
   public async Task ApplyAsync(WatcherAnnouncement announcement, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(announcement);

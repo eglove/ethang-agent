@@ -73,7 +73,6 @@ public sealed class LspDiagnosticsService
   private readonly LspDiagnosticStore _store;
   private readonly LspCapabilities _capabilities;
   private readonly ILspWorkspaceModel? _workspace;
-  private readonly LspDocumentSync? _documents;
   private readonly SemaphoreSlim _restartGate = new(1, 1);
 
   public LspDiagnosticsService(LspJsonRpcTransport? transport, LspDiagnosticStore store)
@@ -90,13 +89,8 @@ public sealed class LspDiagnosticsService
       LspJsonRpcTransport? transport,
       LspDiagnosticStore store,
       LspCapabilities capabilities,
-      ILspWorkspaceModel? workspace,
-      LspDocumentSync? documents = null)
-  {
-    (_transport, _store, _capabilities, _workspace, _documents) = (transport,
-        store ?? throw new ArgumentNullException(nameof(store)),
-        capabilities ?? throw new ArgumentNullException(nameof(capabilities)), workspace, documents);
-  }
+      ILspWorkspaceModel? workspace)
+    => (_transport, _store, _capabilities, _workspace) = (transport, store ?? throw new ArgumentNullException(nameof(store)), capabilities ?? throw new ArgumentNullException(nameof(capabilities)), workspace);
 
   /// <summary>The request id the server uses for "content modified": a pull issued while
   /// the server is still applying a document change is refused with it. The answer would
@@ -133,7 +127,7 @@ public sealed class LspDiagnosticsService
     {
       if (_transport is null)
       {
-        LspDiagnosticsResult existing = _store.GetForVersion(uri, _documents?.OpenVersion(uri));
+        LspDiagnosticsResult existing = _store.Get(uri);
         return existing.State == LspDiagnosticsState.Starting
           ? new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, [])
           : existing;
@@ -146,10 +140,9 @@ public sealed class LspDiagnosticsService
           return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
         }
       }
-      int? currentVersion = _documents?.OpenVersion(uri);
       if (!SupportsPull())
       {
-        return _store.GetForVersion(uri, currentVersion);
+        return _store.Get(uri);
       }
       LspRequestResult response;
       using (CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
@@ -182,7 +175,7 @@ public sealed class LspDiagnosticsService
       }
 
       _store.OnPullDiagnostics(uri, response.ResultJson ?? "{}");
-      return _store.GetForVersion(uri, currentVersion);
+      return _store.Get(uri);
     }
     finally
     {
