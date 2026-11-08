@@ -39,8 +39,9 @@ goal, the chain's ledger key, and the rubric — and it never includes your sess
 reviewer that reads your reasoning inherits your framing, which is the self-grading the external
 verdict exists to prevent.
 
-The reviewer loads `reviewing-plans` and applies its rubric: three scored dimensions (requirement
-coverage, testability, blast radius) and findings that each cite a requirement id or a step position.
+The reviewer loads `reviewing-plans` and applies its rubric: four scored dimensions (requirement
+coverage, testability, blast radius, step design) and findings that each cite a requirement id or a
+step position.
 
 ## What the reviewer returns
 
@@ -48,7 +49,7 @@ A verdict recorded with `plan.review` — not prose in a transcript:
 
 ```text
 verdict: approve | deny | approve-with-conditions
-scores:  requirement-coverage, testability, blast-radius (each 1-5, with a reason)
+scores:  requirement-coverage, testability, blast-radius, step-design (each 1-5, with a reason)
 findings: one per finding, each citing a requirement id or a step position
 ```
 

@@ -210,7 +210,7 @@ status; the chain record says which step is claimed, by which session, and how m
 spent. Do not poll a running session's transcript to infer progress — the record is the fact.
 
 **A review step judges before the chain moves.** Its session records a verdict with `plan.review`
-— approve, deny, or approve-with-conditions, with three rubric scores and findings that each cite a
+— approve, deny, or approve-with-conditions, with four rubric scores and findings that each cite a
 requirement id or a step position. The cursor reads that verdict: an approve advances, a deny
 reopens the judged step for a fix session seeded with the findings, and approve-with-conditions
 carries its conditions into the next step's brief. A reviewer that fixes what it reviews has

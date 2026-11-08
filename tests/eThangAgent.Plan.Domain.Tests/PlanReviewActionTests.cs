@@ -138,6 +138,20 @@ public class PlanReviewActionTests
   }
 
   [Fact]
+  public void Review_Description_NamesAllFourRubricDimensions_SoAReviewerIsNotToldThree()
+  {
+    // The description is the only rubric a model reads before calling the action. One that
+    // named three would have the reviewer omit the fourth and be refused by the very action
+    // that told it to.
+    PlanCapabilityProvider provider = New(out _);
+    string description = provider.Actions.Single(a => a.Name == "review").Description;
+
+    Assert.Contains(
+        "requirement-coverage, testability, blast-radius, and step-design",
+        description, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task Review_WithoutAStepDesignScore_IsRefusedNamingTheField()
   {
     // The fourth dimension is REQUIRED at the write boundary. A silent zero would record a

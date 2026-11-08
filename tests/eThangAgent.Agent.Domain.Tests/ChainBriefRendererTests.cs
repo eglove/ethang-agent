@@ -194,6 +194,19 @@ public sealed class ChainBriefRendererTests
   }
 
   [Fact]
+  public void Render_ForAReviewStep_NamesAllFourRubricDimensions_SoNoneIsSilentlyOmitted()
+  {
+    // The brief is where a reviewer reads the scores it must supply, and plan.review refuses a
+    // review missing any of them. A brief naming three would have the reviewer refused by the
+    // record for following the brief.
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review)).Value!;
+
+    Assert.Contains(
+        "scores: requirement-coverage, testability, blast-radius, step-design (each 1-5, with a reason)",
+        brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void Render_ForAReviewStep_WithTheRubricSkill_NamesIt()
   {
     ChainBrief brief = ChainBriefRenderer.Render(

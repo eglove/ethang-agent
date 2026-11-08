@@ -1,6 +1,6 @@
 ---
 name: reviewing-plans
-description: Review a plan before implementation: score requirement coverage, testability, and blast radius, then return a verdict with cited findings. Use when a chain step is assigned the review role.
+description: Review a plan before implementation: score requirement coverage, testability, blast radius, and step design, then return a verdict with cited findings. Use when a chain step is assigned the review role.
 ---
 
 # Reviewing Plans
@@ -21,7 +21,7 @@ Three inputs, and nothing else:
 - **The requirements** — the spec or issue the plan claims to satisfy. The plan's goal
   names where they came from; read them at the source rather than trusting the plan's
   paraphrase of them.
-- **The rubric** — below. It is the same three dimensions every review scores, which is
+- **The rubric** — below. It is the same four dimensions every review scores, which is
   what makes two reviews comparable.
 
 **Never read the planner's session history.** Not its transcript, not its reasoning, not
@@ -39,6 +39,7 @@ Score each dimension 1-5, where 5 is best:
 | Requirement coverage | Does every requirement have a step that satisfies it? | every requirement traced to a step | requirements unaddressed |
 | Testability | Can each step's completion be checked mechanically? | every step names its check | steps say "make it work" |
 | Blast radius | How much does the plan touch, and is that proportionate? | the smallest change that satisfies the requirements | reaches far beyond what the work needs |
+| Step design | Does each step state what must be observably true rather than a procedure to follow? | every step states its behaviors, examples, and acceptance criteria | a step dictates the implementation |
 
 The scale is this skill's, not the record's: the review record stores the integers and
 enforces only that they are non-negative, so a review scored on a different scale is not
@@ -58,6 +59,7 @@ verdict: approve | deny | approve-with-conditions
 scores: requirement-coverage <1-5> — <one line why>
         testability <1-5> — <one line why>
         blast-radius <1-5> — <one line why>
+        step-design <1-5> — <one line why>
 findings:
 - <finding text> [cites: <requirement id or step position>]
 ```
@@ -66,7 +68,7 @@ findings:
 conditions", not "LGTM". Those three spellings are what the review record stores; anything
 else fails to parse, and a verdict that fails to parse is a review that did not happen.
 
-**Three integer scores, each with a one-line justification.** An unjustified score is an
+**Four integer scores, each with a one-line justification.** An unjustified score is an
 opinion with a number attached: "blast-radius 4 — touches three files in one project" is a
 score, while "blast-radius 4" is a guess nobody can check.
 
@@ -108,5 +110,8 @@ nobody can audit.
   independent verdict with its own work.
 - **Approving because the plan is long.** Length is not coverage; check each requirement
   against a step.
+- **A step that dictates the implementation.** A step that names the test to write, the type to
+  add, or the order to do the work in has taken the design away from the session that implements
+  it. Score it under step design, and say which step and what it prescribes.
 - **Inventing criteria the rubric does not have.** A review scored on its own invented
   dimensions cannot be compared with any other, which defeats the point of scoring at all.

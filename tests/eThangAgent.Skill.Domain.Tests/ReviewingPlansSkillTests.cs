@@ -80,20 +80,41 @@ public class ReviewingPlansSkillTests
   }
 
   [Fact]
-  public async Task TheRubric_ScoresExactlyThreeDimensions_EachWithAJustification()
+  public async Task TheRubric_ScoresExactlyFourDimensions_EachWithAJustification()
   {
-    // B4/D4: three named dimensions are enough to compare reviews and few enough to score
+    // B4/D4: four named dimensions are enough to compare reviews and few enough to score
     // consistently; an unjustified score is an opinion with a number attached.
+    // The sequences are asserted EXACTLY rather than one label at a time, so dropping a
+    // dimension from either the table or the contract fails here instead of silently
+    // publishing a rubric the review record refuses a score for.
     SkillDefinition skill = await LoadAsync();
     string contract = Contract(skill);
 
-    Assert.Contains("requirement-coverage", contract, StringComparison.Ordinal);
-    Assert.Contains("testability", contract, StringComparison.Ordinal);
-    Assert.Contains("blast-radius", contract, StringComparison.Ordinal);
+    Assert.Equal(
+        ["Requirement coverage", "Testability", "Blast radius", "Step design"],
+        RubricDimensions(skill));
+    Assert.Equal(
+        ["requirement-coverage", "testability", "blast-radius", "step-design"],
+        ScoredDimensions(contract));
     Assert.Contains("one-line justification", skill.Body, StringComparison.Ordinal);
     // The scale is the skill's, and the skill must SAY so: the review record enforces only
     // non-negativity, so a reviewer that invents a scale produces an incomparable review.
     Assert.Contains("The scale is this skill's, not the record's", skill.Body, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task TheStepDesignRow_StatesItsFiveAndOneAnchors_AndItsRedFlag()
+  {
+    // The dimension exists to keep the design with the session doing the work: a step that
+    // names the test to write or the type to add has taken it away. Both anchors and the red
+    // flag are what a reviewer reads to decide the score.
+    SkillDefinition skill = await LoadAsync();
+    string row = Assert.Single(RubricRows(skill), r => r.StartsWith("Step design", StringComparison.Ordinal));
+
+    Assert.Contains("every step states its behaviors, examples, and acceptance criteria", row,
+        StringComparison.Ordinal);
+    Assert.Contains("a step dictates the implementation", row, StringComparison.Ordinal);
+    Assert.Contains("**A step that dictates the implementation.**", skill.Body, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -132,6 +153,44 @@ public class ReviewingPlansSkillTests
     SkillDefinition skill = await LoadAsync();
 
     Assert.Contains("**Fixing what you review.**", skill.Body, StringComparison.Ordinal);
+  }
+
+  /// <summary>The rubric table's data rows, under the rubric heading, header and separator
+  ///     excluded.</summary>
+  private static string[] RubricRows(SkillDefinition skill)
+  {
+    const string heading = "## The rubric";
+    int at = skill.Body.IndexOf(heading, StringComparison.Ordinal);
+    Assert.True(at >= 0, "missing the rubric section");
+    int next = skill.Body.IndexOf("\n## ", at + heading.Length, StringComparison.Ordinal);
+    string section = next < 0 ? skill.Body[at..] : skill.Body[at..next];
+
+    return [.. section.Split('\n')
+        .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+        .Select(line => line.Trim('|', ' '))
+        .Where(cells => cells.Length > 0 && !cells.StartsWith("Dimension", StringComparison.Ordinal)
+            && !cells.StartsWith("---", StringComparison.Ordinal))];
+  }
+
+  /// <summary>The first cell of every rubric data row - the dimension names, in order.</summary>
+  private static string[] RubricDimensions(SkillDefinition skill)
+      => [.. RubricRows(skill).Select(row => row.Split('|')[0].Trim())];
+
+  /// <summary>The dimension names the output contract's scores block carries, in order.</summary>
+  private static string[] ScoredDimensions(string contract)
+  {
+    string[] lines = contract.Split('\n');
+    int start = Array.FindIndex(lines, line => line.StartsWith("scores:", StringComparison.Ordinal));
+    Assert.True(start >= 0, "missing the scores line");
+    int end = Array.FindIndex(lines, start, line => line.StartsWith("findings:", StringComparison.Ordinal));
+    Assert.True(end > start, "missing the findings line after the scores block");
+
+    return [.. lines[start..end]
+        .Select(line => line.Trim())
+        .Select(line => line.StartsWith("scores:", StringComparison.Ordinal)
+            ? line["scores:".Length..].Trim()
+            : line)
+        .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0])];
   }
 
   /// <summary>The fenced <c>text</c> block under the output-contract heading, fences
