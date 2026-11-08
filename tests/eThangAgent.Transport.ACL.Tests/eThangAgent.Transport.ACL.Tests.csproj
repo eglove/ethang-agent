@@ -6,6 +6,9 @@
     <ProjectReference Include="../../src/eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
     <ProjectReference Include="../../src/eThangAgent.ChildHost/eThangAgent.ChildHost.csproj" />
     <ProjectReference Include="../../src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
+    <!-- The ChildHost leak guard (issue #377): this assembly opens sessions, so an assembly
+         fixture fails the run, naming the pids, when a host outlives the tests. -->
+    <ProjectReference Include="../eThangAgent.Tests.Shared/eThangAgent.Tests.Shared.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Issue #366: the ceiling and the opt-in skip have one source of truth. -->
