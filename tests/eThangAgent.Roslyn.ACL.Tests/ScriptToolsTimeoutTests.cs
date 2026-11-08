@@ -218,7 +218,10 @@ public class ScriptToolsTimeoutTests
     public async Task<CapabilityInvocationResult> InvokeAsync(string actionName,
         string jsonArguments, CancellationToken ct = default)
     {
-      await Task.Delay(1_200, CancellationToken.None).ConfigureAwait(false);
+      // The margin is TEN TIMES the budget these tests set, not a fifth of it: what is asserted
+      // is that the budget fires first, and a timer that fires a little late on a loaded machine
+      // must not let the provider win the race instead.
+      await Task.Delay(10_000, CancellationToken.None).ConfigureAwait(false);
       return CapabilityInvocationResult.Ok("late-but-done");
     }
   }
