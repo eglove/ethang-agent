@@ -108,10 +108,19 @@ public class OpenRouterCatalogClientTests
   public async Task GetAsync_AfterTtlExpiry_ServesStaleAndRefetchesInBackground()
   {
     int callCount = 0;
-    FakeHttpMessageHandler handler = new(req =>
+    // The background revalidation's requests PARK here until the test releases them. Counting
+    // requests alone cannot show that the stale serve did not block: an idle machine finishes
+    // the refresh before the assertion runs, so the count reads 6 and a correct client fails.
+    // A gate makes the claim structural - the refresh cannot finish while the gate is shut.
+    TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    FakeHttpMessageHandler handler = new(async req =>
     {
-      _ = Interlocked.Increment(ref callCount);
-      return Task.FromResult(Handler(req));
+      if (Interlocked.Increment(ref callCount) > 3)
+      {
+        await gate.Task.ConfigureAwait(false);
+      }
+
+      return Handler(req);
     });
     using HttpClient http = new(handler);
     OpenRouterConfiguration config = new("test-key", BaseUrl) { CatalogCacheTtl = TimeSpan.Zero };
@@ -121,6 +130,7 @@ public class OpenRouterCatalogClientTests
     _ = await client.GetAsync(TestContext.Current.CancellationToken); // stale serve + background refresh
     Assert.Equal(3, callCount); // the stale serve did NOT block on the network
 
+    gate.SetResult();
     await client.PendingRefresh!; // settle the background revalidation
     Assert.Equal(6, callCount); // 2 fetches x 3 calls each
   }
