@@ -373,9 +373,11 @@ public class ConversationHostSupervisionTests
         Task<NamedPipeChildTransport> connect = supervisor.ConnectBoundedAsync(
             TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken);
 
-        // The bound: an un-armed deadline cannot hang the suite, it fails right here.
+        // The bound: an un-armed deadline cannot hang the suite, it fails right here. It is the
+        // CEILING, not a span tuned to an idle machine: the connect's own deadline is 300 ms, so
+        // what this races is how long a loaded machine takes to run the continuation.
         Task finished = await Task.WhenAny(
-            connect, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken))
+            connect, Task.Delay(TestCeiling.Value, TestContext.Current.CancellationToken))
             .ConfigureAwait(true);
         Assert.Same(connect, finished);
 

@@ -24,8 +24,13 @@ public static class TestTempRoot
 
   private const string Prefix = "ethang-testrun-";
 
-  /// <summary>How long a delete keeps retrying a directory that is still held open.</summary>
-  private static readonly TimeSpan DeleteBudget = TimeSpan.FromSeconds(30);
+  /// <summary>How long a delete keeps retrying a directory that is still held open.
+  ///     <para>IT IS THE CEILING (issue #377), not a span of its own. A child host that has just
+  ///     been asked to exit still holds its files for as long as the machine takes to reap it,
+  ///     and a saturated machine takes longer than any figure chosen on an idle one. A budget
+  ///     below the ceiling turns 'the reap is slow' into an assembly-level failure that blames
+  ///     every test in it.</para></summary>
+  private static readonly TimeSpan DeleteBudget = TestCeiling.Value;
 
   /// <summary>How long a delete waits between attempts.</summary>
   private static readonly TimeSpan DeleteRetryInterval = TimeSpan.FromMilliseconds(250);
