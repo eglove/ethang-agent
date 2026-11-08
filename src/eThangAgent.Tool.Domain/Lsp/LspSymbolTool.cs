@@ -57,7 +57,9 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
           new ToolParameter("apply", ToolParameterType.Flag,
               "Optional for rename: false (default) reports the computed edits without writing; true writes every edit as one all-or-nothing unit."),
       ],
-      [ToolTimeout.ParameterName, "action"]);
+      [ToolTimeout.ParameterName, "action"],
+      // rename with apply = true writes every edit; the other actions are queries.
+      MutatesWorkspace: true);
 
   private static string BuildDescription()
   {

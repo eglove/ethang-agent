@@ -29,7 +29,10 @@ public sealed class AgentToolsProvider : ICapabilityProvider
         // (ExecuteAsync's first statement is the validator), so its argument refusals are
         // recoverable in place; a failure its BACKEND reports comes back with its own code
         // and keeps the loud throw discipline (issue #259).
-        ValidatesArgumentsBeforeDispatch: true))];
+        ValidatesArgumentsBeforeDispatch: true,
+         // The tool's own declaration of whether it can change workspace files, forwarded
+         // unchanged: the exec bridge reports a refused call on a mutating action (issue #375).
+         MutatesWorkspace: b.Tool.Definition.MutatesWorkspace))];
   }
 
 

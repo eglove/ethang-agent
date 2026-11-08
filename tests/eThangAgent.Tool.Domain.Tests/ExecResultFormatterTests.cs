@@ -64,6 +64,37 @@ public class ExecResultFormatterTests
 
 
 
+  // Issue #375: a refused mutation is reported beside the change list and makes the run an
+  // error, even though the program completed and the workspace diff is zero.
+  [Fact]
+  public void Completed_WithRefusedWorkspaceCall_IsError_AndNamesTheRefusal()
+  {
+    ExecRunResult run = new(ExecRunStatus.Completed, "done", [], null,
+        Changes: new WorkspaceChangeSet([], [], []),
+        RefusedWorkspaceCalls: [new RefusedWorkspaceCall("write", "FileExists", "File already exists: a.txt")]);
+
+    ToolResult result = ExecResultFormatter.Format(run);
+
+    Assert.True(result.IsError);
+    Assert.Contains("modified 0 workspace files", result.Content, StringComparison.Ordinal);
+    Assert.Contains(
+        "[exec: write was refused (Error [FileExists]: File already exists: a.txt) — nothing was written]",
+        result.Content, StringComparison.Ordinal);
+  }
+
+  // The signal is the refused call, never the zero change: a clean completed run stays clean.
+  [Fact]
+  public void Completed_WithNoRefusals_IsNotAnError()
+  {
+    ExecRunResult run = new(ExecRunStatus.Completed, "done", [], null,
+        Changes: new WorkspaceChangeSet([], [], []));
+
+    ToolResult result = ExecResultFormatter.Format(run);
+
+    Assert.False(result.IsError);
+    Assert.DoesNotContain("was refused", result.Content, StringComparison.Ordinal);
+  }
+
   private static int CountOccurrences(string text, string needle)
   {
     int count = 0;

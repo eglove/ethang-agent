@@ -22,7 +22,11 @@ public enum TimeoutPolicy
 ///     text can also come from work already performed (edit's OccurrenceMismatch is
 ///     reported after matching the file) must NOT declare it, or a partially applied
 ///     batch could pass silently. Default false: an action that says nothing throws
-///     exactly as before.</para></summary>
+///     exactly as before.</para>
+///     <para><c>MutatesWorkspace</c> is true when the action can change workspace files. The
+///     exec bridge reports a REFUSED call to such an action on the run result, because a
+///     write that did not happen must not read as a completed no-op (issue #375). Default
+///     false: a query or a spawn changes no file.</para></summary>
 public sealed record ActionDescriptor(
     string Name,
     string Summary,
@@ -30,4 +34,5 @@ public sealed record ActionDescriptor(
     IReadOnlyList<ActionParameter> Parameters,
     IReadOnlyList<string>? RequiredParameters = null,
     TimeoutPolicy Timeout = TimeoutPolicy.HarnessEnforced,
-    bool ValidatesArgumentsBeforeDispatch = false);
+    bool ValidatesArgumentsBeforeDispatch = false,
+    bool MutatesWorkspace = false);

@@ -47,7 +47,8 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
             new ToolParameter("overwrite", ToolParameterType.Flag,
                 "Optional. Defaults to refusing replacement of an existing file; true replaces it."),
       ],
-      ["timeoutSeconds", "path"]);  // exactly one of content/lines is a cross-parameter rule the parser enforces
+      ["timeoutSeconds", "path"],  // exactly one of content/lines is a cross-parameter rule the parser enforces
+      MutatesWorkspace: true);
 
   public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
   {

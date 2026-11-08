@@ -379,7 +379,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     return new ExecRunResult(ExecRunStatus.Completed, output, [],
         NestedDispatchCount: globals.NestedDispatchCount,
         WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory, Changes: changes,
-        Images: globals.Images, DroppedImageCount: globals.DroppedImageCount);
+        Images: globals.Images, DroppedImageCount: globals.DroppedImageCount,
+        RefusedWorkspaceCalls: globals.RefusedWorkspaceCalls);
   }
 
   private ExecRunResult FaultResult(Exception ex, ScriptGlobals globals, string launchDirectory)

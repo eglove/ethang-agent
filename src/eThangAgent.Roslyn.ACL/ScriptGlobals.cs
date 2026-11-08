@@ -29,6 +29,7 @@ public sealed class ScriptGlobals
 
   private readonly ConcurrentQueue<string> _outputLines = new();
   private readonly ConcurrentQueue<ToolResultImage> _images = new();
+  private readonly ConcurrentQueue<RefusedWorkspaceCall> _refusedWorkspaceCalls = new();
   private int _nestedDispatchCount;
   private int _droppedImages;
   private readonly bool _captureStdout;
@@ -155,6 +156,19 @@ public sealed class ScriptGlobals
 
       _images.Enqueue(image);
     }
+  }
+
+  /// <summary>The mutating file-tool calls this run REFUSED, in dispatch order (issue #375).
+  ///     A refused write is a mutation that did not happen; the engine carries these onto
+  ///     the run result so the report names them instead of reading as a clean no-op.</summary>
+  public IReadOnlyList<RefusedWorkspaceCall> RefusedWorkspaceCalls => [.. _refusedWorkspaceCalls];
+
+  /// <summary>Records one refused call on a mutating action. Called by
+  ///     <see cref="ScriptTools"/> after a dispatch the provider reported as an error.</summary>
+  internal void RecordRefusedWorkspaceCall(RefusedWorkspaceCall refused)
+  {
+    ArgumentNullException.ThrowIfNull(refused);
+    _refusedWorkspaceCalls.Enqueue(refused);
   }
 
   /// <summary>Tool-calling surface: Tools.read(...), Tools.Invoke(...), etc.</summary>
@@ -657,6 +671,15 @@ public sealed class ScriptTools
     // or it never reaches the model. Collection happens before any branching so an
     // erroring dispatch's images are surfaced too (a partial extract is still seen).
     _globals.CollectImages(result.Images);
+
+    // A REFUSED mutation is recorded whether or not the program keeps the result (issue
+    // #375): the program meant to change a file and the file is unchanged, so the run
+    // report names the refusal instead of letting a swallowed result read as success.
+    if (result.IsError && resolved.Action.MutatesWorkspace
+        && RefusedWorkspaceCall.FromResult(name, result.Content) is { } refused)
+    {
+      _globals.RecordRefusedWorkspaceCall(refused);
+    }
 
     if (result.IsError && IsContractError(result.Content))
     {

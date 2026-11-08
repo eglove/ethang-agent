@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.26";
+  public const string Version = "2.27";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -156,16 +156,21 @@ public static class ExecGuide
         [exec: modified 1 workspace file — src/AgentComposition.cs]
         [exec: modified 0 workspace files — the program completed but changed nothing]
 
-    This is a FACT, not advice, and the zero case is the one to watch: a read-modify-write
-    whose anchor did not match writes the file back unchanged, so it reports `modified 0`
-    even though the write "succeeded". If you expected a change and see zero, the edit did
-    not land — re-read the file and retry with the `edit` tool, which refuses a mismatched
-    anchor outright instead of silently writing nothing.
-
     The report describes EFFECTS, not the API used: `Tools.write`, `Tools.edit`, and a raw
     `File.WriteAllText` are all reported the same way. Content decides, so a rewrite that
     changed no bytes is not a change. Build output (`bin`, `obj`, `node_modules`, `.git`)
     is excluded, so a compile inside a script does not drown the file you meant to touch.
+
+    A REFUSED write is reported separately, because effects cannot show an intent:
+
+        [exec: modified 0 workspace files — the program completed but changed nothing]
+        [exec: write was refused (Error [FileExists]: File already exists: a.txt (overwrite not requested).) — nothing was written]
+
+    That run is an ERROR, whatever the program returned: a refused `write`, `edit`,
+    `write_markdown`, or `lsp` rename means the file was not written, and the refusal is
+    named even when the program discarded the call's result. Read the code and retry with
+    the argument it names — `overwrite = true`, a corrected anchor, whatever the message
+    points at.
 
     ### File system and LINQ
 

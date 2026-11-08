@@ -34,7 +34,8 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
             new ToolParameter("overwrite", ToolParameterType.Flag,
                 "Optional. Defaults to refusing replacement of an existing file; true replaces it."),
       ],
-      ["timeoutSeconds", "document"]);
+      ["timeoutSeconds", "document"],
+      MutatesWorkspace: true);
 
   public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
   {

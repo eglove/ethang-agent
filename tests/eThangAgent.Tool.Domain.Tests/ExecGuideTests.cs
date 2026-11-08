@@ -10,7 +10,7 @@ public partial class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.26", ExecGuide.Version);
+    Assert.Equal("2.27", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -28,14 +28,30 @@ public partial class ExecGuideTests
     Assert.Contains("[plan] created #", section, StringComparison.Ordinal);
   }
 
-  // Issue #283: a run reports what it CHANGED, and the zero case is the one that
-  // catches a no-op replace - so the guide must teach both shapes and say why zero matters.
+  // Issue #283: a run reports what it CHANGED, so the guide teaches both shapes.
+  // Issue #375: a REFUSED write is reported beside the change list and makes the run an
+  // error - so the guide teaches that shape too, and no longer asks the model to notice a
+  // zero change on its own.
   [Fact]
   public void Guide_TeachesTheChangeReport()
   {
     Assert.Contains("[exec: modified 0 workspace files", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("[exec: modified 1 workspace file", ExecGuide.Text, StringComparison.Ordinal);
-    Assert.Contains("re-read the file and retry with the `edit` tool", ExecGuide.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Guide_TeachesThatARefusedWriteIsReportedAndFailsTheRun()
+  {
+    Assert.Contains("[exec: write was refused (Error [FileExists]:", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("That run is an ERROR", ExecGuide.Text, StringComparison.Ordinal);
+  }
+
+  // The zero case is the harness's to report now, not the model's to notice (issue #375).
+  [Fact]
+  public void Guide_NoLongerAsksTheModelToWatchTheZeroCase()
+  {
+    Assert.DoesNotContain("the zero case is the one to watch", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.DoesNotContain("re-read the file and retry with the `edit` tool", ExecGuide.Text, StringComparison.Ordinal);
   }
 
   // search_files was deleted (grand plan: exec scripts search the workspace directly);

@@ -74,7 +74,8 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files, IAdv
                  "Range mode: last line to replace (1-based, inclusive; must not exceed file length). Minimum: 1", Minimum: 1),
        ],
        // Exactly one of anchor/range/hunks is a cross-parameter rule the parser enforces.
-       ["timeoutSeconds", "path"]);
+       ["timeoutSeconds", "path"],
+        MutatesWorkspace: true);
 
   public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
   {

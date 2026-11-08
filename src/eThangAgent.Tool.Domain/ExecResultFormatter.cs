@@ -35,6 +35,7 @@ public static class ExecResultFormatter
     }
 
     AppendChangeAnnotation(sb, run);
+    AppendRefusalAnnotation(sb, run);
     AppendImageAnnotation(sb, run);
     AppendWorkspaceAnnotation(sb, run, program);
 
@@ -51,7 +52,10 @@ public static class ExecResultFormatter
       _ = sb.Append(CultureInfo.InvariantCulture, $"exec error [ScriptError]: {line}");
     }
 
-    return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0, title, AttachedImages(run));
+    // A refused mutation makes the run an ERROR even when the program completed and the
+    // workspace is unchanged: the write the program issued did not happen (issue #375).
+    bool failed = run.ErrorLines.Count > 0 || run.RefusedWorkspaceCalls.Count > 0;
+    return new ToolResult(sb.ToString(), failed, title, AttachedImages(run));
   }
 
   /// <summary>The images a nested dispatch attached (issue #288): exec is the ONLY
@@ -116,6 +120,23 @@ public static class ExecResultFormatter
     }
 
     _ = sb.Append(run.Changes.Render());
+  }
+
+  /// <summary>The refusals (issue #375): one line per mutating file-tool call the harness
+  ///     refused. The change report above describes effects, so a refused write and a
+  ///     deliberate no-op render identically there; these lines are the intent the effects
+  ///     cannot show, and the result is an error because of them.</summary>
+  private static void AppendRefusalAnnotation(StringBuilder sb, ExecRunResult run)
+  {
+    foreach (RefusedWorkspaceCall refused in run.RefusedWorkspaceCalls)
+    {
+      if (sb.Length > 0)
+      {
+        _ = sb.Append('\n');
+      }
+
+      _ = sb.Append(refused.Render());
+    }
   }
 
   /// <summary>Surfaces the workspace-vs-launch-directory distinction when the program

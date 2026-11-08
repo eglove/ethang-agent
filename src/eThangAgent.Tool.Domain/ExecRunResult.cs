@@ -10,8 +10,15 @@ public sealed record ExecRunResult(
     string? LaunchDirectory = null,
     WorkspaceChangeSet? Changes = null,
     IReadOnlyList<ToolResultImage>? Images = null,
-    int DroppedImageCount = 0)
+    int DroppedImageCount = 0,
+    IReadOnlyList<RefusedWorkspaceCall>? RefusedWorkspaceCalls = null)
 {
+  /// <summary>The mutating file-tool calls the harness REFUSED during this run (issue #375).
+  ///     Never null. A run with one is not a clean completion: the program meant to change a
+  ///     file and did not, which the workspace diff alone cannot show.</summary>
+  public IReadOnlyList<RefusedWorkspaceCall> RefusedWorkspaceCalls { get; init; } =
+      RefusedWorkspaceCalls ?? [];
+
   /// <summary>The images the run's nested tool calls attached (issue #288): every
   ///     Tools.read_image / docx extract / pdf render / computer screenshot dispatch
   ///     contributes its <c>ToolResult.Images</c> here, in dispatch order, bounded by
