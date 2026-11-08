@@ -60,7 +60,7 @@ if (transport is not null)
   LspClient client = new(transport, config);
   string wsUri = LspUriMapper.ToUri(workspaceRoot);
   _ = await client.InitializeAsync(wsUri);
-  diagnosticsService = new LspDiagnosticsService(transport, store, client.Capabilities, workspace);
+  diagnosticsService = new LspDiagnosticsService(transport, store, client.Capabilities, workspace, forwarder);
   symbolService = new LspSymbolService(transport, client.Capabilities, workspace);
 }
 
