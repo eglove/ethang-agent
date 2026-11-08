@@ -4,7 +4,7 @@ using eThangAgent.SkillDomain;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore learned) : ITool
+public sealed class SkillListTool(ISkillCatalog catalog) : ITool
 {
   // Keep in sync: format parity with SkillsListingPromptProvider truncation
   // (SkillListingBudget.DescriptionLimit in eThangAgent.Composition) - Tool.Domain
@@ -16,28 +16,23 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
   private const int DescriptionLimit = 200;
 
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
-  private readonly ILearnedSkillStore _learned = learned ?? throw new ArgumentNullException(nameof(learned));
 
   public ToolDefinition Definition { get; } = new(
       "skill_list",
-      "List available methodology skills — built-ins shipped with the app, skills loaded " +
-      "from configured skill directories, and skills learned earlier — merged and sorted " +
-      "by name. Takes no parameters besides the mandatory timeoutSeconds budget; other " +
-      "arguments are rejected. Output is one header line `[skills: N available]`, then one " +
-      "line per skill: `<name> <builtin|file|learned> v<version>[ [manual]]  <description>` — " +
-      "the name padded to 20 characters, the source label `builtin` for built-ins, `file` " +
-      "for file skills, and `learned` for learned skills, the literal ` [manual]` marker " +
-      "between the version and the description separator only for manual-invocation-only " +
-      "skills, and the description truncated to 200 characters with an appended … when " +
-      "longer. After the skill rows the catalog's diagnostics render: each collision line " +
-      "verbatim with its `[collision] ` prefix, every other diagnostic as `[warning] " +
-      "<text>`. Source-failure warnings — `[warning] built-in skills unavailable: <reason>` " +
-      "or `[warning] learned skills unavailable: <reason>` — keep their positions after the " +
-      "diagnostics: an unreadable source's skills are omitted while the listing itself " +
-      "still succeeds. A learned skill whose name already exists in the catalog " +
-      "does not render twice: the learned row is skipped and a collision line " +
-      "`[collision] <name> (learned) shadowed by <builtin|file>` is appended after the " +
-      "catalog diagnostics. Errors begin with `Error [Code]:`.",
+      "List available methodology skills — built-ins shipped with the app and skills " +
+      "loaded from configured skill directories — merged and sorted by name. Takes no " +
+      "parameters besides the mandatory timeoutSeconds budget; other arguments are " +
+      "rejected. Output is one header line `[skills: N available]`, then one line per " +
+      "skill: `<name> <builtin|file> v<version>[ [manual]]  <description>` — the name " +
+      "padded to 20 characters, the source label `builtin` for built-ins and `file` for " +
+      "file skills, the literal ` [manual]` marker between the version and the " +
+      "description separator only for manual-invocation-only skills, and the description " +
+      "truncated to 200 characters with an appended … when longer. After the skill rows " +
+      "the catalog's diagnostics render: each collision line verbatim with its " +
+      "`[collision] ` prefix, every other diagnostic as `[warning] <text>`. A source " +
+      "failure — `[warning] built-in skills unavailable: <reason>` — keeps its position " +
+      "after the diagnostics: an unreadable source's skills are omitted while the " +
+      "listing itself still succeeds. Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
       ],
@@ -63,11 +58,15 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
     List<string> warnings = [];
     List<SkillDefinition> skills = [];
 
-    Result<IReadOnlyList<SkillDefinition>> builtIn = await _catalog.ListAsync(ct).ConfigureAwait(false);
-    AddBuiltIn(skills, warnings, builtIn);
-
-    List<string> dedupCollisions = [];
-    await MergeLearnedAsync(skills, dedupCollisions, warnings, builtIn, ct).ConfigureAwait(false);
+    Result<IReadOnlyList<SkillDefinition>> listed = await _catalog.ListAsync(ct).ConfigureAwait(false);
+    if (listed.IsSuccess)
+    {
+      skills.AddRange(listed.Value);
+    }
+    else
+    {
+      warnings.Add($"[warning] built-in skills unavailable: {listed.Error.Message}");
+    }
 
     List<string> diagnostics = await GetDiagnosticsAsync(ct).ConfigureAwait(false);
 
@@ -78,72 +77,10 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
           .OrderBy(s => s.Name, StringComparer.Ordinal)
           .Select(FormatRow),
       .. diagnostics,
-      .. dedupCollisions,
       .. warnings,
     ];
 
     return new ToolResult(string.Join("\n", lines), false);
-  }
-
-  private static void AddBuiltIn(List<SkillDefinition> skills, List<string> warnings,
-      Result<IReadOnlyList<SkillDefinition>> builtIn)
-  {
-    if (builtIn.IsSuccess)
-    {
-      skills.AddRange(builtIn.Value);
-    }
-    else
-    {
-      warnings.Add($"[warning] built-in skills unavailable: {builtIn.Error.Message}");
-    }
-  }
-
-  /// <summary>Merges the learned source into <paramref name="skills"/>: deduped
-  ///     against the catalog's names when the catalog is up, all rows rendered when
-  ///     it is down, and a source-failure warning on the warnings list.</summary>
-  private async Task MergeLearnedAsync(List<SkillDefinition> skills, List<string> dedupCollisions,
-      List<string> warnings, Result<IReadOnlyList<SkillDefinition>> builtIn, CancellationToken ct)
-  {
-    Result<IReadOnlyList<SkillDefinition>> learnedResult = await _learned.ListAsync(ct).ConfigureAwait(false);
-    if (!learnedResult.IsSuccess)
-    {
-      warnings.Add($"[warning] learned skills unavailable: {learnedResult.Error.Message}");
-      return;
-    }
-
-    if (builtIn.IsSuccess)
-    {
-      MergeLearnedWithDedup(skills, dedupCollisions, learnedResult.Value, builtIn.Value);
-    }
-    else
-    {
-      // Dedup needs the catalog's names; with the catalog down the learned
-      // rows all render and nothing is announced.
-      skills.AddRange(learnedResult.Value);
-    }
-  }
-
-  /// <summary>Presentation-layer dedup (spec #19 decision 2): a learned skill whose
-  ///     name already exists in the catalog is skipped here and announced —
-  ///     the composite catalog never sees learned rows, so this is the only
-  ///     site where the two sources can collide.</summary>
-  private static void MergeLearnedWithDedup(List<SkillDefinition> skills, List<string> dedupCollisions,
-      IReadOnlyList<SkillDefinition> learnedSkills, IReadOnlyList<SkillDefinition> builtInSkills)
-  {
-    Dictionary<string, string> winnerLabelByName = builtInSkills
-        .GroupBy(s => s.Name, StringComparer.Ordinal)
-        .ToDictionary(g => g.Key, g => SourceLabel(g.First().Source), StringComparer.Ordinal);
-    foreach (SkillDefinition learnedSkill in learnedSkills)
-    {
-      if (winnerLabelByName.TryGetValue(learnedSkill.Name, out string? winnerLabel))
-      {
-        dedupCollisions.Add($"[collision] {learnedSkill.Name} (learned) shadowed by {winnerLabel}");
-      }
-      else
-      {
-        skills.Add(learnedSkill);
-      }
-    }
   }
 
   private async Task<List<string>> GetDiagnosticsAsync(CancellationToken ct)
@@ -168,9 +105,8 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
   {
     SkillSource.BuiltIn => "builtin",
     SkillSource.File => "file",
-    SkillSource.Learned => "learned",
     // Unnamed enum values cannot occur.
-    _ => "learned",
+    _ => "file",
   };
 
   /// <summary>Collision lines already carry their '[collision] ' prefix and

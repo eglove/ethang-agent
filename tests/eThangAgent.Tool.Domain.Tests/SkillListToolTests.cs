@@ -8,17 +8,12 @@ public class SkillListToolTests
   private static SkillDefinition Def(string name, string description,
       int version = 1, SkillSource source = SkillSource.BuiltIn,
       bool manual = false, string? origin = null) =>
-      new(name, description, "BODY", version, source,
-          ProvenanceSessionId: null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
-          manual, origin);
+      new(name, description, "BODY", version, source, manual, origin);
 
   private static SkillListTool MakeTool(
       IReadOnlyList<SkillDefinition>? builtIns = null,
-      IReadOnlyList<SkillDefinition>? learned = null,
-      bool failCatalogList = false,
-      bool failStoreList = false) =>
-      new(new FakeCatalog(builtIns ?? [], failCatalogList),
-          new FakeLearnedStore(learned ?? [], failStoreList));
+      bool failCatalogList = false) =>
+      new(new FakeCatalog(builtIns ?? [], failCatalogList));
 
   // ---- Input strictness (zero-parameter tool) ----
 
@@ -66,22 +61,21 @@ public class SkillListToolTests
   }
 
   [Fact]
-  public async Task MergesBuiltInAndLearned_SortedByName_TruncatesLongDescriptions()
+  public async Task MergesBuiltInAndFile_SortedByName_TruncatesLongDescriptions()
   {
     // The cap is 200: long enough that no real description is cut, short enough that a
     // pathological one cannot eat the listing budget.
     const int Limit = 200;
     string longDescription = new('d', Limit + 1);
-    SkillListTool tool = new(
-        new FakeCatalog([Def("sample-skill", longDescription)]),
-        new FakeLearnedStore(
-            [Def("my-skill", "Remember deployment quirks", version: 3, source: SkillSource.Learned)]));
+    SkillListTool tool = new(new FakeCatalog(
+        [Def("sample-skill", longDescription),
+            Def("my-skill", "Remember deployment quirks", version: 3, source: SkillSource.File)]));
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
 
     string expected =
         "[skills: 2 available]\n" +
-        $"{"my-skill",-20} learned v3  Remember deployment quirks\n" +
+        $"{"my-skill",-20} file v3  Remember deployment quirks\n" +
         $"{"sample-skill",-20} builtin v1  {new string('d', Limit)}\u2026";
     Assert.False(result.IsError);
     Assert.Equal(expected, result.Content);
@@ -142,18 +136,6 @@ public class SkillListToolTests
   }
 
   [Fact]
-  public async Task ManualMarker_IsSourceIndependent()
-  {
-    ToolResult result = await MakeTool(
-            learned: [Def("learned-manual", "learned", version: 2, source: SkillSource.Learned, manual: true)])
-            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
-    Assert.False(result.IsError);
-    Assert.Equal("[skills: 1 available]\n" +
-        $"{"learned-manual",-20} learned v2 [manual]  learned",
-        result.Content);
-  }
-
-  [Fact]
   public async Task Diagnostics_RenderAfterRows_CollisionVerbatim_OthersPrefixed()
   {
     SkillListTool tool = new(
@@ -162,8 +144,7 @@ public class SkillListToolTests
             [
                 "no SKILL.md in broken, skipped",
                 "[collision] alpha (workspace directory) shadowed by built-in",
-            ]),
-        new FakeLearnedStore([]));
+            ]));
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
 
@@ -177,28 +158,10 @@ public class SkillListToolTests
   }
 
   [Fact]
-  public async Task SourceWarnings_KeepPositions_AfterDiagnostics()
-  {
-    SkillListTool tool = new(
-        new FakeCatalogWithDiagnostics([], ["directory load failed C:\\skills: disk on fire"]),
-        new FakeLearnedStore([], failList: true));
-
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal(
-        "[skills: 0 available]\n" +
-        "[warning] directory load failed C:\\skills: disk on fire\n" +
-        "[warning] learned skills unavailable: store down",
-        result.Content);
-  }
-
-  [Fact]
   public async Task DiagnosticsFailure_IsSkipped_ListingStillSucceeds()
   {
     SkillListTool tool = new(
-        new FakeCatalogWithDiagnostics([Def("alpha", "first")], failDiagnostics: true),
-        new FakeLearnedStore([]));
+        new FakeCatalogWithDiagnostics([Def("alpha", "first")], failDiagnostics: true));
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
 
@@ -206,94 +169,17 @@ public class SkillListToolTests
     Assert.Equal("[skills: 1 available]\n" + $"{"alpha",-20} builtin v1  first",
         result.Content);
   }
-  // ---- Learned-catalog dedup (spec #19 decision 2: presentation-layer merge) ----
-
-  [Fact]
-  public async Task LearnedSkill_WhoseNameExistsInCatalog_IsSkippedWithCollisionLine()
-  {
-    // The edge from the rework ledger's final review: a learned skill created
-    // BEFORE a colliding catalog skill arrived rendered twice. The learned row
-    // is skipped at this presentation merge, announced with a collision line.
-    ToolResult result = await MakeTool(
-            builtIns: [Def("dup", "the built-in"), Def("alpha", "other")],
-            learned:
-            [
-                Def("dup", "the learned", version: 2, source: SkillSource.Learned),
-                    Def("unique", "only learned", source: SkillSource.Learned),
-            ])
-            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal(
-        "[skills: 3 available]\n" +
-        $"{"alpha",-20} builtin v1  other\n" +
-        $"{"dup",-20} builtin v1  the built-in\n" +
-        $"{"unique",-20} learned v1  only learned\n" +
-        "[collision] dup (learned) shadowed by builtin",
-        result.Content);
-  }
-
-  [Fact]
-  public async Task LearnedSkill_DedupAgainstFileSkill_UsesFileWinnerLabel()
-  {
-    ToolResult result = await MakeTool(
-            builtIns: [Def("dup", "the file skill", source: SkillSource.File, origin: "C:\\skills")],
-            learned: [Def("dup", "the learned", source: SkillSource.Learned)])
-            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal(
-        "[skills: 1 available]\n" +
-        $"{"dup",-20} file v1  the file skill\n" +
-        "[collision] dup (learned) shadowed by file",
-        result.Content);
-  }
-
-  [Fact]
-  public async Task LearnedSkill_CatalogFailure_NoDedup_NoCollisionLine()
-  {
-    // Dedup needs the catalog's names; with the catalog down the learned rows
-    // all render (the pre-existing degradation contract) and nothing is announced.
-    ToolResult result = await MakeTool(
-            builtIns: [Def("dup", "the built-in")],
-            learned: [Def("dup", "the learned", source: SkillSource.Learned)],
-            failCatalogList: true)
-            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal(
-        "[skills: 1 available]\n" +
-        $"{"dup",-20} learned v1  the learned\n" +
-        "[warning] built-in skills unavailable: catalog down",
-        result.Content);
-  }
 
   // ---- Degradation on source failure ----
 
   [Fact]
-  public async Task LearnedStoreFailure_AppendsWarning_StillSucceeds()
+  public async Task CatalogFailure_OmitsSkills_AppendsWarning_StillSucceeds()
   {
-    ToolResult result = await MakeTool([Def("sample-skill", "short")], failStoreList: true)
+    ToolResult result = await MakeTool(failCatalogList: true)
             .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal(
-        "[skills: 1 available]\n" +
-        $"{"sample-skill",-20} builtin v1  short\n" +
-        "[warning] learned skills unavailable: store down",
-        result.Content);
-  }
-
-  [Fact]
-  public async Task CatalogFailure_OmitsBuiltIns_AppendsWarning_StillSucceeds()
-  {
-    ToolResult result = await MakeTool(
-            learned: [Def("my-skill", "learned thing", source: SkillSource.Learned)],
-            failCatalogList: true)
-            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
-    Assert.False(result.IsError);
-    Assert.Equal(
-        "[skills: 1 available]\n" +
-        $"{"my-skill",-20} learned v1  learned thing\n" +
+        "[skills: 0 available]\n" +
         "[warning] built-in skills unavailable: catalog down",
         result.Content);
   }
@@ -338,29 +224,5 @@ public class SkillListToolTests
         Task.FromResult(failDiagnostics
             ? Result.Failure<IReadOnlyList<string>>(new DomainError("DiagnosticsUnavailable", "diagnostics down"))
             : Result.Success(diagnostics ?? []));
-  }
-  private sealed class FakeLearnedStore(IReadOnlyList<SkillDefinition> skills, bool failList = false) : ILearnedSkillStore
-  {
-    public Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default) =>
-        Task.FromResult(failList
-            ? Result.Failure<IReadOnlyList<SkillDefinition>>(
-                new DomainError("StoreUnavailable", "store down"))
-            : Result.Success(skills));
-
-    public Task<Result<SkillDefinition?>> GetAsync(string name, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success(
-            skills.FirstOrDefault(s => s.Name == name)));
-
-    public Task<Result<int>> AppendUsageAsync(string name, DateTimeOffset viewedAt, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<int>(new DomainError("StoreUnavailable", "store down")));
-
-    public Task<Result<SkillDefinition>> CreateAsync(SkillDefinition skill, CancellationToken ct = default) =>
-        throw new NotSupportedException("Not exercised by these tests.");
-
-    public Task<Result<SkillDefinition>> UpdateAsync(SkillDefinition updated, CancellationToken ct = default) =>
-        throw new NotSupportedException("Not exercised by these tests.");
-
-    public Task<Result<bool>> DeleteAsync(string name, CancellationToken ct = default) =>
-        throw new NotSupportedException("Not exercised by these tests.");
   }
 }

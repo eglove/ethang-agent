@@ -17,7 +17,7 @@ public class BridgeCallWordingTests
   public async Task SkillsListingHeader_NamesSkillViewAsExecBridgeCall()
   {
     string text = await new SkillsListingPromptProvider(
-        new EmptyCatalog(), new EmptyLearned(), []).BuildAsync();
+        new EmptyCatalog(), []).BuildAsync();
 
     Assert.StartsWith(
         "[skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke(\"skill_view\", new { name = \"<name>\" }) inside exec)]",
@@ -44,28 +44,6 @@ public class BridgeCallWordingTests
         => Task.FromResult(Result.Success(One()));
 
     private static SkillDefinition One() => new(
-        "sample", "sample description", "sample body", 1, SkillSource.BuiltIn,
-        null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
-  }
-
-  private sealed class EmptyLearned : ILearnedSkillStore
-  {
-    public Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<SkillDefinition>>([]));
-
-    public Task<Result<SkillDefinition?>> GetAsync(string name, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<SkillDefinition?>(new DomainError("SkillNotFound", name)));
-
-    public Task<Result<SkillDefinition>> CreateAsync(SkillDefinition skill, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(skill));
-
-    public Task<Result<SkillDefinition>> UpdateAsync(SkillDefinition updated, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(updated));
-
-    public Task<Result<bool>> DeleteAsync(string name, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(true));
-
-    public Task<Result<int>> AppendUsageAsync(string name, DateTimeOffset viewedAt, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(0));
+        "sample", "sample description", "sample body", 1, SkillSource.BuiltIn);
   }
 }

@@ -19,8 +19,7 @@ public class NewSessionSlashCommandTests
 {
   private static SkillDefinition Skill(string name, bool manual = false) => new(
       name, "Does " + name + " things", "Body of " + name, 1,
-      manual ? SkillSource.File : SkillSource.BuiltIn,
-      null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, manual, null);
+      manual ? SkillSource.File : SkillSource.BuiltIn, manual);
 
   private sealed class FakeCatalog(params SkillDefinition[] skills) : ISkillCatalog
   {

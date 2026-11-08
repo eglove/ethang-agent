@@ -8,25 +8,17 @@ public class SkillViewToolTests
   private static SkillDefinition Def(string name, string body,
       int version = 1, SkillSource source = SkillSource.BuiltIn,
       bool manual = false, string? origin = null) =>
-      new(name, "description", body, version, source,
-          ProvenanceSessionId: null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
-          manual, origin);
+      new(name, "description", body, version, source, manual, origin);
 
-  private static (SkillViewTool Tool, FakeLearnedStore Store) MakeTool(
-      IReadOnlyList<SkillDefinition>? builtIns = null,
-      IReadOnlyList<SkillDefinition>? learned = null,
-      bool failAppendUsage = false)
-  {
-    FakeLearnedStore store = new(learned ?? [], failAppendUsage);
-    return (new SkillViewTool(new FakeCatalog(builtIns ?? []), store), store);
-  }
+  private static SkillViewTool MakeTool(IReadOnlyList<SkillDefinition>? builtIns = null) =>
+      new(new FakeCatalog(builtIns ?? []));
 
   // ---- Input strictness ----
 
   [Fact]
   public async Task MissingName_MissingParameter()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
+    SkillViewTool tool = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
@@ -36,7 +28,7 @@ public class SkillViewToolTests
   [Fact]
   public async Task UnknownParameter_Rejected()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
+    SkillViewTool tool = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"name":"a","encoding":"utf16"}"""), ct: TestContext.Current.CancellationToken);
@@ -48,7 +40,7 @@ public class SkillViewToolTests
   [Fact]
   public async Task Name_MustBeString_NumberRejected()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
+    SkillViewTool tool = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"name":42}"""), ct: TestContext.Current.CancellationToken);
@@ -60,7 +52,7 @@ public class SkillViewToolTests
   [Fact]
   public async Task Name_MustBeNonEmpty()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
+    SkillViewTool tool = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"name":""}"""), ct: TestContext.Current.CancellationToken);
@@ -71,7 +63,7 @@ public class SkillViewToolTests
   [Fact]
   public async Task InvalidJsonArguments_Rejected()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
+    SkillViewTool tool = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", "{\"timeoutSeconds\":120,bad"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("not valid JSON", result.Content, StringComparison.Ordinal);
@@ -80,7 +72,7 @@ public class SkillViewToolTests
   [Fact]
   public async Task NonObjectArguments_Rejected()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
+    SkillViewTool tool = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", "[]"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("JSON object", result.Content, StringComparison.Ordinal);
@@ -89,9 +81,9 @@ public class SkillViewToolTests
   // ---- Resolution & output format ----
 
   [Fact]
-  public async Task BuiltInHit_AnnotationExact_BodyVerbatim_RecordsNoUsage()
+  public async Task BuiltInHit_AnnotationExact_BodyVerbatim()
   {
-    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(builtIns: [Def("sample-skill", "First line.\nSecond line.")]);
+    SkillViewTool tool = MakeTool(builtIns: [Def("sample-skill", "First line.\nSecond line.")]);
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
@@ -100,43 +92,12 @@ public class SkillViewToolTests
     Assert.False(result.IsError);
     Assert.Equal("[skill sample-skill | builtin | v1]\nFirst line.\nSecond line.",
         result.Content);
-    Assert.Empty(store.UsageCalls);
-  }
-
-  [Fact]
-  public async Task LearnedHit_WhenCatalogMisses_RecordsUsage()
-  {
-    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(learned: [Def("my-skill", "Learned body.", version: 3,
-            source: SkillSource.Learned)]);
-
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-                                 /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"my-skill"}"""), ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal("[skill my-skill | learned | v3]\nLearned body.", result.Content);
-    _ = Assert.Single(store.UsageCalls);
-  }
-
-  [Fact]
-  public async Task BuiltInWins_OverSameNamedLearned()
-  {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool(
-        builtIns: [Def("shared", "Built-in body.", version: 1)],
-        learned: [Def("shared", "Learned body.", version: 7, source: SkillSource.Learned)]);
-
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-                                 /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"shared"}"""), ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal("[skill shared | builtin | v1]\nBuilt-in body.", result.Content);
   }
 
   [Fact]
   public async Task UnknownName_SkillNotFound()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
+    SkillViewTool tool = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"name":"nope"}"""), ct: TestContext.Current.CancellationToken);
@@ -145,30 +106,12 @@ public class SkillViewToolTests
     Assert.Contains("nope", result.Content, StringComparison.Ordinal);
   }
 
-  // ---- Best-effort usage recording ----
+  // ---- File skills: origin annotation ----
 
   [Fact]
-  public async Task UsageRecordingFailure_LearnedView_WarningAppended_ViewStillSucceeds()
+  public async Task FileHit_AnnotationCarriesOrigin()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool(
-        learned: [Def("my-skill", "The body.", source: SkillSource.Learned)],
-        failAppendUsage: true);
-
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-                                 /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"my-skill"}"""), ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal("[skill my-skill | learned | v1]\nThe body." +
-                 "\n[warning] usage not recorded", result.Content);
-  }
-
-  // ---- File skills: origin annotation, no usage row ----
-
-  [Fact]
-  public async Task FileHit_AnnotationCarriesOrigin_RecordsNoUsage()
-  {
-    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(
+    SkillViewTool tool = MakeTool(
         builtIns: [Def("deploy-runbook", "Roll out.", source: SkillSource.File,
             manual: false, origin: @"C:\skills\global\deploy-runbook")]);
 
@@ -179,31 +122,12 @@ public class SkillViewToolTests
     Assert.False(result.IsError);
     Assert.Equal("[skill deploy-runbook | file | v1 | C:\\skills\\global\\deploy-runbook]\nRoll out.",
         result.Content);
-    Assert.Empty(store.UsageCalls);
-  }
-
-  [Fact]
-  public async Task FileHit_UsageRecordingFailure_NoWarning_ViewStillSucceeds()
-  {
-    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(
-        builtIns: [Def("deploy-runbook", "Roll out.", source: SkillSource.File,
-            manual: false, origin: @"C:\skills\global\deploy-runbook")],
-        failAppendUsage: true);
-
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-                                 /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"deploy-runbook"}"""), ct: TestContext.Current.CancellationToken);
-
-    Assert.False(result.IsError);
-    Assert.Equal("[skill deploy-runbook | file | v1 | C:\\skills\\global\\deploy-runbook]\nRoll out.",
-        result.Content);
-    Assert.Empty(store.UsageCalls);
   }
 
   [Fact]
   public async Task FileHit_ManualFlag_DoesNotAlterAnnotation()
   {
-    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(
+    SkillViewTool tool = MakeTool(
         builtIns: [Def("manual-skill", "Body.", source: SkillSource.File,
             manual: true, origin: @"C:\skills\manual-skill")]);
 
@@ -214,9 +138,7 @@ public class SkillViewToolTests
     Assert.False(result.IsError);
     Assert.Equal("[skill manual-skill | file | v1 | C:\\skills\\manual-skill]\nBody.",
         result.Content);
-    Assert.Empty(store.UsageCalls);
   }
-
 
   private sealed class FakeCatalog(IReadOnlyList<SkillDefinition> skills) : ISkillCatalog
   {
@@ -231,37 +153,5 @@ public class SkillViewToolTests
           : Result.Failure<SkillDefinition>(new DomainError("SkillNotFound",
               $"No built-in skill named '{name}'.")));
     }
-  }
-
-  private sealed class FakeLearnedStore(IReadOnlyList<SkillDefinition> skills, bool failAppendUsage)
-      : ILearnedSkillStore
-  {
-    internal sealed record UsageCall(string Name, DateTimeOffset ViewedAt);
-
-    public List<UsageCall> UsageCalls { get; } = [];
-
-    public Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default) =>
-        Task.FromResult(Result.Success(skills));
-
-    public Task<Result<SkillDefinition?>> GetAsync(string name, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success(
-            skills.FirstOrDefault(s => s.Name == name)));
-
-    public Task<Result<int>> AppendUsageAsync(string name, DateTimeOffset viewedAt, CancellationToken ct = default)
-    {
-      UsageCalls.Add(new UsageCall(name, viewedAt));
-      return Task.FromResult(failAppendUsage
-          ? Result.Failure<int>(new DomainError("StoreUnavailable", "store down"))
-          : Result.Success(1));
-    }
-
-    public Task<Result<SkillDefinition>> CreateAsync(SkillDefinition skill, CancellationToken ct = default) =>
-        throw new NotSupportedException("Not exercised by these tests.");
-
-    public Task<Result<SkillDefinition>> UpdateAsync(SkillDefinition updated, CancellationToken ct = default) =>
-        throw new NotSupportedException("Not exercised by these tests.");
-
-    public Task<Result<bool>> DeleteAsync(string name, CancellationToken ct = default) =>
-        throw new NotSupportedException("Not exercised by these tests.");
   }
 }

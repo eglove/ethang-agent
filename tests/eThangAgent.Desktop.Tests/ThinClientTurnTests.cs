@@ -579,7 +579,7 @@ internal sealed class FakeSkillCatalog(string name) : ISkillCatalog
 
   private SkillDefinition Definition() => new(
       name, "A fake skill for the thin-client tests.", "Body of the fake skill.",
-      1, SkillSource.BuiltIn, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+      1, SkillSource.BuiltIn);
 }
 
 /// <summary>A command runner that answers with a fixed model-facing line, so a test can

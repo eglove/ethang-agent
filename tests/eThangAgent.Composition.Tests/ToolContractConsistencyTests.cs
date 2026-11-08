@@ -48,19 +48,19 @@ public class ToolContractConsistencyTests
   }
 
   /// <summary>End-to-end over the composition: an exec script makes the exact
-  ///     nested skill_manage call that failed MissingParameter before the fix —
+  ///     nested skill_lint call that failed MissingParameter before the fix —
   ///     the bridge stripped the budget because the contract did not declare the
   ///     parameter. Declaring it makes the injected budget survive the tool's own
   ///     envelope parse, so the nested call dispatches and returns in-band.</summary>
   [Fact]
-  public async Task NestedSkillManageCall_ExecRoundTrip_Succeeds()
+  public async Task NestedSkillLintCall_ExecRoundTrip_Succeeds()
   {
     using ServiceProvider services = Build();
     IExecEngine engine = services.GetRequiredService<IExecEngine>();
 
     ExecRunResult run = await engine.ExecuteAsync(
         new ExecProgram(
-            "return Tools.Invoke(\"skill_manage\", new { timeoutSeconds = 30, action = \"Lint\", name = \"no-such-skill-anywhere\" });",
+            "return Tools.Invoke(\"skill_lint\", new { timeoutSeconds = 30, name = \"no-such-skill-anywhere\" });",
             TimeSpan.FromSeconds(120)),
         ct: TestContext.Current.CancellationToken);
 

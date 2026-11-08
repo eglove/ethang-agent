@@ -2,8 +2,8 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.SkillDomain;
 
-/// <summary>Built-in skill seam. Built-ins are authoritative: learned skills
-/// may never shadow these names.</summary>
+/// <summary>The skill catalog seam: built-ins and the skills loaded from the
+/// configured directories.</summary>
 public interface ISkillCatalog
 {
   Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default);

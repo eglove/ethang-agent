@@ -1,7 +1,6 @@
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
-using eThangAgent.Storage.ACL;
 using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
@@ -22,7 +21,6 @@ public class SkillListingE2ETests
   private const string ListingHeader =
       "[skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke(\"skill_view\", new { name = \"<name>\" }) inside exec)]";
   private const string BuiltInGroupName = "## Built-in";
-  private const string LearnedGroupName = "## Learned";
   private const string GlobalGroupName = "## Global directory skills";
   private const string WorkspaceGroupName = "## Workspace directory skills";
 
@@ -134,44 +132,6 @@ public class SkillListingE2ETests
     }
   }
 
-  [Fact]
-  public async Task SystemPrompt_LearnedSkillNameListed_BodyTokenAbsent()
-  {
-    DirectoryInfo ws = TestTempRoot.CreateDirectory("ethang-e2e-skilllist-learned");
-    try
-    {
-#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
-      await using E2E.HostHarness host = new();
-#pragma warning restore CA2007
-      host.ClaimHostsForCurrentTest();
-      _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
-
-      // Seed ONE learned skill with a distinctive body token through the REAL
-      // SQLite learned-skill store over the SAME app database the session reads.
-      SqliteLearnedSkillStore learned = new(new AppDatabase(host.DatabasePath));
-      const string token = "LEARNED-BODY-TOKEN-XQ71";
-      Result<SkillDefinition> created = await learned.CreateAsync(new SkillDefinition(
-        "e2e-learned-skill", "End-to-end learned skill for the listing test.",
-        $"Body carrying {token} that must never reach the prompt.", 1, SkillSource.Learned,
-        "session-1", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
-      Assert.True(created.IsSuccess);
-
-      string prompt = await OpenedSystemPromptAsync(host, ws.FullName).ConfigureAwait(true);
-
-      int listingStart = prompt.IndexOf(ListingHeader, StringComparison.Ordinal);
-      Assert.True(listingStart >= 0, "listing header missing");
-      int persona = prompt.IndexOf("You are eThang Agent", StringComparison.Ordinal);
-      string listing = prompt[listingStart..(persona > listingStart ? persona : prompt.Length)];
-      Assert.Contains(LearnedGroupName, listing, StringComparison.Ordinal);
-      Assert.Contains("e2e-learned-skill", listing, StringComparison.Ordinal);
-      Assert.DoesNotContain(token, prompt, StringComparison.Ordinal);
-    }
-    finally
-    {
-      ws.Delete(true);
-    }
-  }
 
   [Fact]
   public async Task SystemPrompt_FileSkillAppearsUnderDirectoryHeader()

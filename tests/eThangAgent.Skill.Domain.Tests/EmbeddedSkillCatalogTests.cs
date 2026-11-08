@@ -16,11 +16,11 @@ public class EmbeddedSkillCatalogTests
         "receiving-code-review", "requesting-code-review", "reviewing-plans", "scientific-method",
         "systematic-debugging",
         "test-driven-development", "using-git-worktrees", "using-skills",
-        "verification-before-completion", "writing-plans", "writing-skills",
+        "verification-before-completion", "writing-plans",
     ];
 
   [Fact]
-  public async Task Lists_AllTwentyOneSkills_WithMetadata()
+  public async Task Lists_AllTwentySkills_WithMetadata()
   {
     Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);

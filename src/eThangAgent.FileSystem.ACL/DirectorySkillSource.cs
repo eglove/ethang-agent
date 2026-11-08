@@ -33,10 +33,9 @@ public sealed class DirectorySkillSource : ISkillDirectorySource
           new DomainError("DirectoryNotFound", $"Skill directory does not exist: {directoryPath}")));
     }
 
-    DateTimeOffset timestamp = DateTimeOffset.UtcNow;
     try
     {
-      return Task.FromResult(Scan(directoryPath, timestamp));
+      return Task.FromResult(Scan(directoryPath));
     }
     catch (IOException ex)
     {
@@ -52,7 +51,7 @@ public sealed class DirectorySkillSource : ISkillDirectorySource
     }
   }
 
-  private static Result<SkillDirectoryLoad> Scan(string directoryPath, DateTimeOffset timestamp)
+  private static Result<SkillDirectoryLoad> Scan(string directoryPath)
   {
     List<SkillDefinition> skills = [];
     List<string> diagnostics = [];
@@ -65,7 +64,7 @@ public sealed class DirectorySkillSource : ISkillDirectorySource
         continue;
       }
 
-      SkillFileOutcome outcome = LoadSkillFile(folder, Path.Combine(folder, SkillFileName), timestamp);
+      SkillFileOutcome outcome = LoadSkillFile(folder, Path.Combine(folder, SkillFileName));
       if (outcome.Skill is not null)
       {
         skills.Add(outcome.Skill);
@@ -77,7 +76,7 @@ public sealed class DirectorySkillSource : ISkillDirectorySource
     if (HasCaseSensitiveFile(directoryPath, SkillFileName))
     {
       SkillFileOutcome outcome =
-          LoadSkillFile(directoryPath, Path.Combine(directoryPath, SkillFileName), timestamp);
+          LoadSkillFile(directoryPath, Path.Combine(directoryPath, SkillFileName));
       if (outcome.Skill is not null)
       {
         skills.Add(outcome.Skill);
@@ -104,7 +103,7 @@ public sealed class DirectorySkillSource : ISkillDirectorySource
   private static bool HasCaseSensitiveFile(string folder, string fileName) =>
       Directory.EnumerateFiles(folder).Any(path => Path.GetFileName(path) == fileName);
 
-  private static SkillFileOutcome LoadSkillFile(string folder, string skillPath, DateTimeOffset timestamp)
+  private static SkillFileOutcome LoadSkillFile(string folder, string skillPath)
   {
     string text;
     try
@@ -133,9 +132,6 @@ public sealed class DirectorySkillSource : ISkillDirectorySource
         skill.Body,
         skill.Version ?? 1,
         SkillSource.File,
-        ProvenanceSessionId: null,
-        timestamp,
-        timestamp,
         skill.Manual,
         Origin: folder);
     return new SkillFileOutcome(definition, [.. skill.Warnings.Select(w => $"{skill.Name}: {w}")]);

@@ -1,15 +1,12 @@
 namespace eThangAgent.SkillDomain;
 
-/// <summary>A methodology skill: built-ins ship verbatim with the app;
-/// learned skills are created by the agent itself (provenance-tracked).</summary>
+/// <summary>A methodology skill: built-ins ship as embedded resources in the Skill
+/// Domain assembly; file skills are read from the configured skill directories.</summary>
 public sealed record SkillDefinition(
     string Name,
     string Description,
     string Body,
     int Version,
     SkillSource Source,
-    string? ProvenanceSessionId,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt,
     bool Manual = false,
     string? Origin = null);

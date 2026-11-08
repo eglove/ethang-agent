@@ -44,8 +44,7 @@ public class ReferenceInjectorTests
   }
 
   private static SkillDefinition Skill(string name) => new(
-      name, "Does " + name + " things", "Body of " + name, 1, SkillSource.BuiltIn,
-      null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, false, null);
+      name, "Does " + name + " things", "Body of " + name, 1, SkillSource.BuiltIn);
 
   private static ReferenceInjector Injector(
       IFileSystemAccess files, SkillInvocationService? skills = null)

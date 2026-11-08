@@ -21,7 +21,7 @@ public sealed record SkillInstallReport(
 /// temp staging, normalize both layouts, scan every staged file (BLOCK
 /// aborts unconditionally; advisory findings gate the install behind
 /// confirmFindings), refuse name collisions against the catalog (built-ins
-/// authoritative; learned rows are not filesystem content), then promote
+/// authoritative), then promote
 /// into the resolved target directory. The running hot-reload watcher
 /// announces the change with no wiring here.</summary>
 public sealed class SkillRegistryService(
@@ -186,7 +186,7 @@ public sealed class SkillRegistryService(
       if (held.Source != SkillSource.File)
       {
         return Result.Failure<SkillInstallReport>(new DomainError("NameCollision",
-            $"'{stagedSkill.Name}' collides with a {held.Source.ToString().ToUpperInvariant()} skill — built-ins are authoritative and learned rows are not filesystem content."));
+            $"'{stagedSkill.Name}' collides with a {held.Source.ToString().ToUpperInvariant()} skill — built-ins are authoritative and a file skill is not installed content."));
       }
     }
 

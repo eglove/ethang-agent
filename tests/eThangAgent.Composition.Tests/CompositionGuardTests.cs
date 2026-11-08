@@ -79,7 +79,6 @@ public class CompositionGuardTests
             services.GetRequiredService<IAgentStore>(),
             services.GetRequiredService<AppDatabase>(),
             services.GetRequiredService<ISkillCatalog>(),
-            services.GetRequiredService<ILearnedSkillStore>(),
             services.GetRequiredService<IWorkspaceContext>(),
             services.GetRequiredService<IPathResolver>(),
             services.GetRequiredService<IModelProvider>(),

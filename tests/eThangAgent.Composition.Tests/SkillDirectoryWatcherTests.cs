@@ -73,9 +73,7 @@ public class SkillDirectoryWatcherTests
   }
 
   private static SkillDefinition Mk(string name) => new(
-      name, "d", "b", Version: 1, SkillSource.File, ProvenanceSessionId: null,
-      CreatedAt: DateTimeOffset.UnixEpoch, UpdatedAt: DateTimeOffset.UnixEpoch,
-      Manual: false, Origin: null);
+      name, "d", "b", Version: 1, SkillSource.File, Manual: false, Origin: null);
 
   private sealed class CountingCatalog : IReloadableSkillCatalog
   {

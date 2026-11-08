@@ -8,7 +8,6 @@
   { "id": "D7", "prompt": "The spec is approved. Break it into an ordered task list I can work through.", "expected": ["writing-plans"], "expectNone": false },
   { "id": "D8", "prompt": "There's a plan saved already. Start working through its tasks one at a time.", "expected": ["executing-plans", "experiment-driven-development"], "expectNone": false },
   { "id": "D9", "prompt": "I want each task in this plan run by a fresh agent with a review step between them.", "expected": ["experiment-driven-development", "dispatching-parallel-agents"], "expectNone": false },
-  { "id": "D10", "prompt": "Turn this debugging session into a reusable procedure I can apply next time.", "expected": ["writing-skills"], "expectNone": false },
   { "id": "P1", "prompt": "Users say the app hangs when they open a large folder. Where do we even start looking?", "expected": ["systematic-debugging"], "expectNone": false },
   { "id": "P2", "prompt": "I have an idea for making exports faster, but I am not sure the approach makes sense yet.", "expected": ["grill", "writing-plans"], "expectNone": false },
   { "id": "P3", "prompt": "I want to be certain everything actually works before I tell the team this is done.", "expected": ["verification-before-completion"], "expectNone": false },

@@ -91,6 +91,5 @@ public class SkillDirectoryReloaderTests
 
   private static SkillDefinition Mk(string name) => new(
       name, "desc " + name, "body " + name, Version: 1, SkillSource.File,
-      ProvenanceSessionId: null, CreatedAt: DateTimeOffset.UnixEpoch,
-      UpdatedAt: DateTimeOffset.UnixEpoch, Manual: false, Origin: null);
+      Manual: false, Origin: null);
 }

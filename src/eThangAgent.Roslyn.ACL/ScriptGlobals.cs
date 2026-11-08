@@ -939,7 +939,7 @@ public sealed class ScriptTools
   public string skill_view(object? args = null) => Invoke("skill_view", args);
   public string skill_search(object? args = null) => Invoke("skill_search", args);
   public string skill_invoke(object? args = null) => Invoke("skill_invoke", args);
-  public string skill_manage(object? args = null) => Invoke("skill_manage", args);
+  public string skill_lint(object? args = null) => Invoke("skill_lint", args);
   public string skill_registry(object? args = null) => Invoke("skill_registry", args);
 
   public string computer(object? args = null) => Invoke("computer", args);

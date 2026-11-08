@@ -183,11 +183,9 @@ internal static class Program
     // The eval's OWN app database beside the executable - never the interactive app's
     // database, never in-memory (extraction reads the file after sessions are disposed).
     //
-    // DELETED FIRST, and that is load-bearing: the file outlives a run, so a learned skill
-    // or a workspace-scoped row from an EARLIER run silently joins the next one's catalog.
-    // Measured: a stale learned skill ('debugging-without-artifacts') activated alongside
-    // real ones and inflated a run's activation count with a skill that does not exist in
-    // the repo. An eval whose inputs drift between runs measures nothing comparable.
+    // DELETED FIRST, and that is load-bearing: the file outlives a run, so a
+    // workspace-scoped row from an EARLIER run silently joins the next one's catalog. An
+    // eval whose inputs drift between runs measures nothing comparable.
     string databasePath = Path.Combine(AppContext.BaseDirectory, EvalDatabaseFileName);
     DeleteStaleDatabase(databasePath);
     AppDatabase database = new(databasePath);
@@ -479,7 +477,7 @@ internal static class Program
       }
       catch (IOException ex)
       {
-        Console.Error.WriteLine($"warning: could not delete the previous eval database ({ex.Message}); results may include skills learned in an earlier run.");
+        Console.Error.WriteLine($"warning: could not delete the previous eval database ({ex.Message}); results may include workspace-scoped state from an earlier run.");
         return;
       }
     }

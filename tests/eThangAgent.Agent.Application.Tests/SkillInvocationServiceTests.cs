@@ -12,7 +12,7 @@ public class SkillInvocationServiceTests
 
   private static SkillDefinition Skill(string name, bool manual = false, string? body = null) => new(
       name, "Does " + name + " things", body ?? Body, 1, manual ? SkillSource.File : SkillSource.BuiltIn,
-      null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, manual, null);
+      manual);
 
   private static SkillInvocationService Make(params SkillDefinition[] skills) =>
       new(new FakeCatalog(skills));

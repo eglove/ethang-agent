@@ -331,18 +331,14 @@ public static class AgentComposition
               sp.GetRequiredService<ISqliteFileAccess>()),
           "Run one read-only SQL query against any SQLite file in the workspace."),
       new AgentToolBinding(
-          new SkillListTool(sp.GetRequiredService<ISkillCatalog>(),
-              sp.GetRequiredService<ILearnedSkillStore>()),
+          new SkillListTool(sp.GetRequiredService<ISkillCatalog>()),
           "List available skills."),
       new AgentToolBinding(
-          new SkillViewTool(sp.GetRequiredService<ISkillCatalog>(),
-              sp.GetRequiredService<ILearnedSkillStore>()),
+          new SkillViewTool(sp.GetRequiredService<ISkillCatalog>()),
           "Load a skill's full content by name."),
       new AgentToolBinding(
-          new SkillManageTool(sp.GetRequiredService<ISkillCatalog>(),
-              sp.GetRequiredService<ILearnedSkillStore>(),
-              sp.GetRequiredService<Func<DateTimeOffset>>()),
-          "Create, update, or delete learned skills."),
+          new SkillLintTool(sp.GetRequiredService<ISkillCatalog>()),
+          "Check a skill's description against the documented trigger rules."),
       new AgentToolBinding(
           sp.GetRequiredService<SkillSearchTool>(),
           "Search the skills.sh directory for community skills."),
@@ -910,7 +906,6 @@ public static class AgentComposition
         // (RootRunHost) and the chain start port - because the act is identical: start a
         // session in this workspace and answer with its id.
         .AddSingleton<SessionRequestChannel>()
-        .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow);
   }
 
@@ -1173,7 +1168,6 @@ public static class AgentComposition
             new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
                 sp.GetRequiredService<ICommitStyleProvider>()),
                 new SkillsListingPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
-                    sp.GetRequiredService<ILearnedSkillStore>(),
                     sp.GetRequiredService<ResolvedSkillDirectories>().List),
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +

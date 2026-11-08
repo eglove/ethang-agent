@@ -55,10 +55,8 @@ public sealed class DirectorySkillSourceTests : IDisposable
     foreach (SkillDefinition skill in result.Value.Skills)
     {
       Assert.Equal(SkillSource.File, skill.Source);
-      Assert.Null(skill.ProvenanceSessionId);
       Assert.Equal(1, skill.Version);
       Assert.False(skill.Manual);
-      Assert.Equal(skill.CreatedAt, skill.UpdatedAt);
     }
 
     Assert.Empty(result.Value.Diagnostics);

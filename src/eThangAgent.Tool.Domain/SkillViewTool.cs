@@ -3,22 +3,18 @@ using eThangAgent.SkillDomain;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore learned) : ITool
+public sealed class SkillViewTool(ISkillCatalog catalog) : ITool
 {
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
-  private readonly ILearnedSkillStore _learned = learned ?? throw new ArgumentNullException(nameof(learned));
 
   public ToolDefinition Definition { get; } = new(
       "skill_view",
       "Show the full body of one methodology skill by name. timeoutSeconds and name are mandatory: " +
       "name is the exact " +
-      "skill name as listed by skill_list. Built-ins are resolved first, then file skills, " +
-      "then learned skills. Output is an annotation line `[skill <name> | " +
-      "<builtin|file|learned> | v<version>]` — for file skills extended with the origin " +
-      "directory: `[skill <name> | file | v<version> | <origin>]` — followed by the skill " +
-      "body byte-for-byte. Learned-skill views record a usage row best-effort; built-in " +
-      "and file views record nothing. If recording fails, a final line `[warning] usage " +
-      "not recorded` is appended and the view still succeeds. Errors begin with " +
+      "skill name as listed by skill_list. Built-ins are resolved first, then file skills. " +
+      "Output is an annotation line `[skill <name> | <builtin|file> | v<version>]` — for " +
+      "file skills extended with the origin directory: `[skill <name> | file | v<version> | " +
+      "<origin>]` — followed by the skill body byte-for-byte. Errors begin with " +
       "`Error [Code]:` — including `Error [SkillNotFound]:` when no skill has that name.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
@@ -46,42 +42,19 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
   private async Task<ToolResult> ViewAsync(string name, CancellationToken ct)
   {
     // The composite catalog is authoritative across built-ins and file skills
-    // (built-ins first); a miss falls through to the learned store.
+    // (built-ins first).
     Result<SkillDefinition> catalogHit = await _catalog.GetAsync(name, ct).ConfigureAwait(false);
-    if (catalogHit.IsSuccess)
+    if (!catalogHit.IsSuccess)
     {
-      SkillDefinition skill = catalogHit.Value;
-      return new ToolResult(Annotation(skill) + "\n" + skill.Body, false);
+      return Err(catalogHit.Error);
     }
 
-    Result<SkillDefinition?> learnedResult = await _learned.GetAsync(name, ct).ConfigureAwait(false);
-    if (!learnedResult.IsSuccess)
-    {
-      return Err(learnedResult.Error);
-    }
-
-    if (learnedResult.ValueOrNull is null)
-    {
-      return Err(new DomainError("SkillNotFound",
-          $"No skill named '{name}'. Use skill_list to see available skills."));
-    }
-
-    // Usage recording is learned-only analytics: a failure degrades to a
-    // warning, never to a failed view.
-    Result<int> usage = await _learned.AppendUsageAsync(name, DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
-
-    SkillDefinition learnedSkill = learnedResult.Value;
-    string content = Annotation(learnedSkill) + "\n" + learnedSkill.Body;
-    if (!usage.IsSuccess)
-    {
-      content += "\n[warning] usage not recorded";
-    }
-
-    return new ToolResult(content, false);
+    SkillDefinition skill = catalogHit.Value;
+    return new ToolResult(Annotation(skill) + "\n" + skill.Body, false);
   }
 
   /// <summary>File skills carry their origin directory in the annotation;
-  /// built-in and learned skills use the plain three-field form.</summary>
+  /// built-in skills use the plain three-field form.</summary>
   private static string Annotation(SkillDefinition skill) =>
       skill.Source == SkillSource.File
           ? $"[skill {skill.Name} | file | v{skill.Version} | {skill.Origin}]"

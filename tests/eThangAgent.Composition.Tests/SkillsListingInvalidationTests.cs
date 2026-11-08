@@ -11,7 +11,7 @@ public class SkillsListingInvalidationTests
   public async Task Build_Memoized_SecondCallDoesNotReenumerate()
   {
     CountingCatalog catalog = new();
-    SkillsListingPromptProvider provider = new(catalog, new FakeLearned(), []);
+    SkillsListingPromptProvider provider = new(catalog, []);
 
     string first = await provider.BuildAsync();
     string second = await provider.BuildAsync();
@@ -24,7 +24,7 @@ public class SkillsListingInvalidationTests
   public async Task Invalidate_NextBuildReEnumeratesAndShowsTheNewSkill()
   {
     CountingCatalog catalog = new();
-    SkillsListingPromptProvider provider = new(catalog, new FakeLearned(), []);
+    SkillsListingPromptProvider provider = new(catalog, []);
 
     string first = await provider.BuildAsync();
     Assert.DoesNotContain("fresh-skill", first, StringComparison.Ordinal);
@@ -42,7 +42,7 @@ public class SkillsListingInvalidationTests
   public async Task Invalidate_ThenTwoBuilds_ReMemoizesAfterOneReload()
   {
     CountingCatalog catalog = new();
-    SkillsListingPromptProvider provider = new(catalog, new FakeLearned(), []);
+    SkillsListingPromptProvider provider = new(catalog, []);
 
     _ = await provider.BuildAsync();
     catalog.Add(Mk("s2"));
@@ -55,8 +55,7 @@ public class SkillsListingInvalidationTests
 
   private static SkillDefinition Mk(string name) => new(
       name, "desc " + name, "body " + name, Version: 1, SkillSource.File,
-      ProvenanceSessionId: null, CreatedAt: DateTimeOffset.UnixEpoch,
-      UpdatedAt: DateTimeOffset.UnixEpoch, Manual: false, Origin: "C:\\skills\\global");
+      Manual: false, Origin: "C:\\skills\\global");
 
   private sealed class CountingCatalog : ISkillCatalog
   {
@@ -75,23 +74,5 @@ public class SkillsListingInvalidationTests
     public Task<Result<SkillDefinition>> GetAsync(string name, CancellationToken ct = default) =>
         Task.FromResult(Result.Failure<SkillDefinition>(
             new DomainError("SkillNotFound", "not found")));
-  }
-
-  private sealed class FakeLearned : ILearnedSkillStore
-  {
-    public Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<IReadOnlyList<SkillDefinition>>([]));
-    public Task<Result<SkillDefinition?>> GetAsync(string name, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<SkillDefinition?>(new DomainError("SkillNotFound", "x")));
-    // Remaining members are unreachable from the listing provider's read path;
-    // throw to surface any unexpected use in tests.
-    public Task<Result<SkillDefinition>> CreateAsync(SkillDefinition skill, CancellationToken ct = default) =>
-        throw new NotSupportedException();
-    public Task<Result<SkillDefinition>> UpdateAsync(SkillDefinition updated, CancellationToken ct = default) =>
-        throw new NotSupportedException();
-    public Task<Result<bool>> DeleteAsync(string name, CancellationToken ct = default) =>
-        throw new NotSupportedException();
-    public Task<Result<int>> AppendUsageAsync(string name, DateTimeOffset viewedAt, CancellationToken ct = default) =>
-        throw new NotSupportedException();
   }
 }

@@ -102,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 39;
+  public const int LatestSchemaVersion = 40;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -148,6 +148,7 @@ public sealed class AppDatabase
     (37, ApplyV37),
     (38, ApplyV38),
     (39, ApplyV39),
+    (40, ApplyV40),
   ];
 
   private void Migrate()
@@ -276,40 +277,10 @@ public sealed class AppDatabase
     transaction.Commit();
   }
 
-  private static void ApplyV3(SqliteConnection connection)
-  {
-    string sql = """
-            CREATE TABLE IF NOT EXISTS learned_skills (
-                name TEXT PRIMARY KEY,
-                description TEXT NOT NULL,
-                body TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                provenance_session TEXT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS skill_versions (
-                name TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                description TEXT NOT NULL,
-                body TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (name, version)
-            );
-            CREATE TABLE IF NOT EXISTS skill_usage (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                skill_name TEXT NOT NULL,
-                viewed_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS ix_skill_usage_name ON skill_usage (skill_name);
-            """;
-    using SqliteTransaction transaction = connection.BeginTransaction();
-    using SqliteCommand command = connection.CreateCommand();
-    command.Transaction = transaction;
-    command.CommandText = sql;
-    _ = command.ExecuteNonQuery();
-    transaction.Commit();
-  }
+  /// <summary>V3 created the learned-skill tables, which no longer exist: this step creates
+  ///     nothing, so a fresh database reaches the current shape by the same path an existing
+  ///     one does. V40 removes them from databases that still hold them.</summary>
+  private static void ApplyV3(SqliteConnection connection) => _ = connection;
 
   /// <summary>V4 created the curated-memories store. That store is gone, so the step now
   ///     creates nothing: a fresh database must walk the same path an existing one did, and
@@ -1754,6 +1725,25 @@ public sealed class AppDatabase
     }
 
     transaction.Commit();
+  }
+
+  /// <summary>V40 drops the learned-skill tables: built-in skills live in the Skill Domain
+  ///     assembly and every other skill is a file in a configured directory, so the database
+  ///     holds no skill rows at all.</summary>
+  private static void ApplyV40(SqliteConnection connection)
+  {
+    string sql = """
+        DROP INDEX IF EXISTS ix_skill_usage_name;
+        DROP TABLE IF EXISTS skill_usage;
+        DROP TABLE IF EXISTS skill_versions;
+        DROP TABLE IF EXISTS learned_skills;
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+    // Named decision (CA2100): the statement is a literal declared here, never user input.
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+    command.CommandText = sql;
+#pragma warning restore CA2100 // Review SQL query for security vulnerabilities
+    _ = command.ExecuteNonQuery();
   }
 
   /// <summary>Every workspace id this database holds, read from each column that carries one and

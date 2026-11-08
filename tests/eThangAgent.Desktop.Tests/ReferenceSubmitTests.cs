@@ -18,8 +18,7 @@ namespace eThangAgent.Desktop.Tests;
 public class ReferenceSubmitTests
 {
   private static SkillDefinition Skill(string name) => new(
-      name, "Does " + name + " things", "Body of " + name, 1, SkillSource.BuiltIn,
-      null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, false, null);
+      name, "Does " + name + " things", "Body of " + name, 1, SkillSource.BuiltIn);
 
   private sealed class FakeCatalog(params SkillDefinition[] skills) : ISkillCatalog
   {

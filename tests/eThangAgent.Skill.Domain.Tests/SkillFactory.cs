@@ -8,11 +8,9 @@ internal static class SkillFactory
 {
   public static SkillDefinition File(string name, string origin) => new(
       name, "desc " + name, "body " + name, Version: 1, SkillSource.File,
-      ProvenanceSessionId: null, CreatedAt: DateTimeOffset.UnixEpoch,
-      UpdatedAt: DateTimeOffset.UnixEpoch, Manual: false, Origin: origin);
+      Manual: false, Origin: origin);
 
   public static SkillDefinition File(string name, string origin, bool manual) => new(
       name, "desc " + name, "body " + name, Version: 1, SkillSource.File,
-      ProvenanceSessionId: null, CreatedAt: DateTimeOffset.UnixEpoch,
-      UpdatedAt: DateTimeOffset.UnixEpoch, Manual: manual, Origin: origin);
+      Manual: manual, Origin: origin);
 }

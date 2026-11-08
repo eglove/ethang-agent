@@ -17,8 +17,7 @@ internal sealed class FakeBuiltInCatalog(params SkillDefinition[] skills)
 
   public static SkillDefinition Make(string name) => new(
       name, "desc " + name, "body " + name, Version: 1, SkillSource.BuiltIn,
-      ProvenanceSessionId: null, CreatedAt: DateTimeOffset.UnixEpoch,
-      UpdatedAt: DateTimeOffset.UnixEpoch, Manual: false);
+      Manual: false);
 
   private sealed class Backing(FakeBuiltInCatalog owner) : ISkillCatalog
   {

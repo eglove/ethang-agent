@@ -41,8 +41,6 @@ public static class SkillListingBudget
 ///     ...
 ///     ## Workspace directory skills
 ///     ...
-///     ## Learned
-///     ...
 ///     [collision] ... lines (verbatim from GetDiagnosticsAsync)
 ///     [skills listing truncated: showed &lt;N&gt; of &lt;M&gt; skills; dropped &lt;d&gt; descriptions and &lt;e&gt; entries — call skill_list for the full catalog]
 ///
@@ -58,33 +56,25 @@ public static class SkillListingBudget
 ///     budget is SkillListingBudget.MaxChars for the whole block; the overflow
 ///     algorithm is deterministic - render fully, then while over budget strip
 ///     descriptions to bare '- &lt;name&gt;' lines lowest-precedence group first
-///     (Learned, then Workspace, then Global; Built-in descriptions drop last),
+///     (Workspace, then Global; Built-in descriptions drop last),
 ///     within a group from the END of the list; while still over budget drop whole
 ///     entry lines in the same order; the truncation marker renders whenever ANY
 ///     drop happened - droppedDescriptions &gt; 0 OR droppedEntries &gt; 0, the
 ///     never-silent rule (a strips-only overflow announces 'dropped d descriptions
 ///     and 0 entries'). N/M/d/e count what was shown of the total non-manual skills
-///     and how many descriptions/entries were dropped. A
-///     catalog or learned load failure renders '[warning] &lt;source&gt; skills
-///     unavailable: &lt;message&gt;' and the block still succeeds. A learned skill
-///     whose name already exists in the catalog is SKIPPED (presentation-layer
-///     merge, spec #19 decision 2) and announced with a
-///     '[collision] &lt;name&gt; (learned) shadowed by &lt;built-in|global directory|workspace directory&gt;'
-///     line rendered among the diagnostics - the winner label follows the same
-///     Origin classification as the groups; when the catalog load fails, dedup
-///     is skipped and the Learned group renders whole. A wholly empty
-///     result (no skills, no warnings, no collisions) renders the empty string.
+///     and how many descriptions/entries were dropped. A catalog load failure renders
+///     '[warning] built-in skills unavailable: &lt;message&gt;' and the block still
+///     succeeds. A wholly empty result (no skills, no warnings, no collisions)
+///     renders the empty string.
 ///     The built text is memoized per provider instance: the first Build call
 ///     constructs it, subsequent calls return the cached string.</summary>
-public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedSkillStore learned,
+public sealed class SkillsListingPromptProvider(ISkillCatalog catalog,
     IReadOnlyList<SkillDirectory> directories) : ISystemPromptProvider
 {
   private const string Header = "[skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke(\"skill_view\", new { name = \"<name>\" }) inside exec)]";
   private const string CollisionPrefix = "[collision] ";
 
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
-
-  private readonly ILearnedSkillStore _learned = learned ?? throw new ArgumentNullException(nameof(learned));
 
   private readonly IReadOnlyList<SkillDirectory> _directories = directories ?? throw new ArgumentNullException(nameof(directories));
   private readonly Lock _gate = new();
@@ -131,97 +121,41 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
   {
     List<string> warnings = [];
     List<SkillDefinition> catalogSkills = [];
-    List<SkillDefinition> learnedSkills = [];
 
-    bool catalogLoaded = await LoadCatalogSkillsAsync(catalogSkills, warnings, ct).ConfigureAwait(false);
-    await LoadLearnedSkillsAsync(learnedSkills, warnings, ct).ConfigureAwait(false);
+    await LoadCatalogSkillsAsync(catalogSkills, warnings, ct).ConfigureAwait(false);
 
     // MANUAL skills never appear anywhere in the block.
     catalogSkills = [.. catalogSkills.Where(s => !s.Manual)];
-    learnedSkills = [.. learnedSkills.Where(s => !s.Manual)];
 
-    // Presentation-layer dedup (spec #19 decision 2): a learned skill whose
-    // name already exists in the catalog is skipped here and announced - the
-    // composite catalog never sees learned rows, so this presentation merge is
-    // the only site where the two sources can collide. When the catalog load
-    // failed there is nothing to dedup against: the learned group renders
-    // whole (the degradation contract).
-    (List<SkillDefinition> mergedSkills, List<string> mergeCollisions) =
-        MergeLearned(catalogSkills, learnedSkills, catalogLoaded);
-
-    Group[] groups = BuildGroups(catalogSkills, mergedSkills);
+    Group[] groups = BuildGroups(catalogSkills);
 
     List<string> diagnosticLines = [];
     await CollectDiagnosticsAsync(diagnosticLines, warnings, ct).ConfigureAwait(false);
 
-    return new Listing(groups, diagnosticLines, mergeCollisions, warnings).FitToBudget();
+    return new Listing(groups, diagnosticLines, warnings).FitToBudget();
   }
 
   /// <summary>Loads the built-in/directory catalog rows into <paramref name="catalogSkills" />.
   ///     A load failure is never fatal: it contributes a '[warning] built-in skills
-  ///     unavailable: &lt;message&gt;' line and reports false, which disables the learned
-  ///     dedup (nothing to dedup against).</summary>
-  private async Task<bool> LoadCatalogSkillsAsync(List<SkillDefinition> catalogSkills,
+  ///     unavailable: &lt;message&gt;' line and the block still renders.</summary>
+  private async Task LoadCatalogSkillsAsync(List<SkillDefinition> catalogSkills,
       List<string> warnings, CancellationToken ct)
   {
     Result<IReadOnlyList<SkillDefinition>> fromCatalog = await _catalog.ListAsync(ct).ConfigureAwait(false);
     if (fromCatalog.IsSuccess)
     {
       catalogSkills.AddRange(fromCatalog.Value);
-      return true;
+      return;
     }
 
     warnings.Add($"[warning] built-in skills unavailable: {fromCatalog.Error.Message}");
-    return false;
   }
 
-  /// <summary>Loads the learned rows into <paramref name="learnedSkills" />; a load
-  ///     failure contributes a '[warning] learned skills unavailable: &lt;message&gt;' line
-  ///     and the group renders whatever loaded (nothing).</summary>
-  private async Task LoadLearnedSkillsAsync(List<SkillDefinition> learnedSkills,
-      List<string> warnings, CancellationToken ct)
-  {
-    Result<IReadOnlyList<SkillDefinition>> fromLearned = await _learned.ListAsync(ct).ConfigureAwait(false);
-    if (fromLearned.IsSuccess)
-    {
-      learnedSkills.AddRange(fromLearned.Value);
-    }
-    else
-    {
-      warnings.Add($"[warning] learned skills unavailable: {fromLearned.Error.Message}");
-    }
-  }
-
-  /// <summary>Presentation-layer dedup: returns the learned rows that survive (a name
-  ///     already held by a catalog row is SKIPPED) plus the '[collision] &lt;name&gt;
-  ///     (learned) shadowed by &lt;winner&gt;' lines announcing each skip. When the catalog
-  ///     load failed there is nothing to dedup against and the learned rows pass
-  ///     through whole.</summary>
-  private (List<SkillDefinition> Skills, List<string> Collisions) MergeLearned(
-      List<SkillDefinition> catalogSkills, List<SkillDefinition> learnedSkills, bool catalogLoaded)
-  {
-    List<string> collisions = [];
-    if (!catalogLoaded)
-    {
-      return (learnedSkills, collisions);
-    }
-
-    Dictionary<string, string> winnerLabelByName = catalogSkills
-        .GroupBy(s => s.Name, StringComparer.Ordinal)
-        .ToDictionary(g => g.Key, g => DescribeWinner(g.First()), StringComparer.Ordinal);
-    HashSet<string> shadowed = [.. winnerLabelByName.Keys];
-    collisions.AddRange(learnedSkills
-        .Where(s => shadowed.Contains(s.Name))
-        .Select(s => $"[collision] {s.Name} (learned) shadowed by {winnerLabelByName[s.Name]}"));
-    return ([.. learnedSkills.Where(s => !shadowed.Contains(s.Name))], collisions);
-  }
-
-  /// <summary>Splits the catalog rows into the three rendered source groups and appends
-  ///     the learned group. Render order per the contract: Built-in, Global, Workspace,
-  ///     Learned. The overflow passes iterate the array in REVERSE - lowest precedence
-  ///     first (Learned, then Workspace, then Global; Built-in descriptions drop last) -
-  ///     within a group from the END of the list.</summary>
-  private Group[] BuildGroups(List<SkillDefinition> catalogSkills, List<SkillDefinition> learnedSkills)
+  /// <summary>Splits the catalog rows into the three rendered source groups. Render
+  ///     order per the contract: Built-in, Global, Workspace. The overflow passes iterate
+  ///     the array in REVERSE - lowest precedence first (Workspace, then Global; Built-in
+  ///     descriptions drop last) - within a group from the END of the list.</summary>
+  private Group[] BuildGroups(List<SkillDefinition> catalogSkills)
   {
     List<SkillDefinition> builtInGroup = [];
     List<SkillDefinition> globalGroup = [];
@@ -247,7 +181,6 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
         new Group("Built-in", builtInGroup),
         new Group("Global directory skills", globalGroup),
         new Group("Workspace directory skills", workspaceGroup),
-        new Group("Learned", learnedSkills),
     ];
   }
 
@@ -278,11 +211,10 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
   ///     diagnostic / collision / warning lines appended after the entries, and the
   ///     budget-fit loop. Minted per build and never shared.</summary>
   private sealed class Listing(Group[] groups, List<string> diagnosticLines,
-      List<string> collisions, List<string> warnings)
+      List<string> warnings)
   {
     private readonly Group[] _groups = groups;
     private readonly List<string> _diagnosticLines = diagnosticLines;
-    private readonly List<string> _collisions = collisions;
     private readonly List<string> _warnings = warnings;
     private readonly int _total = groups.Sum(g => g.Skills.Count);
 
@@ -339,7 +271,6 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
       }
 
       lines.AddRange(_diagnosticLines);
-      lines.AddRange(_collisions);
       lines.AddRange(_warnings);
 
       int shown = _groups.Sum(g => g.Present.Count(p => p));
@@ -474,19 +405,6 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
     }
 
     return SkillDirectoryScope.Global;
-  }
-
-  /// <summary>The label for the dedup collision line: the source whose row wins
-  ///     over the skipped learned row - built-in, or the directory scope class.</summary>
-  private string DescribeWinner(SkillDefinition skill)
-  {
-    if (skill.Source == SkillSource.BuiltIn)
-    {
-      return "built-in";
-    }
-
-    bool global = Classify(skill.Origin) == SkillDirectoryScope.Global;
-    return global ? "global directory" : "workspace directory";
   }
 
   /// <summary>Collision lines already carry their '[collision] ' prefix and render

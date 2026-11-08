@@ -54,8 +54,7 @@ public sealed class EmbeddedSkillCatalog : ISkillCatalog
       }
 
       SkillDefinition definition = new(parsed.Value.Name, parsed.Value.Description, parsed.Value.Body,
-          parsed.Value.Version ?? 1, SkillSource.BuiltIn, null,
-          DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, Manual: parsed.Value.Manual);
+          parsed.Value.Version ?? 1, SkillSource.BuiltIn, Manual: parsed.Value.Manual);
       byName[definition.Name] = definition;
     }
 

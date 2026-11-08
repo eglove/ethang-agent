@@ -104,7 +104,6 @@ public sealed class ChainContractPromptProviderTests
         new SkillsBootstrapPromptProvider(services.GetRequiredService<ISkillCatalog>(),
             services.GetRequiredService<ICommitStyleProvider>()),
         new SkillsListingPromptProvider(services.GetRequiredService<ISkillCatalog>(),
-            services.GetRequiredService<ILearnedSkillStore>(),
             services.GetRequiredService<ResolvedSkillDirectories>().List),
         new StaticPromptProvider(
             "You are eThang Agent, an AI coding agent for Windows. Work in the current " +

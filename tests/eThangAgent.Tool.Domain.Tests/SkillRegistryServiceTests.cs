@@ -140,18 +140,6 @@ public sealed class SkillRegistryServiceTests : IDisposable
   }
 
   [Fact]
-  public async Task Install_LearnedCollision_Refuses()
-  {
-    _catalog.AddLearned("alpha");
-    _registry.StageSkills("o/r", ("alpha", "b"));
-    Result<SkillInstallReport> r = await MakeService().InstallAsync(
-        Addr("o/r"), "workspace", false, false, TestContext.Current.CancellationToken);
-    Assert.False(r.IsSuccess);
-    Assert.Equal("NameCollision", r.Error.Code);
-    Assert.Contains("learned", r.Error.Message, StringComparison.Ordinal);
-  }
-
-  [Fact]
   public async Task Install_FileCollision_NoForceRefuses_WithForceReplaces()
   {
     _registry.StageSkills("o/r", ("alpha", "v1"));
@@ -268,12 +256,10 @@ internal sealed class FakeCatalog
   private readonly List<SkillDefinition> _skills = [];
 
   public void AddBuiltIn(string name) => _skills.Add(new SkillDefinition(
-      name, "desc " + name, "body", 1, SkillSource.BuiltIn, null,
-      DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch));
+      name, "desc " + name, "body", 1, SkillSource.BuiltIn));
 
-  public void AddLearned(string name) => _skills.Add(new SkillDefinition(
-      name, "desc " + name, "body", 1, SkillSource.Learned, "session",
-      DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch));
+  public void AddFile(string name) => _skills.Add(new SkillDefinition(
+      name, "desc " + name, "body", 1, SkillSource.File));
 
   public ISkillCatalog AsCatalog() => new Impl(_skills);
 

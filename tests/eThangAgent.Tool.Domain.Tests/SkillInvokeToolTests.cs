@@ -12,8 +12,7 @@ public class SkillInvokeToolTests
 {
   private static SkillDefinition Skill(string name, bool manual = false, string? body = null) => new(
       name, "Does " + name + " things", body ?? ("Body of " + name), 1,
-      manual ? SkillSource.File : SkillSource.BuiltIn,
-      null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, manual, null);
+      manual ? SkillSource.File : SkillSource.BuiltIn, manual);
 
   [Fact]
   public async Task Invoke_AppendsSystemMessage_AndConfirms()

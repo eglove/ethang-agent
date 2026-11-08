@@ -4,8 +4,8 @@ using eThangAgent.SkillDomain;
 namespace eThangAgent.ToolDomain;
 
 /// <summary>Install, update, or uninstall community skills into a configured
-/// skill directory (plan #29 task 9). Action-switch shape (the skill_manage
-/// pattern): Install requires address; Update requires name + address with
+/// skill directory (plan #29 task 9). Action-switch shape (the skill_registry
+/// contract): Install requires address; Update requires name + address with
 /// force implied; Uninstall requires name. Strict validation; service error
 /// codes pass through verbatim.</summary>
 public sealed class SkillRegistryTool(SkillRegistryService registry) : ITool
