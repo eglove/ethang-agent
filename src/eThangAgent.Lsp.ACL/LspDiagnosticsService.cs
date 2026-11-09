@@ -66,7 +66,12 @@ public sealed class LspNotificationRouter
 /// enforces the restart query gate. Null transport means no server (Unavailable).
 /// A workspace model is consulted first: a server that has not loaded the workspace
 /// reports no diagnostics for any file, and reporting that as Ready would read as a
-/// clean file.</summary>
+/// clean file.
+///     <para>A REPORT IS EVIDENCE ONLY WHEN A COMPILATION STANDS BEHIND IT. Without one
+///     the server answers from a file-based fallback that parses the document and resolves
+///     nothing, so an empty set says nothing about whether the file compiles. Such a report
+///     is labeled rather than returned as Ready, and a non-empty one is passed through
+///     because a syntax error needs no compilation to be real.</para></summary>
 public sealed class LspDiagnosticsService
 {
   private readonly LspJsonRpcTransport? _transport;
@@ -175,7 +180,18 @@ public sealed class LspDiagnosticsService
       }
 
       _store.OnPullDiagnostics(uri, response.ResultJson ?? "{}");
-      return _store.Get(uri);
+      LspDiagnosticsResult reported = _store.Get(uri);
+      // A report from a server with no compilation behind it answers a different question:
+      // it resolves no names, so an empty set says nothing about whether the file compiles.
+      // Reporting it as Ready would read as clean, which is the one thing an empty set must
+      // never mean. Syntax diagnostics are still real evidence and are passed through.
+      if (_workspace is not null && !_workspace.HasCompilation && reported.State == LspDiagnosticsState.Ready)
+      {
+        return reported.Diagnostics.Count > 0
+          ? new LspDiagnosticsResult(LspDiagnosticsState.Degraded, reported.Diagnostics)
+          : new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
+      }
+      return reported;
     }
     finally
     {

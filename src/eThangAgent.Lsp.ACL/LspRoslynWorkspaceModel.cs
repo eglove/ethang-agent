@@ -43,6 +43,11 @@ public sealed class LspRoslynWorkspaceModel : ILspWorkspaceModel
     get { lock (_gate) { return _loaded; } }
   }
 
+  /// <summary>True only when a solution was found and the server announced it loaded it.
+  ///     A workspace with no solution is answered by the file-based fallback, which parses
+  ///     but resolves nothing.</summary>
+  public bool HasCompilation => _solutionPath is not null && IsLoaded;
+
   public async Task PrepareAsync(string uri, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(uri);

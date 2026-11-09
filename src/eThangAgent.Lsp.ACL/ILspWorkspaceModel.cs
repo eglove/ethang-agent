@@ -11,6 +11,15 @@ public interface ILspWorkspaceModel
   /// server reported its project load complete.</summary>
   bool IsLoaded { get; }
 
+  /// <summary>True when the server holds a compilation built from the workspace's own
+  ///     project - the only state in which a diagnostic about a NAME is possible.
+  ///     <para>Without a compilation the server answers from a file-based fallback that
+  ///     parses the document and resolves nothing: a missing brace is still reported, but
+  ///     an unresolved type, a wrong argument, an unused using and every other semantic
+  ///     claim is invisible. A report from that state is not a clean file, it is a report
+  ///     about a different question.</para></summary>
+  bool HasCompilation { get; }
+
   /// <summary>Loads the workspace into the server - once - and opens the document at
   /// <paramref name="uri"/> with its current disk text, so the query that follows has a
   /// compilation to answer from.</summary>

@@ -155,6 +155,8 @@ public class LspWorkspaceModelTests
   {
     public bool IsLoaded => false;
 
+    public bool HasCompilation => false;
+
     public Task PrepareAsync(string uri, CancellationToken ct = default) => Task.CompletedTask;
 
     public Task<bool> EnsureLoadedAsync(TimeSpan timeout, CancellationToken ct = default) => Task.FromResult(false);

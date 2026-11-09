@@ -258,6 +258,9 @@ public class LspSymbolServiceTests
   private sealed class ScriptedWorkspaceModel(bool loaded) : ILspWorkspaceModel
   {
     public bool IsLoaded { get; private set; } = loaded;
+
+    public bool HasCompilation => IsLoaded;
+
     public int PrepareCalls { get; private set; }
     public int EnsureLoadedCalls { get; private set; }
 
