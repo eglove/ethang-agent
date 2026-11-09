@@ -230,6 +230,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     reset at the turn's start.</summary>
   private bool _handoffDecidedThisTurn;
 
+  /// <summary>The model the provider named as serving the most recent call, or the
+  ///     configured model when it named none. Tools that attribute their work read it
+  ///     through <c>AmbientServingModel</c> for the duration of each call.</summary>
+  private string? _servingModelId;
+
   /// <summary>True when the last successful compaction's outcome WAS a handoff
   ///     (issue #234): the composition layer reads this after the turn ends and launches
   ///     the new session with the outcome's summary as its seed. One-shot per
@@ -418,6 +423,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
     // list, so handing it out directly would let every consumer of this request
     // (retries, logging, tests) read messages added by later iterations.
+    _servingModelId = response.ServedModelId ?? Config.ModelId;
     ReportUsage(new ModelRequest([.. Conversation.Messages], _turnPrefix.Tools,
         _turnPrefix.SystemPrompt, _sessionId), response, callbacks);
     await SurfaceServerToolCallsAsync(response, callbacks, ct).ConfigureAwait(false);
@@ -1209,10 +1215,24 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   {
     PublishProgress(AgentPhase.ToolExec, "tool:" + call.Name);
     _heartbeat?.Beat(Id);
-    return tool is null
-        ? new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)
-            ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
-        : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
+    if (tool is null)
+    {
+      return new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)
+          ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true);
+    }
+
+    // The serving model is ambient for the call and restored after it, so a tool that
+    // attributes its work sees this turn's model and no other flow does.
+    string? previous = AmbientServingModel.Current;
+    AmbientServingModel.Current = _servingModelId;
+    try
+    {
+      return await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
+    }
+    finally
+    {
+      AmbientServingModel.Current = previous;
+    }
   }
 
   /// <summary>The calls after the guard's stop get the synthetic interrupted result

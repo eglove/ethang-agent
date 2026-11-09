@@ -127,7 +127,10 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
       }
     }
 
-    Result<GitCommitOutcome> committed = await _commits.CommitAsync(repoRoot, message, ct).ConfigureAwait(false);
+    // The model that served this turn signs the commit. The trailer is documentation,
+    // not credit: it carries no email, so GitHub resolves no account from it.
+    string attributed = ModelAttribution.WithTrailer(message, AmbientServingModel.Current);
+    Result<GitCommitOutcome> committed = await _commits.CommitAsync(repoRoot, attributed, ct).ConfigureAwait(false);
     if (!committed.IsSuccess)
     {
       return Err(committed.Error);

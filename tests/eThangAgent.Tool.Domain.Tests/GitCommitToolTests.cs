@@ -210,6 +210,47 @@ public class GitCommitToolTests
     Assert.Contains("Stage changes first", result.Content, StringComparison.Ordinal);
   }
 
+  // ---- The serving model signs the commit ----
+
+  [Fact]
+  public async Task ServingModel_AppendsItsCoAuthorTrailerToTheCommittedMessage()
+  {
+    GitCommitTool tool = Make(OkFor("wip notes\n"), out FakeGitCommitAccess? fake);
+    ToolResult result = await WithServingModelAsync("anthropic/claude-opus-4-8",
+        () => tool.ExecuteAsync(new RawToolInput("git_commit",
+            /*lang=json,strict*/
+            """{"timeoutSeconds":120,"description":"wip notes"}"""), ct: TestContext.Current.CancellationToken));
+    Assert.False(result.IsError);
+    Assert.Equal("wip notes\n\nCo-authored-by: Claude Opus 4.8 [https://github.com/anthropics]\n", fake.Message);
+  }
+
+  [Fact]
+  public async Task NoServingModel_CommitsTheMessageUnchanged()
+  {
+    GitCommitTool tool = Make(OkFor("wip notes\n"), out FakeGitCommitAccess? fake);
+    ToolResult result = await WithServingModelAsync(null,
+        () => tool.ExecuteAsync(new RawToolInput("git_commit",
+            /*lang=json,strict*/
+            """{"timeoutSeconds":120,"description":"wip notes"}"""), ct: TestContext.Current.CancellationToken));
+    Assert.False(result.IsError);
+    Assert.Equal("wip notes\n", fake.Message);
+  }
+
+  /// <summary>Runs the body with the serving model set, restoring the previous value.</summary>
+  private static async Task<ToolResult> WithServingModelAsync(string? modelId, Func<Task<ToolResult>> body)
+  {
+    string? previous = AmbientServingModel.Current;
+    AmbientServingModel.Current = modelId;
+    try
+    {
+      return await body().ConfigureAwait(true);
+    }
+    finally
+    {
+      AmbientServingModel.Current = previous;
+    }
+  }
+
   private sealed class FakeGitCommitAccess(Result<GitCommitOutcome> outcome) : IGitCommitAccess
   {
     public List<string> CallLog { get; } = [];
