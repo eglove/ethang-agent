@@ -11,6 +11,7 @@ public class ModelAttributionTests
   [InlineData("x-ai/grok-4.7", "Grok 4.7 [https://github.com/xai-org]")]
   [InlineData("deepseek/deepseek-r1-0528", "DeepSeek R1 [https://github.com/deepseek-ai]")]
   [InlineData("qwen/qwen3-coder", "Qwen3 Coder [https://github.com/QwenLM]")]
+  [InlineData("deepseek/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash [https://github.com/deepseek-ai]")]
   public void TrailerLine_NamesModelAndLinksVendorOrg(string modelId, string expected) =>
       Assert.Equal("Co-authored-by: " + expected, ModelAttribution.TrailerLine(modelId));
 
