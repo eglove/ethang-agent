@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.27";
+  public const string Version = "2.28";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -362,8 +362,24 @@ public static class ExecGuide
     - Every tool call — exec and every action inside scripts — is bounded by a
       timeoutSeconds budget: a whole-second value, 1..3600. Nested calls inherit the
       exec call's budget unless they state their own; an exceeded call fails with
-      Error [ToolTimeout]; re-issue with a larger budget if the work genuinely needs
-      longer. Choose generously but honestly.
+      Error [ToolTimeout].
+    - Size the budget to the work you expect, not to a number that feels safe. A budget
+      is a ceiling on how long a mistake goes unnoticed, not a promise of patience: a
+      hung run and a slow one look identical until the ceiling is reached. When a run
+      does overrun, narrow the command or split the work — a larger budget only
+      lengthens the wait before the same failure.
+    - Every completed run reports what it cost against its budget, as
+      `[exec: 1.2s of 600s budget]`. Read that line: it is the only evidence you get
+      about what a command actually costs, and it is how you learn to size the next one.
+      A run that finishes inside a tenth of its budget earns one `[budget]` line naming
+      the numbers and asking for a narrower next attempt. Neither line is an error.
+    - Prefer the narrowest command that answers the question. Whatever a whole-project or
+      whole-suite command does, some narrower form of it answers the same question sooner:
+      the part you changed rather than everything, the one case rather than the whole set,
+      the check that is failing rather than the check that already passed. Reach for the
+      wide command when the question genuinely is about the whole, and say so to yourself
+      before you do. This is a principle, not a list: what is narrow depends on what the
+      workspace holds, and a workspace need not hold code at all.
     - Paths resolve at the session workspace: file-tool paths, Shell commands, and the
       script's Workspace property all root there. A RELATIVE path in a raw
       File.*/Directory.* call does NOT: it resolves against the process working

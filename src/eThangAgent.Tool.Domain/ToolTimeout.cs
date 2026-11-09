@@ -60,11 +60,13 @@ public static class ToolTimeout
 
   /// <summary>Formats the standard error result for an exceeded budget. The message
   ///     attributes the budget to the caller — it is the caller's own timeoutSeconds
-  ///     parameter, not a tool-internal cap — and documents the contract exactly, so
-  ///     the model can re-issue with a larger budget and never misattribute the failure.</summary>
+  ///     parameter, not a tool-internal cap — so the failure is never misattributed, and
+  ///     names the narrowing move rather than a larger budget: a run that overruns is
+  ///     almost always a command too big to be one step, and raising the budget only
+  ///     lengthens the wait before the same failure.</summary>
   public static ToolResult TimedOut(string toolName, TimeSpan budget) =>
       new("Error [ToolTimeout]: '" + toolName + "' exceeded the " +
           budget.TotalSeconds.ToString("0", CultureInfo.InvariantCulture) +
-          "s execution budget you set via timeoutSeconds. Re-issue with a larger '" + ParameterName +
-          "' if the work genuinely needs longer.", true);
+          "s execution budget you set via timeoutSeconds. Narrow the command, or split the " +
+          "work into smaller runs that each finish well inside a budget.", true);
 }

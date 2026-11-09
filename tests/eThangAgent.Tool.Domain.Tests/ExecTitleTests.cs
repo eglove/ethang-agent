@@ -73,8 +73,9 @@ public class ExecTitleTests
 
     Assert.False(result.IsError);
     Assert.Equal("parse names", result.Title);
-    Assert.Equal("hi", result.Content); // the program's OUTPUT is the content
-    Assert.Equal("hi", result.Content); // the program's OUTPUT is the content
+    // The program's OUTPUT is the content; the cost line is appended after it.
+    Assert.StartsWith("hi", result.Content, StringComparison.Ordinal);
+    Assert.Contains("of 5s budget]", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]

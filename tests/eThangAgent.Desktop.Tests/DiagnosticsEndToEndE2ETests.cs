@@ -465,9 +465,14 @@ public class DiagnosticsEndToEndE2ETests
         .Replace(AppContext.BaseDirectory, "<base>", StringComparison.OrdinalIgnoreCase)
         .Replace(Path.GetFileName(workspaceRoot), "<wsname>", StringComparison.OrdinalIgnoreCase);
 
-  /// <summary>The non-diagnostics text of one tool result: the part the parity claim covers.</summary>
+  /// <summary>The non-diagnostics text of one tool result: the part the parity claim
+  ///     covers. The elapsed line is dropped too — it states how long THIS run took, so
+  ///     two runs of the same sequence never agree on it, and the parity claim is about
+  ///     the diagnostics gate rather than about timing.</summary>
   private static string WithoutDiagnostics(string text)
-    => string.Join("\n", text.Split('\n').Where(line => !line.StartsWith("[diagnostics]", StringComparison.Ordinal)));
+      => string.Join("\n", text.Split('\n').Where(line =>
+          !line.StartsWith("[diagnostics]", StringComparison.Ordinal)
+          && !line.StartsWith("[exec: ", StringComparison.Ordinal)));
 
   private static async Task<List<string>> ReadAllMessagesAsync(string dbPath)
   {

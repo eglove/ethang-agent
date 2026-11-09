@@ -9,6 +9,13 @@ public static class ExecResultFormatter
       => Format(run, title, null);
 
   public static ToolResult Format(ExecRunResult run, string? title, ExecProgram? program)
+      => Format(run, title, program, null);
+
+  /// <summary>Formats one run. <paramref name="cost"/> is what the run cost against its
+  ///     stated budget; when present it is appended as the run's last annotation, so every
+  ///     completed run reports both numbers and an over-sized budget is visible without
+  ///     the harness commenting on it.</summary>
+  public static ToolResult Format(ExecRunResult run, string? title, ExecProgram? program, ExecCost? cost)
   {
     ArgumentNullException.ThrowIfNull(run);
     if (run.Status != ExecRunStatus.Completed)
@@ -38,6 +45,7 @@ public static class ExecResultFormatter
     AppendRefusalAnnotation(sb, run);
     AppendImageAnnotation(sb, run);
     AppendWorkspaceAnnotation(sb, run, program);
+    AppendCostAnnotation(sb, cost);
 
     foreach (string line in run.ErrorLines)
     {
@@ -55,7 +63,25 @@ public static class ExecResultFormatter
     // A refused mutation makes the run an ERROR even when the program completed and the
     // workspace is unchanged: the write the program issued did not happen (issue #375).
     bool failed = run.ErrorLines.Count > 0 || run.RefusedWorkspaceCalls.Count > 0;
-    return new ToolResult(sb.ToString(), failed, title, AttachedImages(run));
+    return new ToolResult(sb.ToString(), failed, title, AttachedImages(run), cost);
+  }
+
+  /// <summary>The run's cost against the budget its caller stated. Absent for a run that
+  ///     never reached execution (parse and compile failures), and never appended to the
+  ///     timeout result, whose own message already carries the budget.</summary>
+  private static void AppendCostAnnotation(StringBuilder sb, ExecCost? cost)
+  {
+    if (cost is null)
+    {
+      return;
+    }
+
+    if (sb.Length > 0)
+    {
+      _ = sb.Append('\n');
+    }
+
+    _ = sb.Append(cost.Render());
   }
 
   /// <summary>The images a nested dispatch attached (issue #288): exec is the ONLY

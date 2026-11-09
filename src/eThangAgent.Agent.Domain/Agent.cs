@@ -70,6 +70,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     the conversation ends on WHY the turn stopped, never on a bare tool result.</summary>
   public const string RepeatGuardStopLine = "[repeat guard] turn ended: the same call repeated past the critical error";
 
+  /// <summary>Verbatim prefix of the System message appended when a run finishes
+  ///     well inside the budget it asked for. It states the two numbers the result already
+  ///     carries and names the narrowing move; it never tells the caller to raise a budget.
+  ///     At most once per turn, so it can never become background noise.</summary>
+  public const string OverProvisionedPrefix = "[budget] ";
+
   /// <summary>Verbatim prefix a tool result carries when the conversation shrank
   ///     during this turn (the context_edit tool's contract). The loop rests
   ///     auto-compaction for the rest of the turn; persistence replaces the
@@ -203,6 +209,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
   private bool _shrankThisTurnObserved;
 
+  /// <summary>True once the over-provisioned nudge has spoken this turn. Turn-local,
+  ///     reset at the turn's start beside <c>_shrankThisTurnObserved</c>: the fact is
+  ///     worth stating once, and repeating it on every cheap run would train the model
+  ///     to skip every line the harness adds.</summary>
+  private bool _budgetNudgeShown;
+
   /// <summary>One-time soft reminder state: true from the iteration the reminder was
   ///     appended until the pressure cycle resets (a successful compaction or an
   ///     observed context shrink). A failed compaction does NOT reset it.</summary>
@@ -333,6 +345,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     LastTurnToolCalls = 0;
     ShrankThisTurn = false;
     _shrankThisTurnObserved = false;
+    _budgetNudgeShown = false;
     _handoffDecidedThisTurn = false;
     _repeatGuard.Reset();
     _readLedger.Reset();
@@ -1117,8 +1130,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     GuardOutcome outcome = _repeatGuard.Observe(call.Name, guardKey, toolResult.IsError, toolResult.Content);
     if (outcome.NudgeLine is { } guardLine)
     {
-      Conversation.AddSystemMessage(guardLine);
-      callbacks?.OnSystemMessage?.Invoke(guardLine);
+      InjectSystemLine(guardLine, callbacks);
+    }
+
+    if (BudgetNudgeLine(toolResult) is { } budgetLine)
+    {
+      InjectSystemLine(budgetLine, callbacks);
     }
 
     _heartbeat?.Beat(Id);
@@ -1127,6 +1144,34 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError,
         toolResult.Title is null ? null : toolResult);
     return outcome;
+  }
+
+  /// <summary>Appends one loop-voice System line to the conversation and reports it to
+  ///     the host, so the transcript records what the model was told.</summary>
+  private void InjectSystemLine(string line, TurnCallbacks? callbacks)
+  {
+    Conversation.AddSystemMessage(line);
+    callbacks?.OnSystemMessage?.Invoke(line);
+  }
+
+  /// <summary>The over-provisioned nudge, or null when it must stay quiet. It speaks
+  ///     only when a run finished inside a tenth of the budget it asked for, and only once
+  ///     per turn: the elapsed line already states the numbers on every result, so this
+  ///     line exists to say what they mean, not to repeat them.</summary>
+  private string? BudgetNudgeLine(ToolResult toolResult)
+  {
+    if (_budgetNudgeShown || toolResult.Cost is not { IsOverProvisioned: true } cost)
+    {
+      return null;
+    }
+
+    _budgetNudgeShown = true;
+    return OverProvisionedPrefix + "that run finished in " +
+        cost.Elapsed.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) +
+        "s of the " +
+        cost.Budget.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture) +
+        "s budget you set. Size the budget to the work you expect, and prefer the narrowest " +
+        "command that answers the question over the whole-project or whole-suite equivalent.";
   }
 
   /// <summary>A context-shrinking tool result resets the pressure cycle and the

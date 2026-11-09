@@ -5,4 +5,4 @@ namespace eThangAgent.ToolDomain;
 ///     never enters the conversation; hosts render it in the card header beside the
 ///     result (the body always shows the content — the program's output for exec).</summary>
 public sealed record ToolResult(string Content, bool IsError, string? Title = null,
-    IReadOnlyList<ToolResultImage>? Images = null);
+    IReadOnlyList<ToolResultImage>? Images = null, ExecCost? Cost = null);

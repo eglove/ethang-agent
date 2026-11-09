@@ -75,10 +75,10 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options,
     ExecProgram exec = program.Value with { Budget = budget.Value.Timeout };
     string title = parsed.Value.Title;
     return ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
-        RunAsync(exec, title, token), ct);
+        RunAsync(exec, title, budget.Value.Timeout, token), ct);
   }
 
-  private async Task<ToolResult> RunAsync(ExecProgram exec, string title, CancellationToken ct)
+  private async Task<ToolResult> RunAsync(ExecProgram exec, string title, TimeSpan budget, CancellationToken ct)
   {
     Result<IReadOnlyList<ExecParseError>> parse = await _engine.ValidateAsync(exec, ct).ConfigureAwait(false);
     if (!parse.IsSuccess)
@@ -94,13 +94,20 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options,
 
     long started = Stopwatch.GetTimestamp();
     ExecRunResult run = await _engine.ExecuteAsync(exec, ct).ConfigureAwait(false);
+    TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
 
-    ToolResult result = ExecResultFormatter.Format(run, title, exec);
+    // The cost rides the RESULT, not an ambient observer: this tool is a process-wide
+    // singleton shared by every session in a host, so per-session state on it would
+    // leak between them. A run that never reached execution reports no cost.
+    ExecCost? cost = run.Status == ExecRunStatus.Completed
+        ? new ExecCost(elapsed, budget)
+        : null;
+    ToolResult result = ExecResultFormatter.Format(run, title, exec, cost);
     await _activity.RecordAsync(new ExecActivity(
         exec.Text.Length > 80 ? exec.Text[..80] : exec.Text,
         run.Status,
         run.Output.Length,
-        Stopwatch.GetElapsedTime(started),
+        elapsed,
         result.IsError), ct).ConfigureAwait(false);
     return result;
   }

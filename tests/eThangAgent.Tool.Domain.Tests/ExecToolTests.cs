@@ -105,7 +105,8 @@ public class ExecToolTests
             new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"title\":\"t\",\"program\":\"Write-Output 'hi'\"}"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.Equal("hi", result.Content);
+    Assert.StartsWith("hi", result.Content, StringComparison.Ordinal);
+    Assert.Contains("of 120s budget]", result.Content, StringComparison.Ordinal);
     ExecActivity record = Assert.Single(activity.Records);
     Assert.Equal(ExecRunStatus.Completed, record.Status);
     Assert.False(record.IsError);
@@ -125,7 +126,8 @@ public class ExecToolTests
             new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"title\":\"t\",\"program\":\"x\"}"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.Equal(60 * 1024, result.Content.Length);
+    Assert.StartsWith(new string('x', 60 * 1024), result.Content, StringComparison.Ordinal);
+    Assert.Contains("of 120s budget]", result.Content, StringComparison.Ordinal);
   }
 
   private ExecTool CreateTool(

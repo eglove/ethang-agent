@@ -90,4 +90,19 @@ public class ToolTimeoutTests
     Assert.Contains("you set via timeoutSeconds", result.Content, StringComparison.Ordinal);
     Assert.Contains("60s", result.Content, StringComparison.Ordinal);
   }
+
+  [Fact]
+  public void TimedOut_Names_The_Narrowing_Move_And_Never_The_Budget()
+  {
+    // A run that overruns is almost always a command too big to be one step. Telling
+    // the caller to raise the budget lengthens the wait before the same failure and
+    // teaches the opposite of the habit the elapsed line exists to build.
+    ToolResult result = ToolTimeout.TimedOut("exec", TimeSpan.FromSeconds(600));
+
+    Assert.Contains("Narrow the command", result.Content, StringComparison.Ordinal);
+    Assert.Contains("split the work", result.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("larger", result.Content, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("increase", result.Content, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("re-issue", result.Content, StringComparison.OrdinalIgnoreCase);
+  }
 }
