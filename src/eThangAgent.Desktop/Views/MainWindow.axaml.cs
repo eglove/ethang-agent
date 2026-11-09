@@ -188,7 +188,8 @@ internal partial class MainWindow : Window
     // no consumer.
     ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
         ? new ModelSectionSeams(loadCatalog, preferences.ModelId,
-            _vm.SelectedTabCatalogRefresher, preferences.ModelVariant)
+            _vm.SelectedTabCatalogRefresher, preferences.ModelVariant,
+            preferences.ZeroDataRetention ?? true)
         : null;
     ModelSettingsViewModel vm = new(
         preferences,

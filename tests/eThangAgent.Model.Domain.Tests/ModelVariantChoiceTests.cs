@@ -143,4 +143,28 @@ public class ModelVariantChoiceTests
 
     Assert.Equal(ModelVariant.Floor, parsed.Variant);
   }
+  [Fact]
+  public void AStoredChoiceWithoutTheMember_RestoresRestricted()
+  {
+    // A value written before the restriction existed must read back ON: the absence of a
+    // decision is not a decision to loosen.
+    ModelVariantChoice parsed = ModelVariantChoice.Parse(
+        /*lang=json,strict*/ """{"ModelId":"alpha/model","Variant":"Nitro"}""").ValueOrNull!;
+
+    Assert.True(parsed.ZeroDataRetention);
+  }
+
+  [Fact]
+  public void AStoredFalse_RoundTripsAsFalse()
+  {
+    ModelVariantChoice original = new("alpha/model", ModelVariant.Standard, ZeroDataRetention: false);
+
+    ModelVariantChoice parsed = ModelVariantChoice.Parse(original.Serialize()).ValueOrNull!;
+
+    Assert.False(parsed.ZeroDataRetention);
+  }
+
+  [Fact]
+  public void ALegacyBareModelId_RestoresRestricted()
+      => Assert.True(ModelVariantChoice.Parse("alpha/model").ValueOrNull!.ZeroDataRetention);
 }

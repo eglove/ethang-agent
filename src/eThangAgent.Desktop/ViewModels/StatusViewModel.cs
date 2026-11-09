@@ -78,6 +78,27 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     }
   } = "";
 
+  /// <summary>The retention restriction in effect, or empty when the session routes without
+  ///     it.
+  ///     <para>EMPTY IS THE LOOSENED STATE, not the unset one: the restriction is the default
+  ///     for every session, so the badge names the promise while it holds and disappears when
+  ///     the user turns it off. That is the readable direction - a bar that badged the absence
+  ///     would put a warning on the normal case and say nothing about the exception.</para></summary>
+  public string ServingRetention
+  {
+    get;
+    set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(ServingRetention));
+    }
+  } = "";
+
   /// <summary>The session's current reasoning effort as a display string — "Model default"
   ///     when no level is set. Updated by the effort picker and the shell's restore-on-open
   ///     (callers own the display-name vocabulary, <see cref="EffortLevels"/>).</summary>

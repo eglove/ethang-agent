@@ -61,6 +61,14 @@
                     DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
           <TextBlock Text="{Binding ModelSection.VariantCaption}" FontSize="11" Opacity="0.6"
                      TextWrapping="Wrap"/>
+          <!-- The retention restriction: the second, INDEPENDENT axis of the model decision.
+               The dropdown says which tradeoff to prefer; this says which endpoints are
+               admissible at all. It starts checked and only an explicit unchecking loosens it. -->
+          <CheckBox x:Name="ZeroDataRetentionBox" Margin="0,8,0,0"
+                    IsChecked="{Binding ModelSection.ZeroDataRetention}"
+                    Content="{x:Static vm:ModelPickerViewModel.ZeroDataRetentionLabel}"/>
+          <TextBlock Text="{x:Static vm:ModelPickerViewModel.ZeroDataRetentionCaption}"
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
         </StackPanel>
 
         <!-- Reasoning effort: the same vocabulary the old effort picker offered. -->

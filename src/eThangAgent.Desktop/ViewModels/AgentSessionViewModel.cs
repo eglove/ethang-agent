@@ -1225,19 +1225,33 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     return defaultModelId;
   }
 
+  /// <summary>The badge the status bar shows while the retention restriction is in effect:
+  ///     the promise, not the acronym.
+  ///     <para>THE BADGE IS THE ONLY WAY TO SEE THE RESTRICTION WITHOUT REOPENING THE DIALOG,
+  ///     and it names the state that is ON rather than the one that is off. A session routing
+  ///     without it is visible by the badge's absence, which is the same convention the routing
+  ///     variant already follows.</para></summary>
+  public const string ZeroDataRetentionBadge = "no data retention";
+
   /// <summary>
-  /// Applies the user's picker choice: pins the session's MODEL AND ROUTING VARIANT, updates the
-  /// status bar, and announces the change. Applies from the next turn, root and children alike;
-  /// persisted per workspace by the shell.
+  /// Applies the user's picker choice: pins the session's MODEL, ROUTING VARIANT, and retention
+  /// policy, updates the status bar, and announces the change. Applies from the next turn, root
+  /// and children alike; persisted per workspace by the shell.
   /// <para>THE VARIANT IS THE SECOND HALF OF THE DECISION. It is a suffix on the model id, so it
   /// is what the provider routes on - committing only the model would leave the turn on Standard
   /// routing while the dialog reported the tradeoff the user chose. A null
   /// <paramref name="variant"/> CLEARS it rather than inheriting the previous one, which would
   /// silently keep routing under a tradeoff the user just moved away from.</para>
+  /// <para>THE RETENTION POLICY IS THE THIRD, and unlike the variant its null is not a clear: a
+  /// caller that names only a model states nothing about retention, so the session keeps the
+  /// policy it had rather than having one invented for it.</para>
   /// </summary>
   /// <param name="modelId">The model to serve, or null for the session's default model.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
-  public void ApplyModelChoice(string? modelId, ModelVariant? variant = null)
+  /// <param name="zeroDataRetention">Whether to restrict routing to endpoints that do not retain
+  ///     prompts, or null to keep the session's current policy.</param>
+  public void ApplyModelChoice(string? modelId, ModelVariant? variant = null,
+      bool? zeroDataRetention = null)
   {
     if (_modelPreferences is null)
     {
@@ -1252,6 +1266,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     string chosen = string.IsNullOrWhiteSpace(modelId) ? _sessionDefaultModelId : modelId;
     _modelPreferences.ModelId = chosen;
     _modelPreferences.ModelVariant = variant;
+    // Null means the caller stated no policy (a picker that only names a model), and the
+    // session keeps whatever it had - which, for a session that never stated one, is the
+    // restrictive default the overlay applies.
+    _modelPreferences.ZeroDataRetention = zeroDataRetention ?? _modelPreferences.ZeroDataRetention;
     Status.ModelId = chosen;
     // The status line names the routing the request will actually carry, by its bare name
     // ('Nitro', 'Floor') - the caption beneath the Routing dropdown explains what each one
@@ -1260,6 +1278,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Status.ServingVariant = variant is { } committed && committed != ModelVariant.Standard
         ? ModelVariants.Describe(committed)
         : string.Empty;
+    // The bar names the restriction only while it is in effect: it is the default, so a badge
+    // on every session would be noise, but a session quietly routing WITHOUT it is the one
+    // thing the user must be able to see at a glance.
+    Status.ServingRetention = _modelPreferences.ZeroDataRetention is false ? string.Empty : ZeroDataRetentionBadge;
     Transcript.AddNotice(variant is { } served && served != ModelVariant.Standard
         ? $"Model set to {chosen} with {ModelVariants.Describe(served)}; applies from the next turn."
         : $"Model set to {chosen}; applies from the next turn.");

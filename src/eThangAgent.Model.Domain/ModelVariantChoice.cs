@@ -17,7 +17,11 @@ namespace eThangAgent.ModelDomain;
 ///     suffix.</param>
 /// <param name="Variant">The routing variant, or <see cref="ModelVariant.Standard"/> for the
 ///     provider's own routing.</param>
-public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = ModelVariant.Standard)
+/// <param name="ZeroDataRetention">Whether routing is restricted to endpoints that do not
+///     retain prompts. True unless the user explicitly turned the restriction off, so a stored
+///     value that never mentioned it restores as restricted.</param>
+public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = ModelVariant.Standard,
+    bool ZeroDataRetention = true)
 {
   /// <summary>The id to send to the provider: the base model with the variant appended.
   ///     This is the whole routing decision.</summary>
@@ -32,7 +36,8 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
   ///     <para>JSON RATHER THAN A DELIMITED STRING: a model id may contain any character the
   ///     catalog chooses, so a delimiter that an id happens to contain would split the choice
   ///     into a model that does not exist and a variant nobody chose.</para></summary>
-  public string Serialize() => JsonSerializer.Serialize(new ChoiceDocument(ModelId, Variant.ToString()));
+  public string Serialize()
+      => JsonSerializer.Serialize(new ChoiceDocument(ModelId, Variant.ToString(), ZeroDataRetention));
 
   /// <summary>Reads a stored value back, accepting every shape this harness has ever
   ///     written.
@@ -76,7 +81,10 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
       // variant member at all, and a hand-written blank means the same thing.
       if (string.IsNullOrWhiteSpace(document.Variant))
       {
-        return Result.Success(Normalize(document.ModelId));
+        return Result.Success(Normalize(document.ModelId) with
+        {
+          ZeroDataRetention = document.ZeroDataRetention ?? true,
+        });
       }
 
       // A DEFINED member only. Enum.TryParse alone would accept "5" and hand back an
@@ -92,7 +100,7 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
       // The variant is stated; the model still must be normalized in case the id carries its
       // own suffix (a hand-written value can carry both).
       return Result.Success(new ModelVariantChoice(
-          ModelVariants.BaseOf(document.ModelId), variant));
+          ModelVariants.BaseOf(document.ModelId), variant, document.ZeroDataRetention ?? true));
     }
 #pragma warning disable CA1031 // A malformed preference is an EXPECTED condition: it becomes a named error.
     catch (JsonException ex)
@@ -110,6 +118,10 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
 
   /// <summary>The wire shape. The retired <c>ProviderName</c> member is deliberately absent:
   ///     an unknown member deserializes away, which is exactly the handling a value written by
-  ///     the deleted surface needs.</summary>
-  private sealed record ChoiceDocument(string ModelId, string? Variant);
+  ///     the deleted surface needs.
+  ///     <para><c>ZeroDataRetention</c> IS NULLABLE ON THE WIRE AND DEFAULTS TO ON. A document
+  ///     written before the restriction existed has no such member, and reading that absence as
+  ///     'off' would loosen a promise the user never made; only a stored false loosens it.
+  ///     </para></summary>
+  private sealed record ChoiceDocument(string ModelId, string? Variant, bool? ZeroDataRetention = null);
 }

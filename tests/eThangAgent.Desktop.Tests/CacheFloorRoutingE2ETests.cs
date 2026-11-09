@@ -20,7 +20,11 @@ public class CacheFloorRoutingE2ETests
     _ = await host.StartAsync();
     host.Mock.EndpointsResponse = /*lang=json,strict*/ "{\"data\":{\"endpoints\":[{\"provider_name\":\"Expensive\",\"tag\":\"expensive\",\"context_length\":2000000,\"pricing\":{\"prompt\":\"0.000002\",\"completion\":\"0.000004\",\"input_cache_read\":\"0.000002\"}},{\"provider_name\":\"Cheap\",\"tag\":\"cheap/flex\",\"context_length\":2000000,\"pricing\":{\"prompt\":\"0.000001\",\"completion\":\"0.000002\",\"input_cache_read\":\"0.0000001\"}}]}}";
     _ = await host.Services.GetRequiredService<IModelCatalog>().RefreshAsync(TestContext.Current.CancellationToken);
-    await host.Shell.ApplyModelChoiceAsync(E2E.SessionModel, ModelVariant.CacheFloor);
+    // The retention restriction is on by default and these fixtures describe endpoints that do
+    // not offer it, so the session states the loosening explicitly: this test is about the
+    // cache-floor ORDER, and a restricted session would (correctly) refuse the turn first.
+    await host.Shell.ApplyModelChoiceAsync(E2E.SessionModel, ModelVariant.CacheFloor,
+        zeroDataRetention: false);
     _ = host.Mock.Returns(/*lang=json,strict*/ "{\"status\":\"completed\",\"service_tier\":\"default\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10,\"cost\":0.125},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}");
     await host.Vm.RunTurnAsync("test routing");
 
@@ -68,16 +72,19 @@ public class CacheFloorRoutingE2ETests
   }
 
   [Fact]
-  public async Task Standard_SendsNoProviderObject()
+  public async Task Standard_SendsNoRoutingOrder_OnlyTheRetentionRestriction()
   {
 #pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
     await using E2E.HostHarness host = new();
 #pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
-    await host.Shell.ApplyModelChoiceAsync(E2E.SessionModel, ModelVariant.Standard);
+    await host.Shell.ApplyModelChoiceAsync(E2E.SessionModel, ModelVariant.Standard,
+        zeroDataRetention: false);
     _ = host.Mock.Returns(E2E.RawCompletion("ok"));
     await host.Vm.RunTurnAsync("test standard");
+    // A loosened session sends no provider object at all: Standard expresses its routing on the
+    // model id, and the retention restriction is the only thing that ever adds the block.
     using JsonDocument request = JsonDocument.Parse(Assert.Single(host.Mock.RequestBodies));
     Assert.False(request.RootElement.TryGetProperty("provider", out _));
   }

@@ -94,5 +94,6 @@ public static class ModelPreferencesOverlay
         Verbosity = prefs.Verbosity ?? config.Verbosity,
         ParallelToolCalls = prefs.ParallelToolCalls ?? config.ParallelToolCalls,
         ProviderSettings = prefs.ProviderSettings ?? config.ProviderSettings,
+        ZeroDataRetention = prefs.ZeroDataRetention ?? true,
       };
 }
