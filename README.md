@@ -108,6 +108,20 @@ An ACL exists because its seam earns its keep. ACLs share no domain code with ea
   on a process — and not to re-issue the same command with a larger number.
 
 - **A wait is a ceiling, never a latency contract**: `TestCeiling.Value` (Tests.TestSupport) is the only wall-clock bound a test may hold, it is set high enough that a loaded machine cannot reach it, and it exists so a broken test fails instead of hanging. A test whose subject really is latency declares it with `[Trait("Category", "LatencyContract")]`. `DoctrineTests` enforces both halves.
+- **A hung test fails instead of stalling the run**: every test carries a per-test timeout of
+  `TestCeiling.Value` plus a fixed margin, applied by `CeilingTestFramework` — the xUnit
+  framework `tests/Directory.Build.props` registers for every test project. A test that awaits
+  something that never settles therefore fails with its own name and a stack trace instead of
+  silently stopping the module and leaving an orphaned test host behind. The bound is the
+  ceiling plus margin, never the ceiling itself: several tests legitimately wait the whole
+  ceiling for something to settle and then need time to observe it and tear down, so a bound
+  equal to the ceiling would fail tests that are working correctly. Two exemptions are
+  properties of the test and are visible where it is written: a test that declares its own
+  `Timeout` keeps it, and a `[Trait("Category", "LatencyContract")]` test is exempt because
+  its subject is the duration. A test case type the framework does not recognize — Avalonia's
+  cases, for instance, which run the body on the UI thread — is left exactly as xUnit built it,
+  because rebuilding it as a plain case would drop the behaviour that makes it run.
+
 - **A test runs or is deleted**: a skipped test reports green while asserting nothing. The one exception is an opt-in test — `[Trait("Category", "OptIn")]` plus `OptInTest.SkipUnlessEnabled`, which names the environment variable that turns it on. `DoctrineTests` rejects any other skip.
 - **Deadlock vigilance in tests**: a test that can wait forever eventually will. Any test exercising an unbounded or externally-settled await (channels, gates, `TaskCompletionSource`) must have a reachable completion path under the code under test's *current* contract — before running the suite, trace what settles the await. When a contract changes from bounded to unbounded, update every test that relied on the old bound in the same change, asserting the new contract directly rather than scripting the old one. A hung test blocks the whole suite and the agent itself; after fixing the cause, kill the orphaned `testhost` process before rerunning.
 - **Never kill a running `eThangAgent.ChildHost` process.** Every agent session runs in its own conversation host, so a host process is a live session — the user's, another agent's, or the one running the command. Killing by image name takes all of them, and no situation makes that the right move. A host reported by `ChildHostLeakGuardFixture` is alive at teardown, and the report names its pid; it is either a test that failed to dispose its session (the fix belongs in that test) or a session that was disposed whose host outlived the bounded teardown wait on a loaded machine. The check observes a presence, not a cause. A host that blocks a rerun is surfaced to the user, who decides.

@@ -47,6 +47,19 @@
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <!-- EVERY TEST RUNS UNDER THE CEILING (issue: a hung test must fail, not stall the run).
+       The registration is linked in rather than copied per project, and the support reference
+       is added here rather than in each csproj, so a new test project inherits both by being
+       under tests/ - it cannot join the suite without the bound. Analyzers.Tests is the one
+       project that did not already reference TestSupport; its own csproj keeps its analyzer
+       reference, and this adds only what the registration needs. -->
+  <!-- Only projects that actually RUN tests get the registration: the support libraries under
+       tests/ are libraries, and an assembly-level attribute there would be meaningless. -->
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)TestFrameworkRegistration.cs" Link="TestFrameworkRegistration.cs" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)eThangAgent.TestSupport/eThangAgent.TestSupport.csproj" />
+  </ItemGroup>
+
   <!-- Test assemblies use the xUnit Method_Scenario_Expected naming convention,
        which requires underscores. CA1707 stays enforced in src/; here it is
        deliberately suppressed (named decision, not blanket leniency). -->
