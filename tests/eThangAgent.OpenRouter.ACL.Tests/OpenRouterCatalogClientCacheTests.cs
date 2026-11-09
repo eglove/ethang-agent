@@ -116,7 +116,10 @@ public class OpenRouterCatalogClientCacheTests
     using OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl));
     _ = await client.GetAsync(TestContext.Current.CancellationToken);
     _ = await client.GetAsync(TestContext.Current.CancellationToken);
-    Assert.Equal(2, httpCalls);
+    // Three requests, ONE fetch: the models list, its endpoint expansion, and the provider's
+    // zero-retention list are all part of establishing the catalog once. The second call is
+    // served from memory and must add nothing.
+    Assert.Equal(3, httpCalls);
     Assert.Null(client.PendingRefresh);
   }
   [Fact]
@@ -189,7 +192,9 @@ public class OpenRouterCatalogClientCacheTests
         new OpenRouterConfiguration("k", new Uri("https://another-source.test")), cache, "openrouter");
     Result<IReadOnlyList<ModelProviderEntry>> result = await second.GetAsync(TestContext.Current.CancellationToken);
     Assert.True(result.IsSuccess);
-    Assert.Equal(2, calls);
+    // The second source establishes its own catalog: models, endpoints, and the zero-retention
+    // list. The snapshot from the first source is not reused.
+    Assert.Equal(3, calls);
     Assert.Equal(2, cache.WriteCount);
   }
 

@@ -97,6 +97,20 @@ public class EndpointVariantTests
   }
 
   [Fact]
+  public void Describe_ASafetyRetentionEndpoint_SaysSoRatherThanClaimingTheStrictPromise()
+  {
+    // Safety retention is eligibility with a caveat: the provider may keep prompts to prevent
+    // abuse and never trains on them. Rendering it as plainly zero-retention would state a
+    // promise the endpoint does not make.
+    EndpointVariant strict = EndpointVariant.Parse("xai", null, null) with { IsZeroDataRetention = true };
+    EndpointVariant safety = strict with { RequiresSafetyRetention = true };
+
+    Assert.Equal("zero data retention", strict.Describe());
+    Assert.Contains("safety retention", safety.Describe(), StringComparison.Ordinal);
+    Assert.NotEqual(strict.Describe(), safety.Describe());
+  }
+
+  [Fact]
   public void Describe_IsEmptyWhenNothingDistinguishesTheEndpoint()
   {
     // A plain endpoint gets no annotation at all rather than an empty one.

@@ -97,6 +97,16 @@ An ACL exists because its seam earns its keep. ACLs share no domain code with ea
   ```
 
   Module parallelism is pinned explicitly rather than left at the platform default, so the load a test's ceiling has to survive is a property of the harness instead of a guess inside each test. Measured on a 24-core machine, the whole suite in one process costs 2m 34s; the split's longest command is the batch, at 2m 00s, and Composition costs 1m 20s and Storage 9s on their own. The gain is not the arithmetic — three processes sharing one saturated machine measured no faster than one — it is that each command runs on its own runner in CI, where the two heavyweight projects stop competing with 24 other modules for cores. `DoctrineTests` holds the filter to the solution, so a new test project cannot join the suite without joining one of the three commands.
+- **A command is budgeted so a hang is visible**: every build, test, or format invocation is
+  given a bounded time budget, and the budget is set from the documented measurements above
+  rather than from a wish not to be interrupted. A single test project gets a few minutes; the
+  whole suite gets what its three commands are measured at plus headroom. A budget of fifteen
+  minutes or more is not patience, it is the absence of feedback: a hung test and a slow one
+  look identical for as long as it lasts, and the orphaned `testhost` that a hang leaves behind
+  then has to be cleaned up before anything can be rerun. When a budget elapses, the next move
+  is to find what is blocking — a test awaiting something that never settles, a fixture waiting
+  on a process — and not to re-issue the same command with a larger number.
+
 - **A wait is a ceiling, never a latency contract**: `TestCeiling.Value` (Tests.TestSupport) is the only wall-clock bound a test may hold, it is set high enough that a loaded machine cannot reach it, and it exists so a broken test fails instead of hanging. A test whose subject really is latency declares it with `[Trait("Category", "LatencyContract")]`. `DoctrineTests` enforces both halves.
 - **A test runs or is deleted**: a skipped test reports green while asserting nothing. The one exception is an opt-in test — `[Trait("Category", "OptIn")]` plus `OptInTest.SkipUnlessEnabled`, which names the environment variable that turns it on. `DoctrineTests` rejects any other skip.
 - **Deadlock vigilance in tests**: a test that can wait forever eventually will. Any test exercising an unbounded or externally-settled await (channels, gates, `TaskCompletionSource`) must have a reachable completion path under the code under test's *current* contract — before running the suite, trace what settles the await. When a contract changes from bounded to unbounded, update every test that relied on the old bound in the same change, asserting the new contract directly rather than scripting the old one. A hung test blocks the whole suite and the agent itself; after fixing the cause, kill the orphaned `testhost` process before rerunning.

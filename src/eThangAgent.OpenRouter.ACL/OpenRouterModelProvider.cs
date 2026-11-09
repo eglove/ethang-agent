@@ -301,24 +301,26 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     return null;
   }
 
-  /// <summary>The named failure when the catalog proves no zero-data-retention endpoint serves
-  ///     the model, or null when one does - or when that cannot be known.
+  /// <summary>The named failure when the provider's own zero-retention list proves nothing
+  ///     eligible serves the model, or null when something does - or when that cannot be known.
   ///     <para>THE RESTRICTION IS HARD, WHICH IS WHY THIS EXISTS. Every other routing preference
   ///     in this harness is soft: an unavailable endpoint falls through, because a preference
   ///     that cannot be met should not fail a turn. Retention is not a preference about which
   ///     provider is nicer - it is a statement about where the user's prompts may go, and a
   ///     silent fallback to a retaining provider would break that statement without ever saying
-  ///     so. So the catalog is consulted, and a model with no eligible endpoint fails with a
+  ///     so. So the eligible set is consulted, and a model with no eligible endpoint fails with a
   ///     message that names the restriction instead.</para>
-  ///     <para>AN UNAVAILABLE CATALOG IS NOT PROOF, and neither is a catalog with no rows for
-  ///     the model. When the catalog is unwired, its read fails, or it has not loaded this
-  ///     model, nothing is known about the model's endpoints, so the turn is sent with the
-  ///     restriction on and the provider decides - refusing there would fail turns over an
-  ///     absence of evidence that says nothing about the model. Only a catalog that HAS the
-  ///     model and shows no eligible endpoint is proof.</para>
-  ///     <para>THE PARSED SLUG IS THE ELIGIBILITY TEST, and it is the provider's own: the
-  ///     <c>zdr</c> segment marks a zero-retention endpoint, the same fact
-  ///     <see cref="EndpointVariant.IsZeroDataRetention"/> already reads for the picker.</para>
+  ///     <para>THE PROVIDER'S LIST IS THE AUTHORITY, NEVER THE SLUG. The <c>zdr</c> segment in an
+  ///     endpoint's tag is one way an endpoint becomes eligible, not the mark of membership:
+  ///     measured live 2026-11-01, <c>deepseek/deepseek-v4.1-flash-1017</c> has 42 eligible
+  ///     endpoints and not one of their tags says <c>zdr</c>. Reading the slug as the test
+  ///     therefore refused a model the provider serves, and told the user to pick another one
+  ///     for a reason that was not true.</para>
+  ///     <para>AN UNCONSULTED LIST IS NOT PROOF. When the catalog is unwired, the list was never
+  ///     fetched, or the read failed, nothing is known about the model's endpoints, so the turn
+  ///     is sent with the restriction on and the provider decides - refusing there would fail
+  ///     turns over an absence of evidence that says nothing about the model. Only a list that
+  ///     WAS consulted and does not name the model is proof.</para>
   ///     </summary>
   private async Task<DomainError?> ZeroDataRetentionFaultAsync(ModelConfig config, CancellationToken ct)
   {
@@ -334,7 +336,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
 
     string baseModel = ModelVariants.BaseOf(config.ModelId);
-    IReadOnlyList<ModelProviderEntry> rows = [.. entries.Value.Where(e => e.ModelId == baseModel)];
     // NO ROWS IS NOT PROOF. A catalog that has not loaded this model yet has said nothing
     // about its endpoints, and an absence of evidence is not evidence of ineligibility - the
     // same rule the catalog's own unknown-price and unknown-caching facts follow.
@@ -343,8 +344,14 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     // what the model is, never how an endpoint retains. Only rows the catalog actually
     // described are proof, which is the same distinction the unknown-price and unknown-caching
     // facts already keep.
-    bool endpointsDescribed = rows.Any(e => !e.Variant.IsUnspecified);
-    return !endpointsDescribed || rows.Any(e => e.Variant.IsZeroDataRetention)
+    bool endpointsDescribed = entries.Value.Any(e => e.ModelId == baseModel && !e.Variant.IsUnspecified);
+    if (!endpointsDescribed)
+    {
+      return null;
+    }
+
+    ZeroDataRetentionList? eligible = await _catalog.GetZeroDataRetentionAsync(ct).ConfigureAwait(false);
+    return eligible is null || eligible.ServesModel(baseModel)
         ? null
         : new DomainError(ZeroDataRetentionUnavailable,
             $"No zero-data-retention endpoint serves {baseModel}, and this session only routes to "

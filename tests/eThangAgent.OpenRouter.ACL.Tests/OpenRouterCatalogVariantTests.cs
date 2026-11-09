@@ -72,6 +72,56 @@ public class OpenRouterCatalogVariantTests
     Assert.Equal("google-vertex/us-south1", entry.RoutingSlug);
   }
 
+  [Fact]
+  public async Task TheZeroRetentionList_IsReadAndJoinedToTheCatalogRows()
+  {
+    // THE PROVIDER'S LIST IS THE AUTHORITY (measured live 2026-11-01): deepseek/deepseek-v4.1-flash-1017
+    // has 42 eligible endpoints and not one tag says 'zdr', so eligibility cannot be read from
+    // the slug. The list names endpoints by model, provider name, and tag - the same parts the
+    // catalog keys on - and a row for a model the catalog does not hold contributes nothing.
+    const string zdrJson =
+        /*lang=json,strict*/
+        """{"data":[{"model_id":"x-ai/grok-4.7","provider_name":"xAI","tag":"xai","safety_retention":false},{"model_id":"x-ai/grok-4.7","provider_name":"xAI","tag":"xai/priority","safety_retention":true},{"model_id":"absent/model","provider_name":"Nobody","tag":"nobody","safety_retention":false}]}""";
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(req.RequestUri!.AbsolutePath switch
+    {
+      "/api/v1/models" => JsonResponse(ModelsJson),
+      "/api/v1/endpoints/zdr" => JsonResponse(zdrJson),
+      var path when path.EndsWith("/endpoints", StringComparison.Ordinal) => JsonResponse(EndpointsJson),
+      _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+    }));
+    using HttpClient http = new(handler);
+    using OpenRouterCatalogClient client = new(http, Config);
+
+    ZeroDataRetentionList? eligible =
+        await client.GetZeroDataRetentionAsync(TestContext.Current.CancellationToken);
+
+    Assert.NotNull(eligible);
+    // The plain endpoint is eligible even though its tag says nothing about retention.
+    Assert.True(eligible.IsEligible("x-ai/grok-4.7", "xAI", "xai"));
+    Assert.True(eligible.ServesModel("x-ai/grok-4.7"));
+    // A row for a model the catalog never loaded is not a key anything can route to.
+    Assert.False(eligible.IsEligible("absent/model", "Nobody", "nobody"));
+    Assert.False(eligible.ServesModel("absent/model"));
+  }
+
+  [Fact]
+  public async Task AnUnreadableZeroRetentionList_IsNull_NotEmpty()
+  {
+    // Null is 'not consulted' and empty is 'consulted, nothing eligible'. The restriction is
+    // enforced on that difference, so a read fault must never masquerade as proof.
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(req.RequestUri!.AbsolutePath switch
+    {
+      "/api/v1/models" => JsonResponse(ModelsJson),
+      "/api/v1/endpoints/zdr" => new HttpResponseMessage(HttpStatusCode.InternalServerError),
+      var path when path.EndsWith("/endpoints", StringComparison.Ordinal) => JsonResponse(EndpointsJson),
+      _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+    }));
+    using HttpClient http = new(handler);
+    using OpenRouterCatalogClient client = new(http, Config);
+
+    Assert.Null(await client.GetZeroDataRetentionAsync(TestContext.Current.CancellationToken));
+  }
+
   private static async Task<IReadOnlyList<ModelProviderEntry>> CatalogAsync()
   {
     FakeHttpMessageHandler handler = new(req => Task.FromResult(Handler(req)));

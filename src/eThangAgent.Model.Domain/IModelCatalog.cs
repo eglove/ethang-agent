@@ -23,4 +23,14 @@ public interface IModelCatalog
       CancellationToken ct = default)
       => Task.FromResult<IReadOnlyDictionary<string, PublishedProviderStats>>(
           new Dictionary<string, PublishedProviderStats>(StringComparer.Ordinal));
+
+  /// <summary>The endpoints the provider states are eligible when zero data retention is
+  ///     required, or NULL when that was never established.
+  ///     <para>NULL AND EMPTY ARE DIFFERENT FACTS, and a caller enforcing the restriction must
+  ///     not confuse them. Null means the question was not answered - the source was never
+  ///     consulted or the read failed - so nothing is known and a turn is sent with the
+  ///     restriction on for the provider to judge. Empty means the source answered and named
+  ///     nothing, which is proof that no eligible endpoint serves any model.</para></summary>
+  Task<ZeroDataRetentionList?> GetZeroDataRetentionAsync(CancellationToken ct = default)
+      => Task.FromResult<ZeroDataRetentionList?>(null);
 }

@@ -32,10 +32,17 @@ namespace eThangAgent.ModelDomain;
 ///     <c>mxfp4</c>, <c>nvfp4</c>), or null when the API did not say. <c>unknown</c> is the
 ///     API's own word for 'not stated' and is normalized to null rather than displayed as
 ///     though it were a quantization.</param>
-/// <param name="IsZeroDataRetention">True when the slug marks the endpoint as
-///     zero-data-retention. Read from the slug because that is where the API puts it
-///     (<c>xai/zdr</c>, <c>mistral/zdr</c>) - there is no separate boolean on the endpoints
-///     payload.</param>
+/// <param name="IsZeroDataRetention">True when the endpoint is zero-data-retention
+///     eligible: either the provider's zero-retention list names it, or its slug carries a
+///     <c>zdr</c> segment (<c>xai/zdr</c>, <c>mistral/zdr</c>). The endpoints payload has no
+///     retention boolean of its own, and the slug is not the only place the API says so -
+///     measured live 2026-11-01, <c>deepseek/deepseek-v4.1-flash-1017</c> has 42 eligible
+///     endpoints and not one slug says <c>zdr</c>.</param>
+/// <param name="RequiresSafetyRetention">True when the endpoint is eligible only under the
+///     safety-retention tier: the provider may keep prompts and completions to prevent abuse
+///     and never trains on them. Routine storage does not happen, but the strict promise does
+///     not apply either, so a surface states the difference instead of presenting the endpoint
+///     as plainly zero-retention.</param>
 /// <param name="Region">The region the endpoint is pinned to when the slug names one
 ///     (<c>us</c>, <c>eu</c>, <c>us-east5</c>, <c>global</c>), else null. Null means the
 ///     endpoint is not region-pinned, which is a different fact from an unnamed region.</param>
@@ -44,7 +51,8 @@ public sealed record EndpointVariant(
     string? ServiceTier = null,
     string? Quantization = null,
     bool IsZeroDataRetention = false,
-    string? Region = null)
+    string? Region = null,
+    bool RequiresSafetyRetention = false)
 {
   /// <summary>The variant for an endpoint the API described with no tag at all: nothing is
   ///     known about how it differs, and nothing is invented.</summary>
@@ -56,6 +64,7 @@ public sealed record EndpointVariant(
       && string.IsNullOrWhiteSpace(ServiceTier)
       && string.IsNullOrWhiteSpace(Quantization)
       && !IsZeroDataRetention
+      && !RequiresSafetyRetention
       && string.IsNullOrWhiteSpace(Region);
 
   /// <summary>The human-readable annotation for this variant, e.g.
@@ -73,7 +82,9 @@ public sealed record EndpointVariant(
     List<string> parts = [];
     if (IsZeroDataRetention)
     {
-      parts.Add("zero data retention");
+      parts.Add(RequiresSafetyRetention
+          ? "zero data retention (safety retention)"
+          : "zero data retention");
     }
 
     if (!string.IsNullOrWhiteSpace(Region))

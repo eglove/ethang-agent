@@ -20,13 +20,17 @@ namespace eThangAgent.ModelDomain;
 public sealed record ModelCatalogSnapshot(
     IReadOnlyList<ModelProviderEntry> Entries,
     DateTimeOffset FetchedAt,
-    int ShapeVersion = ModelCatalogSnapshot.LegacyShapeVersion)
+    int ShapeVersion = ModelCatalogSnapshot.LegacyShapeVersion,
+    ZeroDataRetentionList? ZeroDataRetention = null)
 {
   /// <summary>The shape a snapshot written before variants existed has.</summary>
   public const int LegacyShapeVersion = 0;
 
   /// <summary>The shape this build writes and requires.</summary>
-  public const int CurrentShapeVersion = 1;
+  ///     <para>Version 2 adds the zero-retention list. It is a CORRECTNESS member, not a display
+  ///     one: a snapshot without it reports every model as having no eligible endpoint, which
+  ///     refuses turns for models the provider serves. Version 1 is therefore a miss.</para>
+  public const int CurrentShapeVersion = 2;
 
   /// <summary>True when this snapshot carries the entry shape this build depends on.
   ///     A legacy snapshot is not corrupt - it is simply not detailed enough to serve, and

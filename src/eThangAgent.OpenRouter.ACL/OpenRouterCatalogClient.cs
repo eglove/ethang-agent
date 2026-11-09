@@ -39,6 +39,11 @@ public sealed class OpenRouterCatalogClient(
   private bool _disposed;
   private readonly Lock _refreshLock = new();
   private IReadOnlyList<ModelProviderEntry>? _cached;
+
+  /// <summary>The provider's zero-retention list, or null when it was never established. Null and
+  ///     empty are different facts: null is 'not consulted', empty is 'consulted, nothing
+  ///     eligible', and only the second refuses a restricted turn.</summary>
+  private ZeroDataRetentionList? _zeroDataRetention;
   private Dictionary<string, PublishedProviderStats> _published = new(StringComparer.Ordinal);
   private DateTimeOffset _fetchedAt;
   private Task<Result<IReadOnlyList<ModelProviderEntry>>>? _refresh;
@@ -155,6 +160,7 @@ public sealed class OpenRouterCatalogClient(
     // nothing simply contributes nothing.
     Dictionary<string, PublishedProviderStats> published =
         await FetchPublishedStatsAsync(phase1.Value, ct).ConfigureAwait(false);
+    _zeroDataRetention = await FetchZeroDataRetentionAsync(entries, ct).ConfigureAwait(false);
     _cached = entries;
     _published = published;
     _fetchedAt = DateTimeOffset.UtcNow;
@@ -181,6 +187,7 @@ public sealed class OpenRouterCatalogClient(
       if (stored.IsSuccess)
       {
         _cached = stored.Value.Entries;
+        _zeroDataRetention = stored.Value.ZeroDataRetention;
         _fetchedAt = stored.Value.FetchedAt;
       }
     }
@@ -205,7 +212,9 @@ public sealed class OpenRouterCatalogClient(
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      _ = await _cache.WriteAsync(_cacheKey, new ModelCatalogSnapshot(_cached, _fetchedAt), ct).ConfigureAwait(false);
+      _ = await _cache.WriteAsync(_cacheKey,
+          new ModelCatalogSnapshot(_cached, _fetchedAt, ModelCatalogSnapshot.CurrentShapeVersion,
+              _zeroDataRetention), ct).ConfigureAwait(false);
     }
     catch (Exception ex)
     {
@@ -288,6 +297,19 @@ public sealed class OpenRouterCatalogClient(
     {
       return Task.FromResult<IReadOnlyDictionary<string, PublishedProviderStats>>(
           _published);
+    }
+  }
+
+  /// <summary>The provider's zero-retention list, or null when it was never established.
+  ///     <para>READ FROM THE SAME REFRESH AS THE ENTRIES, so the keys it holds are the keys the
+  ///     catalog serves. A cold cache fetches first; a warm one answers from what the last
+  ///     refresh established, which is the same age as the entries beside it.</para></summary>
+  public async Task<ZeroDataRetentionList?> GetZeroDataRetentionAsync(CancellationToken ct = default)
+  {
+    _ = await GetAsync(ct).ConfigureAwait(false);
+    lock (_refreshLock)
+    {
+      return _zeroDataRetention;
     }
   }
 
@@ -433,6 +455,74 @@ public sealed class OpenRouterCatalogClient(
     }).ConfigureAwait(false);
 
     return stats;
+  }
+
+  /// <summary>The endpoints the provider states are eligible when zero data retention is
+  ///     required, or NULL when the list could not be read.
+  ///     <para>NULL, NOT EMPTY, ON FAILURE. An empty list is proof that nothing is eligible and
+  ///     refuses a restricted turn; a read fault proves nothing and must not. The caller enforces
+  ///     the restriction on the difference, so collapsing the two here would turn a network blip
+  ///     into a refusal to run the model at all.</para>
+  ///     <para>THE KEYS ARE THE CATALOG'S OWN. The list is fetched against the entries just
+  ///     expanded, so an eligible endpoint is matched by exactly the identity the picker shows
+  ///     and a pin sends - not by a second, independently derived spelling of it.</para>
+  ///     </summary>
+  private async Task<ZeroDataRetentionList?> FetchZeroDataRetentionAsync(
+      IReadOnlyList<ModelProviderEntry> entries, CancellationToken ct)
+  {
+    // Named decision (CA1031): the list is a routing fact, not the catalog itself. A fault here
+    // leaves the restriction enforced by the provider and surfaces as 'not consulted' rather
+    // than failing a catalog the picker can otherwise render.
+    try
+    {
+      using HttpRequestMessage request = new(HttpMethod.Get, _config.Endpoint("/api/v1/endpoints/zdr"));
+      request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ApiKey);
+      using HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+      if (!response.IsSuccessStatusCode)
+      {
+        return null;
+      }
+
+      Stream stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+      JsonDocument doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+      using (doc)
+      {
+        return doc.RootElement.ValueKind == JsonValueKind.Object
+            && doc.RootElement.TryGetProperty("data", out JsonElement data)
+            && data.ValueKind == JsonValueKind.Array
+                ? ZeroDataRetentionList.Of(
+                    [.. data.EnumerateArray().Select(row => CatalogKeyOf(row, entries)).OfType<string>()])
+                : null;
+      }
+    }
+    catch (Exception ex) when (ex is HttpRequestException or JsonException)
+    {
+      return null;
+    }
+  }
+
+  /// <summary>The catalog key a zero-retention row names, or null when the row does not describe
+  ///     an endpoint this catalog holds.
+  ///     <para>A ROW IS JOINED, NOT TRUSTED. The list names endpoints by model, provider name,
+  ///     and tag - the same three parts the catalog keys on - so a row whose tag the catalog
+  ///     never saw (a stale list, a provider added since) contributes no key rather than
+  ///     inventing an identity nothing can route to.</para>
+  ///     </summary>
+  private static string? CatalogKeyOf(JsonElement row, IReadOnlyList<ModelProviderEntry> entries)
+  {
+    if (row.ValueKind != JsonValueKind.Object
+        || GetStringOrNull(row, "model_id") is not { } modelId
+        || GetStringOrNull(row, "provider_name") is not { } providerName)
+    {
+      return null;
+    }
+
+    string? slug = EndpointVariant.Parse(GetStringOrNull(row, "tag"),
+        GetStringOrNull(row, "service_tier"), GetStringOrNull(row, "quantization")).Slug;
+    string key = ModelProviderEntry.KeyOf(modelId, providerName, slug);
+    return entries.Any(entry => string.Equals(entry.Key, key, StringComparison.Ordinal))
+        ? key
+        : null;
   }
 
   /// <summary>One model's published per-endpoint rates, keyed by the same composite the

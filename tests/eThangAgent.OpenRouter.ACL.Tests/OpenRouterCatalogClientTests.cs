@@ -101,7 +101,9 @@ public class OpenRouterCatalogClientTests
     _ = await client.GetAsync(TestContext.Current.CancellationToken);
     _ = await client.GetAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(3, callCount); // 1 models + 2 endpoints
+    // ONE fetch: the models list, its endpoint expansion, and the provider's zero-retention
+    // list. The second call is served from memory and adds nothing.
+    Assert.Equal(4, callCount);
   }
 
   [Fact]
@@ -112,10 +114,12 @@ public class OpenRouterCatalogClientTests
     // requests alone cannot show that the stale serve did not block: an idle machine finishes
     // the refresh before the assertion runs, so the count reads 6 and a correct client fails.
     // A gate makes the claim structural - the refresh cannot finish while the gate is shut.
+    // The threshold is ONE FETCH's request count (models, endpoints, zero-retention list): a
+    // request past it belongs to the revalidation, and gating it is what parks the refresh.
     TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     FakeHttpMessageHandler handler = new(async req =>
     {
-      if (Interlocked.Increment(ref callCount) > 3)
+      if (Interlocked.Increment(ref callCount) > 4)
       {
         await gate.Task.ConfigureAwait(false);
       }
@@ -126,13 +130,13 @@ public class OpenRouterCatalogClientTests
     OpenRouterConfiguration config = new("test-key", BaseUrl) { CatalogCacheTtl = TimeSpan.Zero };
     OpenRouterCatalogClient client = new(http, config);
 
-    _ = await client.GetAsync(TestContext.Current.CancellationToken); // cold fetch: 3 calls
+    _ = await client.GetAsync(TestContext.Current.CancellationToken); // cold fetch: 4 calls
     _ = await client.GetAsync(TestContext.Current.CancellationToken); // stale serve + background refresh
-    Assert.Equal(3, callCount); // the stale serve did NOT block on the network
+    Assert.Equal(4, callCount); // the stale serve did NOT block on the network
 
     gate.SetResult();
     await client.PendingRefresh!; // settle the background revalidation
-    Assert.Equal(6, callCount); // 2 fetches x 3 calls each
+    Assert.Equal(8, callCount); // 2 fetches x 4 calls each
   }
 
   [Fact]

@@ -153,7 +153,7 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
     // snapshot is served, and the absent members stay absent rather than being falsely
     // populated.
     const string sparseEnvelope =
-        "{\"ShapeVersion\":1,\"Entries\":[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\"," +
+        "{\"ShapeVersion\":2,\"Entries\":[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\"," +
         "\"PromptPricePerToken\":0.000001,\"PromptCacheReadPricePerToken\":null," +
         "\"CompletionPricePerToken\":0.000002,\"ContextLength\":128000,\"MaxCompletionTokens\":4096," +
         "\"SupportsToolUse\":true,\"SupportsVision\":false,\"SupportsTextOutput\":true," +
@@ -185,6 +185,57 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
     Assert.Equal("google/gemini:Google", entry.Key);
     // And the price resolution still works: the base prices apply.
     Assert.Equal(0.000001m, entry.PricesFor(1_000_000).PromptPricePerToken);
+  }
+
+  [Fact]
+  public async Task WriteThenRead_PreservesTheZeroRetentionList()
+  {
+    // The list is a CORRECTNESS member of the snapshot, not a display one: a snapshot that loses
+    // it reports every model as having no eligible endpoint, which refuses turns for models the
+    // provider serves.
+    AppDatabase db = new(_dbPath);
+    SqliteModelCatalogCache cache = new(db);
+    ZeroDataRetentionList eligible = ZeroDataRetentionList.Of(["x-ai/grok-4.7:xAI:xai"]);
+    _ = await cache.WriteAsync("openrouter",
+        new ModelCatalogSnapshot([VariantEntry("xai")], DateTimeOffset.UtcNow,
+            ModelCatalogSnapshot.CurrentShapeVersion, eligible),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Result<ModelCatalogSnapshot> read =
+        await cache.ReadAsync("openrouter", TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(read.IsSuccess);
+    Assert.NotNull(read.Value.ZeroDataRetention);
+    Assert.True(read.Value.ZeroDataRetention.IsEligible("x-ai/grok-4.7", "xAI", "xai"));
+  }
+
+  [Fact]
+  public async Task ReadAsync_ASnapshotWithoutTheZeroRetentionList_IsAStaleShape()
+  {
+    // A snapshot written before the list existed carries no eligibility at all, so serving it
+    // would report every model as ineligible until the TTL expired. It is a miss, not a hit.
+    const string shapeOne =
+        "{\"ShapeVersion\":1,\"Entries\":[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\"," +
+        "\"PromptPricePerToken\":0.000001,\"PromptCacheReadPricePerToken\":null," +
+        "\"CompletionPricePerToken\":0.000002,\"ContextLength\":128000,\"MaxCompletionTokens\":4096," +
+        "\"SupportsToolUse\":true,\"SupportsVision\":false,\"SupportsTextOutput\":true," +
+        "\"IntelligenceScore\":80.0,\"CodingScore\":70.0,\"AgenticScore\":60.0,\"LatencyMs\":null," +
+        "\"ThroughputTokensPerSec\":null,\"Description\":\"desc\",\"IsRouter\":false}]}";
+    AppDatabase db = new(_dbPath);
+    using (SqliteConnection connection = db.Open())
+    {
+      using SqliteCommand command = connection.CreateCommand();
+      command.CommandText =
+          "INSERT INTO model_catalog_cache (provider, payload_json, fetched_at) VALUES ('openrouter', $p, $t);";
+      _ = command.Parameters.AddWithValue("$p", shapeOne);
+      _ = command.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+      _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
+    SqliteCatalogCacheResult read = await ReadLegacyAsync(db);
+
+    Assert.False(read.IsSuccess);
+    Assert.Equal("CatalogCacheStaleShape", read.ErrorCode);
   }
 
   [Fact]

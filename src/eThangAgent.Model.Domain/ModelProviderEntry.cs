@@ -84,9 +84,16 @@ public sealed record ModelProviderEntry(
   ///     <para>A NULL SLUG FALLS BACK TO THE PROVIDER NAME, reproducing the previous key
   ///     exactly: a payload that carries no tags degrades to the old behaviour rather than
   ///     collapsing every endpoint of a provider into a single row.</para></summary>
-  public string Key => Variant.Slug is { } slug
-      ? $"{ModelId}:{ProviderName}:{slug}"
-      : $"{ModelId}:{ProviderName}";
+  public string Key => KeyOf(ModelId, ProviderName, Variant.Slug);
+
+  /// <summary>The endpoint key for one model, provider name, and routable slug. Extracted so a
+  ///     surface that holds only the three parts - the provider's zero-retention list, for
+  ///     instance - builds the same key this record does instead of re-deriving the format.
+  ///     </summary>
+  public static string KeyOf(string modelId, string? providerName, string? slug)
+      => slug is { Length: > 0 } routable
+          ? $"{modelId}:{providerName}:{routable}"
+          : $"{modelId}:{providerName}";
 
   /// <summary>What a request must name to reach THIS endpoint: the variant slug when the
   ///     API served one, else the provider name.

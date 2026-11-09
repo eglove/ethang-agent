@@ -78,7 +78,8 @@ public class ZeroDataRetentionWireTests
     FakeHttpMessageHandler handler = new(_ => throw new InvalidOperationException(
         "the turn must fail before any HTTP send, not here"));
     using HttpClient http = new(handler);
-    OpenRouterModelProvider provider = new(http, Config, catalog: new FakeCatalog([Endpoint("alpha")]));
+    OpenRouterModelProvider provider = new(http, Config, catalog: new FakeCatalog(
+        [Endpoint("alpha")], ZeroDataRetentionList.Of(["other/model:Provider:other"])));
 
     Result<ModelResponse> result = await provider.SendAsync(
         Model(), new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
@@ -88,6 +89,52 @@ public class ZeroDataRetentionWireTests
     Assert.Equal("ZeroDataRetentionUnavailable", result.Error.Code);
     Assert.Contains("zero-data-retention", result.Error.Message, StringComparison.Ordinal);
     Assert.Contains(BaseModel, result.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Send_AnEligibleEndpointWithNoZdrSlug_IsServed()
+  {
+    // THE DEFECT THIS FIXES: eligibility was read from the endpoint's tag, so a model whose
+    // eligible endpoints carry no 'zdr' segment was refused. Measured live 2026-11-01,
+    // deepseek/deepseek-v4.1-flash-1017 has 42 eligible endpoints and not one tag says 'zdr'.
+    // The provider's own list is the authority, and it names this endpoint.
+    ModelProviderEntry plain = Endpoint("alpha");
+    string body = await CaptureBodyAsync(Model(), [plain],
+        ZeroDataRetentionList.Of([plain.Key])).ConfigureAwait(true);
+
+    using JsonDocument doc = JsonDocument.Parse(body);
+    Assert.True(doc.RootElement.GetProperty("provider").GetProperty("zdr").GetBoolean());
+  }
+
+  [Fact]
+  public async Task Send_AConsultedListThatOmitsTheModel_FailsNamingTheRestriction()
+  {
+    // The list was consulted and does not name this model, which is the one fact that proves
+    // nothing eligible serves it. An endpoint row with a tag is what makes the catalog's silence
+    // about the model meaningful rather than an absence of evidence.
+    FakeHttpMessageHandler handler = new(_ => throw new InvalidOperationException(
+        "the turn must fail before any HTTP send, not here"));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config, catalog: new FakeCatalog(
+        [Endpoint("alpha")], ZeroDataRetentionList.Of(["other/model:Provider:other"])));
+
+    Result<ModelResponse> result = await provider.SendAsync(
+        Model(), new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("ZeroDataRetentionUnavailable", result.Error.Code);
+  }
+
+  [Fact]
+  public async Task Send_AnUnconsultedList_IsNotProofOfIneligibility()
+  {
+    // A list that was never fetched says nothing about the model's endpoints. Refusing here
+    // would fail turns over an absence of evidence - the same rule a failed catalog read follows.
+    string body = await CaptureBodyAsync(Model(), [Endpoint("alpha")]).ConfigureAwait(true);
+
+    using JsonDocument doc = JsonDocument.Parse(body);
+    Assert.True(doc.RootElement.GetProperty("provider").GetProperty("zdr").GetBoolean());
   }
 
   [Fact]
@@ -193,7 +240,7 @@ public class ZeroDataRetentionWireTests
   }
 
   private static async Task<string> CaptureBodyAsync(ModelConfig config,
-      IReadOnlyList<ModelProviderEntry> endpoints)
+      IReadOnlyList<ModelProviderEntry> endpoints, ZeroDataRetentionList? eligible = null)
   {
     string? captured = null;
     FakeHttpMessageHandler handler = new(async req =>
@@ -203,7 +250,8 @@ public class ZeroDataRetentionWireTests
       return Wire.Ok();
     });
     using HttpClient http = new(handler);
-    OpenRouterModelProvider provider = new(http, Config, catalog: new FakeCatalog(endpoints));
+    OpenRouterModelProvider provider = new(http, Config,
+        catalog: new FakeCatalog(endpoints, eligible));
 
     _ = await provider.SendAsync(
         config, new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
@@ -212,10 +260,14 @@ public class ZeroDataRetentionWireTests
     return captured!;
   }
 
-  private sealed class FakeCatalog(IReadOnlyList<ModelProviderEntry> entries) : IModelCatalog
+  private sealed class FakeCatalog(IReadOnlyList<ModelProviderEntry> entries,
+      ZeroDataRetentionList? eligible = null) : IModelCatalog
   {
     public Task<Result<IReadOnlyList<ModelProviderEntry>>> GetAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success(entries));
+
+    public Task<ZeroDataRetentionList?> GetZeroDataRetentionAsync(CancellationToken ct = default)
+        => Task.FromResult(eligible);
   }
 
   private sealed class FailingCatalog : IModelCatalog
@@ -223,6 +275,9 @@ public class ZeroDataRetentionWireTests
     public Task<Result<IReadOnlyList<ModelProviderEntry>>> GetAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
             new DomainError("CatalogUnavailable", "down")));
+
+    public Task<ZeroDataRetentionList?> GetZeroDataRetentionAsync(CancellationToken ct = default)
+        => Task.FromResult<ZeroDataRetentionList?>(null);
   }
 }
 #pragma warning restore CA2000
