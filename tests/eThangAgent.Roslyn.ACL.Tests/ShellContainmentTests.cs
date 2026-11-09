@@ -56,7 +56,7 @@ public class ShellContainmentTests
     if (orphan is not null)
     {
       Task exit = orphan.WaitForExitAsync(TestContext.Current.CancellationToken);
-      _ = await Task.WhenAny(exit, Task.Delay(TimeSpan.FromSeconds(10),
+      _ = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
           TestContext.Current.CancellationToken)).ConfigureAwait(true);
       Assert.True(orphan.HasExited,
           $"the detached grandchild (pid {orphanPid}) must be reaped when the Shell call returns");

@@ -3,6 +3,7 @@
     "path": "eThangAgent.slnx",
     "projects": [
       "tests/eThangAgent.Agent.Application.Tests/eThangAgent.Agent.Application.Tests.csproj",
+      "tests/eThangAgent.Analyzers.Tests/eThangAgent.Analyzers.Tests.csproj",
       "tests/eThangAgent.Agent.Domain.Tests/eThangAgent.Agent.Domain.Tests.csproj",
       "tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj",
       "tests/eThangAgent.Capability.Domain.Tests/eThangAgent.Capability.Domain.Tests.csproj",

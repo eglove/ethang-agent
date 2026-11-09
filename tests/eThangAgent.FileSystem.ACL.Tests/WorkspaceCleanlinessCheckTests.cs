@@ -77,7 +77,7 @@ public sealed class WorkspaceCleanlinessCheckTests : IDisposable
     }
 
     using System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi)!;
-    _ = p.WaitForExit(30000);
+    _ = p.WaitForExit(TestCeiling.Value);
   }
 
   [Fact]

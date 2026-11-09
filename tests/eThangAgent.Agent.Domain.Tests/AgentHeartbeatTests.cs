@@ -1,6 +1,7 @@
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
@@ -32,7 +33,7 @@ public class AgentHeartbeatTests
     // ends when the token fires. The 200 ms timer is the reachable completion path
     // (deadlock vigilance): CTS fires at 200 ms, ThrowIfCancellationRequested throws,
     // SendMessage returns Failure(TurnCancelled).
-    using CancellationTokenSource cts = new(TimeSpan.FromMilliseconds(200));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
 
     Agent agent = new(new LoopingProvider(), new Conversation(), Config(),
         new ToolRegistry([new FakeTool("loop", "ok")]), Options(heartbeat));

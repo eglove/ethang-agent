@@ -175,12 +175,10 @@ public sealed class ChildHostRootRunConcurrencyTests
 
     // The turn is now parked BETWEEN its deltas. Read the wire with a SHORT bound: a
     // buffering host sends nothing here and this read times out.
-    RootTurnEvent early = await ReadRootTurnEventAsync(app, "turn-stream", "delta",
-        TimeSpan.FromSeconds(5)).ConfigureAwait(true);
+    RootTurnEvent early = await ReadRootTurnEventAsync(app, "turn-stream", "delta").ConfigureAwait(true);
 
     release.Set();
-    RootTurnEvent settle = await ReadRootTurnEventAsync(app, "turn-stream", "settled",
-        TimeSpan.FromSeconds(15)).ConfigureAwait(true);
+    RootTurnEvent settle = await ReadRootTurnEventAsync(app, "turn-stream", "settled").ConfigureAwait(true);
 
     Assert.Equal("the ", early.Payload);
     Assert.Equal("the answer", settle.Payload);
@@ -227,15 +225,15 @@ public sealed class ChildHostRootRunConcurrencyTests
   }
 
   /// <summary>Reads frames until the event for <paramref name="turnId"/> of
-  ///     <paramref name="kind"/> arrives, bounded by <paramref name="limit"/>.</summary>
+  ///     <paramref name="kind"/> arrives, bounded by the ceiling.</summary>
   private static async Task<RootTurnEvent> ReadRootTurnEventAsync(NamedPipeChildTransport app,
-      string turnId, string kind, TimeSpan limit)
+      string turnId, string kind)
   {
-    DateTimeOffset deadline = DateTimeOffset.UtcNow + limit;
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
     while (DateTimeOffset.UtcNow < deadline)
     {
       TransportEnvelope envelope = await app.ReceiveAsync()
-          .WaitAsync(limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+          .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
       if (envelope.Kind != "root-turn-event")
       {
         continue;
@@ -248,7 +246,7 @@ public sealed class ChildHostRootRunConcurrencyTests
       }
     }
 
-    Assert.Fail("no '" + kind + "' event for '" + turnId + "' arrived within " + limit);
+    Assert.Fail("no '" + kind + "' event for '" + turnId + "' arrived within the ceiling");
     throw new InvalidOperationException("unreachable");
   }
 

@@ -33,27 +33,17 @@ public sealed class GitWorktreeAccessTests : IDisposable
 
   public void Dispose()
   {
-    // A lingering git child (spawn contention) can hold index/refs handles at this
-    // moment; a short bounded retry lets it exit before the delete gives up.
-    for (int attempt = 0; attempt < 3; attempt++)
+    // Best effort, and deliberately ONE attempt: a lingering git child can hold index/refs
+    // handles here, and debris under the run root is swept by TestTempRoot.Delete at the end
+    // of the run. Retrying against a clock would spend the whole ceiling on a delete that is
+    // not the thing under test.
+    try
     {
-      try
-      {
-        Directory.Delete(_repoDir, true);
-        break;
-      }
-      catch (DirectoryNotFoundException)
-      {
-        break;
-      }
-      catch (IOException)
-      {
-        Thread.Sleep(500); // best-effort temp cleanup
-      }
-      catch (UnauthorizedAccessException)
-      {
-        Thread.Sleep(500); // best-effort temp cleanup
-      }
+      Directory.Delete(_repoDir, true);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+    {
+      // Left for the run-root sweep.
     }
 
     GC.SuppressFinalize(this);
@@ -86,9 +76,9 @@ public sealed class GitWorktreeAccessTests : IDisposable
     using Process p = Process.Start(psi)!;
     string stdout = p.StandardOutput.ReadToEnd();
     string stderr = p.StandardError.ReadToEnd();
-    if (!p.WaitForExit(60000))
+    if (!p.WaitForExit(TestCeiling.Value))
     {
-      return (-1, stdout, "git did not exit within 60s: " + string.Join(' ', args));
+      return (-1, stdout, "git did not exit within the ceiling: " + string.Join(' ', args));
     }
 
     return (p.ExitCode, stdout, stderr);

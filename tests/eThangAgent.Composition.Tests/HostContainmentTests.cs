@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -64,7 +65,7 @@ public sealed class HostContainmentTests
       _ = Close(job);
 
       Task exit = child.WaitForExitAsync(TestContext.Current.CancellationToken);
-      bool reaped = await Task.WhenAny(exit, Task.Delay(TimeSpan.FromSeconds(10),
+      bool reaped = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
           TestContext.Current.CancellationToken)).ConfigureAwait(true) == exit;
       Assert.True(reaped || child.HasExited,
           "closing a kill-on-close job must reap the process it contains");

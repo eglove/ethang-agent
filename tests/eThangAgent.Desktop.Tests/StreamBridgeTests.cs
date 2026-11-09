@@ -1,4 +1,5 @@
 using eThangAgent.Desktop.Streaming;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -41,7 +42,7 @@ public class StreamBridgeTests
   [Fact]
   public async Task Throwing_Sink_Faults_DrainUntilIdleAsync_Instead_Of_Hanging()
   {
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(5));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     static Task throwingSink(UiStreamEvent _) => throw new InvalidOperationException("boom");
     StreamBridge bridge = new(throwingSink);
     bridge.Start();

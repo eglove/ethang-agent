@@ -116,6 +116,10 @@ public class InProcessAgentRuntimeQueueTests
       => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));
   }
 
+  /// <summary>The window a NEGATIVE assertion watches: long enough that a wrongly admitted spawn
+  ///     would be observed, short enough that proving nothing happened does not cost a ceiling.</summary>
+  private static readonly TimeSpan NeverWindow = TimeSpan.FromMilliseconds(200);
+
   private static async Task<bool> SpinUntilAsync(Func<bool> condition)
   {
     DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
@@ -147,7 +151,9 @@ public class InProcessAgentRuntimeQueueTests
     _ = await runner.DispatchedAsync(running.Id).ConfigureAwait(true);
     _ = await runtime.Start(queued, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-    // The queued child is awaitable: the wait parks instead of failing NotFound.
+    // The queued child is awaitable: the wait parks instead of failing NotFound. The delay here
+    // is the NEGATIVE arm - it exists to prove the wait has NOT settled while the slot is taken,
+    // so a short one is the assertion, not a bound on anything.
     Task<Result<AgentRunOutcome>> waiting = runtime.WhenSettledAsync(queued.Id, TestContext.Current.CancellationToken);
     Task settledEarly = await Task.WhenAny(waiting, Task.Delay(200, TestContext.Current.CancellationToken))
         .ConfigureAwait(true);
@@ -213,7 +219,7 @@ public class InProcessAgentRuntimeQueueTests
 
     // FIFO at the boundary: the head waiter starts first, never the later arrival.
     _ = await runner.DispatchedAsync(second.Id).ConfigureAwait(true);
-    Assert.True(await runner.NeverDispatchedAsync(third.Id, TimeSpan.FromMilliseconds(200)).ConfigureAwait(true),
+    Assert.True(await runner.NeverDispatchedAsync(third.Id, NeverWindow).ConfigureAwait(true),
         "the second queued child must not start while the single slot is taken");
     runner.Complete(second.Id, "second done");
     _ = await runner.DispatchedAsync(third.Id).ConfigureAwait(true);
@@ -251,7 +257,7 @@ public class InProcessAgentRuntimeQueueTests
 
     // The dropped spawn never runs, and the freed queue leaves the running child alone.
     runner.Complete(running.Id, "first done");
-    Assert.True(await runner.NeverDispatchedAsync(queued.Id, TimeSpan.FromMilliseconds(200)).ConfigureAwait(true),
+    Assert.True(await runner.NeverDispatchedAsync(queued.Id, NeverWindow).ConfigureAwait(true),
         "an interrupted queued spawn must never reach the runner");
   }
 

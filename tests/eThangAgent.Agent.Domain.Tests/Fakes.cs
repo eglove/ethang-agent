@@ -74,6 +74,27 @@ internal sealed class ThrowingProvider : IModelProvider
       => throw new InvalidOperationException("provider exploded");
 }
 
+/// <summary>A tool whose first call signals <see cref="Entered"/> and whose later calls wait on
+///     <see cref="Release"/>: the run is held mid-loop for exactly as long as the test needs, so
+///     an interrupt lands on a fact the test controls instead of on a stopwatch.</summary>
+internal sealed class GatedTool(string name) : ITool
+{
+  /// <summary>Completes once the tool has been entered.</summary>
+  public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+  /// <summary>Completes when the test lets the run continue.</summary>
+  public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+  public ToolDefinition Definition { get; } = new ToolDefinition(name, "desc", []);
+
+  public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+  {
+    _ = Entered.TrySetResult();
+    await Release.Task.ConfigureAwait(false);
+    return new ToolResult("looped", false);
+  }
+}
+
 /// <summary>Always answers with one tool call — drives the loop until a budget stops it.
 ///     The call's arguments vary per round: the repeat guard ends a turn whose calls are
 ///     byte-identical (critical at the 13th, turn over on the 14th), and these tests pin

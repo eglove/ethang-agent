@@ -38,7 +38,7 @@ public sealed class ChildHostLeakGuardFixture : IAsyncLifetime
   ///     host whose kill was requested can still be present for a moment afterwards, and
   ///     the supervisor's own wait is bounded - so a single read at teardown would blame a
   ///     host that was already on its way out.</summary>
-  internal static readonly TimeSpan ReapGracePeriod = TimeSpan.FromSeconds(10);
+  internal static readonly TimeSpan ReapGracePeriod = TestCeiling.Value;
 
   /// <summary>How often the process table is re-read during the grace period.</summary>
   internal static readonly TimeSpan ReapPollInterval = TimeSpan.FromMilliseconds(250);

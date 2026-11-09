@@ -127,7 +127,7 @@ public class SkillRegistryE2ETests
     using System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi)!;
     string stdout = p.StandardOutput.ReadToEnd();
     string stderr = p.StandardError.ReadToEnd();
-    bool exited = p.WaitForExit(30000);
+    bool exited = p.WaitForExit(TestCeiling.Value);
     _ = stdout + stderr + exited;
   }
 

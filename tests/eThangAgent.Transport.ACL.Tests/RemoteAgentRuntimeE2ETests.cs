@@ -71,7 +71,7 @@ public class RemoteAgentRuntimeE2ETests
       // the declared closed condition (FR-X3) instead of blocking forever.
       host.Kill(entireProcessTree: true);
       Task receive = transport.ReceiveAsync(TestContext.Current.CancellationToken);
-      Task winner = await Task.WhenAny(receive, Task.Delay(TimeSpan.FromSeconds(10),
+      Task winner = await Task.WhenAny(receive, Task.Delay(TestCeiling.Value,
           TestContext.Current.CancellationToken)).ConfigureAwait(true);
       Assert.True(winner == receive, "receive hung after host death");
     }

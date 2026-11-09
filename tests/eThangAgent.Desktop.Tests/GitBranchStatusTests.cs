@@ -66,7 +66,7 @@ public sealed class GitBranchStatusTests : IDisposable
     }
 
     using Process p = Process.Start(psi)!;
-    _ = p.WaitForExit(30000);
+    _ = p.WaitForExit(TestCeiling.Value);
   }
 
   [Fact]

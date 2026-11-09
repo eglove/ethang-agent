@@ -116,11 +116,11 @@ public class SdkMcpClientSessionFactoryTests
     File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "tool added\n");
     StreamServerTransport serverTransport = new(serverStream, serverStream);
     McpServer server = McpServer.Create(serverTransport, serverOptions);
-    using CancellationTokenSource serverCts = new(TimeSpan.FromSeconds(30));
+    using CancellationTokenSource serverCts = new(TestCeiling.Value);
     Task serverTask = server.RunAsync(serverCts.Token);
     File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "server task started\n");
 
-    using CancellationTokenSource connectCts = new(TimeSpan.FromSeconds(15));
+    using CancellationTokenSource connectCts = new(TestCeiling.Value);
     File.AppendAllText(Path.Combine(TestTempRoot.Root, "mcp-trace.log"), "factory call\n");
     McpConnectResult result = await SdkMcpClientSessionFactory.ConnectOverTransportAsync(
         () => new StreamClientTransport(clientStream, clientStream),
@@ -158,7 +158,7 @@ public class SdkMcpClientSessionFactoryTests
         .ConfigureAwait(true);
     try
     {
-      using CancellationTokenSource listCts = new(TimeSpan.FromSeconds(10));
+      using CancellationTokenSource listCts = new(TestCeiling.Value);
       IReadOnlyList<McpToolInfo> tools = await session.ListToolsAsync(listCts.Token)
           .ConfigureAwait(true);
       _ = Assert.Single(tools);
@@ -166,7 +166,7 @@ public class SdkMcpClientSessionFactoryTests
       Assert.NotNull(tools[0].Description);
       Assert.Contains("Echoes", tools[0].Description, StringComparison.Ordinal);
 
-      using CancellationTokenSource callCts = new(TimeSpan.FromSeconds(10));
+      using CancellationTokenSource callCts = new(TestCeiling.Value);
       McpToolCallResult call = await session
           .CallToolAsync("echo", "{" + "\"text\":\"hi\"}", callCts.Token)
           .ConfigureAwait(true);

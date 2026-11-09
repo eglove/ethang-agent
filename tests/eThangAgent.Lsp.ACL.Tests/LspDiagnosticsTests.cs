@@ -223,7 +223,7 @@ public class LspDiagnosticsTests
       Write(root, "a.cs", "v2-pipe");
       using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
       server.AttachForwarder(forwarder);
-      using CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
+      using CancellationTokenSource cts = new(TestCeiling.Value);
       Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token));
       await Task.Delay(100, cts.Token);
       using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);

@@ -1,6 +1,7 @@
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
@@ -26,12 +27,19 @@ public class AgentRunLoopInterruptPersistenceTests
   public async Task RunAsync_InterruptedMidLoop_TranscriptSurvives()
   {
     FakeAgentStore store = new();
+    GatedTool tool = new("loop");
     AgentRunLoop spawner = MakeRunner(new LoopingProvider(), store,
-        tools: new ToolRegistry([new FakeTool("loop", "again")]));
+        tools: new ToolRegistry([tool]));
     using CancellationTokenSource cts = new();
-    cts.CancelAfter(TimeSpan.FromMilliseconds(200));
 
-    AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "loop forever"), cts.Token).ConfigureAwait(true);
+    // The interrupt lands on a FACT the test controls: the run is inside the tool, and the
+    // cancel is issued only once it is there. No duration decides when the run is interrupted.
+    Task<AgentRunOutcome> running = spawner.RunAsync(Child(taskPrompt: "loop forever"), cts.Token);
+    await tool.Entered.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await cts.CancelAsync().ConfigureAwait(true);
+    _ = tool.Release.TrySetResult();
+    AgentRunOutcome outcome = await running.WaitAsync(TestCeiling.Value,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.Equal(AgentStatus.Failed, outcome.Status);
     Assert.Equal(AgentFailureReason.Interrupted, outcome.Reason);
@@ -47,12 +55,16 @@ public class AgentRunLoopInterruptPersistenceTests
   public async Task RunAsync_Completed_TranscriptPersistedIncrementallyDuringRun()
   {
     FakeAgentStore store = new();
+    GatedTool tool = new("loop");
     AgentRunLoop spawner = MakeRunner(new LoopingProvider(), store,
-        tools: new ToolRegistry([new FakeTool("loop", "again")]));
+        tools: new ToolRegistry([tool]));
     using CancellationTokenSource cts = new();
-    cts.CancelAfter(TimeSpan.FromMilliseconds(300));
 
-    _ = await spawner.RunAsync(Child(taskPrompt: "loop forever"), cts.Token).ConfigureAwait(true);
+    Task<AgentRunOutcome> running = spawner.RunAsync(Child(taskPrompt: "loop forever"), cts.Token);
+    await tool.Entered.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await cts.CancelAsync().ConfigureAwait(true);
+    _ = tool.Release.TrySetResult();
+    _ = await running.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     // Incremental: appends happened DURING the run, one per conversation mutation,
     // interleaved with loop progress — not one bulk write at terminal.

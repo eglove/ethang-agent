@@ -37,6 +37,16 @@
     <PackageReference Include="xunit.analyzers" Version="2.0.0" PrivateAssets="all" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Issue #378: the ceiling rule is enforced by a Roslyn analyzer, not by a regex over
+         source text. An analyzer reads the semantic model, so it catches the SHAPE of a
+         load-sensitive wait - a deadline variable, a raced delay, a cancellation timeout, a
+         fixed sleep - instead of one spelling of it, and it reaches the helpers where the
+         suite actually waits. -->
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../src/eThangAgent.Analyzers/eThangAgent.Analyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
   <!-- Test assemblies use the xUnit Method_Scenario_Expected naming convention,
        which requires underscores. CA1707 stays enforced in src/; here it is
        deliberately suppressed (named decision, not blanket leniency). -->

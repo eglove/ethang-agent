@@ -89,7 +89,7 @@ public class LspProductionPathTests
       LspDocumentSync daemonForwarder = new(ws, root, "csharp", [".cs"], sink);
       using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
       server.AttachForwarder(daemonForwarder);
-      using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+      using CancellationTokenSource cts = new(TestCeiling.Value);
       Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
       await Task.Delay(150, cts.Token);
 
@@ -140,7 +140,7 @@ public class LspProductionPathTests
     LspSymbolService service = new(transport, caps);
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
     server.AttachSymbolService(service);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
     await Task.Delay(150, cts.Token);
 
@@ -174,7 +174,7 @@ public class LspProductionPathTests
     string ws = "ws-claimgate-" + Guid.NewGuid().ToString("N");
     string pipe = LspPipeNames.ForWorkspaceId(ws);
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
     await Task.Delay(150, cts.Token);
 
@@ -222,7 +222,7 @@ public class LspProductionPathTests
       using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
       server.AttachForwarder(forwarder);
       server.AttachDiagnosticsService(new LspDiagnosticsService(null, store));
-      using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+      using CancellationTokenSource cts = new(TestCeiling.Value);
       Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
       await Task.Delay(150, cts.Token);
 

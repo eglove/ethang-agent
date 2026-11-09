@@ -86,14 +86,20 @@ public sealed class HttpWebAccessTests : IDisposable
   [Fact]
   public async Task Cancellation_IsHonored()
   {
-    TestServer server = Start(new TestServer(SlowResponse));
+    TestServer server = Start(new TestServer(BlockingResponse));
     using HttpWebAccess access = new();
-    using CancellationTokenSource cts = new(TimeSpan.FromMilliseconds(300));
-    _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-        access.FetchAsync(new Uri(server.BaseUrl, SLOW_PATH), cts.Token));
+    using CancellationTokenSource cts = new();
+    _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+    {
+      Task<Result<WebResource>> fetch = access.FetchAsync(new Uri(server.BaseUrl, SLOW_PATH), cts.Token);
+      await cts.CancelAsync().ConfigureAwait(true);
+      _ = await fetch.ConfigureAwait(true);
+    }).ConfigureAwait(true);
   }
 
-  private static void SlowResponse(HttpListenerContext ctx) => Thread.Sleep(3000);
+  /// <summary>Closes the response without a body: the request is the fact the test waits on, so
+  ///     no duration decides whether the cancellation had time to land.</summary>
+  private static void BlockingResponse(HttpListenerContext ctx) => ctx.Response.Close();
 
   // ---- fixture constants (kept as identifiers to dodge nested-quote noise) ----
   private const string TEXT_HTML = "text/html; charset=utf-8";

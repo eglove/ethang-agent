@@ -231,7 +231,7 @@ internal static class E2E
       }
 
       System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
-      while (true)
+      while (clock.Elapsed < TestCeiling.Value)
       {
         try
         {
@@ -240,31 +240,28 @@ internal static class E2E
         }
         catch (IOException ex)
         {
-          RetryOrThrow(ex, clock);
+          Retry(ex, clock);
         }
         catch (UnauthorizedAccessException ex)
         {
-          RetryOrThrow(ex, clock);
+          Retry(ex, clock);
         }
       }
+
+      throw new InvalidOperationException(
+          "the harness database file could not be removed within the ceiling: '" + DatabasePath + "'.");
     }
 
-    /// <summary>Waits for one more delete attempt, or throws once the ceiling is spent: a handle
-    ///     that never releases is debris nothing reclaims, which is the defect this delete exists
-    ///     to prevent.</summary>
+    /// <summary>Waits for one more delete attempt. A handle that never releases is debris nothing
+    ///     reclaims, which is the defect this delete exists to prevent; the loop's clock decides
+    ///     when it has waited long enough.</summary>
     /// <param name="failure">What the last attempt reported.</param>
     /// <param name="clock">How long the delete has been retrying.</param>
-    private void RetryOrThrow(Exception failure, System.Diagnostics.Stopwatch clock)
+    private static void Retry(Exception failure, System.Diagnostics.Stopwatch clock)
     {
-      if (clock.Elapsed >= TestCeiling.Value)
-      {
-        throw new InvalidOperationException(
-            "the harness database file could not be removed: '" + DatabasePath + "' ("
-            + failure.GetType().Name + ": " + failure.Message + ").",
-            failure);
-      }
-
-      Thread.Sleep(TimeSpan.FromMilliseconds(50));
+      _ = failure;
+      _ = clock;
+      Thread.Sleep(TestTempRoot.DeleteRetryInterval);
     }
 
     /// <summary>Closes the shell the way a user closing the app does - every tab's session

@@ -32,8 +32,10 @@ public static class TestTempRoot
   ///     every test in it.</para></summary>
   private static readonly TimeSpan DeleteBudget = TestCeiling.Value;
 
-  /// <summary>How long a delete waits between attempts.</summary>
-  private static readonly TimeSpan DeleteRetryInterval = TimeSpan.FromMilliseconds(250);
+  /// <summary>How long a delete waits between attempts. It is a poll interval, never a bound:
+  ///     the loop that uses it exits on the ceiling, so the machine's speed decides how many
+  ///     attempts it gets rather than how long it is allowed.</summary>
+  public static readonly TimeSpan DeleteRetryInterval = TimeSpan.FromMilliseconds(250);
 
   private static readonly Lazy<string> RootPath = new(Create, LazyThreadSafetyMode.ExecutionAndPublication);
 
@@ -77,7 +79,7 @@ public static class TestTempRoot
     Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
 
     System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
-    while (true)
+    while (clock.Elapsed < DeleteBudget)
     {
       try
       {
@@ -86,29 +88,25 @@ public static class TestTempRoot
       }
       catch (IOException ex)
       {
-        RetryOrThrow(root, ex, clock);
+        Retry(root, ex);
       }
       catch (UnauthorizedAccessException ex)
       {
-        RetryOrThrow(root, ex, clock);
+        Retry(root, ex);
       }
     }
+
+    throw new InvalidOperationException(
+        "the test temp root could not be removed within the ceiling: '" + root + "'.");
   }
 
-  /// <summary>Waits for one more attempt, or throws once the budget is spent. A surviving
-  ///     child host still holding a SQLite file is the ordinary reason an attempt fails, so a
-  ///     short retry distinguishes a reap in progress from debris nothing will ever reclaim.
-  ///     </summary>
-  private static void RetryOrThrow(string root, Exception failure, System.Diagnostics.Stopwatch clock)
+  /// <summary>Waits for one more attempt. A surviving child host still holding a SQLite file is
+  ///     the ordinary reason an attempt fails, so the retry distinguishes a reap in progress from
+  ///     debris nothing will ever reclaim; the loop's clock decides when it has waited long
+  ///     enough.</summary>
+  private static void Retry(string root, Exception failure)
   {
-    if (clock.Elapsed >= DeleteBudget)
-    {
-      throw new InvalidOperationException(
-          "the test temp root could not be removed: '" + root + "' (" + failure.GetType().Name
-          + ": " + failure.Message + ").",
-          failure);
-    }
-
+    _ = failure;
     ClearReadOnlyAttributes(root);
     Thread.Sleep(DeleteRetryInterval);
   }

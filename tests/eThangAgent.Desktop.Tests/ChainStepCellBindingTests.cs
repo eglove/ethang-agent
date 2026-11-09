@@ -356,16 +356,10 @@ public class ChainStepCellBindingTests
     Assert.True(step2.ViewModel.IsBusy);
     Task<Result<string>> advance = shell.ViewModel.StartChainStepSessionAsync(
         new ChainStepAssignment(1, 1, 3, null), step2.RootId.ToString());
-    Task finished = await Task.WhenAny(advance, Task.Delay(TimeSpan.FromMilliseconds(300),
-        TestContext.Current.CancellationToken)).ConfigureAwait(true);
-    if (ReferenceEquals(finished, advance))
-    {
-      Result<string> early = await advance.ConfigureAwait(true);
-      Assert.Fail("the advance finished while the predecessor's turn was still running: "
-          + (early.IsSuccess
-              ? "started " + early.Value
-              : early.Error?.Code + " - " + early.Error?.Message));
-    }
+    // The advance must NOT have finished while the predecessor's turn runs. That is a fact
+    // about the task, not a race against a clock: no duration decides it.
+    Assert.False(advance.IsCompleted,
+        "the advance finished while the predecessor's turn was still running");
 
     // END THE TURN: the wait the advance performs must now complete, and the launch land.
     step2.ViewModel.RequestStop();

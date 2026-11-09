@@ -84,7 +84,7 @@ public class AppShutdownContainmentTests
       // The host is gone. This is the assertion the issue asks for, at the seam that
       // matters: it is the same call the window's close handler makes.
       Task exit = WaitForDeathAsync(pid);
-      bool died = await Task.WhenAny(exit, Task.Delay(TimeSpan.FromSeconds(30),
+      bool died = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
           TestContext.Current.CancellationToken)).ConfigureAwait(true) == exit;
       Assert.True(died, $"the session's host process {pid} must be dead after app shutdown");
       Assert.False(IsAlive(pid));

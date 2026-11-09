@@ -67,7 +67,7 @@ public class ScriptThreadingTests
     });
 
     Task completed = await Task.WhenAny(task, leaked.Task,
-        Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+        Task.Delay(TestCeiling.Value)).ConfigureAwait(false);
 
     if (completed == leaked.Task)
     {

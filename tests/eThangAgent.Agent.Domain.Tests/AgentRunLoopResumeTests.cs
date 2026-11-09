@@ -1,3 +1,4 @@
+using eThangAgent.TestSupport;
 #pragma warning disable xUnit1051 // seeding fakes: no CancellationToken parameter exists on AppendMessageAsync; the analyzer flags omitted CTN args regardless
 
 using eThangAgent.ConversationDomain;
@@ -93,7 +94,7 @@ public class AgentRunLoopResumeTests
 
     // The 250 ms CTS is the reachable completion path (deadlock vigilance): without it
     // the run would wait out the full 300 s ChildTimeout budget before failing.
-    using CancellationTokenSource cts = new(TimeSpan.FromMilliseconds(250));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     AgentRunOutcome outcome = await Spawner(store, new BlockingProvider()).RunAsync(child, ct: cts.Token);
 
     Assert.Equal(AgentStatus.Failed, outcome.Status);

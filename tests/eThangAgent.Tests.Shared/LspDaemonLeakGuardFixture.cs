@@ -23,7 +23,7 @@ public sealed class LspDaemonLeakGuardFixture : IAsyncLifetime
   /// <summary>How long the guard keeps re-reading the process table before it fails. A
   ///     daemon whose kill was requested can still be present for a moment afterwards,
   ///     so a single read at teardown would blame a daemon already on its way out.</summary>
-  internal static readonly TimeSpan ReapGracePeriod = TimeSpan.FromSeconds(10);
+  internal static readonly TimeSpan ReapGracePeriod = TestCeiling.Value;
 
   /// <summary>How often the process table is re-read during the grace period.</summary>
   internal static readonly TimeSpan ReapPollInterval = TimeSpan.FromMilliseconds(250);

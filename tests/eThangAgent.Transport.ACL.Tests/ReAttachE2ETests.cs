@@ -94,7 +94,7 @@ public class ReAttachE2ETests
       // The host must EXIT. Under the retired accept loop it would have stayed alive
       // waiting for a second client, which is exactly the orphan this issue reports.
       Task exit = host.WaitForExitAsync(TestContext.Current.CancellationToken);
-      bool exited = await Task.WhenAny(exit, Task.Delay(TimeSpan.FromSeconds(15),
+      bool exited = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
           TestContext.Current.CancellationToken)).ConfigureAwait(true) == exit;
       Assert.True(exited,
           "the host must exit when its only app connection drops. host log: " + string.Join(" | ", hostLog));

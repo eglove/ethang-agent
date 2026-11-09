@@ -1,5 +1,6 @@
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.AgentDomain.Tests;
 
@@ -189,7 +190,7 @@ public class ChildTranscriptStoreTests
 #pragma warning restore CA2007
 
     Task append = sink.AppendAsync(new Message(Role.User, "stuck", DateTimeOffset.UtcNow));
-    Task completed = await Task.WhenAny(append, Task.Delay(TimeSpan.FromSeconds(5),
+    Task completed = await Task.WhenAny(append, Task.Delay(TestCeiling.Value,
         TestContext.Current.CancellationToken)).ConfigureAwait(true);
 
     Assert.Same(append, completed);

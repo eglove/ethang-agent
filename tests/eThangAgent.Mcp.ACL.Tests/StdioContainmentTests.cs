@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Mcp;
 
 namespace eThangAgent.Mcp.ACL.Tests;
@@ -37,7 +38,7 @@ public class StdioContainmentTests
       ContainedStdioSession session = AssertSuccess(result);
       try
       {
-        using CancellationTokenSource cts = new(TimeSpan.FromSeconds(20));
+        using CancellationTokenSource cts = new(TestCeiling.Value);
         McpToolCallResult env = await session
             .CallToolAsync("dump_env", "{}", cts.Token).ConfigureAwait(true);
         Assert.False(env.IsError);
@@ -70,7 +71,7 @@ public class StdioContainmentTests
       Process server = session.TestProcess();
       await session.DisposeAsync().ConfigureAwait(true);
       Task exit = server.WaitForExitAsync(TestContext.Current.CancellationToken);
-      bool reaped = await Task.WhenAny(exit, Task.Delay(TimeSpan.FromSeconds(10),
+      bool reaped = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
           TestContext.Current.CancellationToken)).ConfigureAwait(true) == exit;
       Assert.True(reaped || server.HasExited, "the server process must be reaped on dispose");
       server.Dispose();
@@ -96,7 +97,7 @@ public class StdioContainmentTests
       Process server = session.TestProcess();
       session.TestCloseJob();
       Task exit = server.WaitForExitAsync(TestContext.Current.CancellationToken);
-      bool reaped = await Task.WhenAny(exit, Task.Delay(TimeSpan.FromSeconds(10),
+      bool reaped = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
           TestContext.Current.CancellationToken)).ConfigureAwait(true) == exit;
       Assert.True(reaped || server.HasExited, "closing the job must reap the server");
       server.Dispose();
@@ -126,7 +127,7 @@ public class StdioContainmentTests
       _ = Assert.IsType<McpConnectResult.Failure>(result);
       Process server = Assert.Single(spawned);
       Task exit = server.WaitForExitAsync(TestContext.Current.CancellationToken);
-      bool reaped = await Task.WhenAny(exit, Task.Delay(TimeSpan.FromSeconds(10),
+      bool reaped = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
           TestContext.Current.CancellationToken)).ConfigureAwait(true) == exit;
       Assert.True(reaped || server.HasExited, "a failed handshake must reap the spawned process");
       server.Dispose();
@@ -150,7 +151,7 @@ public class StdioContainmentTests
       ContainedStdioSession session = AssertSuccess(result);
       try
       {
-        using CancellationTokenSource cts = new(TimeSpan.FromSeconds(20));
+        using CancellationTokenSource cts = new(TestCeiling.Value);
         McpToolCallResult call = await session
             .CallToolAsync("chatty", "{" + "\"text\":\"hi\"}", cts.Token).ConfigureAwait(true);
         // The tool result carries ONLY the protocol response (B3).
@@ -185,7 +186,7 @@ public class StdioContainmentTests
       McpConnectResult first = await factory.ConnectAsync(
           StdioConfig(), TestContext.Current.CancellationToken).ConfigureAwait(true);
       ContainedStdioSession session = AssertSuccess(first);
-      using CancellationTokenSource cts = new(TimeSpan.FromSeconds(20));
+      using CancellationTokenSource cts = new(TestCeiling.Value);
 
       // The stub's crash tool exits the process mid-session; the call itself
       // fails in whatever shape the transport chooses - the CONTRACT is the

@@ -1,4 +1,5 @@
 using eThangAgent.Lsp.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.Lsp.ACL.Tests;
@@ -20,7 +21,7 @@ public class AdvisoryDiagnosticsPipeTests
     LspDiagnosticsService service = new(null, store);
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
     server.AttachDiagnosticsService(service);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token));
     await Task.Delay(100, cts.Token);
     using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
@@ -41,7 +42,7 @@ public class AdvisoryDiagnosticsPipeTests
     string ws = "ws-advpipe-none";
     string pipe = LspPipeNames.ForWorkspaceId(ws);
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token));
     await Task.Delay(100, cts.Token);
     using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
@@ -61,7 +62,7 @@ public class AdvisoryDiagnosticsPipeTests
     LspDiagnosticsService service = new(null, new LspDiagnosticStore());
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
     server.AttachDiagnosticsService(service);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token));
     await Task.Delay(100, cts.Token);
     using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);

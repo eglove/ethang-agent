@@ -25,6 +25,7 @@
     <Project Path="tests/eThangAgent.PDF.ACL.Tests/eThangAgent.PDF.ACL.Tests.csproj" />
   </Folder>
   <Project Path="src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
+  <Project Path="src/eThangAgent.Analyzers/eThangAgent.Analyzers.csproj" />
   <Project Path="src/eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
   <Project Path="src/eThangAgent.Provider.Wire/eThangAgent.Provider.Wire.csproj" />
   <Project Path="src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
@@ -40,6 +41,7 @@
   <Project Path="tests/eThangAgent.Conversation.Domain.Tests/eThangAgent.Conversation.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Agent.Domain.Tests/eThangAgent.Agent.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Agent.Application.Tests/eThangAgent.Agent.Application.Tests.csproj" />
+  <Project Path="tests/eThangAgent.Analyzers.Tests/eThangAgent.Analyzers.Tests.csproj" />
   <Project Path="tests/eThangAgent.OpenRouter.ACL.Tests/eThangAgent.OpenRouter.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.Provider.Wire.Tests/eThangAgent.Provider.Wire.Tests.csproj" />
   <Project Path="tests/eThangAgent.Composition.Tests/eThangAgent.Composition.Tests.csproj" />

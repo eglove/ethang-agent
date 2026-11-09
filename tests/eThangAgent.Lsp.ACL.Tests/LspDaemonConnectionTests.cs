@@ -22,7 +22,7 @@ public class LspDaemonConnectionTests
     string ws = "conn-join-" + Guid.NewGuid().ToString("N");
     string pipe = LspPipeNames.ForWorkspaceId(ws);
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token).ConfigureAwait(false), cts.Token);
     await Task.Delay(150, Ct).ConfigureAwait(true);
 
@@ -71,7 +71,7 @@ public class LspDaemonConnectionTests
       using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
       server.AttachForwarder(forwarder);
       server.AttachDiagnosticsService(new LspDiagnosticsService(null, store));
-      using CancellationTokenSource cts = new(TimeSpan.FromSeconds(10));
+      using CancellationTokenSource cts = new(TestCeiling.Value);
       Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token).ConfigureAwait(false), cts.Token);
       await Task.Delay(150, Ct).ConfigureAwait(true);
 
@@ -112,7 +112,7 @@ public class LspDaemonConnectionTests
     LspCapabilities capabilities = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
     server.AttachSymbolService(new LspSymbolService(transport, capabilities));
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
     await Task.Delay(150, cts.Token);
 
@@ -153,7 +153,7 @@ public class LspDaemonConnectionTests
     LspCapabilities capabilities = LspCapabilities.None with { DocumentSymbolProvider = true, RenameProvider = true };
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
     server.AttachSymbolService(new LspSymbolService(transport, capabilities));
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeUntilClosedAsync(cts.Token), cts.Token);
     await Task.Delay(150, cts.Token);
 

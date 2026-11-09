@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.ACL.Tests;
@@ -44,7 +45,7 @@ public class BrokerSupervisorTests
     await supervisor.DisposeAsync().ConfigureAwait(true);
     Assert.NotNull(spawned);
     Task exitTask = spawned.WaitForExitAsync(TestContext.Current.CancellationToken);
-    bool exitedInTime = await Task.WhenAny(exitTask, Task.Delay(5000, TestContext.Current.CancellationToken)).ConfigureAwait(true) == exitTask;
+    bool exitedInTime = await Task.WhenAny(exitTask, Task.Delay(TestCeiling.Value, TestContext.Current.CancellationToken)).ConfigureAwait(true) == exitTask;
     Assert.True(exitedInTime || spawned.HasExited, "stub host should die on dispose");
   }
 

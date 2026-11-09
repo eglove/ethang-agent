@@ -48,12 +48,6 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@"Trait\s*\(\s*""Category""\s*,\s*""LatencyContract""\s*\)")]
   private static partial Regex LatencyContractTraitPattern();
 
-  [GeneratedRegex(@"static\s+readonly\s+TimeSpan\s+(Limit|TestTimeout|WaitLimit|Timeout)\s*=\s*TimeSpan\.From")]
-  private static partial Regex LocalCeilingPattern();
-
-  [GeneratedRegex(@"\b\w*(deadline|Deadline|limit|Limit|timeout|Timeout|until|Until|bound|Bound)\w*\s*=\s*DateTime(Offset)?\.(UtcNow|Now)\s*(\+\s*TimeSpan\.From\w*\s*\(\s*\d|\.Add\w*\s*\(\s*\d)")]
-  private static partial Regex ClockDeadlinePattern();
-
   [GeneratedRegex(@"Assert\.\w+\s*\([^;]*?\.Elapsed\s*<=")]
   private static partial Regex ElapsedAssertionPattern();
 
@@ -220,14 +214,14 @@ public sealed partial class DoctrineTests
   ///     an idle machine expires before the work settles and the assertion proves nothing about the
   ///     code. Ceilings have one source of truth (<c>TestCeiling</c> in Tests.Shared); a test that
   ///     genuinely measures latency declares it with <c>Category=LatencyContract</c>.
-  ///     <para>Issue #377: the rule is enforced for the SHAPE, not for one spelling of it. A local
-  ///     variable is the most natural way to write a bounded wait, and the static-field pattern below
-  ///     could not see it - which is how a literal ten-second deadline sat in a passing test until a
-  ///     loaded machine reached it first. A bound built from a literal duration is therefore caught
-  ///     wherever it is declared; a bound built from <c>TestCeiling.Value</c> or from a variable
-  ///     holding it is what remains.</para></summary>
+  ///     <para>Issue #378: the rule is enforced for the SHAPE, not for one spelling of it, and the
+  ///     enforcement is the <c>TimedWaitAnalyzer</c> - a Roslyn analyzer that walks the semantic model,
+  ///     so a deadline held in a local, a raced delay, a cancellation timeout and a fixed sleep are
+  ///     all caught by what they do rather than by how they are written. What remains here is the one
+  ///     rule a source scan can still answer: an assertion that measures elapsed time AT ALL, which is
+  ///     a latency contract however the wait was bounded.</para></summary>
   [Fact]
-  public void NoWallClockLatencyBounds_EveryWaitIsACeilingOrDeclaresLatency()
+  public void NoElapsedTimeAssertions_ALatencyContractIsDeclared()
   {
     List<string> violations = [];
     foreach (string file in SourceFiles("tests"))
@@ -238,26 +232,15 @@ public sealed partial class DoctrineTests
         continue;
       }
 
-      string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
-      if (LocalCeilingPattern().IsMatch(text))
-      {
-        violations.Add(relative + " (local wall-clock ceiling constant)");
-      }
-
-      if (ClockDeadlinePattern().IsMatch(text))
-      {
-        violations.Add(relative + " (wall-clock deadline built from a literal duration)");
-      }
-
       if (ElapsedAssertionPattern().IsMatch(text))
       {
-        violations.Add(relative + " (asserts elapsed time)");
+        violations.Add(Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/') + " (asserts elapsed time)");
       }
     }
 
     Assert.True(violations.Count == 0,
-        "wall-clock latency bounds outside a declared latency contract (use TestCeiling, or mark the "
-        + "class [Trait(\"Category\", \"LatencyContract\")] when latency IS the contract): "
+        "an assertion measuring elapsed time outside a declared latency contract (mark the class "
+        + "[Trait(\"Category\", \"LatencyContract\")] when latency IS the contract): "
         + string.Join(", ", violations));
   }
 
@@ -438,6 +421,9 @@ public sealed partial class DoctrineTests
       string relative = Path.GetRelativePath(RepoRoot(), project).Replace('\\', '/');
       if (relative.EndsWith("eThangAgent.Tests.Shared/eThangAgent.Tests.Shared.csproj", StringComparison.Ordinal)
           || relative.EndsWith("eThangAgent.TestSupport/eThangAgent.TestSupport.csproj", StringComparison.Ordinal)
+          // The analyzer's own suite holds no waits to bound: its literal durations are the
+          // analyzer's INPUT DATA, and it asserts on diagnostics rather than on time.
+          || relative.EndsWith("eThangAgent.Analyzers.Tests/eThangAgent.Analyzers.Tests.csproj", StringComparison.Ordinal)
           || relative.Contains("/Stub", StringComparison.Ordinal))
       {
         continue;

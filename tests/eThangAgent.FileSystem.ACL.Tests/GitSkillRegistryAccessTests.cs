@@ -79,7 +79,7 @@ public sealed class GitSkillRegistryAccessTests : IDisposable
     using Process p = Process.Start(psi)!;
     string stdout = p.StandardOutput.ReadToEnd();
     string stderr = p.StandardError.ReadToEnd();
-    _ = p.WaitForExit(30000);
+    _ = p.WaitForExit(TestCeiling.Value);
     return (p.ExitCode, stdout, stderr);
   }
   [Fact]

@@ -118,7 +118,7 @@ public class HeadlessTurnBudgetTests : SessionOwningTest
 
     // THE PIN: the turn must surface within the budget, not hang forever. A generous
     // margin over the wire's own timeouts keeps this deterministic on loaded CI.
-    using CancellationTokenSource budget = new(TimeSpan.FromSeconds(35));
+    using CancellationTokenSource budget = new(TestCeiling.Value);
     Result<string> result = await session.Handler.Handle(
         new SendMessageCommand("say hello"), ct: budget.Token).ConfigureAwait(true);
 

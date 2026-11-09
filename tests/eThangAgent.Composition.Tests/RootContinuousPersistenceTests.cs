@@ -4,6 +4,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Ag = eThangAgent.AgentDomain.Agent;
 
@@ -489,7 +490,7 @@ public sealed class RootContinuousPersistenceTests
     // The drain must give up after one failed attempt and leave the message pending; an
     // unbounded retry hangs AppendAsync, FlushedCount, and Dispose alike.
     Task append = sink.AppendAsync(new Message(Role.User, "stuck", DateTimeOffset.UtcNow));
-    Task completed = await Task.WhenAny(append, Task.Delay(TimeSpan.FromSeconds(5),
+    Task completed = await Task.WhenAny(append, Task.Delay(TestCeiling.Value,
         TestContext.Current.CancellationToken)).ConfigureAwait(true);
 
     Assert.Same(append, completed);

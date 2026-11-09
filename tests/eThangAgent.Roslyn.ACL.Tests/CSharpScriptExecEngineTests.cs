@@ -101,7 +101,7 @@ public class CSharpScriptExecEngineTests
     CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([provider]),
         workspaceRoot: () => AppContext.BaseDirectory);
     ExecRunResult run = await engine.ExecuteAsync(
-        new ExecProgram("return Tools.read(new { path = \"grand-plan.md\" });", TimeSpan.FromSeconds(30)),
+        new ExecProgram("return Tools.read(new { path = \"grand-plan.md\" });", TestCeiling.Value),
         ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
@@ -109,7 +109,7 @@ public class CSharpScriptExecEngineTests
     Assert.Equal("ok", run.Output);
     // The nested call stated no timeoutSeconds; the exec budget was inherited and,
     // because the action's contract declares the parameter, injected into the dispatch.
-    Assert.Contains("\"timeoutSeconds\":30", provider.LastJson!, StringComparison.Ordinal);
+    Assert.Contains("\"timeoutSeconds\":" + (int)TestCeiling.Value.TotalSeconds, provider.LastJson!, StringComparison.Ordinal);
     Assert.Contains("\"path\":\"grand-plan.md\"", provider.LastJson!, StringComparison.Ordinal);
   }
 
@@ -181,36 +181,25 @@ public class CSharpScriptExecEngineTests
   private const string HungCommand =
       "var r = Shell(\"waitfor\", \"/t\", \"60\", \"never\"); return r.ExitCode;";
 
-  /// <summary>Stop-button regression: cancelling the caller's token must kill the hung
-  ///     child process tree so the turn actually ends, not just the token firing.</summary>
+  /// <summary>Stop-button and budget regression: the caller's token is the only bound an exec
+  ///     run has, and expiring it — by a stop or by a spent budget — must kill the hung child
+  ///     process tree so the turn actually ends, not just the token firing. Previously Shell
+  ///     blocked forever past its own WaitForExit cap.</summary>
   [Fact]
   [Trait("Category", "Process")]
   public async Task CallerCancellation_KillsHungShellProcessTree()
   {
-    // A generous budget: the token must cover compile + spawn + kill under a loaded
-    // parallel run too; the pin is the OCE, not the duration.
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(30));
+    // The cancel is the STIMULUS, not a bound: it is issued explicitly once the run is under
+    // way, so no duration decides when the token fires. The ceiling only bounds the wait for
+    // the run to settle.
+    using CancellationTokenSource cts = new();
     CSharpScriptExecEngine engine = CreateEngine();
+    Task<ExecRunResult> run = engine.ExecuteAsync(new ExecProgram(HungCommand), cts.Token);
 
     // Cancellation propagates for classification at the tool layer.
+    await cts.CancelAsync().ConfigureAwait(true);
     _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
-        () => engine.ExecuteAsync(new ExecProgram(HungCommand), cts.Token));
-  }
-
-  /// <summary>Budget regression: an expired exec budget must kill the hung child tree and
-  ///     surface Timeout — previously Shell blocked forever past its own WaitForExit cap.</summary>
-  [Fact]
-  [Trait("Category", "Process")]
-  public async Task ElapsedBudget_KillsHungShellProcessTree()
-  {
-    // The budget arrives through the caller's token - ExecOptions carries none. The
-    // window stays load-tolerant but distinct from the cancellation twin's, and the
-    // pin is the OCE, not the duration.
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
-    CSharpScriptExecEngine engine = CreateEngine();
-
-    _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
-        () => engine.ExecuteAsync(new ExecProgram(HungCommand), cts.Token));
+        () => run.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken)).ConfigureAwait(true);
   }
 
   /// <summary>Pipe-deadlock regression: chatty stderr under quiet stdout must not block a
@@ -246,7 +235,7 @@ public class CSharpScriptExecEngineTests
 
     // The settled run surfaces as canceled (the engine propagates the OCE for
     // classification at the tool layer); WhenAny observes completion without throwing.
-    Task done = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+    Task done = await Task.WhenAny(run, Task.Delay(TestCeiling.Value, TestContext.Current.CancellationToken));
     Assert.Same(run, done);
     Assert.True(run.IsCompleted, "ExecuteAsync must settle on cancellation even when the script cannot observe the token");
   }
@@ -278,7 +267,7 @@ public class CSharpScriptExecEngineTests
         workspaceRoot: () => AppContext.BaseDirectory);
     // Exactly the session-851d pattern: invoke as a statement, discard the result.
     ExecRunResult run = await engine.ExecuteAsync(
-        new ExecProgram("Tools.read(new { path = \"grand-plan.md\" });", TimeSpan.FromSeconds(30)),
+        new ExecProgram("Tools.read(new { path = \"grand-plan.md\" });", TestCeiling.Value),
         ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
@@ -296,7 +285,7 @@ public class CSharpScriptExecEngineTests
         new ExecProgram(
             "var a = Tools.read(new { path = \"a.md\" });\n" +
             "var b = Tools.read(new { path = \"b.md\" });\n" +
-            "return a + b;", TimeSpan.FromSeconds(30)),
+            "return a + b;", TestCeiling.Value),
         ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
@@ -311,7 +300,7 @@ public class CSharpScriptExecEngineTests
     CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([provider]),
         workspaceRoot: () => AppContext.BaseDirectory);
     ExecRunResult run = await engine.ExecuteAsync(
-        new ExecProgram("\"plain\"", TimeSpan.FromSeconds(30)),
+        new ExecProgram("\"plain\"", TestCeiling.Value),
         ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
@@ -325,7 +314,7 @@ public class CSharpScriptExecEngineTests
     CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([throwing]),
         workspaceRoot: () => AppContext.BaseDirectory);
     ExecRunResult run = await engine.ExecuteAsync(
-        new ExecProgram("Tools.Invoke(\"read\", new { path = \"x\" });", TimeSpan.FromSeconds(30)),
+        new ExecProgram("Tools.Invoke(\"read\", new { path = \"x\" });", TestCeiling.Value),
         ct: TestContext.Current.CancellationToken);
 
     // An in-band environmental error does not throw: the run completes, the

@@ -58,7 +58,7 @@ public class LspDaemonTests
     string ws = "ws-hello";
     string pipe = LspPipeNames.ForWorkspaceId(ws);
     using LspDaemonServer server = new(pipe, ws, () => Task.CompletedTask);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(5));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeOnceAsync(cts.Token));
     await Task.Delay(100, cts.Token);
     using LspPipeClient client = await LspPipeClient.ConnectAsync(pipe, ws, "app-1", cts.Token);
@@ -73,7 +73,7 @@ public class LspDaemonTests
   {
     string pipe = LspPipeNames.ForWorkspaceId("ws-real");
     using LspDaemonServer server = new(pipe, "ws-real", () => Task.CompletedTask);
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(5));
+    using CancellationTokenSource cts = new(TestCeiling.Value);
     Task serve = Task.Run(async () => await server.ServeOnceAsync(cts.Token));
     await Task.Delay(100, cts.Token);
     await Assert.ThrowsAsync<LspWorkspaceMismatchException>(async () =>

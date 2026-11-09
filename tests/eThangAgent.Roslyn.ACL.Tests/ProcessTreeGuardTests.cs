@@ -34,7 +34,7 @@ public sealed class ProcessTreeGuardTests
     using Process p = Process.Start(psi)!;
     using ProcessTreeGuard guard = new(p, processCeiling: 32, sampleInterval: TimeSpan.FromMilliseconds(100));
 
-    _ = p.WaitForExit(TimeSpan.FromSeconds(30));
+    _ = p.WaitForExit(TestCeiling.Value);
 
     Assert.False(guard.Outcome.ProcessCountExceeded);
   }
@@ -67,7 +67,7 @@ public sealed class ProcessTreeGuardTests
     using ProcessTreeGuard guard = new(p, processCeiling: 2, sampleInterval: TimeSpan.FromMilliseconds(100));
 
     Task exit = p.WaitForExitAsync(TestContext.Current.CancellationToken);
-    bool exited = await Task.WhenAny(exit, Task.Delay(TimeSpan.FromSeconds(30),
+    bool exited = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
         TestContext.Current.CancellationToken)).ConfigureAwait(true) == exit;
     ProcessTreeGuardOutcome atExit = guard.Outcome;
     // ~12 further ticks at 100 ms — the periodic timer keeps firing after the kill.
@@ -103,7 +103,7 @@ public sealed class ProcessTreeGuardTests
     using ProcessTreeGuard guard = new(p, ScriptCeilings.Default.SpawnProcessCount,
         TimeSpan.FromMilliseconds(100));
 
-    bool exited = p.WaitForExit(TimeSpan.FromSeconds(30));
+    bool exited = p.WaitForExit(TestCeiling.Value);
 
     Assert.True(exited, "legitimate work must run to completion");
     Assert.Equal(0, p.ExitCode);

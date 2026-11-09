@@ -1,6 +1,7 @@
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
@@ -195,17 +196,20 @@ public class AgentRunLoopTests
   public async Task RunAsync_LoopingChild_Interrupts_Cleanly()
   {
     FakeAgentStore store = new();
+    GatedTool tool = new("loop");
     AgentRunLoop spawner = MakeRunner(new LoopingProvider(), store,
         options: new AgentRunOptions(DefaultModel: "default/sub-model"),
-        tools: new ToolRegistry([new FakeTool("loop", "again")]));
-    // The looping provider + instant tool make the run an endless SYNCHRONOUS loop that
-    // never yields, so the cancel must come from a timer thread — an inline CancelAsync
-    // after the call would never execute (deadlock vigilance: this test has a reachable
-    // completion path only through ct).
+        tools: new ToolRegistry([tool]));
     using CancellationTokenSource cts = new();
-    cts.CancelAfter(TimeSpan.FromMilliseconds(200));
 
-    AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "loop forever"), cts.Token).ConfigureAwait(true);
+    // The run parks inside the tool, so the cancel reaches a run that is provably mid-loop
+    // rather than one the clock happened to catch.
+    Task<AgentRunOutcome> running = spawner.RunAsync(Child(taskPrompt: "loop forever"), cts.Token);
+    await tool.Entered.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await cts.CancelAsync().ConfigureAwait(true);
+    _ = tool.Release.TrySetResult();
+    AgentRunOutcome outcome = await running.WaitAsync(TestCeiling.Value,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.Equal(AgentStatus.Failed, outcome.Status);
     Assert.Equal(AgentFailureReason.Interrupted, outcome.Reason);

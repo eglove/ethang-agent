@@ -48,7 +48,7 @@ public class DiagnosticsEndToEndE2ETests
   ///     answers from a store the test seeds.</summary>
   private sealed class DaemonHarness : IDisposable
   {
-    private readonly CancellationTokenSource _cts = new(TimeSpan.FromMinutes(2));
+    private readonly CancellationTokenSource _cts = new(TestCeiling.Value);
     private readonly LspDaemonServer _server;
     private readonly Task _serve;
 
@@ -391,21 +391,17 @@ public class DiagnosticsEndToEndE2ETests
   ///     just-killed process still holds a handle in it.</summary>
   private static void DeleteWorkspace(string workspaceRoot)
   {
-    for (int attempt = 0; attempt < 20; attempt++)
+    // Best effort, and deliberately ONE attempt: a watcher or a just-killed process can still
+    // hold a handle here, and debris under the run root is swept by TestTempRoot.Delete at the
+    // end of the run. Retrying against a clock would spend the whole ceiling on a delete that
+    // is not the thing under test.
+    try
     {
-      try
-      {
-        Directory.Delete(workspaceRoot, recursive: true);
-        return;
-      }
-      catch (IOException)
-      {
-        Thread.Sleep(50);
-      }
-      catch (UnauthorizedAccessException)
-      {
-        Thread.Sleep(50);
-      }
+      Directory.Delete(workspaceRoot, recursive: true);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+    {
+      // Left for the run-root sweep.
     }
   }
 

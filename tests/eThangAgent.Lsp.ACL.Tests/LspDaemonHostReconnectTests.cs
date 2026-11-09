@@ -34,9 +34,10 @@ public class LspDaemonHostReconnectTests
   {
     private readonly LspDaemonServer _server;
     private readonly CancellationTokenSource _cts;
+    private readonly Task _serve;
 
-    private OneShotDaemon(LspDaemonServer server, CancellationTokenSource cts)
-      => (_server, _cts) = (server, cts);
+    private OneShotDaemon(LspDaemonServer server, CancellationTokenSource cts, Task serve)
+      => (_server, _cts, _serve) = (server, cts, serve);
 
     // Named decision (CA2000): both disposables are owned by the returned OneShotDaemon,
     // whose Dispose releases them; the analyzer cannot follow ownership through a factory.
@@ -49,10 +50,8 @@ public class LspDaemonHostReconnectTests
       // A symbol service answers lsp.symbol; without one the daemon stays silent and the
       // caller blocks instead of testing anything about the connection.
       server.AttachSymbolService(new LspSymbolService(null, LspCapabilities.None));
-      CancellationTokenSource cts = new(TimeSpan.FromSeconds(30));
-      OneShotDaemon daemon = new(server, cts);
-#pragma warning restore CA2000 // Dispose objects before losing scope
-      _ = Task.Run(async () =>
+      CancellationTokenSource cts = new(TestCeiling.Value);
+      Task serve = Task.Run(async () =>
       {
         try
         {
@@ -63,6 +62,8 @@ public class LspDaemonHostReconnectTests
           // Cancelling or the client hanging up is the expected end of this daemon.
         }
       }, CancellationToken.None);
+      OneShotDaemon daemon = new(server, cts, serve);
+#pragma warning restore CA2000 // Dispose objects before losing scope
       for (int attempt = 0; attempt < 100; attempt++)
       {
         try
@@ -82,9 +83,12 @@ public class LspDaemonHostReconnectTests
     public void Dispose()
     {
       _cts.Cancel();
+      // The serve loop observes the cancel on its own thread; the join is the fact, the
+      // duration is only how long teardown may take before it is a leak. The token is the
+      // one just cancelled, so the join opts out of it explicitly rather than racing it.
+      _ = _serve.Wait(TestCeiling.Value, CancellationToken.None);
       _server.Dispose();
       _cts.Dispose();
-      Thread.Sleep(150);
     }
   }
 
@@ -175,21 +179,17 @@ public class LspDaemonHostReconnectTests
 
   private static void DeleteWorkspace(string root)
   {
-    for (int attempt = 0; attempt < 20; attempt++)
+    // Best effort, and deliberately ONE attempt: a watcher or a just-killed process can still
+    // hold a handle here, and debris under the run root is swept by TestTempRoot.Delete at the
+    // end of the run. Retrying against a clock would spend the whole ceiling on a delete that
+    // is not the thing under test.
+    try
     {
-      try
-      {
-        Directory.Delete(root, recursive: true);
-        return;
-      }
-      catch (IOException)
-      {
-        Thread.Sleep(50);
-      }
-      catch (UnauthorizedAccessException)
-      {
-        Thread.Sleep(50);
-      }
+      Directory.Delete(root, recursive: true);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+    {
+      // Left for the run-root sweep.
     }
   }
 }

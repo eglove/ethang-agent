@@ -3,6 +3,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -367,9 +368,31 @@ public sealed class ResourceHostEnactmentTests
           RedirectStandardError = true,
         })!;
     // Let it settle: a process that has not yet faulted its pages in has nothing to
-    // reclaim, and the assertion would measure the ramp rather than the trim.
-    Thread.Sleep(700);
+    // reclaim, and the assertion would measure the ramp rather than the trim. The wait is
+    // for the FACT - a resident set that stopped growing - not for a duration.
+    Settle(child);
     return child;
+  }
+
+  /// <summary>Waits until the child's resident set stops growing, bounded by the ceiling: a
+  ///     process that is still faulting pages in has nothing to reclaim yet.</summary>
+  /// <param name="child">The child to watch.</param>
+  private static void Settle(System.Diagnostics.Process child)
+  {
+    System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+    long previous = -1;
+    while (clock.Elapsed < TestCeiling.Value)
+    {
+      child.Refresh();
+      long resident = child.WorkingSet64;
+      if (resident == previous)
+      {
+        return;
+      }
+
+      previous = resident;
+      Thread.Sleep(TestTempRoot.DeleteRetryInterval);
+    }
   }
 
   /// <summary>Kills the child and waits for it, so a test never leaves a process
