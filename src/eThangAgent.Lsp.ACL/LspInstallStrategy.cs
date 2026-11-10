@@ -20,8 +20,11 @@ public enum LspInstallOutcome
   PrerequisiteMissing,
 }
 
-/// <summary>The outcome of one install attempt, with the row it concerned.</summary>
-public sealed record LspInstallResult(LspInstallOutcome Outcome, LspLanguageRow Row);
+/// <summary>The outcome of one install attempt, with the row it concerned and the reason
+///     an attempt that did not install gives. <c>Row</c> is null only for a refusal that
+///     named no language the catalog serves, which is why the reason is a sentence rather
+///     than a value a caller has to interpret.</summary>
+public sealed record LspInstallResult(LspInstallOutcome Outcome, LspLanguageRow? Row, string? Reason = null);
 
 /// <summary>Places one row's server on this machine inside an app-owned root and reports
 ///     where it landed. Every strategy is idempotent: an entry point already in place is

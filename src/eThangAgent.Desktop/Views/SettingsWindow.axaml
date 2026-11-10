@@ -66,6 +66,18 @@
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>
+      <TabItem Header="Language servers">
+        <StackPanel Spacing="10">
+          <TextBlock Text="Language servers" FontWeight="Bold"/>
+          <TextBlock Text="Ten languages this app can serve, and which are installed on this machine."
+                     Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+          <Button x:Name="OpenLanguageServersButton" Content="Manage language servers"
+                  Command="{Binding OpenLanguageServersCommand}"/>
+          <TextBlock
+              Text="Nothing is installed until you install it, except C#, which ships with the app. A language whose toolchain this machine lacks stays listed and says what is missing. Installs land in the app's own cache directory and removing one deletes only that directory."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        </StackPanel>
+      </TabItem>
       <TabItem Header="Models">
         <StackPanel Spacing="10">
           <TextBlock Text="Compaction model" FontWeight="Bold"/>

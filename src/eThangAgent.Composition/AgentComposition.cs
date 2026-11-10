@@ -1294,6 +1294,16 @@ public static class AgentComposition
         .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
         .AddSingleton<LspDaemonExePathOverride>()
         .AddSingleton(DaemonHost)
+        // The language-servers page's three seams: the catalog the page lists, the installer
+        // that places a server on this machine, and the workspace detection a prompt reads.
+        // All three resolve in a container with no language server installed, because none
+        // of them touches the disk until a caller asks it to.
+        .AddSingleton<ILanguageServerCatalog, LanguageServerCatalog>()
+        .AddSingleton<IWorkspaceLanguageDetector, WorkspaceLanguageDetector>()
+        .AddSingleton<ILanguageServerInstaller>(sp => new LanguageServerInstaller(
+            sp.GetRequiredService<ILanguageServerCatalog>(),
+            sp.GetRequiredService<IAppPreferenceStore>(),
+            Lsp.ACL.LspServerInstaller.DefaultRoot))
         // The rename action's write half: the same file seams and workspace root every other
         // mutating tool uses, so a computed rename is applied by the edit machinery rather than
         // by the model. One applier per container; it holds no per-call state.

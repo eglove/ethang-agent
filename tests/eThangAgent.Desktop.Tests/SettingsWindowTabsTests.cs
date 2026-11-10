@@ -16,19 +16,38 @@ namespace eThangAgent.Desktop.Tests;
 public class SettingsWindowTabsTests
 {
   [AvaloniaFact]
-  public void Settings_Renders_As_Six_Categorized_Tabs()
+  public void Settings_Renders_As_Seven_Categorized_Tabs()
   {
     SettingsWindow window = new();
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
-    Assert.Equal(6, tabs.Items.Count);
+    Assert.Equal(7, tabs.Items.Count);
     Assert.Collection(tabs.Items,
         item => Assert.Equal("API Keys", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Skills", Assert.IsType<TabItem>(item).Header),
+        item => Assert.Equal("Language servers", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Models", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Agents", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Advanced", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Git", Assert.IsType<TabItem>(item).Header));
+  }
+
+  /// <summary>The language-servers page has exactly one way in: the row labelled 'Language
+  ///     servers', whose button asks the view to open the page.</summary>
+  [AvaloniaFact]
+  public void The_Language_Servers_Page_Opens_From_One_Row()
+  {
+    SettingsWindow window = new();
+    window.Show();
+    TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
+
+    tabs.SelectedIndex = 2;
+    Dispatcher.UIThread.RunJobs();
+
+    Button open = window.GetControl<Button>("OpenLanguageServersButton");
+    Assert.True(open.IsVisible);
+    Assert.Same(window.DataContext is SettingsViewModel vm ? vm.OpenLanguageServersCommand : null,
+        open.Command);
   }
 
   [AvaloniaFact]

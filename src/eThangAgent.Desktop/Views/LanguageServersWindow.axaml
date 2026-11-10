@@ -1,0 +1,57 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:eThangAgent.Desktop.ViewModels"
+        x:Class="eThangAgent.Desktop.Views.LanguageServersWindow"
+        x:DataType="vm:LanguageServersViewModel"
+        Title="Language servers - what this app can serve, and what is installed" Width="820" Height="620"
+        MinWidth="620" MinHeight="420" CanResize="True" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+
+    <TextBlock Grid.Row="0" TextWrapping="Wrap" Opacity="0.75" Margin="0,0,0,8">
+      Every language this app can serve is listed here. Nothing is installed until you install it,
+      except C#, which ships with the app. A language whose toolchain this machine lacks says so
+      and stays listed. Installs land in the app's own cache directory; removing one deletes only
+      that directory.
+    </TextBlock>
+
+    <ScrollViewer Grid.Row="1">
+      <ItemsControl x:Name="LanguageList" ItemsSource="{Binding Rows}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:LanguageServerRowViewModel">
+            <Border BorderBrush="#33808080" BorderThickness="0,0,0,1" Padding="0,8">
+              <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+                  <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}"/>
+                  <TextBlock FontSize="12" Opacity="0.7" Text="{Binding StatusText}"/>
+                  <TextBlock FontSize="12" Opacity="0.55" TextWrapping="Wrap" Text="{Binding StatusDetail}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Center">
+                  <Button x:Name="InstallButton" Content="Install"
+                          Command="{Binding InstallCommand}"
+                          IsVisible="{Binding CanInstall}"/>
+                  <Button x:Name="UpdateButton" Content="Update"
+                          Command="{Binding UpdateCommand}"
+                          IsVisible="{Binding CanUpdate}"/>
+                  <Button x:Name="RemoveButton" Content="Remove"
+                          Command="{Binding RemoveCommand}"
+                          IsVisible="{Binding CanRemove}"/>
+                </StackPanel>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+    <StackPanel Grid.Row="2" Spacing="8" Margin="0,8,0,0">
+      <TextBlock x:Name="PageErrorText" Text="{Binding PageError}" Foreground="OrangeRed"
+                 TextWrapping="Wrap" FontSize="12"
+                 IsVisible="{Binding PageError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+        <Button x:Name="RefreshButton" Content="Refresh" Command="{Binding RefreshCommand}"/>
+        <Button x:Name="CloseButton" Content="Close" Click="OnClose"/>
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</Window>
