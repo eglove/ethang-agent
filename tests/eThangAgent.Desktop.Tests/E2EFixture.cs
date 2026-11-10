@@ -53,6 +53,23 @@ internal static class E2E
     ///     sampling settings) the production open path restores.</summary>
     public IAppPreferenceStore Store { get; private set; } = null!;
 
+    /// <summary>Test seam: the factory producing the language-server installer the session's
+    ///     prompt and the language-servers page both read. Set it before StartAsync; null uses
+    ///     the container's own registration.</summary>
+    public Func<IServiceProvider, ILanguageServerInstaller>? LanguageInstallerFactory { get; set; }
+
+    /// <summary>Test seam: the executor the session view-model marshals its UI-bound mutations
+    ///     through. Set it before StartAsync; null is the production Avalonia dispatcher, which
+    ///     queues work a headless test never runs. A synchronous executor is what makes the
+    ///     language prompt's detection pass observable without a window.</summary>
+    public Action<Action>? UiMarshal { get; set; }
+
+    /// <summary>True when this harness does NOT own the database file it runs over, so disposal
+    ///     leaves it in place for the run-root sweep. A restart check opens two harnesses over one
+    ///     file; the first to dispose would otherwise delete what the other is still using.
+    ///     </summary>
+    public bool SharesDatabaseFile { get; set; }
+
     /// <summary>Test seam: the factory producing the computer-use access provider. Set it
     ///     before StartAsync; default throws so missing wiring surfaces loudly.</summary>
     public Func<IComputerAccessProvider> ComputerAccessProviderFactory { get; set; } =
@@ -76,6 +93,7 @@ internal static class E2E
     /// <param name="lspDaemonExePath">When set, overrides where the language-server daemon
     ///     executable is looked for, so a test can point it at a path that does not exist and
     ///     pin the LSP-absent behavior.</param>
+
     /// <summary>Starts the harness, or disposes everything it built before rethrowing. A
     ///     harness whose start fails is never handed to a `using`, so without this the
     ///     container - and the database connections it holds - outlives the test that failed.</summary>
@@ -178,7 +196,15 @@ internal static class E2E
       Func<UiStreamEvent, Task> sink = new(evt => (sessionVmRef ??
           throw new InvalidOperationException("E2E stream sink fired before the session view-model was initialized"))
           .ApplyUiStreamEventAsync(evt));
-      Shell = await MainViewModel.ForPrebuiltSessionAsync(session, sink).ConfigureAwait(false);
+      Shell = await MainViewModel.ForPrebuiltSessionAsync(session, sink,
+          LanguageInstallerFactory is null && UiMarshal is null
+              ? null
+              : new MainViewModelOptions
+              {
+                LanguageInstaller = LanguageInstallerFactory?.Invoke(_services),
+                UiMarshal = UiMarshal,
+              })
+          .ConfigureAwait(false);
       Vm = Shell.Tabs[0].ViewModel;
       sessionVmRef = Vm;
       return this;
@@ -219,7 +245,7 @@ internal static class E2E
     ///     file, and a reap that merely takes a moment is not reported as a failed test.</para></summary>
     private void ReleaseDatabaseFile()
     {
-      if (DatabasePath.Length == 0)
+      if (DatabasePath.Length == 0 || SharesDatabaseFile)
       {
         return;
       }

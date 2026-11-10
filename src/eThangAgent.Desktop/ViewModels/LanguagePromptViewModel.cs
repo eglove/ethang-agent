@@ -108,11 +108,15 @@ internal sealed partial class LanguagePromptViewModel : ObservableObject
   }
 
   /// <summary>The detected languages this machine cannot serve, in detection order, named
-  ///     as the catalog names them.</summary>
+  ///     as the catalog names them. C# is always served: this app installs it without being
+  ///     asked, so it is never something the user could be prompted to install.</summary>
   private List<LanguagePromptOffer> Missing(IReadOnlyList<DetectedLanguage> detected,
       IReadOnlyList<string> installedLanguageIds)
   {
-    HashSet<string> installed = new(installedLanguageIds, StringComparer.OrdinalIgnoreCase);
+    HashSet<string> installed = new(installedLanguageIds, StringComparer.OrdinalIgnoreCase)
+    {
+        LanguageServerCatalogBootstrap.CSharpLanguageId,
+    };
     return
     [
         .. detected
