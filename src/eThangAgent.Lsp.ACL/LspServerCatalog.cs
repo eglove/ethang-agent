@@ -17,7 +17,7 @@ public static class LspServerCatalog
       Checksum: "+bE9gCtusnlR0SVlFdfc0remupBvkNf8y2NKNp7CrCDEfbZMgCfucEMyQ/c56BxxmVy8nKDxnYpL5KnziLWo1Q==",
       EntryPointRelativePath: "tools/net10.0/win-x64",
       ServerFileName: "roslyn-language-server.exe",
-      Arguments: []);
+      Arguments: ["--stdio"]);
 
   private static readonly LspLanguageRow TypeScriptRow = new(
       LanguageId: "typescript",

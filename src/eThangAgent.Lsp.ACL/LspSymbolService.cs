@@ -423,6 +423,31 @@ public sealed partial class LspSymbolService
   public Task<LspSymbolResult> RenameAsync(string uri, string symbolName, int occurrence, string newName, CancellationToken ct = default)
     => RenameCoreAsync(uri, symbolName, occurrence, newName, ct);
 
+  /// <summary>Dispatches one named operation, the same way the daemon's lsp.symbol request
+  ///     does, so a caller holding this service directly reaches the same operations. An
+  ///     action this service does not implement answers Unsupported rather than throwing.
+  ///     </summary>
+  public Task<LspSymbolResult> ExecuteAsync(
+      string action, string uri, string symbolName, int occurrence, int depth, string newName,
+      CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(action);
+    return action switch
+    {
+      "definition" => DefinitionAsync(uri, symbolName, occurrence, ct),
+      "references" => ReferencesAsync(uri, symbolName, occurrence, ct),
+      "hover" => HoverAsync(uri, symbolName, occurrence, ct),
+      "implementation" => ImplementationAsync(uri, symbolName, occurrence, ct),
+      "document-symbols" => DocumentSymbolsAsync(uri, ct),
+      "workspace-symbols" => WorkspaceSymbolsAsync(symbolName, ct),
+      "call-hierarchy-incoming" => CallHierarchyIncomingAsync(uri, symbolName, occurrence, depth, ct),
+      "call-hierarchy-outgoing" => CallHierarchyOutgoingAsync(uri, symbolName, occurrence, depth, ct),
+      "workspace-load" => LoadWorkspaceAsync(ct),
+      "rename" => RenameAsync(uri, symbolName, occurrence, newName, ct),
+      _ => Task.FromResult(new LspSymbolResult(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action)),
+    };
+  }
+
   public async Task<LspSymbolResult> DocumentSymbolsAsync(string uri, CancellationToken ct = default)
   {
     if (_transport is null)

@@ -35,13 +35,22 @@ public sealed class LspServerProvisioner
         LspServerInstaller.DefaultRoot);
   }
 
-  public async Task<LspServerLaunch?> ResolveOrInstallAsync(LspLanguageRow row, CancellationToken cancellationToken)
+  /// <summary>The launch for a server already on this machine, or null when nothing is. No
+  ///     install is attempted, so a language nobody installed starts nothing.</summary>
+  public LspServerLaunch? ResolveExisting(LspLanguageRow row)
   {
     ArgumentNullException.ThrowIfNull(row);
     string? existing = _resolveExisting(row) ?? _installer.ResolveInstalled(row);
-    if (!string.IsNullOrWhiteSpace(existing))
+    return string.IsNullOrWhiteSpace(existing) ? null : new LspServerLaunch(row.LanguageId, existing, row.Version);
+  }
+
+  public async Task<LspServerLaunch?> ResolveOrInstallAsync(LspLanguageRow row, CancellationToken cancellationToken)
+  {
+    ArgumentNullException.ThrowIfNull(row);
+    LspServerLaunch? existing = ResolveExisting(row);
+    if (existing is not null)
     {
-      return new LspServerLaunch(row.LanguageId, existing, row.Version);
+      return existing;
     }
 
     LspInstallResult result = await _installer.InstallAsync(row, cancellationToken).ConfigureAwait(false);
