@@ -101,7 +101,7 @@ public class LspServerResolverTests
       whereOnPath: _ => null,
       knownRoots: [],
       serverFileName: LspServerResolver.CSharpServerFileName,
-      downloadedServer: () => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
+      downloadedServer: _ => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
     Assert.Equal(downloaded, resolver.Resolve("C:\\app"));
   }
 
@@ -114,7 +114,7 @@ public class LspServerResolverTests
       whereOnPath: _ => null,
       knownRoots: [],
       serverFileName: LspServerResolver.CSharpServerFileName,
-      downloadedServer: () => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
+      downloadedServer: _ => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
     Assert.Equal(bundled, resolver.Resolve("C:\\app"));
   }
 
@@ -127,7 +127,7 @@ public class LspServerResolverTests
       whereOnPath: _ => onPath,
       knownRoots: [],
       serverFileName: LspServerResolver.CSharpServerFileName,
-      downloadedServer: () => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
+      downloadedServer: _ => Path.Combine("C:\\cache", LspServerResolver.CSharpServerFileName));
     Assert.Equal(onPath, resolver.Resolve("C:\\app"));
   }
 

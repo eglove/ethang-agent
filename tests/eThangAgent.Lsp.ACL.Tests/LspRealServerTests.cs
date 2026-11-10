@@ -15,9 +15,7 @@ public class LspRealServerTests
   {
     OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER", "to run against the real server.");
 
-    LspServerInstaller installer = new(
-        LspServerInstaller.DefaultRoot,
-        package => LspServerDownloader.DownloadAsync(package, TestContext.Current.CancellationToken));
+    LspServerInstaller installer = LspServerInstaller.CreateDefault();
     LspInstallResult installed = await installer.InstallAsync(
         LspServerCatalog.CSharp, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.Equal(LspInstallOutcome.Installed, installed.Outcome);

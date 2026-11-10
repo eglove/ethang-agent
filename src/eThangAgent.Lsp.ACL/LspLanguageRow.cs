@@ -8,6 +8,8 @@ namespace eThangAgent.Lsp.ACL;
 ///     row, lowercase hex SHA-256 of the archive for a <see cref="LspInstallKind.Archive"/> row,
 ///     and null for a <see cref="LspInstallKind.Toolchain"/> row, whose artifact the toolchain
 ///     resolves rather than this app.</para>
+///     <para><c>ArchiveAddress</c> is where an <see cref="LspInstallKind.Archive"/> row's artifact
+///     is published, and null for every other kind.</para>
 ///     <para><c>EntryPointRelativePath</c> is the directory inside an extracted archive that
 ///     holds the server, and is empty for a toolchain row, which extracts nothing.</para></summary>
 public sealed record LspLanguageRow(
@@ -22,7 +24,8 @@ public sealed record LspLanguageRow(
     string? Checksum,
     string EntryPointRelativePath,
     string ServerFileName,
-    IReadOnlyList<string> Arguments)
+    IReadOnlyList<string> Arguments,
+    string? ArchiveAddress = null)
 {
   /// <summary>True when <paramref name="path"/> carries an extension this row claims.</summary>
   public bool Claims(string path)

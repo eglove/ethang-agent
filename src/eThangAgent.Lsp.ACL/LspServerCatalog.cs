@@ -59,7 +59,8 @@ public static class LspServerCatalog
       Checksum: "973ab11e84955a7f8e3cf01ccd98a33f3ecbd6d4a14bf59bb164aa9e831c6fef",
       EntryPointRelativePath: "",
       ServerFileName: "rust-analyzer.exe",
-      Arguments: []);
+      Arguments: [],
+      ArchiveAddress: "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-09/rust-analyzer-x86_64-pc-windows-msvc.zip");
 
   private static readonly LspLanguageRow GoRow = new(
       LanguageId: "go",
@@ -98,7 +99,8 @@ public static class LspServerCatalog
           "config_win",
           "-data",
           ".",
-      ]);
+      ],
+      ArchiveAddress: "https://download.eclipse.org/jdtls/milestones/1.63.0/jdt-language-server-1.63.0-202610191322.tar.gz");
 
   private static readonly LspLanguageRow LuaRow = new(
       LanguageId: "lua",
@@ -112,7 +114,8 @@ public static class LspServerCatalog
       Checksum: "4a3dc851b3b31e7b75a23f645d1ba4a2137579a55f5fa4edbb17a3e2a6254044",
       EntryPointRelativePath: "bin",
       ServerFileName: "lua-language-server.exe",
-      Arguments: []);
+      Arguments: [],
+      ArchiveAddress: "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-win32-x64.zip");
 
   private static readonly LspLanguageRow PhpRow = new(
       LanguageId: "php",
@@ -171,14 +174,8 @@ public static class LspServerCatalog
       BashRow,
   ];
 
-  /// <summary>The C# server as a downloadable package.</summary>
-  public static LspServerPackage CSharp { get; } = new(
-      LanguageId: CSharpRow.LanguageId,
-      PackageId: CSharpRow.PackageId,
-      Version: CSharpRow.Version,
-      Sha512: CSharpRow.Checksum!,
-      EntryPointRelativePath: CSharpRow.EntryPointRelativePath,
-      ServerFileName: CSharpRow.ServerFileName);
+  /// <summary>The C# row, the one language this app installs without being asked.</summary>
+  public static LspLanguageRow CSharp => CSharpRow;
 
   /// <summary>The row serving a language, or null when the language has none. A language with
   ///     no row is the ordinary absent-server case, never an error.</summary>
