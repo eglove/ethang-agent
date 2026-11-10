@@ -4,11 +4,11 @@ using eThangAgent.ToolDomain.Lsp;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
-/// <summary>Drives the REAL bundled Roslyn server through the production daemon
-/// executable and the production pipe protocol, so the path an edit takes is exercised
-/// end to end: connect cold, ask for diagnostics, announce a changed file, ask again.
-/// Opt-in by trait - it needs a built daemon and a machine where Roslyn can load the
-/// workspace - and out of the default suite. Run it with
+/// <summary>Diagnostics reported by two REAL servers, one per language the tier covers:
+/// the bundled Roslyn server through the production daemon executable and the production
+/// pipe protocol, and rust-analyzer through the production server set. Opt-in by trait -
+/// it needs a built daemon, a machine where Roslyn can load the workspace, and a Rust
+/// toolchain - and out of the default suite. Run it with
 /// --filter-trait "Category=OptIn" with ETHANG_LSP_REAL_SERVER=1.</summary>
 [Trait("Category", "OptIn")]
 [Trait("Category", "RealLspServer")]
@@ -16,6 +16,72 @@ namespace eThangAgent.Lsp.ACL.Tests;
 public class LspRealServerDiagnosticsTests
 {
   private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+  /// <summary>rust-analyzer is installed from its pinned archive, started as a real process,
+  ///     and asked for the diagnostics of a fixture .rs file that will not compile. The
+  ///     document is opened first through the production watcher path, because a server that
+  ///     has not been told about a file reports nothing for it.
+  ///     <para>The error is a type mismatch, so it needs a real analysis rather than a parse:
+  ///     a server answering from a syntax-only fallback could not produce it.</para></summary>
+  [Fact]
+  public async Task RustAnalyzer_ReportsTheTypeErrorOfAFixtureFile()
+  {
+    OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
+        "with a Rust toolchain on PATH for rust-analyzer to analyse the fixture with.");
+
+    LspLanguageRow row = LspServerCatalog.ForLanguage("rust")!;
+    string serverPath = await RealServerWorkspace.InstallAsync(row, "rust-diagnostics", Ct);
+    string workspace = TestTempRoot.CreateDirectory("real-rust-diagnostics-ws").FullName;
+    string file = Path.Combine(workspace, "src", "main.rs");
+    _ = Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+    File.WriteAllLines(Path.Combine(workspace, "Cargo.toml"),
+    [
+        "[package]",
+        "name = \"probe\"",
+        "version = \"0.1.0\"",
+        "edition = \"2021\"",
+        "",
+    ]);
+    File.WriteAllLines(file,
+    [
+        "fn main() {",
+        "    let value: i32 = \"not an int\";",
+        "    let _ = value;",
+        "}",
+    ]);
+    const string WorkspaceId = "real-rust-diagnostics";
+
+    using LspServerSet set = await LspServerSet.StartAsync(
+        [new LspServerLaunch("rust", serverPath, row.Version)], WorkspaceId, workspace, Ct);
+    Assert.Equal(1, set.Count);
+
+    await set.ApplyAnnouncementAsync(
+        new WatcherAnnouncement(WorkspaceId, ["src/main.rs"], [], 1, DateTimeOffset.UtcNow), Ct);
+
+    LspDiagnosticsResult result = await PollForDiagnosticsAsync(set, file);
+
+    Assert.Equal(LspDiagnosticsState.Ready, result.State);
+    Assert.Equal("rust", result.LanguageId);
+    LspDiagnostic error = Assert.Single(result.Diagnostics, d => d.Code == "E0308");
+    Assert.Equal(1, error.StartLine);
+    Assert.Contains("expected i32", error.Message, StringComparison.Ordinal);
+  }
+
+  /// <summary>Asks for the diagnostics until the server has analysed the fixture. A server
+  ///     answers an empty list while its crate graph is still loading. The wait is bounded by
+  ///     the run's ceiling.</summary>
+  private static async Task<LspDiagnosticsResult> PollForDiagnosticsAsync(LspServerSet set, string file)
+  {
+    LspDiagnosticsResult result = await set.GetDiagnosticsAsync(file, Ct).ConfigureAwait(true);
+    System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+    while (result.Diagnostics.Count == 0 && elapsed.Elapsed < TestCeiling.Value)
+    {
+      await Task.Delay(1000, Ct).ConfigureAwait(true);
+      result = await set.GetDiagnosticsAsync(file, Ct).ConfigureAwait(true);
+    }
+
+    return result;
+  }
 
   [Fact]
   public async Task AdvisoryDiagnostics_ColdQueryThenAnnouncement_ReturnsTheTypeError()

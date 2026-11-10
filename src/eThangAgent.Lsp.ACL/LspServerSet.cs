@@ -307,12 +307,20 @@ public sealed class LspServerSet : IDisposable
   }
 
   /// <summary>The symbol answer from the server claiming the document's extension. A path no
-  ///     running server claims is answered with an empty Ready result, never an error.</summary>
+  ///     running server claims is answered with an empty Ready result, never an error.
+  ///     <para>An action that names no document is the SET's, not one server's: a workspace
+  ///     load asks every server to load its workspace, because routing by a path no server
+  ///     claims would answer Ready while no server had been asked anything.</para></summary>
   public async Task<LspSymbolResult> QuerySymbolAsync(
       string action, string uri, string symbolName, int occurrence, int depth, string newName,
       CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(action);
+    if (string.Equals(action, WorkspaceLoadAction, StringComparison.Ordinal))
+    {
+      return await LoadEveryServerAsync(occurrence, depth, ct).ConfigureAwait(false);
+    }
+
     LspRunningServer? server = ServerForUri(uri);
     if (server is null)
     {
@@ -322,6 +330,32 @@ public sealed class LspServerSet : IDisposable
     return await server.Symbols
         .ExecuteAsync(action, uri, symbolName, occurrence, depth, newName, ct)
         .ConfigureAwait(false);
+  }
+
+  /// <summary>The action that asks a server to load its workspace rather than answer about a
+  ///     document.</summary>
+  private const string WorkspaceLoadAction = "workspace-load";
+
+  /// <summary>Asks every running server to load its workspace and reports the first one that
+  ///     has not: a caller that sees Ready learns that every language is loaded, and a caller
+  ///     that sees Starting learns which one is not.</summary>
+  private async Task<LspSymbolResult> LoadEveryServerAsync(int occurrence, int depth, CancellationToken ct)
+  {
+    LspSymbolResult result = new(LspSymbolState.Ready, [], occurrence, 1);
+    foreach (LspRunningServer server in _servers)
+    {
+      LspSymbolResult answered = await server.Symbols
+          .ExecuteAsync(WorkspaceLoadAction, string.Empty, string.Empty, occurrence, depth, string.Empty, ct)
+          .ConfigureAwait(false);
+      if (answered.State != LspSymbolState.Ready)
+      {
+        return answered;
+      }
+
+      result = answered;
+    }
+
+    return result;
   }
 
   /// <summary>Forwards one watcher announcement to every running server. Each server applies

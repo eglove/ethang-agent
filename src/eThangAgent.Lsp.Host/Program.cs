@@ -16,6 +16,11 @@ Console.Out.Flush();
 string appDir = AppContext.BaseDirectory;
 LspServerProvisioner provisioner = LspServerProvisioner.CreateDefault(appDir, workspaceRoot);
 
+// The workspace's servers, started once. The restart hook reuses this set instead of
+// starting a second one: every accepted connection runs the hook, so a hook that started
+// its own servers would launch a duplicate set per connection and leak the previous one.
+LspServerSet? started = null;
+
 using LspDaemonServer server = new(pipeName, workspaceId, () => Task.CompletedTask);
 server.AttachServers(StartWorkspaceServersAsync);
 server.AttachRestartHook(async ct =>
@@ -32,16 +37,22 @@ catch (Exception ex)
   Console.Error.WriteLine("daemon-failed: " + ex.Message);
   return 1;
 }
+finally
+{
+  started?.Dispose();
+}
 
 Console.Out.WriteLine("daemon-ready " + workspaceId);
 Console.Out.Flush();
 return 0;
 
-// Starts one server per language the workspace holds and this machine has. A language
-// nobody installed starts nothing, and the daemon answers its pipe while the servers are
-// still starting.
 async Task<LspServerSet> StartWorkspaceServersAsync(CancellationToken ct)
 {
+  if (started is not null)
+  {
+    return started;
+  }
+
   List<LspServerLaunch> launches = [];
   foreach (DetectedLanguage detected in LspWorkspaceLanguages.Detect(workspaceRoot))
   {
@@ -68,5 +79,6 @@ async Task<LspServerSet> StartWorkspaceServersAsync(CancellationToken ct)
     launches.Add(launch);
   }
 
-  return await LspServerSet.StartAsync(launches, workspaceId, workspaceRoot, ct);
+  started = await LspServerSet.StartAsync(launches, workspaceId, workspaceRoot, ct);
+  return started;
 }

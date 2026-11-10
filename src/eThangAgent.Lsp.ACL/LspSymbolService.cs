@@ -386,12 +386,12 @@ public sealed partial class LspSymbolService
       {
         foreach (JsonElement item in root.EnumerateArray())
         {
-          sites.Add(ParseLocation(item, symbolName));
+          Add(sites, ParseLocation(item, symbolName));
         }
       }
       else if (root.ValueKind == JsonValueKind.Object)
       {
-        sites.Add(ParseLocation(root, symbolName));
+        Add(sites, ParseLocation(root, symbolName));
       }
     }
     catch (JsonException)
@@ -399,6 +399,14 @@ public sealed partial class LspSymbolService
     }
 
     return Dedupe(sites);
+  }
+
+  private static void Add(List<LspSymbolSite> sites, LspSymbolSite? site)
+  {
+    if (site is not null)
+    {
+      sites.Add(site);
+    }
   }
 
   /// <summary>Collapses sites that name the same position. A server reports a type and the
@@ -419,14 +427,50 @@ public sealed partial class LspSymbolService
     return unique;
   }
 
-  private static LspSymbolSite ParseLocation(JsonElement item, string symbolName)
+  /// <summary>One result location. A definition answers with either a <c>Location</c>
+  ///     (<c>uri</c> + <c>range</c>) or a <c>LocationLink</c> (<c>targetUri</c> +
+  ///     <c>targetRange</c> + <c>targetSelectionRange</c>): the protocol allows both, and
+  ///     Roslyn answers the first while rust-analyzer answers the second. A member without
+  ///     either shape is not a location and contributes no site.</summary>
+  private static LspSymbolSite? ParseLocation(JsonElement item, string symbolName)
   {
-    string uri = item.TryGetProperty("uri", out JsonElement u) ? u.GetString() ?? string.Empty : string.Empty;
-    JsonElement range = item.GetProperty("range");
-    int line = range.GetProperty("start").GetProperty("line").GetInt32();
-    int ch = range.GetProperty("start").GetProperty("character").GetInt32();
-    string name = item.TryGetProperty("name", out JsonElement n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : symbolName;
-    return new LspSymbolSite(uri, line, ch, name);
+    if (item.ValueKind != JsonValueKind.Object)
+    {
+      return null;
+    }
+
+    bool isLink = item.TryGetProperty("targetUri", out JsonElement targetUri);
+    string? rawUri = null;
+    if (isLink)
+    {
+      rawUri = targetUri.GetString();
+    }
+    else if (item.TryGetProperty("uri", out JsonElement u))
+    {
+      rawUri = u.GetString();
+    }
+
+    string rangeName = isLink ? "targetSelectionRange" : "range";
+    if (!item.TryGetProperty(rangeName, out JsonElement range) || range.ValueKind != JsonValueKind.Object)
+    {
+      rangeName = isLink ? "targetRange" : rangeName;
+      if (!item.TryGetProperty(rangeName, out range) || range.ValueKind != JsonValueKind.Object)
+      {
+        return null;
+      }
+    }
+
+    if (!range.TryGetProperty("start", out JsonElement start)
+        || !start.TryGetProperty("line", out JsonElement lineEl)
+        || !start.TryGetProperty("character", out JsonElement characterEl))
+    {
+      return null;
+    }
+
+    string name = item.TryGetProperty("name", out JsonElement n) && n.ValueKind == JsonValueKind.String
+        ? n.GetString()!
+        : symbolName;
+    return new LspSymbolSite(rawUri ?? string.Empty, lineEl.GetInt32(), characterEl.GetInt32(), name);
   }
 
   public Task<LspSymbolResult> DefinitionAsync(string uri, string symbolName, int occurrence = 0, CancellationToken ct = default)
@@ -599,13 +643,13 @@ public sealed partial class LspSymbolService
         }
 
         JsonElement located = item.TryGetProperty("location", out JsonElement loc) && loc.ValueKind == JsonValueKind.Object ? loc : item;
-        if (!located.TryGetProperty("range", out _))
+        if (!located.TryGetProperty("range", out _) && !located.TryGetProperty("targetUri", out _))
         {
           continue;
         }
 
         string name = item.TryGetProperty("name", out JsonElement n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : string.Empty;
-        sites.Add(ParseLocation(located, name));
+        Add(sites, ParseLocation(located, name));
       }
     }
     catch (JsonException)
