@@ -157,11 +157,11 @@ public class LspServerInstallerTests
   [Fact]
   public void Catalog_CSharpRow_IsPinnedToARoslynServerWithAHash()
   {
-    LspServerPackage? package = LspServerCatalog.ForLanguage("csharp");
-    Assert.NotNull(package);
-    Assert.Contains("roslyn-language-server", package.PackageId, StringComparison.Ordinal);
-    Assert.Equal(88, package.Sha512.Length);
-    Assert.EndsWith("roslyn-language-server.exe", package.ServerFileName, StringComparison.Ordinal);
+    LspLanguageRow? row = LspServerCatalog.ForLanguage("csharp");
+    Assert.NotNull(row);
+    Assert.Contains("roslyn-language-server", row.PackageId, StringComparison.Ordinal);
+    Assert.Equal(88, row.Checksum!.Length);
+    Assert.EndsWith("roslyn-language-server.exe", row.ServerFileName, StringComparison.Ordinal);
   }
 
   [Fact]
