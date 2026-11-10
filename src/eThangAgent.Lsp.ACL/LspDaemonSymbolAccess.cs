@@ -20,6 +20,19 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     _fileExists = fileExists ?? File.Exists;
   }
 
+  /// <summary>The access over a workspace's daemon host: every query rides the one
+  ///     connection the host owns, so the symbol tool and the advisory diagnostics source
+  ///     share the daemon the claim gate uses.</summary>
+  public static LspDaemonSymbolAccess Create(LspDaemonHost host, Func<string, bool>? fileExists = null)
+  {
+    ArgumentNullException.ThrowIfNull(host);
+    return new LspDaemonSymbolAccess(host.EnsureConnectedAsync, fileExists) { Host = host };
+  }
+
+  /// <summary>The daemon host this access queries, or null when it was built over a
+  ///     caller-supplied client factory.</summary>
+  public LspDaemonHost? Host { get; private init; }
+
   public async Task<LspSymbolOutcome> ExecuteAsync(LspSymbolCommand command, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(command);

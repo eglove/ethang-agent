@@ -26,8 +26,6 @@ using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using CodeDetectionResult = eThangAgent.Lsp.ACL.CodeDetectionResult;
-using CodeDetector = eThangAgent.Lsp.ACL.CodeDetector;
 using LspAdvisoryDiagnosticsAccess = eThangAgent.Lsp.ACL.LspAdvisoryDiagnosticsAccess;
 using LspDaemonExePathOverride = eThangAgent.Lsp.ACL.LspDaemonExePathOverride;
 using LspDaemonHost = eThangAgent.Lsp.ACL.LspDaemonHost;
@@ -205,7 +203,7 @@ public static class AgentComposition
       new AgentToolBinding(
           new WriteTool(Resolver(sp),
               sp.GetRequiredService<IFileWriteAccess>(),
-              AdvisoryDiagnosticsSource(sp),
+              sp.GetRequiredService<LspAdvisoryDiagnosticsAccess>(),
               sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>(),
               ClaimGate(sp)),
           "Create or overwrite a workspace file."),
@@ -216,7 +214,7 @@ public static class AgentComposition
       new AgentToolBinding(
           new EditTool(Resolver(sp),
               sp.GetRequiredService<IFileEditAccess>(),
-              AdvisoryDiagnosticsSource(sp),
+              sp.GetRequiredService<LspAdvisoryDiagnosticsAccess>(),
               sp.GetRequiredService<SessionAdvisoryDiagnosticsLedger>(),
               ClaimGate(sp)),
           "Edit a file by exact literal replacement."),
@@ -231,10 +229,11 @@ public static class AgentComposition
   ///     session id is read lazily from RootSessionIdentity, which the factory fills after
   ///     the container builds; before that the gate is inert and the tool proceeds unclaimed
   ///     rather than refusing a session that has no id yet.
-  ///     <para>The STORE is chosen by code detection. A code workspace's daemon already
-  ///     holds the shared table; a workspace with no code starts no daemon, and a gate over
-  ///     a daemon that does not exist would grant every write, so it reads the app database
-  ///     instead - the one store every host of a code-less workspace shares.</para></summary>
+  ///     <para>The STORE is chosen by the daemon host's own language detection, so the gate
+  ///     and the daemon can never disagree. A workspace holding a language this app serves
+  ///     has a daemon that already holds the shared table; one holding none starts no daemon,
+  ///     and a gate over a daemon that does not exist would grant every write, so it reads the
+  ///     app database instead - the one store every host of such a workspace shares.</para></summary>
   private static IFileClaimGate? ClaimGate(IServiceProvider sp)
   {
     string? sessionId = sp.GetRequiredService<RootSessionIdentity>().Id?.ToString();
@@ -244,23 +243,24 @@ public static class AgentComposition
     }
 
     IWorkspaceContext workspace = sp.GetRequiredService<IWorkspaceContext>();
-    if (CodeDetector.Detect(workspace.WorkspaceRoot) == CodeDetectionResult.NotFound)
-    {
-      return new FileClaimGate(
-          new SqliteFileClaimStore(sp.GetRequiredService<AppDatabase>()),
-          workspace.WorkspaceId,
-          sessionId,
-          sp.GetRequiredService<Func<DateTimeOffset>>());
-    }
-
     LspDaemonHost daemon = sp.GetRequiredService<LspDaemonHost>();
-    return new LspPipeClaimGate(daemon.EnsureConnectedAsync, sessionId);
+    return daemon.HasLanguages
+        ? new LspPipeClaimGate(daemon.EnsureConnectedAsync, sessionId)
+        : new FileClaimGate(
+            new SqliteFileClaimStore(sp.GetRequiredService<AppDatabase>()),
+            workspace.WorkspaceId,
+            sessionId,
+            sp.GetRequiredService<Func<DateTimeOffset>>());
   }
 
   /// <summary>The language-server daemon this container owns: one per workspace, started
   ///     at workspace start (see <see cref="StartLspDaemon"/>), so the language server is
-  ///     already warming before the first query. A workspace with no code starts no daemon.
-  ///     Connecting also starts the workspace watcher's forwarding subscription.</summary>
+  ///     already warming before the first query. A workspace holding no detected language
+  ///     starts no daemon. Connecting also starts the workspace watcher's forwarding
+  ///     subscription.
+  ///     <para>DETECTION comes from the container's own detector seam, so the daemon, the
+  ///     claim gate, and the settings page all read one answer about what this workspace
+  ///     holds.</para></summary>
   private static LspDaemonHost DaemonHost(IServiceProvider sp)
   {
     IWorkspaceContext workspace = sp.GetRequiredService<IWorkspaceContext>();
@@ -269,7 +269,8 @@ public static class AgentComposition
         workspace.WorkspaceRoot,
         Guid.NewGuid().ToString("N"),
         () => sp.GetRequiredService<LspDaemonExePathOverride>().Path,
-        WatchWorkspace(sp));
+        WatchWorkspace(sp),
+        root => sp.GetRequiredService<IWorkspaceLanguageDetector>().Detect(root));
   }
 
   /// <summary>Starts the workspace watcher on first demand and hands it to the daemon host,
@@ -289,15 +290,6 @@ public static class AgentComposition
       watcher.Start();
       return watcher;
     };
-  }
-
-  /// <summary>The advisory diagnostics source edit/write consult: a pipe query to the
-  ///     workspace's daemon. The factory is the daemon host's connect, so a COLD workspace
-  ///     starts the daemon on the first edit instead of reporting Unavailable forever.</summary>
-  private static LspAdvisoryDiagnosticsAccess AdvisoryDiagnosticsSource(IServiceProvider sp)
-  {
-    LspDaemonHost daemon = sp.GetRequiredService<LspDaemonHost>();
-    return new LspAdvisoryDiagnosticsAccess(daemon.EnsureConnectedAsync);
   }
 
   /// <summary>The trust-aware resolver every MUTATING file tool receives (issue #96): the
@@ -417,7 +409,7 @@ public static class AgentComposition
       // start (see StartLspDaemon), so the first query finds the server warming.
       new AgentToolBinding(
           new LspSymbolTool(sp.GetRequiredService<IPathResolver>(),
-              new LspDaemonSymbolAccess(ct => sp.GetRequiredService<LspDaemonHost>().EnsureConnectedAsync(ct)),
+              sp.GetRequiredService<LspDaemonSymbolAccess>(),
               sp.GetRequiredService<ILspRenameApplier>(),
               anchor => new LspRenameApplier(
                   sp.GetRequiredService<IFileSystemAccess>(),
@@ -1294,6 +1286,11 @@ public static class AgentComposition
         .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
         .AddSingleton<LspDaemonExePathOverride>()
         .AddSingleton(DaemonHost)
+        // The two pipe accessors over that one host: the symbol tool's navigation and the
+        // advisory diagnostics an edit consults. Singletons, so every tool in the container
+        // reaches the same connection the claim gate uses.
+        .AddSingleton(sp => LspDaemonSymbolAccess.Create(sp.GetRequiredService<LspDaemonHost>()))
+        .AddSingleton(sp => LspAdvisoryDiagnosticsAccess.Create(sp.GetRequiredService<LspDaemonHost>()))
         // The language-servers page's three seams: the catalog the page lists, the installer
         // that places a server on this machine, and the workspace detection a prompt reads.
         // All three resolve in a container with no language server installed, because none
@@ -1523,12 +1520,13 @@ public static class AgentComposition
   ///     conversation runs its turns in a ChildHost process that builds its own
   ///     container.</para>
   ///     <para>Idempotent (the host's own Start is), and a container without the daemon
-  ///     registrations (a headless test stub) skips silently. A workspace with no code
-  ///     starts no daemon, exactly as before.</para></summary>
+  ///     registrations (a headless test stub) skips silently. A workspace holding no
+  ///     detected language starts no daemon and is left unstarted, so a document workspace
+  ///     pays nothing for a language server it cannot use.</para></summary>
   public static void StartLspDaemon(IServiceProvider services)
   {
     ArgumentNullException.ThrowIfNull(services);
-    if (services.GetService(typeof(LspDaemonHost)) is LspDaemonHost daemon)
+    if (services.GetService(typeof(LspDaemonHost)) is LspDaemonHost daemon && daemon.HasLanguages)
     {
       _ = daemon.StartAsync();
     }

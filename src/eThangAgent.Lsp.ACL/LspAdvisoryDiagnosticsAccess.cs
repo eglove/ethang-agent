@@ -14,6 +14,18 @@ public sealed class LspAdvisoryDiagnosticsAccess : IAdvisoryDiagnosticsSource
   public LspAdvisoryDiagnosticsAccess(Func<CancellationToken, Task<LspPipeClient?>> clientFactory)
     => _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
 
+  /// <summary>The source over a workspace's daemon host: an edit's advisory query rides the
+  ///     same connection the symbol tool and the claim gate use.</summary>
+  public static LspAdvisoryDiagnosticsAccess Create(LspDaemonHost host)
+  {
+    ArgumentNullException.ThrowIfNull(host);
+    return new LspAdvisoryDiagnosticsAccess(host.EnsureConnectedAsync) { Host = host };
+  }
+
+  /// <summary>The daemon host this source queries, or null when it was built over a
+  ///     caller-supplied client factory.</summary>
+  public LspDaemonHost? Host { get; private init; }
+
   public async Task<AdvisoryDiagnosticsResult> GetAsync(string path, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(path);
