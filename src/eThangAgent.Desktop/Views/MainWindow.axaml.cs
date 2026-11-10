@@ -48,6 +48,7 @@ internal partial class MainWindow : Window
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelSettingsRequested += async (_, _) => await ShowModelSettingsDialogAsync();
     vm.McpServersRequested += async (_, _) => await ShowMcpServersDialogAsync();
+    vm.LanguageServersRequested += async (_, languageId) => await ShowLanguageServersAsync(languageId);
   }
 
   /// <summary>Shows the Sessions dialog (persisted root sessions, already-open ones
@@ -164,6 +165,20 @@ internal partial class MainWindow : Window
     await _vm.ApplySettingsAsync(update);
   }
 
+  /// <summary>Opens the language-servers page for the selected tab. A host that wired no
+  ///     language-server seams shows nothing rather than an empty page.</summary>
+  /// <param name="languageId">The language the requesting prompt named first.</param>
+  private async Task ShowLanguageServersAsync(string languageId)
+  {
+    if (LanguageServersPage()?.Invoke() is not { } page)
+    {
+      return;
+    }
+
+    page.SelectedLanguageId = languageId;
+    LanguageServersWindow dialog = new(page);
+    await dialog.ShowDialog(this);
+  }
   /// <summary>The language-servers page over the selected tab's own composition seams, or
   ///     null when this host wired none (the page is then not offered). The page is built per
   ///     open so its rows reflect the stored state at that moment.</summary>

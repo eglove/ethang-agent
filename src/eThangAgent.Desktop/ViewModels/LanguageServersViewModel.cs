@@ -168,6 +168,10 @@ internal sealed partial class LanguageServersViewModel : ObservableObject
 
   public IAsyncRelayCommand RefreshCommand { get; }
 
+  /// <summary>The language the page opens focused on, when a caller named one: the row the
+  ///     prompt that opened the page was about. Null or unknown = no row is selected.</summary>
+  [ObservableProperty]
+  public partial string? SelectedLanguageId { get; set; }
   /// <summary>The first failure the page has to report, or null when nothing failed.</summary>
   [ObservableProperty]
   public partial string? PageError { get; set; }

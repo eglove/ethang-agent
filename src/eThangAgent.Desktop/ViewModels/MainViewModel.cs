@@ -398,6 +398,10 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Raised when the shell wants the MCP servers dialog shown (issue #106).</summary>
   public event EventHandler? McpServersRequested;
 
+  /// <summary>Raised when a session's language-server prompt asks for the language-servers
+  ///     page, carrying the language the prompt named first. The shell opens it.</summary>
+  public event EventHandler<string>? LanguageServersRequested;
+
   /// <param name="createSession">Session-creation hook. Null in production — the shell
   ///     derives it from <paramref name="options"/> so saved keys can rebuild it; hosts
   ///     and tests that compose sessions themselves pass their own delegate and forgo
@@ -2896,9 +2900,19 @@ internal sealed partial class MainViewModel : ObservableObject
               ? HandleSessionRequestAsync(requestTab, request, session.RootId)
               : Task.CompletedTask,
           AgentEvents = session.Services.GetService<IAgentEvents>(),
-          // Plan #143 step 6: the status bar's language-server segment follows this
-          // container's daemon, so a first-run download is visible rather than a hang.
-          LspServerStatus = session.LspServerStatus,
+          // The per-workspace language-server prompt: the catalog names a language, the
+          // installer serves and installs it, the preference store holds the opt-out, and
+          // the workspace's own watcher re-runs detection when a language is added.
+          LanguageCatalog = session.Services.GetService<ILanguageServerCatalog>(),
+          LanguageInstaller = session.Services.GetService<ILanguageServerInstaller>(),
+          LanguageDetector = session.Services.GetService<IWorkspaceLanguageDetector>(),
+          Preferences = _preferences,
+          LanguageServersPage = languageId =>
+          {
+            LanguageServersRequested?.Invoke(this, languageId);
+            return Task.CompletedTask;
+          },
+          WorkspaceWatcher = session.Services.GetService<IFileWatcher>(),
           // Spec D6: the app runs NO agent work. A container built with the wire runtime
           // (every production session) resolves the channel here and every turn travels to
           // this conversation's host; a headless/test container that opted into the

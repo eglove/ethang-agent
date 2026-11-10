@@ -43,11 +43,29 @@ internal sealed record AgentSessionViewModelOptions
   ///     pickers.</summary>
   public SessionModelPreferences? ModelPreferences { get; init; }
 
-  /// <summary>The workspace's language-server status, as the daemon announces it (plan #143
-  ///     step 6). The status bar follows it so a first-run download is visible instead of
-  ///     looking like a hung app. Null = nothing to follow (a headless stub, or a container
-  ///     with no language-server seam), and the segment stays hidden.</summary>
-  public LspServerStatusMonitor? LspServerStatus { get; init; }
+  /// <summary>The language catalog the per-workspace prompt names a language from. Null =
+  ///     no prompt (a headless stub, or a container with no language-server seam).</summary>
+  public ILanguageServerCatalog? LanguageCatalog { get; init; }
+
+  /// <summary>The installer the prompt's Install-all command runs, and the source of the
+  ///     language ids this machine already serves. Null = no prompt.</summary>
+  public ILanguageServerInstaller? LanguageInstaller { get; init; }
+
+  /// <summary>The workspace detection the prompt is filled from. Null = no prompt.</summary>
+  public IWorkspaceLanguageDetector? LanguageDetector { get; init; }
+
+  /// <summary>The preference store holding the user's opt-out from prompting
+  ///     (<c>languageservers/promptDisabled</c>). Null = prompting is enabled.</summary>
+  public IAppPreferenceStore? Preferences { get; init; }
+
+  /// <summary>Opens the language-servers page for the prompt's Choose command. Null = the
+  ///     Choose command only dismisses.</summary>
+  public Func<string, Task>? LanguageServersPage { get; init; }
+
+  /// <summary>The workspace's file watcher: a change that adds a language the workspace did
+  ///     not hold re-runs detection, so the prompt can name it. Null = detection runs once,
+  ///     at session start.</summary>
+  public IFileWatcher? WorkspaceWatcher { get; init; }
 
   /// <summary>Runs ! commands (user-side shell utilities). Null = the surface reports
   ///     commands unavailable.</summary>
@@ -226,9 +244,19 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     bar's session cost. Null = nothing to seed from (headless stubs).</summary>
   private readonly IUsageQueries? _usageQueries;
 
-  /// <summary>The status bar's language-server subscription, released with the session.
-  ///     Null when the container wired no monitor (headless stubs).</summary>
-  private readonly LspStatusBinder? _lspStatus;
+  /// <summary>The workspace watcher's subscription, released with the session. Null when
+  ///     the container wired no watcher (headless stubs).</summary>
+  private IDisposable? _languageWatch;
+
+  /// <summary>The detection pass in flight, so each pass waits for the one before it.</summary>
+  private Task _languagePass = Task.CompletedTask;
+
+  /// <summary>The workspace's language detection, or null when the container wired none.
+  ///     Read on the pool: the walk touches every file in the workspace.</summary>
+  private readonly IWorkspaceLanguageDetector? _languageDetector;
+
+  /// <summary>The installer the prompt reads installed state from.</summary>
+  private readonly ILanguageServerInstaller? _languageInstaller;
 
   /// <summary>The session's bootstrap model (the provider default). Serves as the
   ///     status-bar display when the user returns the session to automatic choice.</summary>
@@ -317,6 +345,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   public TranscriptViewModel Transcript { get; } = new();
   public StatusViewModel Status { get; }
+
+  /// <summary>The per-workspace language-server prompt, or null when this container wired no
+  ///     language-server seam. Hidden until detection names a language this machine lacks.</summary>
+  public LanguagePromptViewModel? LanguagePrompt { get; }
 
   /// <summary>The workspace directory this agent works from (tab subtitle).</summary>
   public string WorkspaceRoot { get; }
@@ -637,10 +669,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // The session's model is ALWAYS NAMED (2026-10-22) - see ResolveServingModel.
     string servingModel = ResolveServingModel(_modelPreferences, modelId);
     Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
-    // The language-server segment follows the daemon from here (plan #143 step 6): a
-    // first-run download is otherwise invisible, and the bar is where a one-time wait
-    // belongs. Seeded on attach, so a session opened after the download shows it.
-    _lspStatus = LspStatusBinder.Attach(options.LspServerStatus, Status);
+    // The per-workspace prompt: the languages this repository holds and this machine
+    // cannot serve, named once and installable from here. A workspace that needs nothing
+    // renders nothing, and the session starts either way.
+    _languageDetector = options.LanguageDetector;
+    _languageInstaller = options.LanguageInstaller;
+    LanguagePrompt = BuildLanguagePrompt(options);
     _commandRunner = options.CommandRunner;
     _newSessionCommand = options.NewSessionCommand;
     _sessionRequestHandler = options.SessionRequestHandler;
@@ -672,6 +706,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // conversation message). Resume replays persisted history after it.
     Transcript.AddBootstrap(new BootstrapEntry(
         WorkspaceRoot, provider, modelId, SessionIdShort, options.SystemPrompt));
+    // After the UI marshal is in place: the first detection pass applies its answer through it.
+    StartLanguagePrompt(options.WorkspaceWatcher);
   }
 
 
@@ -696,6 +732,96 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
             Transcript.MarkDrained(id);
           }
         })));
+  }
+
+  /// <summary>The prompt over the container's language-server seams, or null when the
+  ///     container wired none. The Choose command runs the shell's own opener.</summary>
+  private static LanguagePromptViewModel? BuildLanguagePrompt(AgentSessionViewModelOptions options) =>
+      options.LanguageCatalog is { } catalog && options.LanguageInstaller is { } installer
+          ? new LanguagePromptViewModel(catalog, installer, options.Preferences,
+              options.LanguageServersPage)
+          : null;
+
+  /// <summary>Runs the first detection pass and, when the container wired a watcher, one
+  ///     more per announcement so a repository that gains a language still prompts.
+  ///     <para>Passes are SERIALIZED: each waits for the one before it, so a slow first walk
+  ///     can never overwrite a later pass's answer with its own.</para>
+  ///     <para>BEST EFFORT: detection walks the workspace off the UI thread, and a failure
+  ///     leaves the prompt hidden rather than failing the session.</para></summary>
+  private void StartLanguagePrompt(IFileWatcher? watcher)
+  {
+    if (LanguagePrompt is null || _languageDetector is null || _languageInstaller is null)
+    {
+      return;
+    }
+
+    RefreshLanguagePrompt();
+    _languageWatch = watcher?.Subscribe(_ =>
+    {
+      RefreshLanguagePrompt();
+      return Task.CompletedTask;
+    });
+  }
+
+  /// <summary>Queues one detection pass behind the one already running.</summary>
+  private void RefreshLanguagePrompt() => _languagePass = LanguagePassAsync(_languagePass);
+
+  /// <summary>One detection pass: the languages the workspace holds and the ones this
+  ///     machine serves, applied to the prompt on the UI thread.</summary>
+  private async Task LanguagePassAsync(Task previous)
+  {
+    await previous.ConfigureAwait(false);
+    if (LanguagePrompt is not { } prompt || _languageDetector is not { } detector
+        || _languageInstaller is not { } installer)
+    {
+      return;
+    }
+
+    string root = WorkspaceRoot;
+    IReadOnlyList<DetectedLanguage> detected;
+    IReadOnlyList<string> installed;
+    try
+    {
+      detected = detector.Detect(root);
+      installed = installer.InstalledLanguageIds();
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      return;
+    }
+
+    TaskCompletionSource applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    try
+    {
+      _uiMarshal(() => _ = ApplyLanguagePromptAsync(prompt, detected, installed, applied));
+    }
+    catch (InvalidOperationException)
+    {
+      // A session torn down between the walk and the marshal has nothing left to prompt.
+      return;
+    }
+
+    await applied.Task.ConfigureAwait(false);
+  }
+
+  /// <summary>Applies one pass to the prompt and releases the waiting detection pass.
+  ///     Runs on the UI thread, because the prompt's properties are bound.</summary>
+  private static async Task ApplyLanguagePromptAsync(LanguagePromptViewModel prompt,
+      IReadOnlyList<DetectedLanguage> detected, IReadOnlyList<string> installed,
+      TaskCompletionSource applied)
+  {
+    try
+    {
+      await prompt.Present(detected, installed).ConfigureAwait(true);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      _ = ex.Message; // A prompt that cannot be applied leaves the session running.
+    }
+    finally
+    {
+      _ = applied.TrySetResult();
+    }
   }
 
   /// <summary>Builds this session's own workbench rail from the supplied seams (issue #8).
@@ -1316,7 +1442,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // M17: release decoded screenshot bitmaps when the tab shuts down.
     _drainLease?.Dispose();
     _drainLease = null;
-    _lspStatus?.Dispose();
+    _languageWatch?.Dispose();
+    _languageWatch = null;
     // Issue #8: stop the workbench's poller and detach its event subscriptions; a
     // closed tab must not keep reading the database once a second.
     // Issue #307 D6: a SHARED rail belongs to the tab, not to this cell - disposing it here

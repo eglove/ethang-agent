@@ -85,18 +85,6 @@
                fresh session's bar is unchanged. -->
           <TextBlock x:Name="CostText" Text="{Binding Status.CostDisplay}" ToolTip.Tip="{Binding Status.CostBreakdownText}" IsVisible="{Binding Status.CostDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
-          <!-- The language server (plan #143 step 6): the first run downloads a 64 MB server,
-               and without this the app looks hung for however long the fetch takes. Hidden
-               until the daemon announces something, so a workspace with no code - which never
-               announces - renders exactly the bar it always did.
-               A FIXED-ISH WIDTH AND TRIMMING, because this is the one segment whose text is
-               not the user's own short choice: a long version string must not be able to
-               widen the chat column (ChatNeverScrollsSidewaysTests). -->
-          <TextBlock x:Name="ServerStatusText" Text="{Binding Status.ServerDisplay}"
-                     ToolTip.Tip="{Binding Status.ServerBreakdownText}"
-                     IsVisible="{Binding Status.ServerDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                     MaxWidth="220" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                     DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock Text="{Binding Status.Provider}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock x:Name="ModelIdText" Text="{Binding Status.ModelId}" DockPanel.Dock="Left" Margin="0,0,12,0" TextTrimming="CharacterEllipsis"/>
           <!-- The committed routing variant (issue #296, D7/B6): the pair is the decision, so
@@ -153,6 +141,25 @@
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
+        <!-- The per-workspace language-server prompt: which languages this repository holds
+             and this machine cannot serve, with install-all, choose, and dismiss. Hidden
+             until detection names one, so a workspace that needs nothing renders nothing
+             and the session starts either way. -->
+        <Border x:Name="LanguagePromptBar" IsVisible="{Binding LanguagePrompt.IsVisible, Mode=OneWay}"
+                Background="#22000000" Padding="8,6" Margin="8,0,8,6" CornerRadius="6">
+          <DockPanel LastChildFill="True">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+              <Button x:Name="LanguagePromptInstallAll" Content="Install all"
+                      Command="{Binding LanguagePrompt.InstallAllCommand}"/>
+              <Button x:Name="LanguagePromptChoose" Content="Choose…"
+                      Command="{Binding LanguagePrompt.ChooseCommand}"/>
+              <Button x:Name="LanguagePromptDismiss" Content="Dismiss"
+                      Command="{Binding LanguagePrompt.DismissCommand}"/>
+            </StackPanel>
+            <TextBlock x:Name="LanguagePromptText" Text="{Binding LanguagePrompt.Message}"
+                       VerticalAlignment="Center" TextWrapping="Wrap"/>
+          </DockPanel>
+        </Border>
         <ItemsControl x:Name="PendingImagesList" ItemsSource="{Binding PendingImages, Mode=OneWay}"
                       IsVisible="{Binding HasPendingImages, Mode=OneWay}" Margin="8,0,8,4">
           <ItemsControl.ItemsPanel>
