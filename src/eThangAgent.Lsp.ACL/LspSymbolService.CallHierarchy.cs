@@ -19,18 +19,18 @@ public sealed partial class LspSymbolService
 
     if (depth is < 1 or > 2)
     {
-      return new LspSymbolResult(LspSymbolState.Unsupported, [], occurrence, 1, DepthMessage(depth));
+      return Result(LspSymbolState.Unsupported, [], occurrence, 1, DepthMessage(depth));
     }
 
     if (!_capabilities.Supports("textDocument/prepareCallHierarchy"))
     {
-      return Unsupported("textDocument/prepareCallHierarchy");
+      return Unsupported(incoming ? "call-hierarchy-incoming" : "call-hierarchy-outgoing");
     }
 
     LspSymbolResolution? resolution = await ResolveAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false);
     if (resolution is null)
     {
-      return Unsupported("textDocument/documentSymbol");
+      return Unsupported(incoming ? "call-hierarchy-incoming" : "call-hierarchy-outgoing", DocumentSymbolGap);
     }
 
     if (!resolution.Found)
@@ -44,16 +44,16 @@ public sealed partial class LspSymbolService
     {
       if (prep.ErrorCode == "Unsupported")
       {
-        return Unsupported("textDocument/prepareCallHierarchy");
+        return Unsupported(incoming ? "call-hierarchy-incoming" : "call-hierarchy-outgoing");
       }
 
-      return new LspSymbolResult(LspSymbolState.Degraded, [], occurrence, resolution.TotalOccurrences, prep.ErrorMessage);
+      return Result(LspSymbolState.Degraded, [], occurrence, resolution.TotalOccurrences, prep.ErrorMessage);
     }
 
     string? itemJson = FirstItemJson(prep.ResultJson);
     if (itemJson is null)
     {
-      return new LspSymbolResult(LspSymbolState.Ready, [], occurrence, resolution.TotalOccurrences);
+      return Result(LspSymbolState.Ready, [], occurrence, resolution.TotalOccurrences);
     }
 
     string method = incoming ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls";
@@ -70,10 +70,10 @@ public sealed partial class LspSymbolService
         {
           if (resp.ErrorCode == "Unsupported")
           {
-            return Unsupported(method);
+            return Unsupported(incoming ? "call-hierarchy-incoming" : "call-hierarchy-outgoing");
           }
 
-          return new LspSymbolResult(LspSymbolState.Degraded, all, occurrence, resolution.TotalOccurrences, resp.ErrorMessage);
+          return Result(LspSymbolState.Degraded, all, occurrence, resolution.TotalOccurrences, resp.ErrorMessage);
         }
 
         List<LspSymbolSite> sites = ParseCallHierarchyItems(resp.ResultJson, incoming);
@@ -87,7 +87,7 @@ public sealed partial class LspSymbolService
       frontier = next;
     }
 
-    return new LspSymbolResult(LspSymbolState.Ready, all, occurrence, resolution.TotalOccurrences);
+    return Result(LspSymbolState.Ready, all, occurrence, resolution.TotalOccurrences);
   }
 
   private static string DepthMessage(int depth) => "depth must be 1 or 2 (got " + depth + ")";

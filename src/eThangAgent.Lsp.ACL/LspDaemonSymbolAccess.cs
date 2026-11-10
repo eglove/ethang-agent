@@ -64,12 +64,12 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     return result.State switch
     {
       LspSymbolState.Ready when action == RenameAction => MapRename(result, symbolName, newName),
-      LspSymbolState.Ready => new LspSymbolOutcome.Ready(sites, result.OccurrenceUsed, result.TotalOccurrences, result.Message),
-      LspSymbolState.Unsupported => new LspSymbolOutcome.Unsupported(message),
-      LspSymbolState.Unavailable => new LspSymbolOutcome.Unavailable(message),
-      LspSymbolState.Starting => new LspSymbolOutcome.Starting(message),
-      LspSymbolState.Stale => new LspSymbolOutcome.Stale(message),
-      LspSymbolState.Degraded => new LspSymbolOutcome.Degraded(message),
+      LspSymbolState.Ready => new LspSymbolOutcome.Ready(sites, result.OccurrenceUsed, result.TotalOccurrences, result.Message, result.LanguageId),
+      LspSymbolState.Unsupported => new LspSymbolOutcome.Unsupported(message, result.LanguageId),
+      LspSymbolState.Unavailable => new LspSymbolOutcome.Unavailable(message, result.LanguageId),
+      LspSymbolState.Starting => new LspSymbolOutcome.Starting(message, result.LanguageId),
+      LspSymbolState.Stale => new LspSymbolOutcome.Stale(message, result.LanguageId),
+      LspSymbolState.Degraded => new LspSymbolOutcome.Degraded(message, result.LanguageId),
       _ => new LspSymbolOutcome.Degraded(message),
     };
   }
@@ -103,7 +103,7 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     List<LspRenameEdit> edits = [.. editSet.Documents.SelectMany(document =>
         document.Edits.Select(edit => new LspRenameEdit(
             FromUri(document.Uri), edit.StartLine, edit.StartCharacter, edit.EndLine, edit.EndCharacter, edit.NewText)))];
-    return new LspSymbolOutcome.Renamed(edits, target, newName, Applied: false, result.Message);
+    return new LspSymbolOutcome.Renamed(edits, target, newName, Applied: false, result.Message, result.LanguageId);
   }
 
   private static string FromUri(string uri)

@@ -26,7 +26,9 @@ public sealed record LspDiagnostic(
     string Message,
     int? Severity);
 
-public sealed record LspDiagnosticsResult(LspDiagnosticsState State, IReadOnlyList<LspDiagnostic> Diagnostics);
+/// <summary>A diagnostics report and the language whose server produced it, or null when
+/// no server was reached.</summary>
+public sealed record LspDiagnosticsResult(LspDiagnosticsState State, IReadOnlyList<LspDiagnostic> Diagnostics, string? LanguageId = null);
 
 /// <summary>Merges push (publishDiagnostics) and pull (textDocument/diagnostic)
 /// diagnostics by identity. Push is primary for C# (OmniSharp is push-only per

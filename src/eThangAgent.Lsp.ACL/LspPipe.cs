@@ -302,7 +302,7 @@ public sealed class LspPipeClient : IDisposable
           code, d["message"]?.GetValue<string>() ?? string.Empty));
       }
     }
-    return new AdvisoryDiagnosticsResult(state, diagnostics);
+    return new AdvisoryDiagnosticsResult(state, diagnostics, LanguageId: result["languageId"]?.GetValue<string>());
   }
 
   /// <summary>Issues one lsp.symbol query and returns the daemon's answer.</summary>
@@ -344,7 +344,8 @@ public sealed class LspPipeClient : IDisposable
         sites,
         result["occurrenceUsed"]?.GetValue<int>() ?? 0,
         result["totalOccurrences"]?.GetValue<int>() ?? 1,
-        result["message"]?.GetValue<string>());
+        result["message"]?.GetValue<string>(),
+        result["languageId"]?.GetValue<string>());
   }
 
   /// <summary>Asks the daemon to stop when this is its last client. Answers true when the
@@ -713,6 +714,7 @@ public sealed class LspDaemonServer : IDisposable
           ["occurrenceUsed"] = result.OccurrenceUsed,
           ["totalOccurrences"] = result.TotalOccurrences,
           ["message"] = result.Message ?? string.Empty,
+          ["languageId"] = result.LanguageId ?? string.Empty,
           ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()),
         },
       };
@@ -742,7 +744,16 @@ public sealed class LspDaemonServer : IDisposable
         if (d.Code is not null) o["code"] = d.Code;
         diagnostics.Add(o);
       }
-      JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["diagnostics"] = diagnostics } };
+      JsonObject reply = new()
+      {
+        ["id"] = idEl.GetInt32(),
+        ["result"] = new JsonObject
+        {
+          ["state"] = result.State.ToString(),
+          ["languageId"] = result.LanguageId ?? string.Empty,
+          ["diagnostics"] = diagnostics,
+        },
+      };
       await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
     }
     catch (JsonException) { }

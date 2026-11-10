@@ -247,8 +247,8 @@ public sealed class LspServerSet : IDisposable
           _ = model.HandleNotification(json);
         }
       });
-      LspDiagnosticsService diagnostics = new(connection.Transport, store, connection.Client.Capabilities, model);
-      LspSymbolService symbols = new(connection.Transport, connection.Client.Capabilities, model);
+      LspDiagnosticsService diagnostics = new(connection.Transport, store, connection.Client.Capabilities, model, row.LanguageId);
+      LspSymbolService symbols = new(connection.Transport, connection.Client.Capabilities, model, row.LanguageId);
       return new LspRunningServer(
           row, launch, connection, documents,
           new LspServerDiagnosticsQuery(diagnostics),

@@ -46,12 +46,12 @@ public sealed class LspSymbolAccess : ILspSymbolAccess
     List<ToolDomain.Lsp.LspSymbolSite> sites = [.. result.Sites.Select(s => new ToolDomain.Lsp.LspSymbolSite(FromUri(s.Uri), s.Line, s.Character, s.SymbolName))];
     return result.State switch
     {
-      LspSymbolState.Ready => new LspSymbolOutcome.Ready(sites, result.OccurrenceUsed, result.TotalOccurrences, result.Message),
-      LspSymbolState.Unsupported => new LspSymbolOutcome.Unsupported(message),
-      LspSymbolState.Unavailable => new LspSymbolOutcome.Unavailable(message),
-      LspSymbolState.Starting => new LspSymbolOutcome.Starting(message),
-      LspSymbolState.Stale => new LspSymbolOutcome.Stale(message),
-      LspSymbolState.Degraded => new LspSymbolOutcome.Degraded(message),
+      LspSymbolState.Ready => new LspSymbolOutcome.Ready(sites, result.OccurrenceUsed, result.TotalOccurrences, result.Message, result.LanguageId),
+      LspSymbolState.Unsupported => new LspSymbolOutcome.Unsupported(message, result.LanguageId),
+      LspSymbolState.Unavailable => new LspSymbolOutcome.Unavailable(message, result.LanguageId),
+      LspSymbolState.Starting => new LspSymbolOutcome.Starting(message, result.LanguageId),
+      LspSymbolState.Stale => new LspSymbolOutcome.Stale(message, result.LanguageId),
+      LspSymbolState.Degraded => new LspSymbolOutcome.Degraded(message, result.LanguageId),
       _ => new LspSymbolOutcome.Degraded(message),
     };
   }

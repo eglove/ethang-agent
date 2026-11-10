@@ -34,11 +34,13 @@ public sealed record AdvisoryDiagnostic(
 
 /// <summary>Result of an advisory diagnostics query: explicit state plus diagnostics.
 /// Empty is never clean: a file with no diagnostics yet reports Starting, never Ready
-/// with zero items unless the server has actually reported for it.</summary>
+/// with zero items unless the server has actually reported for it. <c>LanguageId</c> names
+/// the language whose server produced the report, or null when no server was reached.</summary>
 public sealed record AdvisoryDiagnosticsResult(
     AdvisoryDiagnosticsState State,
     IReadOnlyList<AdvisoryDiagnostic> Diagnostics,
-    string? Reason = null);
+    string? Reason = null,
+    string? LanguageId = null);
 
 /// <summary>One recorded advisory lookup: the file, its honesty label, and the
 /// diagnostics scoped to the changed lines at query time.</summary>

@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain.Lsp;
@@ -58,7 +59,8 @@ public class LspServerSetTests
       Asked.Add(uri);
       return Task.FromResult(new LspDiagnosticsResult(
           LspDiagnosticsState.Ready,
-          [new LspDiagnostic(uri, 0, 0, 0, 1, _languageId, "reported by " + _languageId, 1)]));
+          [new LspDiagnostic(uri, 0, 0, 0, 1, _languageId, "reported by " + _languageId, 1)],
+          _languageId));
     }
 
     public void BeginRestart()
@@ -80,7 +82,7 @@ public class LspServerSetTests
     {
       Asked.Add(action + " " + uri);
       return Task.FromResult(new LspSymbolResult(
-          LspSymbolState.Ready, [new LspSymbolSite(uri, 1, 2, _languageId)], occurrence, 1));
+          LspSymbolState.Ready, [new LspSymbolSite(uri, 1, 2, _languageId)], occurrence, 1, LanguageId: _languageId));
     }
   }
 
@@ -139,6 +141,11 @@ public class LspServerSetTests
 
     Assert.Equal("csharp", Assert.Single(csharpSymbol.Sites).SymbolName);
     Assert.Equal("rust", Assert.Single(rustSymbol.Sites).SymbolName);
+
+    Assert.Equal("csharp", csharp.LanguageId);
+    Assert.Equal("rust", rust.LanguageId);
+    Assert.Equal("csharp", csharpSymbol.LanguageId);
+    Assert.Equal("rust", rustSymbol.LanguageId);
   }
 
   /// <summary>The plan's example: a Rust workspace on a machine without rust-analyzer runs
@@ -266,5 +273,80 @@ public class LspServerSetTests
   {
     Assert.Equal(0, LspServerSet.Empty.Count);
     Assert.Empty(LspServerSet.Empty.Servers);
+  }
+
+  /// <summary>The plan's example: a shell file whose server advertises no rename answers with
+  ///     the action and the language. The capabilities record is the fake, and the service
+  ///     behind the set is the real one, so the message under test is the one a caller sees.
+  ///     </summary>
+  [Fact]
+  public async Task Rename_OnAServerWithoutTheCapability_NamesTheActionAndTheLanguage()
+  {
+    FakeStarter starter = new();
+    LspServerSet started = await LspServerSet.StartAsync([Launch("bash")], "ws-9", NewTree(), starter, Ct);
+    using LspServerSet set = WithRealSymbolService(started, LspCapabilities.None with { DocumentSymbolProvider = true });
+
+    LspSymbolResult rename = await set.QuerySymbolAsync(
+        "rename", LspUriMapper.ToUri("C:\\ws\\run.sh"), "greet", 0, 1, "hello", Ct);
+
+    Assert.Equal(LspSymbolState.Unsupported, rename.State);
+    Assert.Equal("rename is not supported by the bash server", rename.Message);
+    Assert.Equal("bash", rename.LanguageId);
+  }
+
+  /// <summary>A supported action on the same server still returns its payload, so the
+  ///     unsupported answer is a gap in one capability and not a broken server.</summary>
+  [Fact]
+  public async Task ASupportedAction_OnTheSameServer_StillReturnsItsPayload()
+  {
+    FakeStarter starter = new();
+    LspServerSet started = await LspServerSet.StartAsync([Launch("bash")], "ws-10", NewTree(), starter, Ct);
+    using LspServerSet set = WithRealSymbolService(started, LspCapabilities.None with { DocumentSymbolProvider = true });
+    set.ForLanguage("bash")!.Transport.EnqueueIncomingForTest(
+        new JsonObject
+        {
+          ["jsonrpc"] = "2.0",
+          ["id"] = 1,
+          ["result"] = new JsonArray(new JsonObject
+          {
+            ["name"] = "greet",
+            ["range"] = Span(0, 6, 0, 11),
+            ["selectionRange"] = Span(0, 6, 0, 11),
+          }),
+        }.ToJsonString());
+
+    LspSymbolResult symbols = await set.QuerySymbolAsync(
+        "document-symbols", LspUriMapper.ToUri("C:\\ws\\run.sh"), string.Empty, 0, 1, string.Empty, Ct);
+
+    Assert.Equal(LspSymbolState.Ready, symbols.State);
+    Assert.Equal("bash", symbols.LanguageId);
+    Assert.Equal("greet", Assert.Single(symbols.Sites).SymbolName);
+  }
+
+  private static JsonObject Span(int startLine, int startCharacter, int endLine, int endCharacter)
+    => new()
+    {
+      ["start"] = new JsonObject { ["line"] = startLine, ["character"] = startCharacter },
+      ["end"] = new JsonObject { ["line"] = endLine, ["character"] = endCharacter },
+    };
+
+  /// <summary>Swaps each started server's symbol query for the real service over that server's
+  ///     own transport, so a capability gate is exercised without a language server behind it.
+  ///     </summary>
+  private static LspServerSet WithRealSymbolService(LspServerSet set, LspCapabilities capabilities)
+  {
+    List<LspRunningServer> replaced = [];
+    foreach (LspRunningServer server in set.Servers)
+    {
+      replaced.Add(new LspRunningServer(
+          server.Row, server.Launch,
+          server.Connection,
+          server.Documents,
+          server.Diagnostics,
+          new LspServerSymbolQuery(
+              new LspSymbolService(server.Transport, capabilities, workspace: null, languageId: server.LanguageId))));
+    }
+
+    return LspServerSet.FromServers(replaced);
   }
 }

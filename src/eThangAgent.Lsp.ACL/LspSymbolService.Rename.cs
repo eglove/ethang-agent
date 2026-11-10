@@ -15,13 +15,13 @@ public sealed partial class LspSymbolService
 
     if (!_capabilities.Supports("textDocument/rename"))
     {
-      return Unsupported("textDocument/rename");
+      return Unsupported("rename");
     }
 
     LspSymbolResolution? resolution = await ResolveAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false);
     if (resolution is null)
     {
-      return Unsupported("textDocument/documentSymbol");
+      return Unsupported("rename", DocumentSymbolGap);
     }
 
     if (!resolution.Found)
@@ -35,15 +35,15 @@ public sealed partial class LspSymbolService
     {
       if (response.ErrorCode == "Unsupported")
       {
-        return Unsupported("textDocument/rename");
+        return Unsupported("rename");
       }
 
-      return new LspSymbolResult(LspSymbolState.Degraded, [], occurrence, resolution.TotalOccurrences, response.ErrorMessage);
+      return Result(LspSymbolState.Degraded, [], occurrence, resolution.TotalOccurrences, response.ErrorMessage);
     }
 
     return IsEmptyEditSet(response.ResultJson)
-        ? new LspSymbolResult(LspSymbolState.Ready, [], occurrence, resolution.TotalOccurrences, NoRenameEditsMessage)
-        : new LspSymbolResult(LspSymbolState.Ready, [], occurrence, resolution.TotalOccurrences, response.ResultJson);
+        ? Result(LspSymbolState.Ready, [], occurrence, resolution.TotalOccurrences, NoRenameEditsMessage)
+        : Result(LspSymbolState.Ready, [], occurrence, resolution.TotalOccurrences, response.ResultJson);
   }
 
   private const string NoRenameEditsMessage = "the server returned no edits for this rename";
