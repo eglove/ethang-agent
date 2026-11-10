@@ -94,7 +94,8 @@ public sealed class DirectDocxAccessFormatTests : IDisposable
     _ = await EditAsync(path, snap.Version, new ApplyRunFormatting("p1", new DocxRunFormat(true, null, null, null, null)));
     using WordprocessingDocument doc = WordprocessingDocument.Open(path, false);
     MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("no main part");
-    Body body = main.Document.Body ?? throw new InvalidOperationException("no body");
+    Document document = main.Document ?? throw new InvalidOperationException("no document");
+    Body body = document.Body ?? throw new InvalidOperationException("no body");
     Paragraph first = body.Elements<Paragraph>().First();
     List<Run> runs = [.. first.Elements<Run>()];
     Assert.Equal(2, runs.Count);
@@ -112,7 +113,8 @@ public sealed class DirectDocxAccessFormatTests : IDisposable
     _ = await EditAsync(path, snap.Version, new ApplyRunFormatting("p1", new DocxRunFormat(true, null, null, null, null)));
     using WordprocessingDocument doc = WordprocessingDocument.Open(path, false);
     MainDocumentPart main2 = doc.MainDocumentPart ?? throw new InvalidOperationException("no main part");
-    Body body2 = main2.Document.Body ?? throw new InvalidOperationException("no body");
+    Document document2 = main2.Document ?? throw new InvalidOperationException("no document");
+    Body body2 = document2.Body ?? throw new InvalidOperationException("no body");
     Run plain = body2.Descendants<Run>().ToList()[1];
     RunProperties? props = plain.RunProperties;
     Assert.NotNull(props?.Bold);
@@ -129,7 +131,8 @@ public sealed class DirectDocxAccessFormatTests : IDisposable
     _ = await EditAsync(path, snap.Version, new ApplyRunFormatting("p2", new DocxRunFormat(null, null, true, 24, "FF0000")));
     using WordprocessingDocument doc = WordprocessingDocument.Open(path, false);
     MainDocumentPart main3 = doc.MainDocumentPart ?? throw new InvalidOperationException("no main part");
-    Body body3 = main3.Document.Body ?? throw new InvalidOperationException("no body");
+    Document document3 = main3.Document ?? throw new InvalidOperationException("no document");
+    Body body3 = document3.Body ?? throw new InvalidOperationException("no body");
     Run run = body3.Descendants<Run>().ToList()[2];
     RunProperties? props2 = run.RunProperties;
     Assert.NotNull(props2?.Underline);
@@ -148,7 +151,7 @@ public sealed class DirectDocxAccessFormatTests : IDisposable
     DocxEditOutcome outcome = await EditAsync(path, snap.Version, new FindReplace("Hello", "Hi"));
     Assert.Equal(1, outcome.ChangedBlocks);
     using WordprocessingDocument doc = WordprocessingDocument.Open(path, false);
-    Paragraph para = doc.MainDocumentPart!.Document.Body!.Elements<Paragraph>().First();
+    Paragraph para = doc.MainDocumentPart!.Document!.Body!.Elements<Paragraph>().First();
     List<Run> runs = [.. para.Elements<Run>()];
     Run hi = Assert.Single(runs);
     Assert.Equal("Hi", hi.GetFirstChild<Text>()!.Text);

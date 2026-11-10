@@ -11,6 +11,6 @@
     <AssemblyName>ethang-mcp-stubserver</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol" Version="2.2.*" />
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
   </ItemGroup>
 </Project>

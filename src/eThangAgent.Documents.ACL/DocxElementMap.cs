@@ -18,7 +18,8 @@ public static class DocxElementMap
   {
     ArgumentNullException.ThrowIfNull(doc);
     MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
-    Body body = main.Document.Body ?? throw new InvalidOperationException("document has no body");
+    Document document = main.Document ?? throw new InvalidOperationException("document has no document");
+    Body body = document.Body ?? throw new InvalidOperationException("document has no body");
     List<OpenXmlElement> blocks = [.. body.ChildElements.Where(child => child is Paragraph or Table)];
 
     List<SectionProperties> sectPrs =
@@ -129,7 +130,8 @@ public static class DocxElementMap
         continue;
       }
 
-      foreach (Paragraph para in part.Header.Elements<Paragraph>())
+      Header header = part.Header ?? throw new InvalidOperationException("header part has no header");
+      foreach (Paragraph para in header.Elements<Paragraph>())
       {
         hp++;
         string address = $"sec{number}.header.p{hp}";
@@ -145,7 +147,8 @@ public static class DocxElementMap
         continue;
       }
 
-      foreach (Paragraph para in part.Footer.Elements<Paragraph>())
+      Footer footer = part.Footer ?? throw new InvalidOperationException("footer part has no footer");
+      foreach (Paragraph para in footer.Elements<Paragraph>())
       {
         fp++;
         string address = $"sec{number}.footer.p{fp}";

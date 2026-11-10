@@ -277,8 +277,11 @@ public sealed class DirectDocxAccess : IDocxAccess
   private static MainDocumentPart RequireMain(WordprocessingDocument doc)
     => doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
 
+  private static Document RequireDocument(MainDocumentPart main)
+    => main.Document ?? throw new InvalidOperationException("document has no document");
+
   private static Body RequireBody(MainDocumentPart main)
-    => main.Document.Body ?? throw new InvalidOperationException("document has no body");
+    => RequireDocument(main).Body ?? throw new InvalidOperationException("document has no body");
 
   /// <summary>Resolves a body-paragraph operation: the address must parse to the
   ///     Paragraph kind and resolve to a Paragraph element.</summary>
@@ -886,9 +889,22 @@ public sealed class DirectDocxAccess : IDocxAccess
   /// <summary>The comment's commentRangeStart marker: searched in the document
   ///     body first, then the header layers, then the footer layers.</summary>
   private static CommentRangeStart? MarkerOf(MainDocumentPart? main, string idText)
-    => main?.Document?.Descendants<CommentRangeStart>().FirstOrDefault(m => m.Id?.Value == idText)
-      ?? main?.HeaderParts.SelectMany(h => h.Header.Descendants<CommentRangeStart>()).FirstOrDefault(m => m.Id?.Value == idText)
-      ?? main?.FooterParts.SelectMany(fo => fo.Footer.Descendants<CommentRangeStart>()).FirstOrDefault(m => m.Id?.Value == idText);
+  {
+    if (main is null)
+    {
+      return null;
+    }
+
+    List<OpenXmlElement> roots = [];
+    if (main.Document is Document document)
+    {
+      roots.Add(document);
+    }
+
+    roots.AddRange(main.HeaderParts.Select(part => part.Header).OfType<OpenXmlElement>());
+    roots.AddRange(main.FooterParts.Select(part => part.Footer).OfType<OpenXmlElement>());
+    return roots.SelectMany(root => root.Descendants<CommentRangeStart>()).FirstOrDefault(m => m.Id?.Value == idText);
+  }
 
   /// <summary>The first mappable ancestor address walking UP from an element:
   ///     paragraphs and cells are mappable (header/footer paragraphs map through
@@ -984,8 +1000,9 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
 
     comment.Remove();
-    RemoveRangeMarkers(main.Document, idText);
-    RemoveReferences(main.Document, idText);
+    Document document = RequireDocument(main);
+    RemoveRangeMarkers(document, idText);
+    RemoveReferences(document, idText);
     return Result.Success(true);
   }
 

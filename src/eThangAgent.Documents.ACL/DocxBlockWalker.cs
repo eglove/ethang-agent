@@ -24,7 +24,8 @@ public static class DocxBlockWalker
   {
     ArgumentNullException.ThrowIfNull(doc);
     MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
-    Body body = main.Document.Body ?? throw new InvalidOperationException("document has no body");
+    Document document = main.Document ?? throw new InvalidOperationException("document has no document");
+    Body body = document.Body ?? throw new InvalidOperationException("document has no body");
     List<DocxBlock> blocks = [];
     foreach (OpenXmlElement child in body.ChildElements)
     {
@@ -38,7 +39,6 @@ public static class DocxBlockWalker
       }
     }
 
-    Document document = main.Document;
     int tracked = document.Descendants<InsertedRun>().Count()
       + document.Descendants<DeletedRun>().Count()
       + document.Descendants<PreviousRunProperties>().Count()
@@ -173,7 +173,8 @@ public static class DocxBlockWalker
         continue;
       }
 
-      foreach (Paragraph para in part.Header.Elements<Paragraph>())
+      Header header = part.Header ?? throw new InvalidOperationException("header part has no header");
+      foreach (Paragraph para in header.Elements<Paragraph>())
       {
         hp++;
         headerParagraphs.Add(new DocxParagraphBlock(hp, StyleNameOf(para, main), TextOf(para)));
@@ -187,7 +188,8 @@ public static class DocxBlockWalker
         continue;
       }
 
-      foreach (Paragraph para in part.Footer.Elements<Paragraph>())
+      Footer footer = part.Footer ?? throw new InvalidOperationException("footer part has no footer");
+      foreach (Paragraph para in footer.Elements<Paragraph>())
       {
         fp++;
         footerParagraphs.Add(new DocxParagraphBlock(fp, StyleNameOf(para, main), TextOf(para)));

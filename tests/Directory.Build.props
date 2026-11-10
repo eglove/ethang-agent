@@ -20,7 +20,7 @@
        2.3.x, which breaks the 3.2.x bridge (TypeLoadException at startup).
        xunit.runner.visualstudio and coverlet.collector are VSTest-only
        extensions (dead weight under MTP) and are also absent.
-       Follow-up: Avalonia.Headless.XUnit 12.1.1 is compiled against the
+       Follow-up: Avalonia.Headless.XUnit 12.1.6 is compiled against the
        xunit.v3 3.2.2 API; xunit.v3 4.x is binary-incompatible with it
        (MissingMethodException during discovery). Bump xunit.v3 to 4.x only
        together with an Avalonia release that supports it, and move the MTP
@@ -31,10 +31,10 @@
     <PackageReference Include="xunit.v3" Version="3.2.*" />
     <!-- xunit.analyzers is pinned explicitly: xunit.v3 3.2.x pulls it transitively
          (>= 1.27.0), so the rules already ran via the repo-wide error escalation —
-         the pin exists to take 2.0.0's rule set now, ahead of the xunit.v3 4.x
+         the pin exists to take 2.3.0's rule set now, ahead of the xunit.v3 4.x
          bump (which requires >= 2.0.0, so this pin introduces no version conflict).
          Analyzer-only: never a runtime dependency. -->
-    <PackageReference Include="xunit.analyzers" Version="2.0.0" PrivateAssets="all" />
+    <PackageReference Include="xunit.analyzers" Version="2.3.0" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

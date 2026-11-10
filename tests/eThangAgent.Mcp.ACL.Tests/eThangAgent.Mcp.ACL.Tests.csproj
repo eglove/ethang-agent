@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol" Version="2.2.*" />
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
     <ProjectReference Include="../../src/eThangAgent.Mcp.ACL/eThangAgent.Mcp.ACL.csproj" />
     <ProjectReference Include="../../src/eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />
   </ItemGroup>

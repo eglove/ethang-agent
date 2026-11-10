@@ -87,7 +87,8 @@ public sealed class DirectDocxAccessCreateTests : IDisposable
     Assert.True(r.IsSuccess, r.Error?.Message);
     using WordprocessingDocument doc = WordprocessingDocument.Open(path, false);
     MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("no main part");
-    Body body = main.Document.Body ?? throw new InvalidOperationException("no body");
+    Document document = main.Document ?? throw new InvalidOperationException("no document");
+    Body body = document.Body ?? throw new InvalidOperationException("no body");
     List<Run> runs = [.. body.Descendants<Run>()];
     Assert.Equal(5, runs.Count); // plain | bold | " and " | it | " end"
     Assert.NotNull(runs[1].RunProperties?.Bold);

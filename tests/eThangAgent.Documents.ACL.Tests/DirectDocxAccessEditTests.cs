@@ -74,7 +74,7 @@ public sealed class DirectDocxAccessEditTests : IDisposable
     Assert.Equal("New Title", block.Text);
     Assert.Equal("heading 1", block.Style);
     using WordprocessingDocument doc = WordprocessingDocument.Open(path, false);
-    Run first = doc.MainDocumentPart!.Document.Body!.Descendants<Run>().First();
+    Run first = doc.MainDocumentPart!.Document!.Body!.Descendants<Run>().First();
     Assert.NotNull(first.RunProperties?.Bold);
     Assert.Equal("New Title", first.GetFirstChild<Text>()!.Text);
   }
