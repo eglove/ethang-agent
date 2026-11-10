@@ -69,6 +69,26 @@ public interface IChainAdvanceHost
       CancellationToken ct = default);
 }
 
+/// <summary>Where a RESUMED chain step gets its session (issue #303's exit).
+///     <para>WHY ITS OWN PORT AND NOT <see cref="IChainAdvanceHost"/>. That one enacts an
+///     advance: it closes a finished session and continues from it. A resume has no session to
+///     close or continue - the step being started is one whose session failed, was never
+///     started, or whose park is older than the tab - so a host that can only advance would
+///     have to implement five acts it will never perform here.</para>
+///     <para>TWO IMPLEMENTATIONS, ONE MEANING: the app's shell starts the session directly, and
+///     the child host asks the app to through the same session-request channel every other
+///     launch uses. Both answer with the new session's id or a typed refusal.</para></summary>
+public interface IChainResumeLaunchPort
+{
+  /// <summary>Starts a session for <paramref name="assignment"/> and returns its id, or a typed
+  ///     failure. The caller has ALREADY claimed the step, so a failed launch must be released
+  ///     by the caller rather than leaked.</summary>
+  /// <param name="assignment">The chain step the new session is started for.</param>
+  /// <param name="ct">Cancellation.</param>
+  Task<Result<string>> StartResumedSessionAsync(ChainStepAssignment assignment,
+      CancellationToken ct = default);
+}
+
 /// <summary>Enacts the mechanical advance (issue #301): a completion fact in, the next
 ///     session started out. No model decides whether to continue.
 ///     <para>THE RULE IS <see cref="ChainAdvancePolicy"/>; this class only performs what the
@@ -112,11 +132,12 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     }
 
     // The session is not executing a chain step at all: an ordinary hand-started session, or
-    // one whose step was already settled. Not an error - there is simply nothing to advance.
+    // one whose step was already settled. NOT A REFUSAL - nothing was denied, and the ordinary
+    // way a plan is written must not produce a notice that reads like a problem. Every
+    // hand-started session that edits a plan reaches this branch on every write.
     if (found.Value is not { } chain)
     {
-      return Result.Success(ChainAdvance.Refused(ChainAdvanceCode.ForeignStep,
-          $"session {sessionId} is not assigned to any chain step, so there is nothing to advance."));
+      return Result.Success(ChainAdvance.NoChain());
     }
 
     // A chain executes ONE plan. A plan write on any other plan is somebody else's work.
@@ -344,6 +365,7 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
           now, ct).ConfigureAwait(false),
       ChainAdvanceKind.Refused => ChainAdvance.Refused(next.Code ?? ChainAdvanceCode.StepNotDone,
           next.Reason ?? "the chain cannot advance past this review."),
+      ChainAdvanceKind.NotInAChain => ChainAdvance.NoChain(),
       _ => ChainAdvance.Refused("UnknownAdvanceKind",
           $"{next.Kind} is not a chain advance kind; the set is closed."),
     };

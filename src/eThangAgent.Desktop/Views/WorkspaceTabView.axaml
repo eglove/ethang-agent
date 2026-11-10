@@ -367,6 +367,14 @@
                                     Tag="{Binding}" Click="OnChainOpenSessionClick"
                                     IsVisible="{Binding CanOpenSession}"
                                     ToolTip.Tip="Open the session this chain is waiting on, the same way the Sessions menu does"/>
+                            <!-- THE EXIT FROM PARKED (issue #303): a chain parked on a spent attempt
+                                 budget or a review cap has no session left to steer, so opening one
+                                 does nothing. This un-parks the chain, re-arms the step that
+                                 stopped it, and starts a fresh session for it. -->
+                            <Button Content="Resume" Padding="6,0" FontSize="10.5"
+                                    Tag="{Binding}" Click="OnChainResumeClick"
+                                    IsVisible="{Binding CanResume}"
+                                    ToolTip.Tip="Un-park this chain, re-arm the step that stopped it, and start a fresh session for it"/>
                           </StackPanel>
                           <ItemsControl ItemsSource="{Binding Steps, Mode=OneWay}"
                                         IsVisible="{Binding IsExpanded}" Margin="0,4,0,0">

@@ -179,7 +179,9 @@ public class PlanCapabilityProviderTests
     Assert.Contains("\nG\n", shown.Content, StringComparison.Ordinal);
     Assert.Contains("2 step(s):", shown.Content, StringComparison.Ordinal);
     Assert.Contains("  1. [ Pending ] one", shown.Content, StringComparison.Ordinal);
-    Assert.Contains("  2. [ Pending ] two \u2014 d", shown.Content, StringComparison.Ordinal);
+    // A STEP'S DETAIL SITS UNDER ITS OWN LINE, every line of it: it is where the instruction
+    // lives, so a render that dropped it made show useless for the one thing it is opened for.
+    Assert.Contains("  2. [ Pending ] two\n       d", shown.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -319,6 +321,99 @@ public class PlanCapabilityProviderTests
     Assert.StartsWith("Error [PlanNotFound]:", r.Content, StringComparison.Ordinal);
   }
 
+  [Fact]
+  public async Task AddStep_WithPosition_InsertsAndRenumbers()
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    CapabilityInvocationResult r = await provider.InvokeAsync("add-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"title\": \"inserted\", \"position\": 2 }",
+      TestContext.Current.CancellationToken);
+    Assert.False(r.IsError);
+    Assert.Equal("[plan] added step 2 to #1", r.Content);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    Assert.Contains("  1. [ Pending ] one", shown.Content, StringComparison.Ordinal);
+    Assert.Contains("  2. [ Pending ] inserted", shown.Content, StringComparison.Ordinal);
+    Assert.Contains("  3. [ Pending ] two", shown.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task AddStep_PositionPastTheEnd_FailsInvalidTransition_NamingTheHighestPosition()
+  {
+    // A REFUSED INSERTION IS NOT A MISSING STEP: the position named is an insert point, so the
+    // aggregate's own message - which names the highest position it would accept - is rendered
+    // rather than remapped to PlanStepNotFound.
+    PlanCapabilityProvider provider = await SeededAsync();
+    CapabilityInvocationResult r = await provider.InvokeAsync("add-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"title\": \"x\", \"position\": 9 }",
+      TestContext.Current.CancellationToken);
+    Assert.True(r.IsError);
+    Assert.StartsWith("Error [InvalidTransition]:", r.Content, StringComparison.Ordinal);
+    Assert.Contains("highest new position is 3", r.Content, StringComparison.Ordinal);
+  }
+
+  [Theory]
+  [InlineData(/*lang=json,strict*/"{ \"id\": 1, \"title\": \"x\", \"position\": 0 }")]
+  [InlineData(/*lang=json,strict*/"{ \"id\": 1, \"title\": \"x\", \"position\": \"2\" }")]
+  public async Task AddStep_InvalidPosition_FailsInvalidActionInput(string args)
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    CapabilityInvocationResult r = await provider.InvokeAsync("add-step", args,
+      TestContext.Current.CancellationToken);
+    Assert.True(r.IsError);
+    Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
+  }
+
+  // ---- move-step -------------------------------------------------------------
+
+  [Fact]
+  public async Task MoveStep_ReordersThePlan()
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    CapabilityInvocationResult r = await provider.InvokeAsync("move-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"from\": 1, \"to\": 2 }", TestContext.Current.CancellationToken);
+    Assert.False(r.IsError);
+    Assert.Equal("[plan] moved step 1 to 2 in #1", r.Content);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    Assert.Contains("  1. [ Pending ] two", shown.Content, StringComparison.Ordinal);
+    Assert.Contains("  2. [ Pending ] one", shown.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task MoveStep_UnknownPosition_FailsPlanStepNotFound()
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    CapabilityInvocationResult r = await provider.InvokeAsync("move-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"from\": 1, \"to\": 9 }", TestContext.Current.CancellationToken);
+    Assert.True(r.IsError);
+    Assert.StartsWith("Error [InvalidTransition]:", r.Content, StringComparison.Ordinal);
+    Assert.Contains("1..2", r.Content, StringComparison.Ordinal);
+  }
+
+  [Theory]
+  [InlineData(/*lang=json,strict*/"{ \"id\": 1, \"from\": 1 }")]
+  [InlineData(/*lang=json,strict*/"{ \"id\": 1, \"to\": 2 }")]
+  [InlineData(/*lang=json,strict*/"{ \"id\": 1, \"from\": 0, \"to\": 1 }")]
+  public async Task MoveStep_MissingOrBadPosition_FailsInvalidActionInput(string args)
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    CapabilityInvocationResult r = await provider.InvokeAsync("move-step", args,
+      TestContext.Current.CancellationToken);
+    Assert.True(r.IsError);
+    Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task MoveStep_OnFrozenPlan_FailsInvalidTransition()
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    await FinishAllStepsAsync(provider, 1, 2).ConfigureAwait(true);
+    _ = await provider.InvokeAsync("set-status", /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult r = await provider.InvokeAsync("move-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"from\": 1, \"to\": 2 }", TestContext.Current.CancellationToken);
+    Assert.True(r.IsError);
+    Assert.StartsWith("Error [InvalidTransition]:", r.Content, StringComparison.Ordinal);
+  }
+
   // ---- update-step ---------------------------------------------------------------
 
   [Fact]
@@ -331,7 +426,7 @@ public class PlanCapabilityProviderTests
     Assert.False(r.IsError);
     Assert.Equal("[plan] updated step 2 in #1", r.Content);
     CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
-    Assert.Contains("  2. [ Pending ] rewritten \u2014 new detail", shown.Content, StringComparison.Ordinal);
+    Assert.Contains("  2. [ Pending ] rewritten\n       new detail", shown.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -390,7 +485,7 @@ public class PlanCapabilityProviderTests
     Assert.Equal("[plan] removed step 1 from #1", r.Content);
     CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("1 step(s):", shown.Content, StringComparison.Ordinal);
-    Assert.Contains("  1. [ Pending ] two \u2014 d", shown.Content, StringComparison.Ordinal);
+    Assert.Contains("  1. [ Pending ] two\n       d", shown.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -540,13 +635,14 @@ public class PlanCapabilityProviderTests
   // ---- surface ---------------------------------------------------------------
 
   [Fact]
-  public void Provider_ExposesEightValidUniqueActions_UnderIdPlan()
+  public void Provider_ExposesNineValidUniqueActions_UnderIdPlan()
   {
     PlanCapabilityProvider provider = New(out _);
     Assert.Equal("plan", provider.Id);
     // 'review' is the eighth (issue #320): the writer a reviewer records its verdict through.
-    string[] expected = ["create", "show", "index", "add-step", "update-step", "remove-step",
-        "review", "set-status"];
+    // 'move-step' is the ninth: the only action that changes a plan's step order.
+    string[] expected = ["create", "show", "index", "add-step", "move-step", "update-step",
+        "remove-step", "review", "set-status"];
     Assert.Equal(expected.Length, provider.Actions.Count);
     Assert.Equal(expected, provider.Actions.Select(a => a.Name));
     Assert.All(provider.Actions, a => Assert.True(CapabilityNameRules.IsValidActionName(a.Name)));

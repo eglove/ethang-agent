@@ -489,6 +489,66 @@ public class ChainCapabilityProviderTests
         [.. ChainCapabilityProvider.ActionNames.OrderBy(n => n, StringComparer.Ordinal)]);
   }
 
+  [Fact]
+  public void ActionNames_ExposeResume_AsTheExitFromParked()
+  {
+    (ChainCapabilityProvider provider, _, _, _) = New(1);
+
+    Assert.Contains("resume-parked", ChainCapabilityProvider.ActionNames);
+    Assert.Contains(provider.Actions, a => a.Name == "resume-parked");
+    // 'resume' ALONE IS agent.resume's: capability action names are globally unique, so a chain
+    // action spelling the same word is a startup failure rather than a shadowing.
+    Assert.DoesNotContain("resume", ChainCapabilityProvider.ActionNames);
+  }
+
+  // ---- resume --------------------------------------------------------------
+
+  [Fact]
+  public async Task Resume_DelegatesToTheHostPath()
+  {
+    int? resumed = null;
+    ChainCapabilityProvider provider = new(new ChainService(new FakeStore()), new FakePlans(1, 2),
+        new FakeStart(), () => "session-root", new FixedClock(T0), resume: id =>
+        {
+          resumed = id;
+          return Task.FromResult(CapabilityInvocationResult.Ok("[chain] resumed #4"));
+        });
+
+    CapabilityInvocationResult r = await provider.InvokeAsync("resume-parked",
+        /*lang=json,strict*/"{ \"id\": 4 }", TestContext.Current.CancellationToken);
+
+    Assert.False(r.IsError);
+    Assert.Equal(4, resumed);
+  }
+
+  [Fact]
+  public async Task Resume_WithNoHostPath_RefusesAndReportsNothingHappened()
+  {
+    (ChainCapabilityProvider provider, _, _, _) = New(1);
+
+    CapabilityInvocationResult r = await provider.InvokeAsync("resume-parked",
+        /*lang=json,strict*/"{ \"id\": 4 }", TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsError);
+    Assert.StartsWith("Error [ResumeUnsupported]:", r.Content, StringComparison.Ordinal);
+    Assert.Contains("NOT resumed", r.Content, StringComparison.Ordinal);
+  }
+
+  [Theory]
+  [InlineData("{ }")]
+  [InlineData(/*lang=json,strict*/"{ \"id\": 0 }")]
+  [InlineData(/*lang=json,strict*/"{ \"id\": \"4\" }")]
+  public async Task Resume_WithABadId_FailsInvalidActionInput(string args)
+  {
+    (ChainCapabilityProvider provider, _, _, _) = New(1);
+
+    CapabilityInvocationResult r = await provider.InvokeAsync("resume-parked", args,
+        TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsError);
+    Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
+  }
+
   /// <summary>A clock pinned to T0: the claim window is measured against it, and a test that
   ///     read the wall clock would drift across the TTL on a slow machine.</summary>
   private sealed class FixedClock(DateTimeOffset now) : TimeProvider

@@ -27,6 +27,8 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   private const string Steps = "steps";
   private const string Detail = "detail";
   private const string Position = "position";
+  private const string FromParam = "from";
+  private const string ToParam = "to";
   private const string Status = "status";
   private const string PlanStepNotFoundCode = "PlanStepNotFound";
   private const string VersionConflictCode = "VersionConflict";
@@ -70,18 +72,25 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Goal, ActionParameterTypes.StringType, "Required. Non-empty goal; may be multi-line."),
               new ActionParameter(Steps, "Array", "Optional. Step objects: { 'title' (required non-empty), 'detail' (optional string). }")]),
         new("show", "Display one plan: envelope line, goal, and every step.",
-            "Output contract:\n[plan #<id> v<version> | <status> | session <sid>] <title>\n<goal>\n<n> step(s):\n  <position>. [ <step-status> ] <title> ( — <detail first line>)?\nThe goal may be multi-line; step lines are two-space indented; a plan with no steps prints '0 step(s):' and no step lines. Errors: InvalidActionInput (bad params), PlanNotFound.",
+            "Output contract:\n[plan #<id> v<version> | <status> | session <sid>] <title>\n<goal>\n<n> step(s):\n  <position>. [ <step-status> ] <title>\n       <detail line 1>\n       <detail line 2>\nThe goal may be multi-line; step lines are two-space indented; a step's FULL detail follows it, one line per line, indented seven spaces, and a step with no detail prints only its own line. A plan with no steps prints '0 step(s):' and no step lines. Errors: InvalidActionInput (bad params), PlanNotFound.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1.")],
             [IdParam]),
         new("index", "List plans, optionally filtered by status.",
             "Output contract: header '[plan] <n> plan(s)' then one line per plan:\n#<id> [ <status> ] <title> (<n> step(s), session <sid>)\nAn empty list prints only the header. A plan row that cannot be read is NOT fatal: it is skipped and reported on its own line '#<id> [ CorruptPlanRow ] <reason>' after the healthy plans, so one bad row never blanks the catalog (issue #279). status, when present, must be exactly Active|Completed|Abandoned. Errors: InvalidActionInput (bad params).",
             [new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Active|Completed|Abandoned; omit for every plan.")]),
-        new("add-step", "Append one step to a plan.",
-            "Appends at the next 1-based position. Output contract: '[plan] added step <position> to #<id>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan), VersionConflict.",
+        new("add-step", "Add one step to a plan, at a position or appended.",
+            "Without 'position' the step appends at the next 1-based position; with it the step is INSERTED there and every step from that position onward renumbers, so the tail shifts down by one. 'position' must be between 1 and stepCount+1. Output contract: '[plan] added step <position> to #<id>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Title, ActionParameterTypes.StringType, "Required. Non-empty step title."),
-              new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present.")],
+              new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
+              new ActionParameter(Position, ActionParameterTypes.IntegerType, "Optional. Where the new step lands, 1..stepCount+1. Omit to append.")],
             [IdParam, Title]),
+        new("move-step", "Move a step to a different position, renumbering what it displaces.",
+            "The step at 'from' lands at 'to' and every step between them shifts one place, so positions stay contiguous 1..n. Both positions must already exist; moving a step to its own position changes nothing and succeeds. Output contract: '[plan] moved step <from> to <to> in #<id>'. This is the ONLY action that changes a plan's step order. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan), VersionConflict.",
+            [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
+              new ActionParameter(FromParam, ActionParameterTypes.IntegerType, "Required. The 1-based position of the step to move."),
+              new ActionParameter(ToParam, ActionParameterTypes.IntegerType, "Required. The 1-based position it should occupy.")],
+            [IdParam, FromParam, ToParam]),
         new("update-step", "Change one step's title, detail, or status.",
             "At least one optional field is required. Output contract: '[plan] updated step <position> in #<id>'. status must be exactly Pending|InProgress|Done|Skipped. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. A session executing a CHAIN step may mark only the step it was started for Done; completing any other step fails Error [ChainStepNotAssigned] naming the step it IS assigned. A session outside a chain is unaffected. COMPLETING A STEP IS A COMPLETION CLAIM, so a Done also requires a FRESH verification: the session's shell ledger must hold a command that exited 0 after the newest workspace change (any command counts). A stale, failed, or never-run verification fails Error [CompletionGateNotFresh] naming the remedy (the same rule plan completion follows - one mechanism, one ledger). VersionConflict errors instruct re-get + reconcile + retry. Errors: InvalidActionInput, PlanNotFound, PlanStepNotFound, ChainStepNotAssigned, CompletionGateNotFresh, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
@@ -117,24 +126,45 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   {
     try
     {
-      return actionName switch
-      {
-        "create" => await CreateAsync(jsonArguments).ConfigureAwait(false),
-        "show" => await ShowAsync(jsonArguments).ConfigureAwait(false),
-        "index" => await IndexAsync(jsonArguments).ConfigureAwait(false),
-        "add-step" => await AddStepAsync(jsonArguments).ConfigureAwait(false),
-        "update-step" => await UpdateStepAsync(jsonArguments).ConfigureAwait(false),
-        "remove-step" => await RemoveStepAsync(jsonArguments).ConfigureAwait(false),
-        "set-status" => await SetStatusAsync(jsonArguments).ConfigureAwait(false),
-        "review" => await ReviewAsync(jsonArguments).ConfigureAwait(false),
-        _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
-      };
+      return await DispatchAsync(actionName, jsonArguments).ConfigureAwait(false);
     }
     catch (PlanInputException ex)
     {
       return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {ex.Message}");
     }
   }
+
+  /// <summary>Routes one action to its handler, READS first and writes second.
+  ///     <para>TWO SWITCHES RATHER THAN ONE, because the read and write halves are different
+  ///     kinds of act: a query returns what the record holds and mutates nothing, while a
+  ///     command changes it under a compare-and-swap. Keeping them apart is also what keeps each
+  ///     dispatch small enough to read at a glance.</para></summary>
+  /// <param name="actionName">The action the caller named.</param>
+  /// <param name="json">Its raw arguments.</param>
+  private Task<CapabilityInvocationResult> DispatchAsync(string actionName, string json)
+    => actionName switch
+    {
+      "show" => ShowAsync(json),
+      "index" => IndexAsync(json),
+      _ => CommandAsync(actionName, json),
+    };
+
+  /// <summary>The mutating actions, or the unknown-action refusal.</summary>
+  /// <param name="actionName">The action the caller named.</param>
+  /// <param name="json">Its raw arguments.</param>
+  private Task<CapabilityInvocationResult> CommandAsync(string actionName, string json)
+    => actionName switch
+    {
+      "create" => CreateAsync(json),
+      "add-step" => AddStepAsync(json),
+      "move-step" => MoveStepAsync(json),
+      "update-step" => UpdateStepAsync(json),
+      "remove-step" => RemoveStepAsync(json),
+      "set-status" => SetStatusAsync(json),
+      "review" => ReviewAsync(json),
+      _ => Task.FromResult(CapabilityInvocationResult.Fail(
+          $"Error [UnknownAction]: Unknown action: {actionName}.")),
+    };
 
   // ---- actions -------------------------------------------------------------
 
@@ -186,12 +216,18 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     return CapabilityInvocationResult.Ok(sb.ToString());
   }
 
+  /// <summary>Adds a step, at the caller's position when it named one and appended otherwise.
+  ///     <para>ONE ACTION FOR BOTH, because they are one intent: 'put this step in the plan'.
+  ///     The omitted position means append, which is what every existing caller sends, so the
+  ///     append-only contract is a special case of the positional one rather than a second
+  ///     action a model has to choose between.</para></summary>
   private async Task<CapabilityInvocationResult> AddStepAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam, Title, Detail));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam, Title, Detail, Position));
     int id = ReqPlanId(args);
     string title = ReqString(args, Title);
     string? detail = OptString(args, Detail);
+    int? position = OptStepPosition(args);
     Result<Plan> plan = await _service.GetAsync(id).ConfigureAwait(false);
     if (!plan.IsSuccess)
     {
@@ -199,11 +235,44 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     }
 
     int expected = plan.Value.Version;
-    Result<Plan> added = await _service.AddStepAsync(
-        id, title, detail, expected, DateTimeOffset.UtcNow).ConfigureAwait(false);
+    Result<Plan> added = position is { } at
+        ? await _service.InsertStepAsync(id, at, title, detail, expected, DateTimeOffset.UtcNow)
+            .ConfigureAwait(false)
+        : await _service.AddStepAsync(id, title, detail, expected, DateTimeOffset.UtcNow)
+            .ConfigureAwait(false);
+    // A REFUSED INSERTION IS NOT A MISSING STEP. The position named is an INSERT POINT, not a
+    // step the plan was supposed to have, so remapping the aggregate's refusal to
+    // PlanStepNotFound would send a caller looking for a step that was never meant to exist.
+    // The aggregate's own message names the highest position it would accept, which is the
+    // answer the caller needs, so it is rendered verbatim.
     return added.IsSuccess
-        ? CapabilityInvocationResult.Ok($"[plan] added step {added.Value.Steps.Count} to #{id}")
+        ? CapabilityInvocationResult.Ok(
+            string.Create(CultureInfo.InvariantCulture, $"[plan] added step {position ?? added.Value.Steps.Count} to #{id}"))
         : await ResolveMutationErrorAsync(id, position: null, expected, added.Error).ConfigureAwait(false);
+  }
+
+  /// <summary>Reorders a plan: the step at 'from' lands at 'to' and the displaced steps
+  ///     renumber. A move to the same position is a no-op that still reports success, because
+  ///     the caller's intent - 'this step belongs here' - is already true.</summary>
+  private async Task<CapabilityInvocationResult> MoveStepAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam, FromParam, ToParam));
+    int id = ReqPlanId(args);
+    int from = ReqStepPosition(args, FromParam);
+    int to = ReqStepPosition(args, ToParam);
+    Result<Plan> plan = await _service.GetAsync(id).ConfigureAwait(false);
+    if (!plan.IsSuccess)
+    {
+      return Gutter(plan.Error);
+    }
+
+    int expected = plan.Value.Version;
+    Result<Plan> moved = await _service.MoveStepAsync(
+        id, from, to, expected, DateTimeOffset.UtcNow).ConfigureAwait(false);
+    return moved.IsSuccess
+        ? CapabilityInvocationResult.Ok(
+            string.Create(CultureInfo.InvariantCulture, $"[plan] moved step {from} to {to} in #{id}"))
+        : await ResolveMutationErrorAsync(id, from, expected, moved.Error).ConfigureAwait(false);
   }
 
   private async Task<CapabilityInvocationResult> UpdateStepAsync(string json)
@@ -620,15 +689,32 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     foreach (PlanStep step in plan.Steps)
     {
       _ = sb.Append("  ").Append(CultureInfo.InvariantCulture, $"{step.Position}. [ {step.Status} ] {step.Title}");
-      if (!string.IsNullOrEmpty(step.Detail))
-      {
-        _ = sb.Append(" — ").Append(step.Detail.Split('\n')[0].TrimEnd('\r'));
-      }
-
       _ = sb.Append('\n');
+      AppendDetail(sb, step.Detail);
     }
 
     return sb.ToString();
+  }
+
+  /// <summary>Renders a step's detail UNDER its own line, every line of it.
+  ///     <para>A DETAIL IS WHERE THE INSTRUCTION LIVES, so truncating it made show useless for
+  ///     the one thing a reader opens it for: the model that wrote 'step 3: migrate the table'
+  ///     wrote the migration itself in the detail, and a first-line-only render dropped it.
+  ///     Every line is indented under the step so a multi-line detail still reads as one
+  ///     step's text rather than as a second step.</para></summary>
+  /// <param name="sb">The buffer being rendered.</param>
+  /// <param name="detail">The step's detail, or null when it has none.</param>
+  private static void AppendDetail(StringBuilder sb, string? detail)
+  {
+    if (string.IsNullOrWhiteSpace(detail))
+    {
+      return;
+    }
+
+    foreach (string line in detail.TrimEnd().Split('\n'))
+    {
+      _ = sb.Append("       ").Append(line.TrimEnd('\r')).Append('\n');
+    }
   }
 
   /// <summary>Mutation-failure resolution: a version drift since the provider's load is a
@@ -737,10 +823,24 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   }
 
   private static int ReqStepPosition(Dictionary<string, JsonElement> args)
+    => ReqStepPosition(args, Position);
+
+  /// <summary>The same 1-based position rule, read from a NAMED parameter: a move names two
+  ///     positions, and the refusal has to say which one was wrong.</summary>
+  /// <param name="args">The parsed arguments.</param>
+  /// <param name="name">The parameter carrying the position.</param>
+  private static int ReqStepPosition(Dictionary<string, JsonElement> args, string name)
   {
-    int position = ReqInt(args, Position);
-    return position >= 1 ? position : throw new PlanInputException("'position' must be >= 1.");
+    int position = ReqInt(args, name);
+    return position >= 1 ? position : throw new PlanInputException($"'{name}' must be >= 1.");
   }
+
+  /// <summary>The optional 1-based position, or null when the caller named none. Present but
+  ///     invalid is REFUSED rather than read as absent: a caller that sent position 0 meant to
+  ///     place the step, and appending it instead would silently do something else.</summary>
+  /// <param name="args">The parsed arguments.</param>
+  private static int? OptStepPosition(Dictionary<string, JsonElement> args)
+    => args.ContainsKey(Position) ? ReqStepPosition(args) : null;
 
   private static List<(string Title, string? Detail)>? OptSteps(
       Dictionary<string, JsonElement> args)

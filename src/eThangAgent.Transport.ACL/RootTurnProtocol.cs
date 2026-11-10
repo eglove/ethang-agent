@@ -38,6 +38,18 @@ public sealed record SessionRequestPayload(string RequestId, string Prompt, stri
   ///     assignment and start it with no prompt.</summary>
   public SessionRequestChainStep? ChainStep { get; init; }
 
+  /// <summary>True when this launch RESUMES a parked chain rather than continuing one (issue
+  ///     #303's exit), so the app starts the session with no predecessor and retires no cell.
+  ///     <para>IT IS A PLACEMENT FACT, exactly as <see cref="SiblingOfWorkspaceId"/> is: an
+  ///     advance lands in the completing session's tab and replaces its cell, while a resume has
+  ///     no such session - the step being started is one whose session failed, was never
+  ///     started, or whose park is older than the tab. Without this the app would answer a
+  ///     resume's request by looking for a predecessor that does not exist.</para>
+  ///     <para>Omitted from the wire when false, so every existing launch's serialized form stays
+  ///     byte-identical.</para></summary>
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+  public bool Resumed { get; init; }
+
   /// <summary>Set when a MODEL asked for this session as a SIBLING of its own (issue #338):
   ///     the caller's workspace id, so the new session lands beside the caller rather than
   ///     continuing anything. Omitted from the wire when null, so a chain launch's and a

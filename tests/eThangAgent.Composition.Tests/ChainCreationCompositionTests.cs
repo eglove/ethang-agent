@@ -35,7 +35,23 @@ public class ChainCreationCompositionTests
     ChainCapabilityProvider provider = services.GetRequiredService<ChainCapabilityProvider>();
 
     Assert.Equal("chain", provider.Id);
-    Assert.Equal(["start"], provider.Actions.Select(a => a.Name));
+    // 'resume-parked' is the exit from a parked chain (issue #303). It is NOT spelled 'resume':
+    // capability action names are globally unique, and agent.resume owns that one.
+    Assert.Equal(["start", "resume-parked"], provider.Actions.Select(a => a.Name));
+  }
+
+  /// <summary>The exit from a parked chain resolves through the same registry, so a model can
+  ///     actually call it.</summary>
+  [Fact]
+  public void ChainResumeParked_ResolvesThroughTheCapabilityRegistry()
+  {
+    using ServiceProvider services = Build();
+    ICapabilityRegistry registry = services.GetRequiredService<ICapabilityRegistry>();
+
+    Result<ResolvedCapability> resolved = registry.Resolve("chain.resume-parked");
+
+    Assert.True(resolved.IsSuccess, resolved.Error?.Message ?? "chain.resume-parked must resolve");
+    Assert.Equal("chain", resolved.Value.ProviderId);
   }
 
   /// <summary>The action is reachable through the SAME registry the exec door dispatches

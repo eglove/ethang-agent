@@ -56,6 +56,83 @@ public class PlanAggregateTests
     Assert.Throws<PlanInputException>(() => NewPlan().RemoveStep(9));
 
   [Fact]
+  public void InsertStep_AtAPosition_ShiftsTheTailDown()
+  {
+    Plan p = NewPlan().AddStep("a", null).AddStep("c", null);
+    p = p.InsertStep(2, "b", null);
+    Assert.Equal(["a", "b", "c"], [.. p.Steps.Select(s => s.Title)]);
+    Assert.Equal([1, 2, 3], [.. p.Steps.Select(s => s.Position)]);
+  }
+
+  [Fact]
+  public void InsertStep_AtTheEnd_Appends()
+  {
+    Plan p = NewPlan().AddStep("a", null);
+    p = p.InsertStep(2, "b", null);
+    Assert.Equal(["a", "b"], [.. p.Steps.Select(s => s.Title)]);
+  }
+
+  [Fact]
+  public void InsertStep_PastTheEnd_ThrowsNamingTheHighestPosition()
+  {
+    Plan p = NewPlan().AddStep("a", null);
+    PlanInputException ex = Assert.Throws<PlanInputException>(() => p.InsertStep(3, "b", null));
+    Assert.Contains("highest new position is 2", ex.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void MoveStep_Forward_ReordersAndKeepsPositionsContiguous()
+  {
+    Plan p = NewPlan().AddStep("a", null).AddStep("b", null).AddStep("c", null);
+    p = p.MoveStep(1, 3);
+    Assert.Equal(["b", "c", "a"], [.. p.Steps.Select(s => s.Title)]);
+    Assert.Equal([1, 2, 3], [.. p.Steps.Select(s => s.Position)]);
+  }
+
+  [Fact]
+  public void MoveStep_Backward_ReordersAndKeepsPositionsContiguous()
+  {
+    Plan p = NewPlan().AddStep("a", null).AddStep("b", null).AddStep("c", null);
+    p = p.MoveStep(3, 1);
+    Assert.Equal(["c", "a", "b"], [.. p.Steps.Select(s => s.Title)]);
+    Assert.Equal([1, 2, 3], [.. p.Steps.Select(s => s.Position)]);
+  }
+
+  [Fact]
+  public void MoveStep_ToItsOwnPosition_ChangesNothing()
+  {
+    Plan p = NewPlan().AddStep("a", null).AddStep("b", null);
+    Assert.Same(p, p.MoveStep(2, 2));
+  }
+
+  [Fact]
+  public void MoveStep_KeepsTheStepsOwnFields()
+  {
+    Plan p = NewPlan().AddStep("a", "detail a").AddStep("b", null);
+    p = p.MoveStep(1, 2);
+    PlanStep moved = p.Steps[1];
+    Assert.Equal("a", moved.Title);
+    Assert.Equal("detail a", moved.Detail);
+  }
+
+  [Theory]
+  [InlineData(0, 1)]
+  [InlineData(1, 0)]
+  [InlineData(1, 3)]
+  public void MoveStep_OutOfRange_Throws(int from, int to)
+  {
+    Plan p = NewPlan().AddStep("a", null).AddStep("b", null);
+    _ = Assert.Throws<PlanInputException>(() => p.MoveStep(from, to));
+  }
+
+  [Fact]
+  public void MoveStep_OnAbandonedPlan_Throws()
+  {
+    Plan p = NewPlan().AddStep("a", null).SetStatus(PlanStatus.Abandoned, DateTimeOffset.UtcNow);
+    _ = Assert.Throws<PlanInputException>(() => p.MoveStep(1, 1));
+  }
+
+  [Fact]
   public void UpdateStep_AppliesMutation()
   {
     Plan p = NewPlan().AddStep("a", null);

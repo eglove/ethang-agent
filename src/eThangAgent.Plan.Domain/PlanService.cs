@@ -79,6 +79,67 @@ public sealed class PlanService(IPlanStore store)
     return saved;
   }
 
+  /// <summary>Inserts a step at <paramref name="position"/>, renumbering the tail. The
+  ///     step-change event names the inserted position, so a reader sees where it landed.</summary>
+  public async Task<Result<Plan>> InsertStepAsync(int id, int position, string title, string? detail,
+    int expectedVersion, DateTimeOffset now, CancellationToken ct = default)
+  {
+    Result<Plan> loaded = await store.GetAsync(id, ct).ConfigureAwait(false);
+    if (!loaded.IsSuccess)
+    {
+      return loaded;
+    }
+
+    Plan mutated;
+    try
+    {
+      mutated = loaded.Value.InsertStep(position, title, detail);
+    }
+    catch (PlanInputException ex)
+    {
+      return Result.Failure<Plan>(new DomainError("InvalidTransition", ex.Message));
+    }
+
+    Result<Plan> saved = await store.SaveAsync(mutated with { UpdatedAt = now }, expectedVersion, ct).ConfigureAwait(false);
+    if (saved.IsSuccess)
+    {
+      StepChanged?.Invoke(new PlanStepChanged(id, position, "added", now));
+    }
+
+    return saved;
+  }
+
+  /// <summary>Moves the step at <paramref name="from"/> to <paramref name="to"/>, renumbering
+  ///     everything between them. The step-change event names the ORIGIN, because that is the
+  ///     position whose content moved.</summary>
+  public async Task<Result<Plan>> MoveStepAsync(int id, int from, int to, int expectedVersion,
+    DateTimeOffset now, CancellationToken ct = default)
+  {
+    Result<Plan> loaded = await store.GetAsync(id, ct).ConfigureAwait(false);
+    if (!loaded.IsSuccess)
+    {
+      return loaded;
+    }
+
+    Plan mutated;
+    try
+    {
+      mutated = loaded.Value.MoveStep(from, to);
+    }
+    catch (PlanInputException ex)
+    {
+      return Result.Failure<Plan>(new DomainError("InvalidTransition", ex.Message));
+    }
+
+    Result<Plan> saved = await store.SaveAsync(mutated with { UpdatedAt = now }, expectedVersion, ct).ConfigureAwait(false);
+    if (saved.IsSuccess)
+    {
+      StepChanged?.Invoke(new PlanStepChanged(id, from, "moved", now));
+    }
+
+    return saved;
+  }
+
   public async Task<Result<Plan>> UpdateStepAsync(int id, int position, Func<PlanStep, PlanStep> mutate,
     int expectedVersion, DateTimeOffset now, CancellationToken ct = default)
   {

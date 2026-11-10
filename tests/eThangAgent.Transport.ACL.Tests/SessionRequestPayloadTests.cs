@@ -36,7 +36,8 @@ public class SessionRequestPayloadTests
         .OrderBy(n => n, StringComparer.Ordinal)];
 
     Assert.Equal(
-        ["ChainStep", "HandoffSummary", "Label", "Model", "Prompt", "RequestId", "SiblingOfWorkspaceId"],
+        ["ChainStep", "HandoffSummary", "Label", "Model", "Prompt", "RequestId", "Resumed",
+            "SiblingOfWorkspaceId"],
         members);
   }
 

@@ -174,6 +174,10 @@ internal sealed partial class ChainCardViewModel : ObservableObject
   /// <summary>True when the chain is waiting for a human (D2's distinction).</summary>
   public bool IsParked => StatusKind == ChainStatusKind.Parked;
 
+  /// <summary>True when this chain can be resumed: it is parked, and it is a real record rather
+  ///     than a corrupt-row marker. The rail's resume button binds to this.</summary>
+  public bool CanResume => IsParked && !IsCorrupt;
+
   /// <summary>True when the chain will do nothing more on its own.</summary>
   public bool IsFinished => StatusKind is ChainStatusKind.Completed or ChainStatusKind.Abandoned;
 
@@ -272,8 +276,10 @@ internal sealed partial class ChainsViewViewModel(
     Action<Action> marshal,
     TimeSpan? pollInterval = null,
     IAgentEvents? events = null,
-    Func<string, Task>? resumeSession = null) : ObservableObject, IDisposable
+    Func<string, Task>? resumeSession = null,
+    Func<int, Task>? resumeChain = null) : ObservableObject, IDisposable
 {
+  private readonly Func<int, Task>? _resumeChain = resumeChain;
   private readonly ChainService? _chains = chains;
   private readonly IAgentEvents? _events = events;
   private readonly IChangeSignal? _signal = signal;
@@ -427,6 +433,29 @@ internal sealed partial class ChainsViewViewModel(
 
     await _resumeSession(sessionId).ConfigureAwait(false);
     _ = ct;
+  }
+
+  /// <summary>Resumes <paramref name="card"/>'s chain: the exit from Parked (issue #303).
+  ///     <para>THE BUTTON EXISTS BECAUSE A PARK IS NOT SELF-SERVING. A chain parked on a spent
+  ///     attempt budget, a review round-trip cap, or a floor refusal has no session left to
+  ///     steer, so 'open the stopped session' - the view's only other action - does nothing for
+  ///     exactly the chains that most need a human. This is the act that starts them again.
+  ///     </para>
+  ///     <para>A card that is not parked is refused by name rather than silently ignored: the
+  ///     button is only shown for a parked chain, so reaching here otherwise is a defect worth
+  ///     reporting.</para></summary>
+  /// <param name="card">The chain to resume.</param>
+  public async Task ResumeChainAsync(ChainCardViewModel card)
+  {
+    ArgumentNullException.ThrowIfNull(card);
+    ActionMessage = null;
+    if (_resumeChain is null)
+    {
+      ActionMessage = "this session has no way to resume a chain.";
+      return;
+    }
+
+    await _resumeChain(card.ChainId).ConfigureAwait(false);
   }
 
   /// <summary>The session a reader most wants: the parked step's, else the running one's, else

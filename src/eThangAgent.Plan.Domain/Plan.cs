@@ -36,6 +36,51 @@ public sealed record Plan(
     return this with { Steps = [.. Steps, step], UpdatedAt = DateTimeOffset.UtcNow };
   }
 
+  /// <summary>Inserts a step at the 1-based position, renumbering the tail so positions stay
+  ///     contiguous 1..n. A position of <c>Steps.Count + 1</c> appends.</summary>
+  public Plan InsertStep(int position, string title, string? detail)
+  {
+    EnsureMutable();
+    ArgumentOutOfRangeException.ThrowIfLessThan(position, 1);
+    int index = position - 1;
+    if (index > Steps.Count)
+    {
+      throw new PlanInputException(
+          $"cannot insert at position {position}; plan #{Id} has {Steps.Count} step(s), so the highest new position is {Steps.Count + 1}");
+    }
+
+    List<PlanStep> steps = [.. Steps];
+    steps.Insert(index, PlanStep.New(position, title, detail));
+    return this with { Steps = Renumbered(steps), UpdatedAt = DateTimeOffset.UtcNow };
+  }
+
+  /// <summary>Moves the step at the 1-based <paramref name="from"/> to <paramref name="to"/>, so it
+  ///     lands at that position and everything it displaced renumbers to stay contiguous 1..n.
+  ///     Both positions must exist; a move to its own position changes nothing.</summary>
+  /// <param name="from">The position of the step to move.</param>
+  /// <param name="to">The position it should occupy.</param>
+  public Plan MoveStep(int from, int to)
+  {
+    EnsureMutable();
+    int index = IndexOf(from);
+    if (to < 1 || to > Steps.Count)
+    {
+      throw new PlanInputException(
+          $"cannot move step {from} to position {to}; plan #{Id} has {Steps.Count} step(s), so positions are 1..{Steps.Count}");
+    }
+
+    if (from == to)
+    {
+      return this;
+    }
+
+    List<PlanStep> steps = [.. Steps];
+    PlanStep moved = steps[index];
+    steps.RemoveAt(index);
+    steps.Insert(to - 1, moved);
+    return this with { Steps = Renumbered(steps), UpdatedAt = DateTimeOffset.UtcNow };
+  }
+
   /// <summary>Applies a mutation to the step at the 1-based position; returns a copy.
   /// The callback receives a copy of the step and returns the mutated value.</summary>
   public Plan UpdateStep(int position, Func<PlanStep, PlanStep> mutate)
@@ -86,6 +131,10 @@ public sealed record Plan(
 
     throw new PlanInputException($"unknown step position {position}; the plan has {Steps.Count} step(s)");
   }
+
+  /// <summary>Renumbers a reordered step list to contiguous 1..n, keeping each step's own fields.</summary>
+  private static List<PlanStep> Renumbered(List<PlanStep> steps)
+      => [.. steps.Select((step, index) => step with { Position = index + 1 })];
 
   private void EnsureMutable()
   {

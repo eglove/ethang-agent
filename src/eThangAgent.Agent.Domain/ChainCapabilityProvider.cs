@@ -43,9 +43,14 @@ public sealed record ChainWorkspaceGit(IGitWorktreeAccess Worktrees, string Root
 /// <param name="clock">The clock the claim window is measured against.</param>
 /// <param name="workspaceGit">The git seam and the workspace directory it is asked of,
 ///     or null when the host wired no git machinery.</param>
+/// <param name="resume">Un-parks a parked chain and starts what is now available, or null when
+///     the host wired no resume path - a container with no shell cannot start a session, and an
+///     action that reported 'resumed' while starting nothing would be the silent no-op this
+///     action exists to remove.</param>
 public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSource plans,
     IChainStartPort start, Func<string?> sessionId, TimeProvider clock,
-    ChainWorkspaceGit? workspaceGit = null)
+    ChainWorkspaceGit? workspaceGit = null,
+    Func<int, Task<CapabilityInvocationResult>>? resume = null)
     : ICapabilityProvider
 {
   public const string ProviderId = "chain";
@@ -58,8 +63,9 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   ///     owns <c>create</c>, and the collision is a startup failure rather than a shadowing.
   ///     <c>start</c> is also the truer name: the action does not merely write a record, it
   ///     converts a plan into a chain AND starts step 1.</para></summary>
-  public static readonly string[] ActionNames = ["start"];
+  public static readonly string[] ActionNames = ["start", "resume-parked"];
 
+  private const string IdParam = "id";
   private const string PlanIdParam = "planId";
   private const string StepsParam = "steps";
   private const string PositionParam = "position";
@@ -77,6 +83,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
   private readonly ChainWorkspaceGit? _workspaceGit = workspaceGit;
+  private readonly Func<int, Task<CapabilityInvocationResult>>? _resume = resume;
 
   public string Id => ProviderId;
 
@@ -98,6 +105,22 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
                 new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|review, default implement), 'group' (optional parallel group id, >= 1) }]. Omit to execute EVERY plan step as an implementer step."),
             ],
             [PlanIdParam]),
+      // THE ACTION IS 'resume-parked', NOT 'resume'. Capability action names are GLOBALLY
+      // unique (the registry dispatches by bare name), and agent.resume already owns 'resume' -
+      // the collision is a startup failure rather than a shadowing. The name is also the truer
+      // one: this resumes a CHAIN that is parked, not a session.
+      new("resume-parked", "Resume a parked chain: un-park it, re-arm the step that stopped it, and start what it can.",
+            """
+            A PARKED CHAIN DOES NOT MOVE ON ITS OWN. It is waiting for a human, and until this action existed the only thing a human could do was open the stopped session and steer it - which does nothing for a chain parked because a step's attempt budget was spent, because a review round-trip cap was reached, or because an act on the universal floor was refused. Those chains stayed parked forever.
+            This action is the exit. It un-parks the chain, puts the step the park named back to Pending with a fresh attempt budget, clears any invalidation markers, and starts a new session for the first available step. The new session gets the same brief a chain step always gets, and the chain then advances exactly as it always does - completing that step moves the cursor.
+            A resumed step gets a FRESH session rather than a resumed one: the step's previous session failed, or never started, or its transcript is not what the work should continue from. Everything the chain learned is still on the record and in the plan.
+            Output contract:
+            [chain] resumed #<id>: re-armed step <position>, started step <position> as session <sessionId>
+            Either half may be absent: 're-armed nothing (the park named no step)' when the chain parked without a position, and 'started nothing (no step was available)' when nothing could begin.
+            Errors: InvalidActionInput (bad params), ChainNotFound, ChainNotParked (the chain is not parked, so there is nothing to resume), and whatever the launch refused (TabClosed, BriefUnsupported, SessionLaunchFailed) - in which case the chain is un-parked with the step available, and calling this again retries the launch.
+            """,
+            [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. The chain to resume, >= 1.")],
+            [IdParam]),
   ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(string actionName, string jsonArguments,
@@ -108,6 +131,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
       return actionName switch
       {
         "start" => await CreateAsync(jsonArguments, ct).ConfigureAwait(false),
+        "resume-parked" => await ResumeAsync(jsonArguments).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
     }
@@ -115,6 +139,22 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
     {
       return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {ex.Message}");
     }
+  }
+
+  /// <summary>Resumes a parked chain through the host's own path: this provider knows the
+  ///     record, but only the shell can start a session, so the work is delegated rather than
+  ///     re-derived here.
+  ///     <para>A PROVIDER WITH NO RESUME PATH REFUSES BY NAME. Reporting 'resumed' while
+  ///     starting nothing would leave the chain Running with an available step and no session -
+  ///     indistinguishable from the stuck state the action exists to remove.</para></summary>
+  private async Task<CapabilityInvocationResult> ResumeAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam));
+    int id = ReqChainId(args);
+    return _resume is null
+        ? Gutter(new DomainError("ResumeUnsupported",
+            "this host cannot start a chain step's session, so the chain was NOT resumed."))
+        : await _resume(id).ConfigureAwait(false);
   }
 
   private async Task<CapabilityInvocationResult> CreateAsync(string json, CancellationToken ct)
@@ -376,6 +416,18 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   // ---- strict argument parsing --------------------------------------------
 
   private static HashSet<string> Allowed(params string[] names) => new(names, StringComparer.Ordinal);
+
+  /// <summary>The chain id, refused when it is missing or not a positive integer.</summary>
+  /// <param name="args">The parsed arguments.</param>
+  private static int ReqChainId(Dictionary<string, JsonElement> args)
+  {
+    return args.TryGetValue(IdParam, out JsonElement element)
+            && element.ValueKind == JsonValueKind.Number
+            && element.TryGetInt32(out int id)
+            && id >= 1
+        ? id
+        : throw new ChainInputException($"'{IdParam}' is required and must be an integer >= 1.");
+  }
 
   private static Dictionary<string, JsonElement> ParseArgs(string json, HashSet<string> allowed)
   {

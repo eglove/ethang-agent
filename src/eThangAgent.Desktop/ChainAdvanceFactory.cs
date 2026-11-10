@@ -28,34 +28,57 @@ internal static class ChainAdvanceFactory
     ArgumentNullException.ThrowIfNull(session);
     ArgumentNullException.ThrowIfNull(shell);
     return session.Services.GetService<ChainService>() is { } chains
-      ? new ChainAdvanceService(chains, new ChainAdvanceHost(
-          closeSession: rootId => shell() is { } live
-              ? live.CloseSessionAsync(rootId)
-              : Task.CompletedTask,
-          startSession: (assignment, predecessor) => shell() is { } live
-              ? live.StartChainStepSessionAsync(assignment, predecessor)
-              : Task.FromResult(Result.Failure<string>(new DomainError("TabClosed",
-                  "the shell is not ready; the next chain step was not started."))),
-          startFinalSession: (chain, predecessor) => shell() is { } live
-              ? live.StartFinalSessionAsync(chain, predecessor)
-              : Task.FromResult(Result.Failure<string>(new DomainError("TabClosed",
-                  "the shell is not ready; the final agent was not started."))),
-          // A GROUP MEMBER'S CHECKOUT: the provisioner is the session container's own, so the
-          // worktree is made in the workspace that container is bound to - the same directory
-          // the member's session would otherwise have run in.
-          provisionWorktree: name => ProvisionWorktreeAsync(session, name),
-          // A MEMBER'S UNCOMMITTED WORKTREE: the same read-only git seam the status tool uses,
-          // asked about the member's own checkout rather than the workspace.
-          worktreeIsDirty: path => WorktreeIsDirtyAsync(session, path),
-          // A LANDED GROUP'S CHECKOUTS: removed by the same seam that made them, once the
-          // reconciler has merged their branches into the workspace checkout.
-          removeWorktree: path => RemoveWorktreeAsync(session, path)),
+      ? new ChainAdvanceService(chains, HostFor(session, shell),
           // THE REVIEW CURSOR'S ONE READ (issue #320): the verdict a review step's session
           // recorded. Without it a review step would advance exactly as it did before, which
           // is the silent discard this issue closes.
           reviews: session.Services.GetService<IChainReviewSource>())
       : null;
   }
+
+  /// <summary>The resume service for <paramref name="session"/> (issue #303's exit): un-park a
+  ///     parked chain, re-arm the step that stopped it, and start what is now available.
+  ///     <para>IT SHARES THE ADVANCE'S HOST, because a resume starts a session the same way an
+  ///     advance does - one host type, so a launch that works for one works for the other.</para>
+  ///     <para>The same null-is-an-answer contract as <see cref="For"/>.</para></summary>
+  /// <param name="session">The session whose container owns the chain store.</param>
+  /// <param name="shell">Resolves the live shell, lazily.</param>
+  public static ChainResumeService? ResumeFor(AgentSession session, Func<MainViewModel?> shell)
+  {
+    ArgumentNullException.ThrowIfNull(session);
+    ArgumentNullException.ThrowIfNull(shell);
+    return session.Services.GetService<ChainService>() is { } chains
+      ? new ChainResumeService(chains, new ChainResumeLaunch(shell))
+      : null;
+  }
+
+  /// <summary>The shell's half of both the advance and the resume: every act is a tab operation,
+  ///     and the shell is the only place a tab exists.</summary>
+  /// <param name="session">The session whose container owns the stores.</param>
+  /// <param name="shell">Resolves the live shell, lazily.</param>
+  private static ChainAdvanceHost HostFor(AgentSession session, Func<MainViewModel?> shell)
+    => new(
+        closeSession: rootId => shell() is { } live
+            ? live.CloseSessionAsync(rootId)
+            : Task.CompletedTask,
+        startSession: (assignment, predecessor) => shell() is { } live
+            ? live.StartChainStepSessionAsync(assignment, predecessor)
+            : Task.FromResult(Result.Failure<string>(new DomainError("TabClosed",
+                "the shell is not ready; the next chain step was not started."))),
+        startFinalSession: (chain, predecessor) => shell() is { } live
+            ? live.StartFinalSessionAsync(chain, predecessor)
+            : Task.FromResult(Result.Failure<string>(new DomainError("TabClosed",
+                "the shell is not ready; the final agent was not started."))),
+        // A GROUP MEMBER'S CHECKOUT: the provisioner is the session container's own, so the
+        // worktree is made in the workspace that container is bound to - the same directory the
+        // member's session would otherwise have run in.
+        provisionWorktree: name => ProvisionWorktreeAsync(session, name),
+        // A MEMBER'S UNCOMMITTED WORKTREE: the same read-only git seam the status tool uses,
+        // asked about the member's own checkout rather than the workspace.
+        worktreeIsDirty: path => WorktreeIsDirtyAsync(session, path),
+        // A LANDED GROUP'S CHECKOUTS: removed by the same seam that made them, once the
+        // reconciler has merged their branches into the workspace checkout.
+        removeWorktree: path => RemoveWorktreeAsync(session, path));
 
   /// <summary>Provisions one worktree in <paramref name="session"/>'s workspace and reports its
   ///     directory and branch. A container that wired no provisioner refuses by name rather than

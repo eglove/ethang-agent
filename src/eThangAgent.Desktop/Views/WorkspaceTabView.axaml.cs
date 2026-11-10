@@ -194,6 +194,20 @@ internal partial class WorkspaceTabView : UserControl
     }
   }
 
+  /// <summary>Resumes a parked chain from the rail (issue #303's exit): un-park it, re-arm the
+  ///     step that stopped it, and start a fresh session for it.
+  ///     <para>Fire-and-forget by design, like the open-session action: the resume builds a
+  ///     container and launches a host, and blocking the click handler on it would freeze the
+  ///     shell for its duration. The shell reports a failure as a transcript notice, so there is
+  ///     no outcome here for a caller to act on.</para></summary>
+  private void OnChainResumeClick(object? sender, RoutedEventArgs e)
+  {
+    if (sender is Button { Tag: ChainCardViewModel card } && Vm is { } vm)
+    {
+      _ = vm.Workbench.Chains.ResumeChainAsync(card);
+    }
+  }
+
   /// <summary>Opens one ledger's records (issue #318 D2): the view has no other action, because
   ///     the ledger is written by sessions through the experiment tool and this pane is read-only
   ///     (D1).

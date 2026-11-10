@@ -39,6 +39,14 @@ public enum ChainAdvanceKind
 
   /// <summary>The completion was refused; <see cref="ChainAdvance.Code"/> names the refusal.</summary>
   Refused,
+
+  /// <summary>The reporting session executes no chain step, so there is nothing to advance.
+  ///     <para>DISTINCT FROM <see cref="Refused"/> ON PURPOSE. Every hand-started session writes
+  ///     plans, and every such write reaches the advance as a completion fact. A refusal is
+  ///     something a caller must act on, and reporting one for each ordinary write trained both
+  ///     the user and the model to ignore the notice that actually matters. Nothing was refused
+  ///     here - there was simply no chain.</para></summary>
+  NotInAChain,
 }
 
 /// <summary>The advance decision (issue #301 D1): a kind plus the facts the enactment needs.
@@ -59,6 +67,10 @@ public sealed record ChainAdvance(ChainAdvanceKind Kind, int? Position, string? 
     ArgumentException.ThrowIfNullOrWhiteSpace(reason);
     return new ChainAdvance(ChainAdvanceKind.Refused, null, code, reason);
   }
+
+  /// <summary>The answer for a session that executes no chain step: no code, no reason, and
+  ///     nothing for a caller to report.</summary>
+  public static ChainAdvance NoChain() => new(ChainAdvanceKind.NotInAChain, null, null, null);
 
   public override string ToString()
   {

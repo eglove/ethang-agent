@@ -138,6 +138,60 @@ public sealed record Chain(
     return SetStatus(ChainStatus.Running, actor, now) with { ParkReason = null, ParkedAtPosition = null };
   }
 
+  /// <summary>Un-parks the chain AND re-arms the step that stopped it, so the chain can actually
+  ///     move again (issue #303's missing exit).
+  ///     <para>WHY THIS IS NOT <see cref="Resume"/>. Moving Parked back to Running is half of
+  ///     what a stuck chain needs. The step the park named is almost always Failed or Parked
+  ///     itself - it is what stopped the chain - and a chain whose status says Running while its
+  ///     blocking step is unstartable reports work in progress that cannot progress. The advance
+  ///     finds no available step, blocks, and parks the chain again on the next completion: the
+  ///     user's resume appears to do nothing.</para>
+  ///     <para>THE STEP GOES BACK TO PENDING, NOT TO RUNNING. Its session is gone or broken - the
+  ///     attempt budget is spent, or the work was refused - so there is no transcript to
+  ///     continue. Pending makes it available to the advance, which starts a FRESH session for
+  ///     it. The attempt count is cleared with it: a resume is a human's decision that this work
+  ///     should be tried again, and re-entering a chain only to fail on the spent budget the park
+  ///     was about would make the exit a loop.</para>
+  ///     <para>INVALIDATION MARKERS ARE CLEARED TOO. They are the other way a chain becomes
+  ///     uncompletable (#304 D5), and a resume is the same human decision about both: 'this work
+  ///     should proceed'. Clearing them here keeps the exit in one place rather than requiring
+  ///     two acts a reader has to discover.</para></summary>
+  /// <param name="actor">Who resumed it.</param>
+  /// <param name="now">The clock.</param>
+  public Chain ResumeAndRearm(ChainActor actor, DateTimeOffset now)
+  {
+    ArgumentNullException.ThrowIfNull(actor);
+    Chain resumed = ClearInvalidation(now);
+    return resumed.ParkedAtPosition is { } stopped && resumed.StepAt(stopped) is { } step
+      ? resumed.ReplaceStep(resumed.IndexOf(stopped), Rearmed(step), now) with
+      {
+        Status = ChainStatus.Running,
+        ParkReason = null,
+        ParkedAtPosition = null,
+      }
+      : resumed with { Status = ChainStatus.Running, ParkReason = null, ParkedAtPosition = null };
+  }
+
+  /// <summary>The step a resume re-arms: back to Pending, claim and outcome cleared, and the
+  ///     attempt count reset. A step that is already available is left exactly as it is.
+  ///     <para>A DONE STEP IS LEFT ALONE TOO. Re-arming finished work would make a resume redo
+  ///     it, and the chain only parks on a step that did not finish - the park names the step
+  ///     that stopped it.</para></summary>
+  /// <param name="step">The step the park named.</param>
+  private static ChainStep Rearmed(ChainStep step) =>
+      step.Status is ChainStepStatus.Failed or ChainStepStatus.Skipped or ChainStepStatus.Parked
+        ? step with
+        {
+          Status = ChainStepStatus.Pending,
+          SessionId = null,
+          Attempts = 0,
+          Outcome = null,
+          ClaimedAt = null,
+          CompletedAt = null,
+          Actor = ChainActor.Harness,
+        }
+        : step;
+
   /// <summary>Claims the step at the 1-based position for a session. Only a Pending step
   ///     can be claimed: a Running step is held by its claimant until it is settled,
   ///     released, or reassigned.</summary>

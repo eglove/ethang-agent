@@ -90,7 +90,9 @@ public static class ExecGuide
     database, kept by the plan capability provider. plan.create makes one (title, goal,
     optional steps array of {title, detail?}), plan.show (id) retrieves it,
     plan.index lists (optional status filter), and plan.add-step / plan.update-step /
-    plan.remove-step / plan.set-status mutate:
+    plan.remove-step / plan.move-step / plan.set-status mutate. plan.add-step takes an
+    optional 'position' (insert there, renumbering the tail) and plan.move-step {from, to}
+    reorders, which are the two ways a plan's step order changes:
 
         Tools.Invoke("plan.create", new { timeoutSeconds = 60, title = "...", goal = "..." })
         → [plan] created #<id>
@@ -98,10 +100,17 @@ public static class ExecGuide
     The dot form resolves provider.action (plan.create → the plan provider's create
     action); the harness validates timeoutSeconds and strips it, so pure capability
     actions never see it. show renders the envelope
-    [plan #<id> v<version> | <status> | session <sid>] <title>. Mutations CAS on a
-    fresh load — on VersionConflict, re-get (plan.show), reconcile, retry. Errors
-    arrive as Error [PlanNotFound] / [InvalidTransition] / [PlanStepNotFound] /
-    [InvalidActionInput].
+    [plan #<id> v<version> | <status> | session <sid>] <title>, followed by every step's
+    line and that step's FULL detail beneath it. Mutations CAS on a fresh load — on
+    VersionConflict, re-get (plan.show), reconcile, retry. Errors arrive as Error
+    [PlanNotFound] / [InvalidTransition] / [PlanStepNotFound] / [InvalidActionInput].
+
+    Chains are the harness's execution records over a plan, kept by the chain provider.
+    chain.start (planId, optional steps array) converts a plan into a chain and starts step
+    1; completing a step is what advances it. A chain that cannot proceed is PARKED, waiting
+    for a human, and chain.resume-parked (id) is the exit: it un-parks the chain, re-arms the
+    step that stopped it with a fresh attempt budget, and starts what is now available. Call
+    it rather than leaving a parked chain stuck.
 
     Errors are results, not script-fatal — with ONE exception, and the split is worth knowing:
 

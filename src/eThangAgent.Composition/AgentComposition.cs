@@ -682,6 +682,12 @@ public static class AgentComposition
             sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<IChainStartPort>(sp => new WireChainStartPort(
             sp.GetRequiredService<SessionRequestChannel>()))
+        // THE RESUME'S LAUNCH (issue #303's exit): a container that runs a turn asks the app to
+        // start the session, exactly as a chain creation does. The app's own container overrides
+        // this with a direct shell call, because it IS the shell.
+        .AddSingleton<IChainResumeLaunchPort>(sp => new WireChainResumeLaunch(
+            sp.GetRequiredService<SessionRequestChannel>()))
+        .AddSingleton<ChainResumeService>()
         .AddSingleton(sp => new ChainCapabilityProvider(
             sp.GetRequiredService<ChainService>(),
             sp.GetRequiredService<IChainPlanSource>(),
@@ -694,7 +700,50 @@ public static class AgentComposition
                 sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
                 // A group member's checkout is made by the same provisioner the advance uses,
                 // because creation starts a group's members itself.
-                sp.GetRequiredService<IWorktreeProvisioner>())));
+                sp.GetRequiredService<IWorktreeProvisioner>()),
+            // THE EXIT FROM A PARKED CHAIN (issue #303): the action delegates to the resume
+            // service, which un-parks, re-arms, and starts through the launch port above. The
+            // Agent Domain cannot start a session itself, so the work is delegated rather than
+            // re-derived.
+            resume: chainId => ResumeChainAsync(sp, chainId)));
+  }
+
+  /// <summary>The <c>chain.resume</c> action's work (issue #303's exit): resume the parked chain
+  ///     and report what it did.
+  ///     <para>A CONTAINER WITH NO RESUME SERVICE REFUSES BY NAME, never a success: reporting
+  ///     'resumed' while starting nothing would leave the chain Running with an available step
+  ///     and no session - indistinguishable from the stuck state the action removes.</para></summary>
+  /// <param name="sp">The container.</param>
+  /// <param name="chainId">The chain to resume.</param>
+  private static async Task<CapabilityInvocationResult> ResumeChainAsync(IServiceProvider sp, int chainId)
+  {
+    if (sp.GetService<ChainResumeService>() is not { } resumes)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [ResumeUnsupported]: this host cannot resume a chain; the chain was NOT resumed.");
+    }
+
+    Result<ChainResumeOutcome> resumed = await resumes
+        .ResumeAsync(chainId, ChainActor.User, DateTimeOffset.UtcNow).ConfigureAwait(false);
+    return resumed.IsSuccess
+        ? CapabilityInvocationResult.Ok(RenderResume(resumed.Value))
+        : CapabilityInvocationResult.Fail($"Error [{resumed.Error.Code}]: {resumed.Error.Message}");
+  }
+
+  /// <summary>What the resume did, stated so the caller sees both halves: which step was re-armed
+  ///     and which step was started. Either may be absent, and the absence is reported rather
+  ///     than left for a reader to infer from a record they cannot see.</summary>
+  /// <param name="outcome">What the resume produced.</param>
+  private static string RenderResume(ChainResumeOutcome outcome)
+  {
+    string rearmed = outcome.RearmedPosition is { } position
+        ? $"re-armed step {position}"
+        : "re-armed nothing (the park named no step)";
+    string started = outcome.StartedPosition is { } startedPosition
+        ? $"started step {startedPosition} as session {outcome.SessionId}"
+        : "started nothing (no step was available)";
+    return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+        $"[chain] resumed #{outcome.ChainId}: {rearmed}, {started}");
   }
 
   /// <summary>The reviewer-recording delegate <c>plan.review</c> writes through (issue #320):

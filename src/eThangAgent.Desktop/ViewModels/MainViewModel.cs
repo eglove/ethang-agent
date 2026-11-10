@@ -1851,6 +1851,75 @@ internal sealed partial class MainViewModel : ObservableObject
         assignment.WorktreePath).ConfigureAwait(true);
   }
 
+  /// <summary>Starts the session for a step a HUMAN unblocked by resuming a parked chain
+  ///     (issue #303's missing exit).
+  ///     <para>NO PREDECESSOR, unlike <see cref="StartChainStepSessionAsync"/>. A resume happens
+  ///     long after the step's session stopped - it may be closed, or it may never have existed
+  ///     - so there is no cell to continue and none to retire. The new session APPENDS, which is
+  ///     the same shape every other chain step takes.</para>
+  ///     <para>THE TAB IS FOUND BY WORKSPACE. The chain belongs to a workspace, and a resume can
+  ///     be asked for from a session that is not in that tab - so the record's own workspace is
+  ///     what decides where the session lands.</para></summary>
+  /// <param name="assignment">The chain step the session is started for.</param>
+  public async Task<Result<string>> StartResumedChainStepSessionAsync(ChainStepAssignment assignment)
+  {
+    ArgumentNullException.ThrowIfNull(assignment);
+    AgentTabViewModel? tab = TabForChain(assignment.ChainId);
+    if (tab is null)
+    {
+      return Result.Failure<string>(new DomainError("TabClosed",
+          "the workspace this chain belongs to has no open tab; the resumed step was not started."));
+    }
+
+    ChainBriefService? briefs = tab.Container.Services.GetService<ChainBriefService>();
+    if (briefs is null)
+    {
+      return Result.Failure<string>(new DomainError("BriefUnsupported",
+          "this host cannot render a chain brief; the resumed step was not started."));
+    }
+
+    Result<ChainBriefLaunch> launch = await briefs.BuildLaunchAsync(assignment).ConfigureAwait(true);
+    if (!launch.IsSuccess)
+    {
+      return Result.Failure<string>(launch.Error);
+    }
+
+    ChainPlacement placement = await ReadPlacementAsync(tab, assignment).ConfigureAwait(true);
+    Result<StartedSession> started = await StartSessionAsync(tab, prompt: ChainKickoff.Line,
+        seed: launch.Value.Seed, chainContract: launch.Value.Contract, role: assignment.Role,
+        placement: placement, launch: new LaunchSlot(null, assignment.WorktreePath))
+        .ConfigureAwait(true);
+    return started.IsSuccess
+        ? Result.Success(started.Value.RootId.ToString())
+        : Result.Failure<string>(started.Error);
+  }
+
+  /// <summary>The tab whose workspace holds chain <paramref name="chainId"/>, or null when no open
+  ///     tab can read it.
+  ///     <para>A RESUME NAMES NO SESSION, so unlike an advance there is no predecessor cell to
+  ///     find the tab by. The chain record IS workspace-scoped, so asking each open tab whether
+  ///     its container can read the chain is the one answer that cannot be wrong - a tab whose
+  ///     store returns the record is the tab the chain belongs to.</para></summary>
+  /// <param name="chainId">The chain being resumed.</param>
+  private AgentTabViewModel? TabForChain(int chainId)
+  {
+    foreach (AgentTabViewModel tab in Tabs)
+    {
+      if (ChainStoreFor(tab) is not { } chains)
+      {
+        continue;
+      }
+
+      Result<Chain> found = chains.GetAsync(chainId).GetAwaiter().GetResult();
+      if (found.IsSuccess)
+      {
+        return tab;
+      }
+    }
+
+    return null;
+  }
+
   /// <summary>Starts the FINAL agent for a completed chain: a new agent seeded with the final
   ///     brief (a summary of the work done and a retrospective), which hands control back to
   ///     the user. It executes no step, so it carries no contract and no role.</summary>
@@ -2294,6 +2363,16 @@ internal sealed partial class MainViewModel : ObservableObject
     // ANSWER FIRST: the id is the thing the blocked tool is waiting for, and the tab swap
     // must not delay it.
     Answer(channel, request, sessionId: created.Value.RootId.ToString());
+
+    // A RESUME RETIRES NOTHING (issue #303's exit): the session that would have been replaced is
+    // the one that failed, and it may be closed or never have existed. The new session APPENDS,
+    // beside whatever else the tab holds, exactly as a hand-started agent does.
+    if (request.Resumed)
+    {
+      await AppendResumedAsync(tab, created.Value, request).ConfigureAwait(true);
+      return;
+    }
+
     _pendingReplacements[tab] = _pendingReplacements.GetValueOrDefault(tab) + 1;
 
     // The swap waits for the CURRENT turn to go idle. A handoff request is emitted BEFORE
@@ -2301,6 +2380,49 @@ internal sealed partial class MainViewModel : ObservableObject
     // turn is still writing through.
     await WaitForIdleAndReplaceAsync(tab, created.Value, request, requestingSessionId)
         .ConfigureAwait(true);
+  }
+
+  /// <summary>Appends a resumed chain step's session, retiring nothing (issue #303's exit).
+  ///     <para>IT WAITS FOR NOTHING. A resume's request is emitted from inside the model's own
+  ///     turn when a model asks for it, so waiting for that turn would deadlock the request it
+  ///     is answering - the <see cref="AnswerSiblingLaunchAsync"/> rule, for the same reason.
+  ///     </para>
+  ///     <para>A FAILED APPEND IS REPORTED, not thrown: the request is already answered, so
+  ///     there is no tool left to report to and the transcript is where the user will look.
+  ///     </para></summary>
+  /// <param name="tab">The tab the session lands in.</param>
+  /// <param name="session">The session the app just created.</param>
+  /// <param name="request">The resume request it answered.</param>
+  private async Task AppendResumedAsync(AgentTabViewModel tab, AgentSession session,
+      SessionRequestPayload request)
+  {
+    int index = Tabs.IndexOf(tab);
+    if (index < 0)
+    {
+      await DisposeOrphanedSessionAsync(session).ConfigureAwait(true);
+      return;
+    }
+
+    ChainPlacement? placement = request.ChainStep is { } step
+        ? await ReadPlacementAsync(tab,
+            new ChainStepAssignment(step.ChainId, step.PlanId, step.Position, null))
+            .ConfigureAwait(true)
+        : null;
+    try
+    {
+      _ = await AppendSessionAsync(tab, session, index, request.Prompt,
+          new AppendOptions(RoleOf(request), placement)).ConfigureAwait(true);
+    }
+    // Named decision (CA1031): the launch is already answered, so a presentation fault must
+    // surface as a notice - there is no tool left to report to.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031
+    {
+      SessionViewModelOf(tab, null).AddSystemNotice(
+          "Error [SessionStartFailed]: the resumed chain step's session could not be opened in this tab: " + ex.Message);
+      await DisposeOrphanedSessionAsync(session).ConfigureAwait(true);
+    }
   }
 
   /// <summary>Answers a model's own launch (issue #338): starts a SIBLING agent and appends
@@ -2812,7 +2934,11 @@ internal sealed partial class MainViewModel : ObservableObject
         // operation, so the view drives the same resume path rather than a second one.
         resumeSession: sessionId => Guid.TryParse(sessionId, out Guid id)
             ? ResumeChainStepSessionAsync(new AgentId(id))
-            : Task.CompletedTask);
+            : Task.CompletedTask,
+        // THE EXIT FROM A PARKED CHAIN (issue #303): the one action that un-parks a chain, re-arms
+        // the step that stopped it, and starts a fresh session for it. It is the same act the
+        // chain.resume capability performs, through the same service, so the two cannot disagree.
+        resumeChain: chainId => ResumeChainAsync(chainId));
     // The parked count is needed BEFORE anyone opens the rail (D6), so the read starts with the
     // tab rather than with the first selection of the view.
     view.Start();
@@ -2833,6 +2959,33 @@ internal sealed partial class MainViewModel : ObservableObject
         events: session.Services.GetService<IAgentEvents>());
     view.Start();
     return view;
+  }
+
+  /// <summary>Resumes a parked chain from the rail (issue #303's exit): un-park it, re-arm the
+  ///     step that stopped it, and start a fresh session for what is now available.
+  ///     <para>IT GOES THROUGH THE SAME SERVICE THE <c>chain.resume</c> CAPABILITY USES, so a
+  ///     click and a model's request perform one operation and cannot diverge.</para>
+  ///     <para>BEST EFFORT AND REPORTED: the click comes from the UI thread and the resume builds
+  ///     a container and launches a host, so a failure must land as a notice rather than as an
+  ///     escaping exception with no handler.</para></summary>
+  /// <param name="chainId">The chain to resume.</param>
+  private async Task ResumeChainAsync(int chainId)
+  {
+    if (SelectedTab is not { } tab || tab.Container.Services.GetService<ChainService>() is not { } chains)
+    {
+      SelectedTab?.ViewModel.AddSystemNotice(
+          "[chain] that chain cannot be resumed: this tab has no chain machinery.");
+      return;
+    }
+
+    ChainResumeService resume = new(chains, new ChainResumeLaunch(() => this));
+    Result<ChainResumeOutcome> outcome = await resume
+        .ResumeAsync(chainId, ChainActor.User, DateTimeOffset.UtcNow).ConfigureAwait(true);
+    if (!outcome.IsSuccess)
+    {
+      SelectedTab?.ViewModel.AddSystemNotice(
+          $"[chain] chain #{chainId} could not be resumed: {outcome.Error.Message}");
+    }
   }
 
   /// <summary>Opens a chain step's session from the rail: the same act the Sessions menu

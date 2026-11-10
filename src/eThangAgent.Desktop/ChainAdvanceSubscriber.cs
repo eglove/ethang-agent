@@ -51,6 +51,13 @@ internal sealed class ChainAdvanceSubscriber(
       {
         report?.Invoke($"[chain] advance failed: {result.Error.Code}: {result.Error.Message}");
       }
+      else if (result.Value.Kind == ChainAdvanceKind.NotInAChain)
+      {
+        // THE ORDINARY CASE REPORTS NOTHING. Every hand-started session that writes a plan
+        // reaches here on every write, and a notice for each one is what taught a reader to
+        // skip the notices that matter.
+        return;
+      }
       else if (result.Value.Code is { } code)
       {
         report?.Invoke($"[chain] advance refused [{code}]: {result.Value.Reason}");

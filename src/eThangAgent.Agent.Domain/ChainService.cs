@@ -179,6 +179,35 @@ public sealed class ChainService(IChainStore store)
         (before, _) => StatusChanged?.Invoke(new ChainStatusChanged(
             id, before.Status, ChainStatus.Running, actor, null, now)), ct);
 
+  /// <summary>Un-parks the chain AND re-arms the step that stopped it, which is what actually lets
+  ///     a stuck chain move again: <see cref="Chain.ResumeAndRearm"/> owns the rule and this
+  ///     reports it.</summary>
+  /// <param name="id">The chain id.</param>
+  /// <param name="actor">Who resumed it.</param>
+  /// <param name="now">The clock.</param>
+  /// <param name="ct">Cancellation.</param>
+  public Task<Result<Chain>> ResumeAndRearmAsync(int id, ChainActor actor, DateTimeOffset now,
+      CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.ResumeAndRearm(actor, now), now,
+        (before, _) => PublishResume(id, before, actor, now), ct);
+
+  /// <summary>Reports a resume as the two facts it is: the chain leaving Parked, and the step
+  ///     the park named going back to Pending. A surface watching the stream sees both without
+  ///     diffing the record.</summary>
+  /// <param name="id">The chain id.</param>
+  /// <param name="before">The chain as it stood when the resume began.</param>
+  /// <param name="actor">Who resumed it.</param>
+  /// <param name="now">The clock.</param>
+  private void PublishResume(int id, Chain before, ChainActor actor, DateTimeOffset now)
+  {
+    StatusChanged?.Invoke(new ChainStatusChanged(
+        id, before.Status, ChainStatus.Running, actor, null, now));
+    if (before.ParkedAtPosition is { } rearmed)
+    {
+      StepChanged?.Invoke(new ChainStepChanged(id, rearmed, "pending", actor, now));
+    }
+  }
+
   /// <summary>Records the final agent's session id on a completed chain.</summary>
   public Task<Result<Chain>> RecordFinalSessionAsync(int id, string sessionId, DateTimeOffset now,
       CancellationToken ct = default)

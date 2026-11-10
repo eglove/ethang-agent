@@ -244,14 +244,19 @@ public class ChainAdvanceServiceTests
   }
 
   [Fact]
-  public async Task OnCompletionAsync_FromASessionWithNoChainStep_RefusesAndStartsNothing()
+  public async Task OnCompletionAsync_FromASessionWithNoChainStep_IsNotAChainAndRefusesNothing()
   {
+    // EVERY HAND-STARTED SESSION THAT WRITES A PLAN REACHES THIS BRANCH on every write. A
+    // refusal here is a notice the user and the model are trained to ignore, and there is
+    // nothing to refuse - there is simply no chain.
     (ChainAdvanceService service, _, FakeHost host, _) = await NewAsync(1, 2);
 
     ChainAdvance decision = Must(await service.OnCompletionAsync("session-stranger", planId: 3, T0,
         TestContext.Current.CancellationToken));
 
-    Assert.Equal(ChainAdvanceCode.ForeignStep, decision.Code);
+    Assert.Equal(ChainAdvanceKind.NotInAChain, decision.Kind);
+    Assert.Null(decision.Code);
+    Assert.False(decision.IsActionable);
     Assert.Empty(host.Started);
     Assert.Empty(host.Closed);
   }
