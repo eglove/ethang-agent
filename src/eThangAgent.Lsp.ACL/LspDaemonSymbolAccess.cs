@@ -20,6 +20,19 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     _fileExists = fileExists ?? File.Exists;
   }
 
+  /// <summary>The access over a workspace's daemon host: every query rides the one
+  ///     connection the host owns, so the symbol tool and the advisory diagnostics source
+  ///     share the daemon the claim gate uses.</summary>
+  public static LspDaemonSymbolAccess Create(LspDaemonHost host, Func<string, bool>? fileExists = null)
+  {
+    ArgumentNullException.ThrowIfNull(host);
+    return new LspDaemonSymbolAccess(host.EnsureConnectedAsync, fileExists) { Host = host };
+  }
+
+  /// <summary>The daemon host this access queries, or null when it was built over a
+  ///     caller-supplied client factory.</summary>
+  public LspDaemonHost? Host { get; private init; }
+
   public async Task<LspSymbolOutcome> ExecuteAsync(LspSymbolCommand command, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(command);
@@ -64,12 +77,12 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     return result.State switch
     {
       LspSymbolState.Ready when action == RenameAction => MapRename(result, symbolName, newName),
-      LspSymbolState.Ready => new LspSymbolOutcome.Ready(sites, result.OccurrenceUsed, result.TotalOccurrences, result.Message),
-      LspSymbolState.Unsupported => new LspSymbolOutcome.Unsupported(message),
-      LspSymbolState.Unavailable => new LspSymbolOutcome.Unavailable(message),
-      LspSymbolState.Starting => new LspSymbolOutcome.Starting(message),
-      LspSymbolState.Stale => new LspSymbolOutcome.Stale(message),
-      LspSymbolState.Degraded => new LspSymbolOutcome.Degraded(message),
+      LspSymbolState.Ready => new LspSymbolOutcome.Ready(sites, result.OccurrenceUsed, result.TotalOccurrences, result.Message, result.LanguageId),
+      LspSymbolState.Unsupported => new LspSymbolOutcome.Unsupported(message, result.LanguageId),
+      LspSymbolState.Unavailable => new LspSymbolOutcome.Unavailable(message, result.LanguageId),
+      LspSymbolState.Starting => new LspSymbolOutcome.Starting(message, result.LanguageId),
+      LspSymbolState.Stale => new LspSymbolOutcome.Stale(message, result.LanguageId),
+      LspSymbolState.Degraded => new LspSymbolOutcome.Degraded(message, result.LanguageId),
       _ => new LspSymbolOutcome.Degraded(message),
     };
   }
@@ -103,7 +116,7 @@ public sealed class LspDaemonSymbolAccess : ILspSymbolAccess
     List<LspRenameEdit> edits = [.. editSet.Documents.SelectMany(document =>
         document.Edits.Select(edit => new LspRenameEdit(
             FromUri(document.Uri), edit.StartLine, edit.StartCharacter, edit.EndLine, edit.EndCharacter, edit.NewText)))];
-    return new LspSymbolOutcome.Renamed(edits, target, newName, Applied: false, result.Message);
+    return new LspSymbolOutcome.Renamed(edits, target, newName, Applied: false, result.Message, result.LanguageId);
   }
 
   private static string FromUri(string uri)

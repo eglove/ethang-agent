@@ -5,26 +5,25 @@ namespace eThangAgent.Lsp.ACL;
 /// <summary>Resolved server launch: language, absolute server path, pinned version.</summary>
 public sealed record LspServerLaunch(string LanguageId, string ServerPath, string Version);
 
-/// <summary>Resolves the C# language server: bundled beside the app, then PATH, then
-/// known install roots, then the app-owned download cache — first hit wins, cached per
-/// process. Only the catalog's server name is ever resolved; a binary named inside the
-/// workspace is never executed (trust rule). Absent server returns null, which callers
-/// treat as a silent Unavailable no-op.</summary>
+/// <summary>Resolves a language server: bundled beside the app, then PATH, then known
+///     install roots, then the app-owned download cache — first hit wins, cached per
+///     process. Only a server name the catalog records is ever resolved; a binary named
+///     inside the workspace is never executed (trust rule). Absent server returns null,
+///     which callers treat as a silent Unavailable no-op.</summary>
 public sealed class LspServerResolver
 {
   public static string CSharpServerVersion => LspServerCatalog.CSharp.Version;
   public static string CSharpServerFileName => LspServerCatalog.CSharp.ServerFileName;
 
-  private static readonly HashSet<string> WellKnownNames = new(StringComparer.OrdinalIgnoreCase)
-  {
-    LspServerCatalog.CSharp.ServerFileName,
-  };
+  private static readonly HashSet<string> WellKnownNames = new(
+      LspServerCatalog.All.Select(row => row.ServerFileName),
+      StringComparer.OrdinalIgnoreCase);
 
   private readonly Func<string, bool> _fileExists;
   private readonly Func<string, string?> _whereOnPath;
   private readonly IReadOnlyList<string> _knownRoots;
   private readonly string _serverFileName;
-  private readonly Func<string?> _downloadedServer;
+  private readonly Func<LspLanguageRow, string?> _downloadedServer;
   private readonly Dictionary<string, string?> _cache = new(StringComparer.OrdinalIgnoreCase);
 
   public LspServerResolver(
@@ -32,7 +31,7 @@ public sealed class LspServerResolver
     Func<string, string?> whereOnPath,
     IReadOnlyList<string> knownRoots,
     string serverFileName,
-    Func<string?>? downloadedServer = null)
+    Func<LspLanguageRow, string?>? downloadedServer = null)
   {
     _fileExists = fileExists ?? throw new ArgumentNullException(nameof(fileExists));
     _whereOnPath = whereOnPath ?? throw new ArgumentNullException(nameof(whereOnPath));
@@ -42,7 +41,7 @@ public sealed class LspServerResolver
       throw new ArgumentException("Only well-known server names may be resolved.", nameof(serverFileName));
     }
     _serverFileName = serverFileName;
-    _downloadedServer = downloadedServer ?? (() => null);
+    _downloadedServer = downloadedServer ?? (_ => null);
   }
 
   public static LspServerResolver CreateDefault()
@@ -51,8 +50,7 @@ public sealed class LspServerResolver
         WhereOnPath,
         DefaultKnownRoots(),
         CSharpServerFileName,
-        () => new LspServerInstaller(LspServerInstaller.DefaultRoot, _ => Task.FromResult<byte[]?>(null))
-            .ResolveInstalled(LspServerCatalog.CSharp));
+        row => LspInstallLayout.InstalledEntryPoint(row, LspServerInstaller.DefaultRoot));
 
   public static IReadOnlyList<string> DefaultKnownRoots()
   {
@@ -70,6 +68,7 @@ public sealed class LspServerResolver
     return roots;
   }
 
+  /// <summary>The server this resolver was built for, resolved for a workspace directory.</summary>
   public string? Resolve(string appDirectory)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(appDirectory);
@@ -77,32 +76,47 @@ public sealed class LspServerResolver
     {
       return cached;
     }
-    string? result = ResolveUncached(appDirectory);
+    string? result = ResolveUncached(appDirectory, _serverFileName, () => _downloadedServer(LspServerCatalog.CSharp));
     _cache[appDirectory] = result;
     return result;
   }
 
-  private string? ResolveUncached(string appDirectory)
+  /// <summary>The server a row names, resolved for a workspace directory.</summary>
+  public string? Resolve(string appDirectory, LspLanguageRow row)
   {
-    string bundled = Path.Combine(appDirectory, _serverFileName);
+    ArgumentException.ThrowIfNullOrWhiteSpace(appDirectory);
+    ArgumentNullException.ThrowIfNull(row);
+    string key = appDirectory + "|" + row.LanguageId;
+    if (_cache.TryGetValue(key, out string? cached))
+    {
+      return cached;
+    }
+    string? result = ResolveUncached(appDirectory, row.ServerFileName, () => _downloadedServer(row));
+    _cache[key] = result;
+    return result;
+  }
+
+  private string? ResolveUncached(string appDirectory, string serverFileName, Func<string?> downloadedServer)
+  {
+    string bundled = Path.Combine(appDirectory, serverFileName);
     if (_fileExists(bundled))
     {
       return bundled;
     }
-    string? onPath = _whereOnPath(_serverFileName);
+    string? onPath = _whereOnPath(serverFileName);
     if (!string.IsNullOrWhiteSpace(onPath) && _fileExists(onPath))
     {
       return onPath;
     }
     foreach (string root in _knownRoots)
     {
-      string candidate = Path.Combine(root, _serverFileName);
+      string candidate = Path.Combine(root, serverFileName);
       if (_fileExists(candidate))
       {
         return candidate;
       }
     }
-    string? downloaded = _downloadedServer();
+    string? downloaded = downloadedServer();
     return !string.IsNullOrWhiteSpace(downloaded) && _fileExists(downloaded) ? downloaded : null;
   }
 

@@ -3,12 +3,12 @@ using eThangAgent.TestSupport;
 
 namespace eThangAgent.Lsp.ACL.Tests;
 
-/// <summary>Drives the REAL bundled Roslyn server through the production daemon
-/// executable and the production pipe protocol to prove symbol navigation resolves
-/// members that a server reports with their signature attached. Opt-in by trait - it
-/// needs a built daemon and a machine where Roslyn can load the workspace - and out of
-/// the default suite. Run it with --filter-trait "Category=OptIn" and
-/// ETHANG_LSP_REAL_SERVER=1.</summary>
+/// <summary>Symbol navigation answered by two REAL servers, one per language the tier covers:
+///     the bundled Roslyn server through the production daemon executable and the production
+///     pipe protocol, and rust-analyzer through the production server set. Opt-in by trait -
+///     it needs a built daemon, a machine where Roslyn can load the workspace, and a Rust
+///     toolchain - and out of the default suite. Run it with
+///     --filter-trait "Category=OptIn" and ETHANG_LSP_REAL_SERVER=1.</summary>
 [Trait("Category", "OptIn")]
 [Trait("Category", "RealLspServer")]
 [Trait("Category", "Process")]
@@ -36,6 +36,63 @@ public class LspRealServerSymbolTests
       "{\n" +
       "  public int Seed => seed;\n" +
       "}\n";
+
+  /// <summary>rust-analyzer is installed from its pinned archive, started as a real process,
+  ///     and asked for the definition of a symbol declared in a fixture .rs file. The document
+  ///     is opened first through the production watcher path: a server that has not been told
+  ///     about a file answers a definition with an empty list.
+  ///     <para>This is also the check that a definition is parsed from the shape the protocol
+  ///     actually allows: rust-analyzer answers a LocationLink (targetUri/targetRange), not the
+  ///     Location (uri/range) that Roslyn answers, and a parser that knows only one of the two
+  ///     throws on the other.</para></summary>
+  [Fact]
+  public async Task RustAnalyzer_ResolvesADefinitionFromALocationLink()
+  {
+    OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
+        "with a Rust toolchain on PATH for rust-analyzer to analyse the fixture with.");
+
+    LspLanguageRow row = LspServerCatalog.ForLanguage("rust")!;
+    string serverPath = await RealServerWorkspace.InstallAsync(row, "rust-symbol", Ct);
+    string workspace = TestTempRoot.CreateDirectory("real-rust-symbol-ws").FullName;
+    (string file, string relative) = RealServerWorkspace.Write(workspace, "rust");
+    const string WorkspaceId = "real-rust-symbol";
+
+    using LspServerSet set = await LspServerSet.StartAsync(
+        [new LspServerLaunch("rust", serverPath, row.Version)], WorkspaceId, workspace, Ct);
+    Assert.Equal(1, set.Count);
+
+    await set.ApplyAnnouncementAsync(
+        new WatcherAnnouncement(WorkspaceId, [relative], [], 1, DateTimeOffset.UtcNow), Ct);
+
+    string uri = LspUriMapper.ToUri(file);
+    LspSymbolResult definition = await PollForDefinitionAsync(set, uri, "greet");
+
+    Assert.Equal(LspSymbolState.Ready, definition.State);
+    Assert.Equal("rust", definition.LanguageId);
+    LspSymbolSite site = Assert.Single(definition.Sites);
+    Assert.Equal(RealServerWorkspace.DeclarationLine(file, "greet"), site.Line);
+    Assert.Equal("greet", site.SymbolName);
+    Assert.True(IsSameFile(site.Uri, file), "the site must name the file asked about: " + site.Uri);
+  }
+
+  /// <summary>Asks for the definition until the server has indexed the fixture. A server
+  ///     answers an empty list while its crate graph is still loading, so a single query right
+  ///     after the announcement proves nothing. The wait is bounded by the run's ceiling.
+  ///     </summary>
+  internal static async Task<LspSymbolResult> PollForDefinitionAsync(
+      LspServerSet set, string uri, string symbolName)
+  {
+    LspSymbolResult result = await set.QuerySymbolAsync(
+        "definition", uri, symbolName, 0, 1, string.Empty, Ct);
+    System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+    while (result.Sites.Count == 0 && elapsed.Elapsed < TestCeiling.Value)
+    {
+      await Task.Delay(1000, Ct);
+      result = await set.QuerySymbolAsync("definition", uri, symbolName, 0, 1, string.Empty, Ct);
+    }
+
+    return result;
+  }
 
   [Fact]
   public async Task MemberSymbols_ResolveAgainstTheRealServer()
@@ -82,7 +139,10 @@ public class LspRealServerSymbolTests
         LspSymbolResult loaded = await client.SymbolAsync("workspace-load", string.Empty, string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, loaded.State);
 
-        LspSymbolResult document = await client.SymbolAsync("document-symbols", uri, string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
+        // A load is asynchronous: a query issued while it runs legitimately reports
+        // Starting, so the query is repeated until the compilation behind it exists.
+        LspSymbolResult document = await PollAsync(
+            () => client.SymbolAsync("document-symbols", uri, string.Empty, 0, 1, newName: string.Empty, Ct)).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, document.State);
         Assert.NotEmpty(document.Sites);
 
@@ -127,71 +187,6 @@ public class LspRealServerSymbolTests
     finally
     {
       DeleteWorkspace(root);
-    }
-  }
-
-  /// <summary>Applies a document's edits to its text, last position first so an earlier
-  /// edit never shifts a later one. Line and character are 0-based, as the protocol
-  /// reports them.</summary>
-  private static string ApplyEdits(string text, IReadOnlyList<LspTextEdit> edits)
-  {
-    string[] lines = text.Split('\n');
-    List<LspTextEdit> ordered = [.. edits.OrderByDescending(edit => edit.StartLine).ThenByDescending(edit => edit.StartCharacter)];
-    foreach (LspTextEdit edit in ordered)
-    {
-      int start = Offset(lines, edit.StartLine, edit.StartCharacter);
-      int end = Offset(lines, edit.EndLine, edit.EndCharacter);
-      text = string.Concat(text.AsSpan(0, start), edit.NewText, text.AsSpan(end));
-      lines = text.Split('\n');
-    }
-
-    return text;
-  }
-
-  private static bool IsSameFile(string uri, string path)
-    => string.Equals(LspUriMapper.FromUri(uri), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
-
-  private static int Offset(string[] lines, int line, int character)
-  {
-    int offset = 0;
-    for (int i = 0; i < line; i++)
-    {
-      offset += lines[i].Length + 1;
-    }
-
-    return offset + character;
-  }
-
-  private static async Task<LspPipeClient> ConnectAsync(string pipeName, string workspaceId)
-  {
-    for (int attempt = 0; attempt < 600; attempt++)
-    {
-      try
-      {
-        return await LspPipeClient.ConnectAsync(pipeName, workspaceId, "app-1", Ct).ConfigureAwait(true);
-      }
-      catch (Exception ex) when (ex is TimeoutException or IOException)
-      {
-        await Task.Delay(250, Ct).ConfigureAwait(true);
-      }
-    }
-
-    throw new InvalidOperationException("the language-server daemon never accepted a connection");
-  }
-
-  private static void DeleteWorkspace(string root)
-  {
-    // Best effort, and deliberately ONE attempt: a watcher or a just-killed process can still
-    // hold a handle here, and debris under the run root is swept by TestTempRoot.Delete at the
-    // end of the run. Retrying against a clock would spend the whole ceiling on a delete that
-    // is not the thing under test.
-    try
-    {
-      Directory.Delete(root, recursive: true);
-    }
-    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
-    {
-      // Left for the run-root sweep.
     }
   }
 
@@ -247,7 +242,8 @@ public class LspRealServerSymbolTests
         // a compilation to answer from.
         _ = await client.SymbolAsync("workspace-load", string.Empty, string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
 
-        LspSymbolResult warm = await client.SymbolAsync("references", uri, "Widget", 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
+        LspSymbolResult warm = await PollAsync(
+            () => client.SymbolAsync("references", uri, "Widget", 0, 1, newName: string.Empty, Ct)).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, warm.State);
         Assert.NotEmpty(warm.Sites);
 
@@ -317,7 +313,15 @@ public class LspRealServerSymbolTests
         LspSymbolResult loaded = await client.SymbolAsync("workspace-load", string.Empty, string.Empty, 0, 1, newName: string.Empty, Ct).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, loaded.State);
 
-        LspSymbolResult rename = await client.SymbolAsync("rename", uri, "Widget", 0, 1, "Gadget", Ct).ConfigureAwait(true);
+        // A rename computed before the compilation exists covers the file it was asked
+        // about and nothing else, so the load is waited out on a query whose answer says
+        // whether the compilation is there: a cross-file reference answer.
+        LspSymbolResult warm = await PollAsync(
+            () => client.SymbolAsync("references", uri, "Widget", 0, 1, newName: string.Empty, Ct)).ConfigureAwait(true);
+        Assert.Equal(LspSymbolState.Ready, warm.State);
+
+        LspSymbolResult rename = await PollAsync(
+            () => client.SymbolAsync("rename", uri, "Widget", 0, 1, "Gadget", Ct)).ConfigureAwait(true);
         Assert.Equal(LspSymbolState.Ready, rename.State);
         Assert.False(string.IsNullOrWhiteSpace(rename.Message), "a rename must carry the server's WorkspaceEdit");
 
@@ -360,6 +364,88 @@ public class LspRealServerSymbolTests
     finally
     {
       DeleteWorkspace(root);
+    }
+  }
+
+  /// <summary>Repeats a symbol query until the server answers from a loaded workspace. A
+  ///     workspace load runs a restore and a build host, so a query issued while it runs
+  ///     reports Starting - the state the service documents - and only a later one has a
+  ///     compilation behind it. The wait is bounded by the run's ceiling.</summary>
+  private static async Task<LspSymbolResult> PollAsync(Func<Task<LspSymbolResult>> query)
+  {
+    LspSymbolResult result = await query().ConfigureAwait(true);
+    System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+    while (result.State == LspSymbolState.Starting && elapsed.Elapsed < TestCeiling.Value)
+    {
+      await Task.Delay(500, Ct).ConfigureAwait(true);
+      result = await query().ConfigureAwait(true);
+    }
+
+    return result;
+  }
+
+  /// <summary>Applies a document's edits to its text, last position first so an earlier
+  /// edit never shifts a later one. Line and character are 0-based, as the protocol
+  /// reports them.</summary>
+  private static string ApplyEdits(string text, IReadOnlyList<LspTextEdit> edits)
+  {
+    string[] lines = text.Split('\n');
+    List<LspTextEdit> ordered = [.. edits.OrderByDescending(edit => edit.StartLine).ThenByDescending(edit => edit.StartCharacter)];
+    foreach (LspTextEdit edit in ordered)
+    {
+      int start = Offset(lines, edit.StartLine, edit.StartCharacter);
+      int end = Offset(lines, edit.EndLine, edit.EndCharacter);
+      text = string.Concat(text.AsSpan(0, start), edit.NewText, text.AsSpan(end));
+      lines = text.Split('\n');
+    }
+
+    return text;
+  }
+
+  private static bool IsSameFile(string uri, string path)
+    => string.Equals(LspUriMapper.FromUri(uri), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
+
+  private static int Offset(string[] lines, int line, int character)
+  {
+    int offset = 0;
+    for (int i = 0; i < line; i++)
+    {
+      offset += lines[i].Length + 1;
+    }
+
+    return offset + character;
+  }
+
+  private static async Task<LspPipeClient> ConnectAsync(string pipeName, string workspaceId)
+  {
+    for (int attempt = 0; attempt < 600; attempt++)
+    {
+      try
+      {
+        return await LspPipeClient.ConnectAsync(pipeName, workspaceId, "app-1", Ct).ConfigureAwait(true);
+      }
+      catch (Exception ex) when (ex is TimeoutException or IOException)
+      {
+        await Task.Delay(250, Ct).ConfigureAwait(true);
+      }
+    }
+
+    throw new InvalidOperationException("the language-server daemon never accepted a connection");
+  }
+
+  private static void DeleteWorkspace(string root)
+  {
+    // Best effort, and deliberately ONE attempt: a watcher or a just-killed process can still
+    // hold a handle here, and debris under the run root is swept by TestTempRoot.Delete at the
+    // end of the run. Retrying against a clock would spend the whole ceiling on a delete that
+    // is not the thing under test.
+    try
+    {
+      Directory.Delete(root, recursive: true);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+    {
+      // Left for the run-root sweep.
     }
   }
 }

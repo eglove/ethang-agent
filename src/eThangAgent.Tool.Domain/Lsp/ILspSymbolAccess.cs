@@ -52,19 +52,20 @@ public abstract record LspSymbolCommand
   public sealed record Rename(string Path, string SymbolName, int Occurrence, string NewName) : LspSymbolCommand;
 }
 
-/// <summary>Outcomes the seam returns (the closed outcome set).</summary>
+/// <summary>Outcomes the seam returns (the closed outcome set). Every case carries the
+/// language whose server answered, or null when no server was reached.</summary>
 public abstract record LspSymbolOutcome
 {
-  public sealed record Ready(IReadOnlyList<LspSymbolSite> Sites, int OccurrenceUsed = 0, int TotalOccurrences = 1, string? Message = null) : LspSymbolOutcome;
-  public sealed record Unsupported(string Message) : LspSymbolOutcome;
-  public sealed record Unavailable(string Message) : LspSymbolOutcome;
-  public sealed record Starting(string Message) : LspSymbolOutcome;
-  public sealed record Stale(string Message) : LspSymbolOutcome;
-  public sealed record Degraded(string Message) : LspSymbolOutcome;
+  public sealed record Ready(IReadOnlyList<LspSymbolSite> Sites, int OccurrenceUsed = 0, int TotalOccurrences = 1, string? Message = null, string? LanguageId = null) : LspSymbolOutcome;
+  public sealed record Unsupported(string Message, string? LanguageId = null) : LspSymbolOutcome;
+  public sealed record Unavailable(string Message, string? LanguageId = null) : LspSymbolOutcome;
+  public sealed record Starting(string Message, string? LanguageId = null) : LspSymbolOutcome;
+  public sealed record Stale(string Message, string? LanguageId = null) : LspSymbolOutcome;
+  public sealed record Degraded(string Message, string? LanguageId = null) : LspSymbolOutcome;
 
   /// <summary>A computed rename: the edit set the language server returned, the symbol it
   ///     was computed for, and whether the edits were written. Reporting without applying
   ///     is the default, so <paramref name="Applied"/> is false unless a caller applied them.</summary>
-  public sealed record Renamed(IReadOnlyList<LspRenameEdit> Edits, string Target, string NewName, bool Applied, string? Message = null) : LspSymbolOutcome;
+  public sealed record Renamed(IReadOnlyList<LspRenameEdit> Edits, string Target, string NewName, bool Applied, string? Message = null, string? LanguageId = null) : LspSymbolOutcome;
 }
 #pragma warning restore CA1034

@@ -61,7 +61,7 @@ public class LspCallHierarchyToolTests
   [Fact]
   public async Task CallHierarchy_Unsupported_RendersLabel()
   {
-    ScriptedSymbolAccess access = new() { Next = new LspSymbolOutcome.Unsupported("capability not advertised for callHierarchy/prepare") };
+    ScriptedSymbolAccess access = new() { Next = new LspSymbolOutcome.Unsupported("call-hierarchy-incoming is not supported by the lua server", "lua") };
     string inner = J("action", "call-hierarchy-incoming") + "," + J("path", "A.cs") + "," + J("symbolName", "Foo");
     ToolResult r = await Call(access, inner);
     Assert.False(r.IsError);

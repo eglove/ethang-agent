@@ -20,8 +20,9 @@ public enum LspSymbolState
 public sealed record LspSymbolSite(string Uri, int Line, int Character, string SymbolName);
 #pragma warning restore CA1056
 
-/// <summary>Result of a symbol query.</summary>
-public sealed record LspSymbolResult(LspSymbolState State, IReadOnlyList<LspSymbolSite> Sites, int OccurrenceUsed = 0, int TotalOccurrences = 1, string? Message = null);
+/// <summary>Result of a symbol query. <c>LanguageId</c> names the language whose server
+/// answered, or null when no server was reached.</summary>
+public sealed record LspSymbolResult(LspSymbolState State, IReadOnlyList<LspSymbolSite> Sites, int OccurrenceUsed = 0, int TotalOccurrences = 1, string? Message = null, string? LanguageId = null);
 
 /// <summary>Outcome of resolving a symbol name against a document-symbols payload.</summary>
 public sealed record LspSymbolResolution(bool Found, int Line, int Character, int TotalOccurrences);
@@ -39,9 +40,24 @@ public sealed partial class LspSymbolService
   private readonly LspJsonRpcTransport? _transport;
   private readonly LspCapabilities _capabilities;
   private readonly ILspWorkspaceModel? _workspace;
+  private readonly string? _languageId;
 
-  public LspSymbolService(LspJsonRpcTransport? transport, LspCapabilities capabilities, ILspWorkspaceModel? workspace = null)
-    => (_transport, _capabilities, _workspace) = (transport, capabilities ?? throw new ArgumentNullException(nameof(capabilities)), workspace);
+  public LspSymbolService(
+      LspJsonRpcTransport? transport,
+      LspCapabilities capabilities,
+      ILspWorkspaceModel? workspace = null,
+      string? languageId = null)
+    => (_transport, _capabilities, _workspace, _languageId) =
+        (transport, capabilities ?? throw new ArgumentNullException(nameof(capabilities)), workspace, languageId);
+
+  /// <summary>The language this service's server serves, or null when the caller did not say.
+  ///     </summary>
+  public string? LanguageId => _languageId;
+
+  /// <summary>Stamps every result with the language that answered it.</summary>
+  private LspSymbolResult Result(
+      LspSymbolState state, IReadOnlyList<LspSymbolSite> sites, int occurrenceUsed = 0, int totalOccurrences = 1, string? message = null)
+    => new(state, sites, occurrenceUsed, totalOccurrences, message, _languageId);
 
   public static LspSymbolResolution ResolveSymbol(string documentSymbolsJson, string symbolName, int occurrence)
   {
@@ -149,7 +165,12 @@ public sealed partial class LspSymbolService
     return ResolveSymbol(response.ResultJson, symbolName, occurrence);
   }
 
-  private static LspSymbolResult Unavailable() => new(LspSymbolState.Unavailable, [], 0, 1, "no language server for this workspace");
+  private LspSymbolResult Unavailable()
+    => Result(LspSymbolState.Unavailable, [], 0, 1, "no language server for this workspace");
+
+  /// <summary>The name a server's initialize result does not carry for the operation the
+  ///     caller asked for.</summary>
+  private const string DocumentSymbolGap = "it does not advertise textDocument/documentSymbol";
 
   private const string NotLoadedMessage =
     "the language server has not loaded this workspace yet, so a symbol query has no compilation behind it; retry, or call the workspace-load action to wait for the load";
@@ -168,7 +189,7 @@ public sealed partial class LspSymbolService
     }
 
     await _workspace.EnsureLoadedAsync(NoWait, ct).ConfigureAwait(false);
-    return new LspSymbolResult(LspSymbolState.Starting, [], 0, 1, NotLoadedMessage);
+    return Result(LspSymbolState.Starting, [], 0, 1, NotLoadedMessage);
   }
 
   /// <summary>Requests the workspace load and waits for it to finish. The one operation
@@ -182,27 +203,33 @@ public sealed partial class LspSymbolService
 
     if (_workspace is null)
     {
-      return new LspSymbolResult(LspSymbolState.Ready, [], 0, 1, "this workspace has no solution to load");
+      return Result(LspSymbolState.Ready, [], 0, 1, "this workspace has no solution to load");
     }
 
     bool loaded = await _workspace.EnsureLoadedAsync(LoadWait, ct).ConfigureAwait(false);
     return loaded
-        ? new LspSymbolResult(LspSymbolState.Ready, [], 0, 1)
-        : new LspSymbolResult(LspSymbolState.Starting, [], 0, 1, NotLoadedMessage);
+        ? Result(LspSymbolState.Ready, [], 0, 1)
+        : Result(LspSymbolState.Starting, [], 0, 1, NotLoadedMessage);
   }
 
-  private static LspSymbolResult Unsupported(string method) => new(LspSymbolState.Unsupported, [], 0, 1, "capability not advertised for " + method);
+  /// <summary>An action the server does not advertise. The message names the action and the
+  ///     language, so a caller reading it knows which server answered and what it will not do.
+  ///     </summary>
+  private LspSymbolResult Unsupported(string action, string? because = null)
+    => Result(LspSymbolState.Unsupported, [], 0, 1,
+        action + " is not supported by the " + (_languageId ?? "language") + " server"
+        + (because is null ? string.Empty : ": " + because));
 
-  private static LspSymbolResult ReferencedOnly(string symbolName, string uri)
-    => new(LspSymbolState.Unsupported, [], 0, 1, "symbol '" + symbolName + "' is only referenced, not defined, in " + uri + "; position cannot be resolved");
+  private LspSymbolResult ReferencedOnly(string symbolName, string uri)
+    => Result(LspSymbolState.Unsupported, [], 0, 1, "symbol '" + symbolName + "' is only referenced, not defined, in " + uri + "; position cannot be resolved");
 
   /// <summary>Why a symbol name did not resolve to a position. A name absent from the file
   ///     and an occurrence index past the last definition are different mistakes, so they
   ///     never share a message.</summary>
-  private static LspSymbolResult NotResolved(string symbolName, string uri, int occurrence, LspSymbolResolution resolution)
+  private LspSymbolResult NotResolved(string symbolName, string uri, int occurrence, LspSymbolResolution resolution)
     => resolution.TotalOccurrences == 0
         ? ReferencedOnly(symbolName, uri)
-        : new(LspSymbolState.Unsupported, [], occurrence, resolution.TotalOccurrences,
+        : Result(LspSymbolState.Unsupported, [], occurrence, resolution.TotalOccurrences,
             "occurrence " + occurrence + " is out of range: '" + symbolName + "' is defined " + resolution.TotalOccurrences + " time(s) in " + uri + "; pass an occurrence from 0 to " + (resolution.TotalOccurrences - 1));
 
   private async Task<LspSymbolResult> QueryAsync(string uri, string symbolName, int occurrence, string method, Func<string, string, LspSymbolResolution, string> buildParams, CancellationToken ct)
@@ -220,13 +247,13 @@ public sealed partial class LspSymbolService
 
     if (!_capabilities.Supports(method))
     {
-      return Unsupported(method);
+      return Unsupported(ActionName(method));
     }
 
     LspSymbolResolution? resolution = await ResolveAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false);
     if (resolution is null)
     {
-      return Unsupported("textDocument/documentSymbol");
+      return Unsupported(ActionName(method), DocumentSymbolGap);
     }
 
     if (!resolution.Found)
@@ -240,17 +267,17 @@ public sealed partial class LspSymbolService
     {
       if (response.ErrorCode == "Unsupported")
       {
-        return Unsupported(method);
+        return Unsupported(ActionName(method));
       }
 
-      return new LspSymbolResult(LspSymbolState.Degraded, [], resolution.OccurrenceUsedOr(occurrence), resolution.TotalOccurrences, response.ErrorMessage);
+      return Result(LspSymbolState.Degraded, [], resolution.OccurrenceUsedOr(occurrence), resolution.TotalOccurrences, response.ErrorMessage);
     }
 
     List<LspSymbolSite> sites = method == "textDocument/hover"
         ? HoverSites(response.ResultJson, uri, symbolName, resolution)
         : ParseLocations(response.ResultJson, symbolName);
     string? message = method == "textDocument/hover" ? HoverText(response.ResultJson) : null;
-    return new LspSymbolResult(LspSymbolState.Ready, sites, occurrence, resolution.TotalOccurrences, message);
+    return Result(LspSymbolState.Ready, sites, occurrence, resolution.TotalOccurrences, message);
   }
 
   /// <summary>The text a hover response carries. The protocol allows a string, a
@@ -359,12 +386,12 @@ public sealed partial class LspSymbolService
       {
         foreach (JsonElement item in root.EnumerateArray())
         {
-          sites.Add(ParseLocation(item, symbolName));
+          Add(sites, ParseLocation(item, symbolName));
         }
       }
       else if (root.ValueKind == JsonValueKind.Object)
       {
-        sites.Add(ParseLocation(root, symbolName));
+        Add(sites, ParseLocation(root, symbolName));
       }
     }
     catch (JsonException)
@@ -372,6 +399,14 @@ public sealed partial class LspSymbolService
     }
 
     return Dedupe(sites);
+  }
+
+  private static void Add(List<LspSymbolSite> sites, LspSymbolSite? site)
+  {
+    if (site is not null)
+    {
+      sites.Add(site);
+    }
   }
 
   /// <summary>Collapses sites that name the same position. A server reports a type and the
@@ -392,14 +427,50 @@ public sealed partial class LspSymbolService
     return unique;
   }
 
-  private static LspSymbolSite ParseLocation(JsonElement item, string symbolName)
+  /// <summary>One result location. A definition answers with either a <c>Location</c>
+  ///     (<c>uri</c> + <c>range</c>) or a <c>LocationLink</c> (<c>targetUri</c> +
+  ///     <c>targetRange</c> + <c>targetSelectionRange</c>): the protocol allows both, and
+  ///     Roslyn answers the first while rust-analyzer answers the second. A member without
+  ///     either shape is not a location and contributes no site.</summary>
+  private static LspSymbolSite? ParseLocation(JsonElement item, string symbolName)
   {
-    string uri = item.TryGetProperty("uri", out JsonElement u) ? u.GetString() ?? string.Empty : string.Empty;
-    JsonElement range = item.GetProperty("range");
-    int line = range.GetProperty("start").GetProperty("line").GetInt32();
-    int ch = range.GetProperty("start").GetProperty("character").GetInt32();
-    string name = item.TryGetProperty("name", out JsonElement n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : symbolName;
-    return new LspSymbolSite(uri, line, ch, name);
+    if (item.ValueKind != JsonValueKind.Object)
+    {
+      return null;
+    }
+
+    bool isLink = item.TryGetProperty("targetUri", out JsonElement targetUri);
+    string? rawUri = null;
+    if (isLink)
+    {
+      rawUri = targetUri.GetString();
+    }
+    else if (item.TryGetProperty("uri", out JsonElement u))
+    {
+      rawUri = u.GetString();
+    }
+
+    string rangeName = isLink ? "targetSelectionRange" : "range";
+    if (!item.TryGetProperty(rangeName, out JsonElement range) || range.ValueKind != JsonValueKind.Object)
+    {
+      rangeName = isLink ? "targetRange" : rangeName;
+      if (!item.TryGetProperty(rangeName, out range) || range.ValueKind != JsonValueKind.Object)
+      {
+        return null;
+      }
+    }
+
+    if (!range.TryGetProperty("start", out JsonElement start)
+        || !start.TryGetProperty("line", out JsonElement lineEl)
+        || !start.TryGetProperty("character", out JsonElement characterEl))
+    {
+      return null;
+    }
+
+    string name = item.TryGetProperty("name", out JsonElement n) && n.ValueKind == JsonValueKind.String
+        ? n.GetString()!
+        : symbolName;
+    return new LspSymbolSite(rawUri ?? string.Empty, lineEl.GetInt32(), characterEl.GetInt32(), name);
   }
 
   public Task<LspSymbolResult> DefinitionAsync(string uri, string symbolName, int occurrence = 0, CancellationToken ct = default)
@@ -423,6 +494,48 @@ public sealed partial class LspSymbolService
   public Task<LspSymbolResult> RenameAsync(string uri, string symbolName, int occurrence, string newName, CancellationToken ct = default)
     => RenameCoreAsync(uri, symbolName, occurrence, newName, ct);
 
+  /// <summary>The name the 'lsp' tool uses for a protocol method, so an unsupported answer
+  ///     names the action the caller asked for rather than the method it maps to.</summary>
+  private static string ActionName(string method) => method switch
+  {
+    "textDocument/definition" => "definition",
+    "textDocument/references" => "references",
+    "textDocument/hover" => "hover",
+    "textDocument/implementation" => "implementation",
+    "textDocument/documentSymbol" => "document-symbols",
+    "workspace/symbol" => "workspace-symbols",
+    "textDocument/prepareCallHierarchy" => "call-hierarchy",
+    "callHierarchy/incomingCalls" => "call-hierarchy-incoming",
+    "callHierarchy/outgoingCalls" => "call-hierarchy-outgoing",
+    "textDocument/rename" => "rename",
+    _ => method,
+  };
+
+  /// <summary>Dispatches one named operation, the same way the daemon's lsp.symbol request
+  ///     does, so a caller holding this service directly reaches the same operations. An
+  ///     action this service does not implement answers Unsupported rather than throwing.
+  ///     </summary>
+  public Task<LspSymbolResult> ExecuteAsync(
+      string action, string uri, string symbolName, int occurrence, int depth, string newName,
+      CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(action);
+    return action switch
+    {
+      "definition" => DefinitionAsync(uri, symbolName, occurrence, ct),
+      "references" => ReferencesAsync(uri, symbolName, occurrence, ct),
+      "hover" => HoverAsync(uri, symbolName, occurrence, ct),
+      "implementation" => ImplementationAsync(uri, symbolName, occurrence, ct),
+      "document-symbols" => DocumentSymbolsAsync(uri, ct),
+      "workspace-symbols" => WorkspaceSymbolsAsync(symbolName, ct),
+      "call-hierarchy-incoming" => CallHierarchyIncomingAsync(uri, symbolName, occurrence, depth, ct),
+      "call-hierarchy-outgoing" => CallHierarchyOutgoingAsync(uri, symbolName, occurrence, depth, ct),
+      "workspace-load" => LoadWorkspaceAsync(ct),
+      "rename" => RenameAsync(uri, symbolName, occurrence, newName, ct),
+      _ => Task.FromResult(Result(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action)),
+    };
+  }
+
   public async Task<LspSymbolResult> DocumentSymbolsAsync(string uri, CancellationToken ct = default)
   {
     if (_transport is null)
@@ -438,18 +551,18 @@ public sealed partial class LspSymbolService
 
     if (!_capabilities.Supports("textDocument/documentSymbol"))
     {
-      return Unsupported("textDocument/documentSymbol");
+      return Unsupported("document-symbols");
     }
 
     string paramsJson = "{\"textDocument\":{\"uri\":\"" + uri + "\"}}";
     LspRequestResult response = await _transport.SendRequestAsync("textDocument/documentSymbol", paramsJson, ct).ConfigureAwait(false);
     if (!response.IsSuccess)
     {
-      return new LspSymbolResult(LspSymbolState.Degraded, [], 0, 1, response.ErrorMessage);
+      return Result(LspSymbolState.Degraded, [], 0, 1, response.ErrorMessage);
     }
 
     List<LspSymbolSite> sites = ParseDocumentSymbols(response.ResultJson, uri);
-    return new LspSymbolResult(LspSymbolState.Ready, sites, 0, sites.Count);
+    return Result(LspSymbolState.Ready, sites, 0, sites.Count);
   }
 
   private static List<LspSymbolSite> ParseDocumentSymbols(string? json, string uri)
@@ -530,13 +643,13 @@ public sealed partial class LspSymbolService
         }
 
         JsonElement located = item.TryGetProperty("location", out JsonElement loc) && loc.ValueKind == JsonValueKind.Object ? loc : item;
-        if (!located.TryGetProperty("range", out _))
+        if (!located.TryGetProperty("range", out _) && !located.TryGetProperty("targetUri", out _))
         {
           continue;
         }
 
         string name = item.TryGetProperty("name", out JsonElement n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : string.Empty;
-        sites.Add(ParseLocation(located, name));
+        Add(sites, ParseLocation(located, name));
       }
     }
     catch (JsonException)
@@ -564,20 +677,20 @@ public sealed partial class LspSymbolService
 
     if (!_capabilities.Supports("workspace/symbol"))
     {
-      return Unsupported("workspace/symbol");
+      return Unsupported("workspace-symbols");
     }
 
     string paramsJson = "{\"query\":\"" + query + "\"}";
     LspRequestResult response = await _transport.SendRequestAsync("workspace/symbol", paramsJson, ct).ConfigureAwait(false);
     if (!response.IsSuccess)
     {
-      return new LspSymbolResult(LspSymbolState.Degraded, [], 0, 1, response.ErrorMessage);
+      return Result(LspSymbolState.Degraded, [], 0, 1, response.ErrorMessage);
     }
 
     List<LspSymbolSite> sites = ParseWorkspaceSymbols(response.ResultJson);
     return sites.Count == 0
-        ? new LspSymbolResult(LspSymbolState.Degraded, [], 0, 0, NoWorkspaceSymbolsMessage(query))
-        : new LspSymbolResult(LspSymbolState.Ready, sites, 0, sites.Count);
+        ? Result(LspSymbolState.Degraded, [], 0, 0, NoWorkspaceSymbolsMessage(query))
+        : Result(LspSymbolState.Ready, sites, 0, sites.Count);
   }
 }
 

@@ -21,6 +21,12 @@ public class LspServerProvisionerTests
 
   private static string Hash(byte[] bytes) => Convert.ToBase64String(System.Security.Cryptography.SHA512.HashData(bytes));
 
+  private static LspServerInstaller Installer(string root, Func<LspLanguageRow, Task<byte[]?>> download) =>
+      new(root, new Dictionary<LspInstallKind, ILspInstallStrategy>
+      {
+        [LspInstallKind.NuGet] = new LspNuGetInstallStrategy(download),
+      });
+
   [Fact]
   public async Task AlreadyResolvable_ReturnsItWithoutDownloading()
   {
@@ -29,8 +35,8 @@ public class LspServerProvisionerTests
     {
       int downloads = 0;
       LspServerProvisioner provisioner = new(
-          package => { downloads++; return Task.FromResult<byte[]?>(null); },
           _ => "C:\\found\\server.exe",
+          Installer(root, _ => { downloads++; return Task.FromResult<byte[]?>(null); }),
           root);
       LspServerLaunch? launch = await provisioner.ResolveOrInstallAsync(LspServerCatalog.CSharp, TestContext.Current.CancellationToken);
       Assert.NotNull(launch);
@@ -47,21 +53,27 @@ public class LspServerProvisionerTests
     try
     {
       byte[] nupkg = PackageWith("tools/net10.0/win-x64", "server.exe", "binary");
-      LspServerPackage package = new(
+      LspLanguageRow row = new(
           LanguageId: "csharp",
+          DisplayName: "C#",
+          InstallKind: LspInstallKind.NuGet,
+          PrerequisiteExecutable: null,
+          Extensions: [".cs"],
+          ManifestNames: [],
           PackageId: "test.pkg",
           Version: "1.0.0",
-          Sha512: Hash(nupkg),
+          Checksum: Hash(nupkg),
           EntryPointRelativePath: "tools/net10.0/win-x64",
-          ServerFileName: "server.exe");
+          ServerFileName: "server.exe",
+          Arguments: []);
       LspServerProvisioner provisioner = new(
-          _ => Task.FromResult<byte[]?>(nupkg),
           _ => null,
+          Installer(root, _ => Task.FromResult<byte[]?>(nupkg)),
           root);
-      LspServerLaunch? launch = await provisioner.ResolveOrInstallAsync(package, TestContext.Current.CancellationToken);
+      LspServerLaunch? launch = await provisioner.ResolveOrInstallAsync(row, TestContext.Current.CancellationToken);
       Assert.NotNull(launch);
       Assert.True(File.Exists(launch.ServerPath));
-      Assert.Equal(package.Version, launch.Version);
+      Assert.Equal(row.Version, launch.Version);
     }
     finally { Directory.Delete(root, true); }
   }
@@ -73,8 +85,8 @@ public class LspServerProvisionerTests
     try
     {
       LspServerProvisioner provisioner = new(
-          _ => Task.FromResult<byte[]?>(null),
           _ => null,
+          Installer(root, _ => Task.FromResult<byte[]?>(null)),
           root);
       Assert.Null(await provisioner.ResolveOrInstallAsync(LspServerCatalog.CSharp, TestContext.Current.CancellationToken));
     }

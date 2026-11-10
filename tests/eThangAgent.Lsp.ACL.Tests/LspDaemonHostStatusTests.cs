@@ -54,6 +54,56 @@ public class LspDaemonHostStatusTests
   }
 
   [Fact]
+  public async Task AWorkspaceWhoseOnlyLanguageIsNotCSharp_IsServed()
+  {
+    string root = TestTempRoot.CreateDirectory("lsp-non-csharp").FullName;
+    try
+    {
+      await File.WriteAllTextAsync(Path.Combine(root, "main.lua"), "print('hi')",
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      using LspDaemonHost host = new("ws-lua", root, "app-1",
+          () => throw new InvalidOperationException("no daemon process to start in this test"));
+
+      Assert.Equal(["lua"], [.. host.Languages.Select(detected => detected.LanguageId)]);
+      Assert.True(host.HasLanguages,
+          "a Lua workspace holds a language this app serves, so the daemon must start for it.");
+
+      _ = await host.StartAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      Assert.True(host.IsStarted);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Fact]
+  public async Task AWorkspaceHoldingNoLanguage_StartsNothing()
+  {
+    string root = TestTempRoot.CreateDirectory("lsp-no-language").FullName;
+    try
+    {
+      await File.WriteAllTextAsync(Path.Combine(root, "README.md"), "# notes",
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      using LspDaemonHost host = new("ws-docs", root, "app-1",
+          () => throw new InvalidOperationException("a code-free workspace must start no daemon"));
+
+      Assert.Empty(host.Languages);
+      Assert.False(host.HasLanguages);
+      Assert.Null(await host.EnsureConnectedAsync(TestContext.Current.CancellationToken).ConfigureAwait(true));
+      Assert.Null(host.Client);
+      Assert.Null(host.DaemonProcessId);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Fact]
   public void TwoHosts_NeverShareAMonitor()
   {
     using LspDaemonHost first = new("ws-a", Directory.GetCurrentDirectory(), "app-1",

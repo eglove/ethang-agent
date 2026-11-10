@@ -80,7 +80,9 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
         + " The language server starts when the workspace starts and later calls reuse the session."
         + " A query against a workspace the server has not loaded returns Starting and never an empty Ready, because an unloaded server reports a symbol's own declaration and none of its cross-file uses."
         + " workspace-load requests the load and waits for it, so it is the action to call when a query reports Starting and you need a real answer."
-        + " Output: one annotation line '[lsp] <State>: <action>' then one line per site - 'path:line:character symbol' (1-based)."
+        + " Output: one annotation line '[lsp] <State>: <action> (<language>)' then one line per site - 'path:line:character symbol' (1-based)."
+        + " The language is the one whose server answered, so a result from a Rust workspace is marked rust and one from Python is marked python; a result no language server produced carries none."
+        + " Every action is attempted for every language whose server advertises it, and an action a server does not advertise answers '<action> is not supported by the <language> server'."
         + " States: Ready (sites returned), Starting (server still initializing - no evidence yet), Stale (results may be outdated),"
         + " Degraded (partial results), Unavailable (no language server for this workspace), Unsupported (capability not advertised or symbol only referenced)."
         + " An unsupported capability is never an empty list."
@@ -147,7 +149,7 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
     List<string> lines =
     [
       string.Create(CultureInfo.InvariantCulture,
-          $"[lsp] Ready: rename - applied {applied.EditCount} {EditPlural(applied.EditCount)} to {applied.FilesChanged.Count} {FilePlural(applied.FilesChanged.Count)} for '{renamed.Target}'"),
+          $"{Annotation("Ready", "rename", renamed.LanguageId)} - applied {applied.EditCount} {EditPlural(applied.EditCount)} to {applied.FilesChanged.Count} {FilePlural(applied.FilesChanged.Count)} for '{renamed.Target}'"),
     ];
     foreach (string file in applied.FilesChanged)
     {
@@ -192,6 +194,13 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
 
   private static string Pluralize(int count) => count == 1 ? "symbol" : "symbols";
 
+  /// <summary>The annotation line's opening: the honesty label, the action, and the language
+  ///     whose server answered. A result with no language behind it names none.</summary>
+  private static string Annotation(string state, string actionText, string? languageId)
+    => languageId is null
+        ? $"[lsp] {state}: {actionText}"
+        : $"[lsp] {state}: {actionText} ({languageId})";
+
   private static ToolResult Render(LspSymbolOutcome outcome, LspSymbolToolInput args)
   {
     string actionText = ActionText(args.Action);
@@ -199,11 +208,11 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
     {
       LspSymbolOutcome.Ready ready => RenderReady(ready, actionText, args),
       LspSymbolOutcome.Renamed renamed => RenderRenamed(renamed, actionText),
-      LspSymbolOutcome.Unsupported u => new ToolResult($"[lsp] Unsupported: {actionText} - {u.Message}", false),
-      LspSymbolOutcome.Unavailable u => new ToolResult($"[lsp] Unavailable: {actionText} - {u.Message}", false),
-      LspSymbolOutcome.Starting s => new ToolResult($"[lsp] Starting: {actionText} - {s.Message}", false),
-      LspSymbolOutcome.Stale s => new ToolResult($"[lsp] Stale: {actionText} - {s.Message}", false),
-      LspSymbolOutcome.Degraded d => new ToolResult($"[lsp] Degraded: {actionText} - {d.Message}", false),
+      LspSymbolOutcome.Unsupported u => new ToolResult($"{Annotation("Unsupported", actionText, u.LanguageId)} - {u.Message}", false),
+      LspSymbolOutcome.Unavailable u => new ToolResult($"{Annotation("Unavailable", actionText, u.LanguageId)} - {u.Message}", false),
+      LspSymbolOutcome.Starting s => new ToolResult($"{Annotation("Starting", actionText, s.LanguageId)} - {s.Message}", false),
+      LspSymbolOutcome.Stale s => new ToolResult($"{Annotation("Stale", actionText, s.LanguageId)} - {s.Message}", false),
+      LspSymbolOutcome.Degraded d => new ToolResult($"{Annotation("Degraded", actionText, d.LanguageId)} - {d.Message}", false),
       _ => throw new InvalidOperationException("unreachable: outcome is a validated record family"),
     };
   }
@@ -212,9 +221,9 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
   {
     List<string> lines = [];
     lines.Add(IsListingAction(args.Action)
-        ? string.Create(CultureInfo.InvariantCulture, $"[lsp] Ready: {actionText} - {ready.Sites.Count} {Pluralize(ready.Sites.Count)}")
+        ? string.Create(CultureInfo.InvariantCulture, $"{Annotation("Ready", actionText, ready.LanguageId)} - {ready.Sites.Count} {Pluralize(ready.Sites.Count)}")
         : string.Create(CultureInfo.InvariantCulture,
-            $"[lsp] Ready: {actionText} - occurrence {ready.OccurrenceUsed} of {ready.TotalOccurrences} for '{args.SymbolName ?? args.Path}'"));
+            $"{Annotation("Ready", actionText, ready.LanguageId)} - occurrence {ready.OccurrenceUsed} of {ready.TotalOccurrences} for '{args.SymbolName ?? args.Path}'"));
     foreach (LspSymbolSite site in ready.Sites)
     {
       lines.Add(string.Create(CultureInfo.InvariantCulture,
@@ -237,7 +246,7 @@ public sealed class LspSymbolTool(IPathResolver resolver, ILspSymbolAccess acces
     List<string> lines =
     [
       string.Create(CultureInfo.InvariantCulture,
-          $"[lsp] Ready: {actionText} - {count} {EditPlural(count)} renaming '{renamed.Target}' to '{renamed.NewName}' (not applied)"),
+          $"{Annotation("Ready", actionText, renamed.LanguageId)} - {count} {EditPlural(count)} renaming '{renamed.Target}' to '{renamed.NewName}' (not applied)"),
     ];
     foreach (LspRenameEdit edit in renamed.Edits)
     {

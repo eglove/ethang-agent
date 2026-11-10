@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using eThangAgent.Lsp.ACL;
-using eThangAgent.Lsp.Host;
 
 if (args.Length < 3)
 {
@@ -16,69 +14,19 @@ Console.Out.WriteLine("daemon-starting " + pipeName);
 Console.Out.Flush();
 
 string appDir = AppContext.BaseDirectory;
-LspServerLaunch? launch = null;
-if (LspLanguageDetector.DetectLanguage(workspaceRoot) == "csharp")
-{
-  Console.Out.WriteLine("server-resolving " + workspaceId);
-  Console.Out.Flush();
-  launch = await LspServerProvisioner.CreateDefault(appDir, workspaceRoot)
-    .ResolveOrInstallAsync(LspServerCatalog.CSharp, CancellationToken.None);
-  Console.Out.WriteLine(launch is null ? "server-unavailable" : "server-ready " + launch.Version);
-  Console.Out.Flush();
-}
-Process? serverProcess = null;
-LspJsonRpcTransport? transport = null;
-if (launch is not null)
-{
-  ProcessStartInfo psi = LspServerLauncher.BuildStartInfo(launch);
-  serverProcess = Process.Start(psi);
-  if (serverProcess is not null)
-  {
-    transport = new LspJsonRpcTransport(serverProcess.StandardOutput.BaseStream, serverProcess.StandardInput.BaseStream, TimeSpan.FromSeconds(30));
-  }
-}
+LspServerProvisioner provisioner = LspServerProvisioner.CreateDefault(appDir, workspaceRoot);
 
-LspDiagnosticStore store = new();
-LspDiagnosticsService diagnosticsService = new(null, store);
-LspSymbolService symbolService = new(null, LspCapabilities.None);
-LspServerConfig syncConfig = launch is null
-  ? new LspServerConfig("csharp", "", [], [".cs"])
-  : LspLanguageDetector.CSharpConfig(launch.ServerPath);
-ILspDocumentSync sink = transport is null ? new NoOpDocumentSync() : new LspTransportDocumentSync(transport);
-LspDocumentSync forwarder = new(workspaceId, workspaceRoot, syncConfig.LanguageId, syncConfig.Extensions, sink);
-
-if (transport is not null)
-{
-  LspNotificationRouter router = new(store);
-  LspRoslynWorkspaceModel workspace = new(transport, forwarder, workspaceRoot);
-  transport.OnNotification(json =>
-  {
-    _ = router.HandleNotification(json);
-    _ = workspace.HandleNotification(json);
-  });
-  LspServerConfig config = LspLanguageDetector.CSharpConfig(launch!.ServerPath);
-  LspClient client = new(transport, config);
-  string wsUri = LspUriMapper.ToUri(workspaceRoot);
-  _ = await client.InitializeAsync(wsUri);
-  diagnosticsService = new LspDiagnosticsService(transport, store, client.Capabilities, workspace);
-  symbolService = new LspSymbolService(transport, client.Capabilities, workspace);
-}
+// The workspace's servers, started once. The restart hook reuses this set instead of
+// starting a second one: every accepted connection runs the hook, so a hook that started
+// its own servers would launch a duplicate set per connection and leak the previous one.
+LspServerSet? started = null;
 
 using LspDaemonServer server = new(pipeName, workspaceId, () => Task.CompletedTask);
-server.AttachForwarder(forwarder);
-server.AttachDiagnosticsService(diagnosticsService);
-server.AttachSymbolService(symbolService);
+server.AttachServers(StartWorkspaceServersAsync);
 server.AttachRestartHook(async ct =>
 {
-  diagnosticsService.BeginRestart();
-  try
-  {
-    await forwarder.ReopenAllAsync(forwarder.OpenDocuments, ct).ConfigureAwait(false);
-  }
-  finally
-  {
-    await diagnosticsService.CompleteRestartAsync().ConfigureAwait(false);
-  }
+  LspServerSet servers = await StartWorkspaceServersAsync(ct);
+  await servers.ReopenAllAsync(ct);
 });
 try
 {
@@ -91,12 +39,46 @@ catch (Exception ex)
 }
 finally
 {
-  if (serverProcess is not null && !serverProcess.HasExited)
-  {
-    try { serverProcess.Kill(entireProcessTree: true); } catch (InvalidOperationException) { /* server already exited */ }
-  }
+  started?.Dispose();
 }
 
 Console.Out.WriteLine("daemon-ready " + workspaceId);
 Console.Out.Flush();
 return 0;
+
+async Task<LspServerSet> StartWorkspaceServersAsync(CancellationToken ct)
+{
+  if (started is not null)
+  {
+    return started;
+  }
+
+  List<LspServerLaunch> launches = [];
+  foreach (DetectedLanguage detected in LspWorkspaceLanguages.Detect(workspaceRoot))
+  {
+    LspLanguageRow? row = LspServerCatalog.ForLanguage(detected.LanguageId);
+    if (row is null)
+    {
+      continue;
+    }
+
+    Console.Out.WriteLine("server-resolving " + workspaceId);
+    Console.Out.Flush();
+    LspServerLaunch? launch = row.LanguageId == LspServerCatalog.CSharp.LanguageId
+        ? await provisioner.ResolveOrInstallAsync(row, ct)
+        : provisioner.ResolveExisting(row);
+    if (launch is null)
+    {
+      Console.Out.WriteLine("server-unavailable");
+      Console.Out.Flush();
+      continue;
+    }
+
+    Console.Out.WriteLine("server-ready " + launch.Version);
+    Console.Out.Flush();
+    launches.Add(launch);
+  }
+
+  started = await LspServerSet.StartAsync(launches, workspaceId, workspaceRoot, ct);
+  return started;
+}

@@ -431,8 +431,75 @@ public class LspSymbolServiceTests
     LspSymbolService service = new(transport, LspCapabilities.None);
     LspSymbolResult r = await service.RenameAsync("file:///ws/A.cs", "Foo", 0, "Bar", CancellationToken.None);
     Assert.Equal(LspSymbolState.Unsupported, r.State);
-    Assert.Contains("textDocument/rename", r.Message, StringComparison.Ordinal);
+    Assert.Contains("rename", r.Message, StringComparison.Ordinal);
     Assert.DoesNotContain("textDocument/rename", Encoding.UTF8.GetString(output.ToArray()), StringComparison.Ordinal);
+  }
+
+  /// <summary>The plan's example: a shell file whose server does not implement rename answers
+  ///     with the action and the language, not an empty success and not an exception.</summary>
+  [Fact]
+  public async Task Rename_ServerWithoutTheCapability_NamesTheActionAndTheLanguage()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    LspSymbolService service = new(transport, LspCapabilities.None, workspace: null, languageId: "bash");
+    LspSymbolResult r = await service.RenameAsync("file:///ws/run.sh", "greet", 0, "hello", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Unsupported, r.State);
+    Assert.Equal("rename is not supported by the bash server", r.Message);
+    Assert.Equal("bash", r.LanguageId);
+  }
+
+  /// <summary>A language a server does not name is still reported by the action alone, so an
+  ///     unsupported answer never reads as a bare method name.</summary>
+  [Fact]
+  public async Task Unsupported_WithoutALanguage_StillNamesTheAction()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    LspSymbolService service = new(transport, LspCapabilities.None);
+    LspSymbolResult r = await service.DefinitionAsync("file:///ws/A.cs", "Foo", 0);
+    Assert.Equal(LspSymbolState.Unsupported, r.State);
+    Assert.Equal("definition is not supported by the language server", r.Message);
+  }
+
+  /// <summary>An action the server advertises still returns its payload, and the result names
+  ///     the language that answered.</summary>
+  [Fact]
+  public async Task SupportedAction_ReturnsItsPayload_AndNamesTheLanguage()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    string uri = "file:///C:/ws/main.rs";
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":" + DocSymbolsJsonMulti(("main", 0, 3)) + "}");
+    transport.EnqueueIncomingForTest("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":" + LocationJson(uri, 0, 3) + "}");
+    LspCapabilities caps = LspCapabilities.None with { DocumentSymbolProvider = true, DefinitionProvider = true };
+    LspSymbolService service = new(transport, caps, workspace: null, languageId: "rust");
+    LspSymbolResult r = await service.DefinitionAsync(uri, "main", 0);
+    Assert.Equal(LspSymbolState.Ready, r.State);
+    Assert.Equal("rust", r.LanguageId);
+    LspSymbolSite site = Assert.Single(r.Sites);
+    Assert.Equal(0, site.Line);
+    Assert.Equal(3, site.Character);
+  }
+
+  /// <summary>An unadvertised documentSymbol is named as the gap behind the action asked for,
+  ///     so a rename failure never reports the resolution step as the missing capability.</summary>
+  [Fact]
+  public async Task Unsupported_ResolutionGap_NamesTheActionAskedFor()
+  {
+    using MemoryStream input = new();
+    using MemoryStream output = new();
+    LspJsonRpcTransport transport = new(input, output, TimeSpan.FromSeconds(2));
+    LspCapabilities caps = LspCapabilities.None with { RenameProvider = true };
+    LspSymbolService service = new(transport, caps, workspace: null, languageId: "python");
+    LspSymbolResult r = await service.RenameAsync("file:///ws/a.py", "Foo", 0, "Bar", CancellationToken.None);
+    Assert.Equal(LspSymbolState.Unsupported, r.State);
+    Assert.Equal(
+        "rename is not supported by the python server: it does not advertise textDocument/documentSymbol",
+        r.Message);
   }
 
   [Fact]

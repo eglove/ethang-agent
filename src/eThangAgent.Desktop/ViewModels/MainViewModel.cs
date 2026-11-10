@@ -143,6 +143,12 @@ internal sealed record MainViewModelOptions
   /// <summary>The idle threshold and wrap-up budget root supervision reads (issue #323), from the
   ///     same configured knobs the child ladder uses.</summary>
   public WatchdogPolicy? WatchdogPolicy { get; init; }
+
+  /// <summary>Replaces the container's language-server installer for every surface this shell
+  ///     builds — the session's per-workspace prompt and the language-servers page both read it,
+  ///     so one install action drives both. Null (production) uses the container's own
+  ///     registration.</summary>
+  public ILanguageServerInstaller? LanguageInstaller { get; init; }
 }
 
 /// <summary>Shell-level state for the main window: the left menu bar (Open Workspace,
@@ -188,6 +194,10 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     the Avalonia dispatcher; a headless test injects a synchronous executor, because a
   ///     posted action would never run without a dispatcher loop.</summary>
   private readonly Action<Action> _uiMarshal;
+
+  /// <summary>The language-server installer this shell hands to every surface it builds, or null
+  ///     to use each session container's own registration.</summary>
+  private readonly ILanguageServerInstaller? _languageInstaller;
 
   /// <summary>Optional API-key protector guarding durable storage (test seam: when
   ///     null, keys are never persisted — plaintext must never reach the store).</summary>
@@ -398,6 +408,10 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Raised when the shell wants the MCP servers dialog shown (issue #106).</summary>
   public event EventHandler? McpServersRequested;
 
+  /// <summary>Raised when a session's language-server prompt asks for the language-servers
+  ///     page, carrying the language the prompt named first. The shell opens it.</summary>
+  public event EventHandler<string>? LanguageServersRequested;
+
   /// <param name="createSession">Session-creation hook. Null in production — the shell
   ///     derives it from <paramref name="options"/> so saved keys can rebuild it; hosts
   ///     and tests that compose sessions themselves pass their own delegate and forgo
@@ -418,6 +432,7 @@ internal sealed partial class MainViewModel : ObservableObject
     SeedSettingsPrefills(options);
     _streamSink = options?.UiStreamSink;
     _uiMarshal = ResolveUiMarshal(options);
+    _languageInstaller = ResolveLanguageInstaller(options);
     _settings = options?.Settings;
     _sessionOpened = options?.SessionOpened;
     _sessionClosed = options?.SessionClosed;
@@ -2868,6 +2883,10 @@ internal sealed partial class MainViewModel : ObservableObject
         {
           WorkspaceRoot = session.WorkspaceRoot,
           SystemPrompt = session.SystemPrompt,
+          // The shell's own marshal, the same one every cell receives: a headless host injects
+          // a synchronous executor, and a fresh dispatcher post here would leave the tab's own
+          // UI-bound work (the language prompt's detection pass) queued on a loop nobody runs.
+          UiMarshal = _uiMarshal,
           UiStreamSink = _streamSink ?? (evt => currentViewModel()
               .ApplyUiStreamEventOnUIThreadAsync(evt)),
           Inbox = session.Inbox,
@@ -2896,9 +2915,19 @@ internal sealed partial class MainViewModel : ObservableObject
               ? HandleSessionRequestAsync(requestTab, request, session.RootId)
               : Task.CompletedTask,
           AgentEvents = session.Services.GetService<IAgentEvents>(),
-          // Plan #143 step 6: the status bar's language-server segment follows this
-          // container's daemon, so a first-run download is visible rather than a hang.
-          LspServerStatus = session.LspServerStatus,
+          // The per-workspace language-server prompt: the catalog names a language, the
+          // installer serves and installs it, the preference store holds the opt-out, and
+          // the workspace's own watcher re-runs detection when a language is added.
+          LanguageCatalog = session.Services.GetService<ILanguageServerCatalog>(),
+          LanguageInstaller = _languageInstaller ?? session.Services.GetService<ILanguageServerInstaller>(),
+          LanguageDetector = session.Services.GetService<IWorkspaceLanguageDetector>(),
+          Preferences = _preferences,
+          LanguageServersPage = languageId =>
+          {
+            LanguageServersRequested?.Invoke(this, languageId);
+            return Task.CompletedTask;
+          },
+          WorkspaceWatcher = session.Services.GetService<IFileWatcher>(),
           // Spec D6: the app runs NO agent work. A container built with the wire runtime
           // (every production session) resolves the channel here and every turn travels to
           // this conversation's host; a headless/test container that opted into the
@@ -3183,6 +3212,13 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="options">The shell configuration, or null.</param>
   private static Action<Action> ResolveUiMarshal(MainViewModelOptions? options)
     => options?.UiMarshal ?? (action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+
+  /// <summary>The language-server installer override a host supplied, or null when every surface
+  ///     should use its own session container's registration. Extracted for the same reason as
+  ///     the marshal above: S1541 counts branches, and this is one coalesce.</summary>
+  /// <param name="options">The shell configuration, or null.</param>
+  private static ILanguageServerInstaller? ResolveLanguageInstaller(MainViewModelOptions? options)
+    => options?.LanguageInstaller;
 
   /// <summary>Seeds the root-supervision seams (issue #323). Extracted from the constructor
   ///     because S1541 counts branches and this is two assignments: a constructor that grew past
@@ -3995,7 +4031,7 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Single-session convenience: a shell whose only tab opens over a
   ///     pre-built session (used by hosts/tests that compose the session themselves).</summary>
   public static async Task<MainViewModel> ForPrebuiltSessionAsync(AgentSession session,
-      Func<UiStreamEvent, Task>? uiStreamSink = null)
+      Func<UiStreamEvent, Task>? uiStreamSink = null, MainViewModelOptions? options = null)
   {
     ArgumentNullException.ThrowIfNull(session);
     ProviderOption option = new(session.ProviderName, Providers.DisplayName(session.ProviderName));
@@ -4006,6 +4042,8 @@ internal sealed partial class MainViewModel : ObservableObject
           AvailableProviders = [option],
           PreferredProviderId = session.ProviderName,
           UiStreamSink = uiStreamSink,
+          UiMarshal = options?.UiMarshal,
+          LanguageInstaller = options?.LanguageInstaller,
         });
     Result<AgentTabViewModel> opened = await vm.OpenAgentAsync(session.WorkspaceRoot, session.ProviderName);
     return !opened.IsSuccess

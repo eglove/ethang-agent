@@ -3,9 +3,11 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
+using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain.Mcp;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Views;
 
@@ -46,6 +48,7 @@ internal partial class MainWindow : Window
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelSettingsRequested += async (_, _) => await ShowModelSettingsDialogAsync();
     vm.McpServersRequested += async (_, _) => await ShowMcpServersDialogAsync();
+    vm.LanguageServersRequested += async (_, languageId) => await ShowLanguageServersAsync(languageId);
   }
 
   /// <summary>Shows the Sessions dialog (persisted root sessions, already-open ones
@@ -152,7 +155,7 @@ internal partial class MainWindow : Window
       SkillRegistryDefaultTarget = await _vm.GetSkillRegistryDefaultTargetAsync(),
       OpenRouterManagementKey = _vm.ConfiguredOpenRouterManagementKey,
       ProviderSignInFactory = _vm.ProviderSignInFactory,
-    });
+    }, LanguageServersPage());
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {
@@ -160,6 +163,39 @@ internal partial class MainWindow : Window
     }
 
     await _vm.ApplySettingsAsync(update);
+  }
+
+  /// <summary>Opens the language-servers page for the selected tab. A host that wired no
+  ///     language-server seams shows nothing rather than an empty page.</summary>
+  /// <param name="languageId">The language the requesting prompt named first.</param>
+  private async Task ShowLanguageServersAsync(string languageId)
+  {
+    if (LanguageServersPage()?.Invoke() is not { } page)
+    {
+      return;
+    }
+
+    page.SelectedLanguageId = languageId;
+    LanguageServersWindow dialog = new(page);
+    await dialog.ShowDialog(this);
+  }
+  /// <summary>The language-servers page over the selected tab's own composition seams, or
+  ///     null when this host wired none (the page is then not offered). The page is built per
+  ///     open so its rows reflect the stored state at that moment.</summary>
+  private Func<LanguageServersViewModel>? LanguageServersPage()
+  {
+    if (_vm?.SelectedTab is not { } tab)
+    {
+      return null;
+    }
+
+    ServiceProvider services = tab.Container.Services;
+    ILanguageServerCatalog? catalog = services.GetService<ILanguageServerCatalog>();
+    ILanguageServerInstaller? installer = services.GetService<ILanguageServerInstaller>();
+    IWorkspaceLanguageDetector? detector = services.GetService<IWorkspaceLanguageDetector>();
+    return catalog is null || installer is null || detector is null
+        ? null
+        : () => new LanguageServersViewModel(catalog, installer, detector, tab.Container.WorkspaceRoot);
   }
 
   /// <summary>Shows the Model Settings window for the selected tab: the model

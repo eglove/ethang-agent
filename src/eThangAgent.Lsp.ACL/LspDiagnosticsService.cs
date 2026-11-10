@@ -78,6 +78,7 @@ public sealed class LspDiagnosticsService
   private readonly LspDiagnosticStore _store;
   private readonly LspCapabilities _capabilities;
   private readonly ILspWorkspaceModel? _workspace;
+  private readonly string? _languageId;
   private readonly SemaphoreSlim _restartGate = new(1, 1);
 
   public LspDiagnosticsService(LspJsonRpcTransport? transport, LspDiagnosticStore store)
@@ -94,8 +95,18 @@ public sealed class LspDiagnosticsService
       LspJsonRpcTransport? transport,
       LspDiagnosticStore store,
       LspCapabilities capabilities,
-      ILspWorkspaceModel? workspace)
-    => (_transport, _store, _capabilities, _workspace) = (transport, store ?? throw new ArgumentNullException(nameof(store)), capabilities ?? throw new ArgumentNullException(nameof(capabilities)), workspace);
+      ILspWorkspaceModel? workspace,
+      string? languageId = null)
+    => (_transport, _store, _capabilities, _workspace, _languageId) =
+        (transport, store ?? throw new ArgumentNullException(nameof(store)), capabilities ?? throw new ArgumentNullException(nameof(capabilities)), workspace, languageId);
+
+  /// <summary>The language this service's server serves, or null when the caller did not say.
+  ///     </summary>
+  public string? LanguageId => _languageId;
+
+  /// <summary>Stamps a report with the language whose server produced it.</summary>
+  private LspDiagnosticsResult Report(LspDiagnosticsState state, IReadOnlyList<LspDiagnostic> diagnostics)
+    => new(state, diagnostics, _languageId);
 
   /// <summary>The request id the server uses for "content modified": a pull issued while
   /// the server is still applying a document change is refused with it. The answer would
@@ -134,20 +145,20 @@ public sealed class LspDiagnosticsService
       {
         LspDiagnosticsResult existing = _store.Get(uri);
         return existing.State == LspDiagnosticsState.Starting
-          ? new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, [])
-          : existing;
+          ? Report(LspDiagnosticsState.Unavailable, [])
+          : existing with { LanguageId = _languageId };
       }
       if (_workspace is not null)
       {
         await _workspace.PrepareAsync(uri, ct).ConfigureAwait(false);
         if (!_workspace.IsLoaded)
         {
-          return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
+          return Report(LspDiagnosticsState.Starting, []);
         }
       }
       if (!SupportsPull())
       {
-        return _store.Get(uri);
+        return _store.Get(uri) with { LanguageId = _languageId };
       }
       LspRequestResult response;
       using (CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
@@ -160,13 +171,13 @@ public sealed class LspDiagnosticsService
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-          return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
+          return Report(LspDiagnosticsState.Starting, []);
         }
       }
 
       if (!response.IsSuccess && string.Equals(response.ErrorCode, ContentModifiedCode, StringComparison.Ordinal))
       {
-        return new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
+        return Report(LspDiagnosticsState.Starting, []);
       }
 
       if (!response.IsSuccess)
@@ -174,13 +185,13 @@ public sealed class LspDiagnosticsService
         LspDiagnosticsResult existing = _store.Get(uri);
         if (existing.Diagnostics.Count > 0)
         {
-          return new LspDiagnosticsResult(LspDiagnosticsState.Degraded, existing.Diagnostics);
+          return Report(LspDiagnosticsState.Degraded, existing.Diagnostics);
         }
-        return new LspDiagnosticsResult(LspDiagnosticsState.Degraded, []);
+        return Report(LspDiagnosticsState.Degraded, []);
       }
 
       _store.OnPullDiagnostics(uri, response.ResultJson ?? "{}");
-      LspDiagnosticsResult reported = _store.Get(uri);
+      LspDiagnosticsResult reported = _store.Get(uri) with { LanguageId = _languageId };
       // A report from a server with no compilation behind it answers a different question:
       // it resolves no names, so an empty set says nothing about whether the file compiles.
       // Reporting it as Ready would read as clean, which is the one thing an empty set must
@@ -188,8 +199,8 @@ public sealed class LspDiagnosticsService
       if (_workspace is not null && !_workspace.HasCompilation && reported.State == LspDiagnosticsState.Ready)
       {
         return reported.Diagnostics.Count > 0
-          ? new LspDiagnosticsResult(LspDiagnosticsState.Degraded, reported.Diagnostics)
-          : new LspDiagnosticsResult(LspDiagnosticsState.Starting, []);
+          ? Report(LspDiagnosticsState.Degraded, reported.Diagnostics)
+          : Report(LspDiagnosticsState.Starting, []);
       }
       return reported;
     }

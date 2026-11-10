@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A minimal LSP server over stdio, used by the multi-language routing and E2E tests.
+       It is NOT a test project and is deliberately absent from eThangAgent.slnx: it is
+       built on demand by FakeLspServer.Build() and installed into a temp install root the
+       way a real row's server would be, so the daemon launches it as a real child process. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsTestProject>false</IsTestProject>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AnalysisLevel>none</AnalysisLevel>
+    <AssemblyName>ethang-fake-lsp</AssemblyName>
+    <RootNamespace>FakeLspServer</RootNamespace>
+  </PropertyGroup>
+</Project>

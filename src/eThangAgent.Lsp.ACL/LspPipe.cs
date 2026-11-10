@@ -302,7 +302,7 @@ public sealed class LspPipeClient : IDisposable
           code, d["message"]?.GetValue<string>() ?? string.Empty));
       }
     }
-    return new AdvisoryDiagnosticsResult(state, diagnostics);
+    return new AdvisoryDiagnosticsResult(state, diagnostics, LanguageId: result["languageId"]?.GetValue<string>());
   }
 
   /// <summary>Issues one lsp.symbol query and returns the daemon's answer.</summary>
@@ -344,7 +344,8 @@ public sealed class LspPipeClient : IDisposable
         sites,
         result["occurrenceUsed"]?.GetValue<int>() ?? 0,
         result["totalOccurrences"]?.GetValue<int>() ?? 1,
-        result["message"]?.GetValue<string>());
+        result["message"]?.GetValue<string>(),
+        result["languageId"]?.GetValue<string>());
   }
 
   /// <summary>Asks the daemon to stop when this is its last client. Answers true when the
@@ -393,6 +394,9 @@ public sealed class LspDaemonServer : IDisposable
   private readonly Func<Task> _onConnected;
   private readonly string _daemonInstanceId = Guid.NewGuid().ToString("N");
   private LspDocumentSync? _forwarder;
+  private LspServerSet? _servers;
+  private Func<CancellationToken, Task<LspServerSet>>? _serversProvider;
+  private Task<LspServerSet>? _startingServers;
   private LspDiagnosticsService? _diagnosticsService;
   private LspSymbolService? _symbolService;
   private readonly IFileClaimStore _claimStore;
@@ -420,6 +424,20 @@ public sealed class LspDaemonServer : IDisposable
   /// <summary>Attaches the document-sync forwarder (issue #362): watcher.announce
   /// notifications received on the pipe are applied to it after hello.</summary>
   public void AttachForwarder(LspDocumentSync forwarder) => _forwarder = forwarder ?? throw new ArgumentNullException(nameof(forwarder));
+
+  /// <summary>Attaches the workspace's running servers. Every request is then routed by the
+  ///     path it names: a watcher announcement reaches each server for the paths its own
+  ///     extensions claim, and a diagnostics or symbol request reaches the server claiming
+  ///     that document's extension. A path no server claims is answered empty, never as an
+  ///     error.</summary>
+  public void AttachServers(LspServerSet servers) => _servers = servers ?? throw new ArgumentNullException(nameof(servers));
+
+  /// <summary>Attaches the workspace's running servers as work in progress, so the daemon
+  ///     answers its pipe while the servers are still starting. A language server can take far
+  ///     longer to initialize than a caller's connect budget, and a daemon that is unreachable
+  ///     until then is a workspace with no language server at all.</summary>
+  public void AttachServers(Func<CancellationToken, Task<LspServerSet>> servers) =>
+      _serversProvider = servers ?? throw new ArgumentNullException(nameof(servers));
 
   public void AttachDiagnosticsService(LspDiagnosticsService service) => _diagnosticsService = service ?? throw new ArgumentNullException(nameof(service));
 
@@ -570,7 +588,12 @@ public sealed class LspDaemonServer : IDisposable
     WatcherAnnouncement? announcement = WatcherAnnouncementCodec.TryDecode(line);
     if (announcement is not null)
     {
-      if (_forwarder is not null)
+      LspServerSet? servers = await ServersAsync(ct).ConfigureAwait(false);
+      if (servers is not null)
+      {
+        await servers.ApplyAnnouncementAsync(announcement, ct).ConfigureAwait(false);
+      }
+      else if (_forwarder is not null)
       {
         await _forwarder.ApplyAsync(announcement, ct).ConfigureAwait(false);
       }
@@ -604,7 +627,8 @@ public sealed class LspDaemonServer : IDisposable
         await HandleShutdownIfIdleAsync(server, line, ct).ConfigureAwait(false);
         return;
       }
-      if (method != "lsp.symbol" || _symbolService is null) return;
+      if (method != "lsp.symbol") return;
+      LspServerSet? routing = await ServersAsync(ct).ConfigureAwait(false);
       if (!root.TryGetProperty("id", out JsonElement idEl)) return;
       if (!root.TryGetProperty("params", out JsonElement p)) return;
       string action = p.GetProperty("action").GetString() ?? string.Empty;
@@ -613,26 +637,87 @@ public sealed class LspDaemonServer : IDisposable
       int occurrence = p.TryGetProperty("occurrence", out JsonElement o) ? o.GetInt32() : 0;
       int depth = p.TryGetProperty("depth", out JsonElement d) ? d.GetInt32() : 1;
       string newName = p.TryGetProperty("newName", out JsonElement n) ? n.GetString() ?? string.Empty : string.Empty;
-      LspSymbolResult result = action switch
+      if (routing is not null)
       {
-        "definition" => await _symbolService.DefinitionAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
-        "references" => await _symbolService.ReferencesAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
-        "hover" => await _symbolService.HoverAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
-        "implementation" => await _symbolService.ImplementationAsync(uri, symbolName, occurrence, ct).ConfigureAwait(false),
-        "document-symbols" => await _symbolService.DocumentSymbolsAsync(uri, ct).ConfigureAwait(false),
-        "workspace-symbols" => await _symbolService.WorkspaceSymbolsAsync(symbolName, ct).ConfigureAwait(false),
-        "call-hierarchy-incoming" => await _symbolService.CallHierarchyIncomingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
-        "call-hierarchy-outgoing" => await _symbolService.CallHierarchyOutgoingAsync(uri, symbolName, occurrence, depth, ct).ConfigureAwait(false),
-        "workspace-load" => await _symbolService.LoadWorkspaceAsync(ct).ConfigureAwait(false),
-        "rename" => await _symbolService.RenameAsync(uri, symbolName, occurrence, newName, ct).ConfigureAwait(false),
-        _ => new LspSymbolResult(LspSymbolState.Unsupported, [], 0, 1, "unknown action " + action),
-      };
-      JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["occurrenceUsed"] = result.OccurrenceUsed, ["totalOccurrences"] = result.TotalOccurrences, ["message"] = result.Message ?? string.Empty, ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()) } };
-      await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
+        LspSymbolResult routed = await routing
+            .QuerySymbolAsync(action, uri, symbolName, occurrence, depth, newName, ct)
+            .ConfigureAwait(false);
+        await WriteLineAsync(server, SymbolReply(idEl.GetInt32(), routed).ToJsonString(), ct).ConfigureAwait(false);
+        return;
+      }
+
+      if (_symbolService is null) return;
+      LspSymbolResult result = await _symbolService
+          .ExecuteAsync(action, uri, symbolName, occurrence, depth, newName, ct).ConfigureAwait(false);
+      await WriteLineAsync(server, SymbolReply(idEl.GetInt32(), result).ToJsonString(), ct).ConfigureAwait(false);
     }
     catch (JsonException) { }
     catch (IOException) { }
   }
+
+  /// <summary>The diagnostics for one path: from the server claiming its extension when the
+  ///     daemon holds a set, from the single attached service when it holds only that, and
+  ///     Unavailable when it holds neither.</summary>
+  private async Task<LspDiagnosticsResult> PullDiagnosticsAsync(string path, string uri, CancellationToken ct)
+  {
+    LspServerSet? servers = await ServersAsync(ct).ConfigureAwait(false);
+    if (servers is not null)
+    {
+      return await servers.GetDiagnosticsAsync(path, ct).ConfigureAwait(false);
+    }
+
+    if (_diagnosticsService is null)
+    {
+      return new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, []);
+    }
+
+    return await _diagnosticsService.PullAsync(uri, ct).ConfigureAwait(false);
+  }
+
+  /// <summary>The workspace's running servers, waiting for a start that is still in progress.
+  ///     A start that fails leaves no servers, which is the same answer as a workspace that
+  ///     needed none: an empty result, never a failed request.</summary>
+  private async Task<LspServerSet?> ServersAsync(CancellationToken ct)
+  {
+    if (_servers is not null)
+    {
+      return _servers;
+    }
+
+    if (_serversProvider is null)
+    {
+      return null;
+    }
+
+    try
+    {
+      _startingServers ??= _serversProvider(ct);
+      _servers = await _startingServers.WaitAsync(ct).ConfigureAwait(false);
+      _serversProvider = null;
+      return _servers;
+    }
+    catch (Exception ex) when (ex is IOException or InvalidOperationException or TimeoutException
+        or System.ComponentModel.Win32Exception or OperationCanceledException)
+    {
+      return null;
+    }
+  }
+
+  /// <summary>The reply one symbol result is sent as.</summary>
+  private static JsonObject SymbolReply(int id, LspSymbolResult result) =>
+      new()
+      {
+        ["id"] = id,
+        ["result"] = new JsonObject
+        {
+          ["state"] = result.State.ToString(),
+          ["occurrenceUsed"] = result.OccurrenceUsed,
+          ["totalOccurrences"] = result.TotalOccurrences,
+          ["message"] = result.Message ?? string.Empty,
+          ["languageId"] = result.LanguageId ?? string.Empty,
+          ["sites"] = new JsonArray(result.Sites.Select(s => (JsonNode)new JsonObject { ["uri"] = s.Uri, ["line"] = s.Line, ["character"] = s.Character, ["symbolName"] = s.SymbolName }).ToArray()),
+        },
+      };
 
   private async Task HandleDiagnosticsRequestAsync(NamedPipeServerStream server, string line, CancellationToken ct)
   {
@@ -644,9 +729,7 @@ public sealed class LspDaemonServer : IDisposable
       if (!root.TryGetProperty("params", out JsonElement p)) return;
       string path = p.GetProperty("path").GetString() ?? string.Empty;
       string uri = LspUriMapper.ToUri(path);
-      LspDiagnosticsResult result = _diagnosticsService is null
-        ? new LspDiagnosticsResult(LspDiagnosticsState.Unavailable, [])
-        : await _diagnosticsService.PullAsync(uri, ct).ConfigureAwait(false);
+      LspDiagnosticsResult result = await PullDiagnosticsAsync(path, uri, ct).ConfigureAwait(false);
       JsonArray diagnostics = [];
       foreach (LspDiagnostic d in result.Diagnostics)
       {
@@ -661,7 +744,16 @@ public sealed class LspDaemonServer : IDisposable
         if (d.Code is not null) o["code"] = d.Code;
         diagnostics.Add(o);
       }
-      JsonObject reply = new() { ["id"] = idEl.GetInt32(), ["result"] = new JsonObject { ["state"] = result.State.ToString(), ["diagnostics"] = diagnostics } };
+      JsonObject reply = new()
+      {
+        ["id"] = idEl.GetInt32(),
+        ["result"] = new JsonObject
+        {
+          ["state"] = result.State.ToString(),
+          ["languageId"] = result.LanguageId ?? string.Empty,
+          ["diagnostics"] = diagnostics,
+        },
+      };
       await WriteLineAsync(server, reply.ToJsonString(), ct).ConfigureAwait(false);
     }
     catch (JsonException) { }
@@ -757,6 +849,8 @@ public sealed class LspDaemonServer : IDisposable
     }
 
     _connections.Clear();
+    _servers?.Dispose();
+    _servers = null;
     _shutdownCts.Dispose();
   }
 }

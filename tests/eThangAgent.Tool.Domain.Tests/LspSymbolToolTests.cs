@@ -56,6 +56,8 @@ public class LspSymbolToolTests
     }
     Assert.Contains("[lsp]", d, StringComparison.Ordinal);
     Assert.Contains("workspace starts", d, StringComparison.Ordinal);
+    Assert.Contains("(<language>)", d, StringComparison.Ordinal);
+    Assert.Contains("is not supported by the", d, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -119,11 +121,49 @@ public class LspSymbolToolTests
   [Fact]
   public async Task Unsupported_Renders_UnSupportedLabel_NotEmpty()
   {
-    ScriptedSymbolAccess access = new() { Next = new LspSymbolOutcome.Unsupported("capability not advertised for textDocument/definition") };
-    ToolResult r = await Call(access, "\"action\": \"definition\", \"path\": \"A.cs\", \"symbolName\": \"Foo\"").ConfigureAwait(true);
+    ScriptedSymbolAccess access = new() { Next = new LspSymbolOutcome.Unsupported("definition is not supported by the bash server", "bash") };
+    ToolResult r = await Call(access, "\"action\": \"definition\", \"path\": \"run.sh\", \"symbolName\": \"greet\"").ConfigureAwait(true);
     Assert.False(r.IsError);
     Assert.Contains("Unsupported", r.Content, StringComparison.Ordinal);
-    Assert.Contains("capability not advertised", r.Content, StringComparison.Ordinal);
+    Assert.Contains("definition is not supported by the bash server", r.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>Every result names the language whose server answered, so a model reading a
+  ///     result knows which server produced it.</summary>
+  [Fact]
+  public async Task Ready_Renders_TheServingLanguage()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Ready([new LspSymbolSite("C:\\ws\\main.rs", 0, 3, "main")], LanguageId: "rust"),
+    };
+    ToolResult r = await Call(access, "\"action\": \"definition\", \"path\": \"main.rs\", \"symbolName\": \"main\"").ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.Contains("[lsp] Ready: definition (rust)", r.Content, StringComparison.Ordinal);
+    Assert.Contains("main.rs:1:4 main", r.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Unsupported_Renders_TheServingLanguage()
+  {
+    ScriptedSymbolAccess access = new()
+    {
+      Next = new LspSymbolOutcome.Unsupported("rename is not supported by the bash server", "bash"),
+    };
+    ToolResult r = await Call(access, "\"action\": \"rename\", \"path\": \"run.sh\", \"symbolName\": \"greet\", \"newName\": \"hello\"").ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.Contains("[lsp] Unsupported: rename (bash)", r.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>A result no language server produced carries no language, and the annotation line
+  ///     is the same shape it has always been.</summary>
+  [Fact]
+  public async Task ResultWithoutALanguage_Renders_NoLanguage()
+  {
+    ScriptedSymbolAccess access = new() { Next = new LspSymbolOutcome.Unavailable("no language server for this workspace") };
+    ToolResult r = await Call(access, "\"action\": \"hover\", \"path\": \"A.cs\", \"symbolName\": \"Foo\"").ConfigureAwait(true);
+    Assert.False(r.IsError);
+    Assert.StartsWith("[lsp] Unavailable: hover - ", r.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -407,12 +447,12 @@ public class LspSymbolToolTests
   {
     ScriptedSymbolAccess access = new()
     {
-      Next = new LspSymbolOutcome.Unsupported("capability not advertised for textDocument/rename"),
+      Next = new LspSymbolOutcome.Unsupported("rename is not supported by the bash server", "bash"),
     };
     ToolResult r = await Call(access, "\"action\": \"rename\", \"path\": \"A.cs\", \"symbolName\": \"Foo\", \"newName\": \"Bar\"").ConfigureAwait(true);
     Assert.False(r.IsError);
     Assert.Contains("Unsupported", r.Content, StringComparison.Ordinal);
-    Assert.Contains("not advertised", r.Content, StringComparison.Ordinal);
+    Assert.Contains("not supported by the bash server", r.Content, StringComparison.Ordinal);
   }
 
   [Fact]

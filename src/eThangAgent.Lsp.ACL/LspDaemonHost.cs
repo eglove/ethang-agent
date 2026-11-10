@@ -16,11 +16,12 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   private readonly string _appInstanceId;
   private readonly Func<string> _exePath;
   private readonly Func<string, IFileWatcher?> _watcherFactory;
+  private readonly Func<string, IReadOnlyList<DetectedLanguage>> _detectLanguages;
   private readonly SemaphoreSlim _gate = new(1, 1);
   private LspDaemonConnection? _connection;
   private LspWatcherForwarder? _forwarder;
   private nint _job;
-  private bool? _hasCode;
+  private IReadOnlyList<DetectedLanguage>? _languages;
   private bool _disposed;
 
   public LspDaemonHost(
@@ -28,7 +29,8 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
       string workspaceRoot,
       string appInstanceId,
       Func<string> exePath,
-      Func<string, IFileWatcher?>? watcherFactory = null)
+      Func<string, IFileWatcher?>? watcherFactory = null,
+      Func<string, IReadOnlyList<DetectedLanguage>>? detectLanguages = null)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
     ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
@@ -38,7 +40,17 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
     _appInstanceId = appInstanceId;
     _exePath = exePath ?? throw new ArgumentNullException(nameof(exePath));
     _watcherFactory = watcherFactory ?? (_ => null);
+    _detectLanguages = detectLanguages ?? LspWorkspaceLanguages.Detect;
   }
+
+  /// <summary>Every language this workspace holds, detected once per host. A daemon serves
+  ///     the languages a workspace needs, so this is the decision that starts it and the
+  ///     decision the claim gate reads.</summary>
+  public IReadOnlyList<DetectedLanguage> Languages => _languages ??= _detectLanguages(_workspaceRoot);
+
+  /// <summary>True when the workspace holds at least one language this app serves. A
+  ///     workspace with none starts no daemon and takes the shared-database claim store.</summary>
+  public bool HasLanguages => Languages.Count > 0;
 
   /// <summary>What the daemon announced it is doing with the language server: no
   ///     announcement yet, downloading, ready, or unavailable.
@@ -69,7 +81,7 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   /// <summary>Starts the workspace's language server at workspace start: connects to
   ///     the daemon (starting it when no daemon is listening) so the server is warming
   ///     before the first query. Idempotent: a second call reuses the live connection.
-  ///     Returns null when the workspace holds no code or no daemon can be reached.
+  ///     Returns null when the workspace holds no detected language or no daemon can be reached.
   ///     <para>THE WORK RUNS OFF THE CALLER'S THREAD, because connecting scans the
   ///     workspace and then waits up to the daemon start budget: doing that inline
   ///     would make every workspace open pay it before the session exists. A caller
@@ -105,9 +117,9 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
   /// usable connection. A connection whose daemon has exited is discarded and replaced
   /// rather than handed out, so a daemon restart is recovered on the next query instead
   /// of failing every query for the life of the process. Returns null when the workspace
-  /// holds no code or no daemon can be reached; the caller then reports Unavailable.
-  /// Detection runs once per host: a workspace that held no code at open is never
-  /// re-scanned, so a vault or document workspace never starts a daemon.</summary>
+  /// holds no detected language or no daemon can be reached; the caller then reports
+  /// Unavailable. Detection runs once per host: a workspace that held no language at open
+  /// is never re-scanned, so a document workspace never starts a daemon.</summary>
   public async Task<LspPipeClient?> EnsureConnectedAsync(CancellationToken ct = default)
   {
     if (_disposed)
@@ -115,8 +127,7 @@ public sealed class LspDaemonHost : IDisposable, IAsyncDisposable
       return null;
     }
 
-    _hasCode ??= CodeDetector.Detect(_workspaceRoot) != CodeDetectionResult.NotFound;
-    if (_hasCode == false)
+    if (!HasLanguages)
     {
       return null;
     }
