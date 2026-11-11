@@ -436,9 +436,14 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       return ChainAdvance.Refused(started.Error.Code, started.Error.Message);
     }
 
-    _ = await _chains.ReassignStepAsync(chain.Id, step.Position, started.Value, now, ct)
-        .ConfigureAwait(false);
-    return new ChainAdvance(ChainAdvanceKind.StartStep, step.Position, null, started.Value);
+    Result<Chain> reassigned = await _chains.ReassignStepAsync(chain.Id, step.Position,
+        started.Value, now, ct).ConfigureAwait(false);
+    return reassigned.IsSuccess
+      ? new ChainAdvance(ChainAdvanceKind.StartStep, step.Position, null, started.Value)
+      : ChainAdvance.Refused(ChainAdvanceCode.ClaimNotCorrected,
+          $"chain #{chain.Id} step {step.Position} was started as session {started.Value} but its "
+          + $"claim could not be corrected to it ({reassigned.Error.Code}: {reassigned.Error.Message}); "
+          + "the step is still held by a placeholder and will be adopted when that session opens.");
   }
 
   /// <summary>The round-trip cap is spent: park the chain naming the step and the reason
@@ -562,9 +567,19 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
 
     // REASSIGN to the real id: the placeholder existed only to hold the step during launch,
     // and reassigning must not spend a second attempt.
-    _ = await _chains.ReassignStepAsync(chain.Id, position, started.Value, now, ct)
-        .ConfigureAwait(false);
-    return (new ChainAdvance(ChainAdvanceKind.StartStep, position, null, started.Value), chain);
+    // THE CORRECTION IS NOT BOOKKEEPING. It is a CAS write, and a lost race leaves the step
+    // owned by a session that does not exist - so the session that IS doing the work cannot
+    // complete it and the chain stops dead. Reporting the refusal is what makes that visible;
+    // the step is left on the placeholder deliberately, because adoption repairs it either way.
+    Result<Chain> reassigned = await _chains.ReassignStepAsync(chain.Id, position, started.Value,
+        now, ct).ConfigureAwait(false);
+    return reassigned.IsSuccess
+      ? (new ChainAdvance(ChainAdvanceKind.StartStep, position, null, started.Value), chain)
+      : (ChainAdvance.Refused(ChainAdvanceCode.ClaimNotCorrected,
+          $"chain #{chain.Id} step {position} was started as session {started.Value} but its claim "
+          + $"could not be corrected to it ({reassigned.Error.Code}: {reassigned.Error.Message}); "
+          + "the step is still held by a placeholder and will be adopted when that session opens."),
+          chain);
   }
 
   /// <summary>The worktree the step at <paramref name="step"/> runs in, provisioned when it

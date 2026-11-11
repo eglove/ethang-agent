@@ -81,6 +81,51 @@ public sealed record ChainStep(
     return this with { SessionId = sessionId.Trim(), Actor = ChainActor.Session(sessionId) };
   }
 
+  /// <summary>The prefix the harness claims a step under before the session's id exists.
+  ///     <para>A PLACEHOLDER IS A GUESS ABOUT WHO WILL OWN THE STEP, never an owner: the real
+  ///     id is written by <see cref="Reassign"/> once the launch answers. A step still holding
+  ///     one is a claim whose correction never landed.</para></summary>
+  public const string PlaceholderPrefix = "pending-";
+
+  /// <summary>True when <paramref name="sessionId"/> is the provisional spelling the harness
+  ///     claims under, rather than a session that could complete the step.</summary>
+  /// <param name="sessionId">The claimant to classify, or null.</param>
+  public static bool IsPlaceholderClaimant(string? sessionId)
+    => sessionId is not null
+        && sessionId.StartsWith(PlaceholderPrefix, StringComparison.Ordinal);
+
+  /// <summary>True when this step's claim was never corrected to a real session.</summary>
+  public bool HoldsPlaceholderClaim => IsPlaceholderClaimant(SessionId);
+
+  /// <summary>Corrects a PLACEHOLDER claim to the session that actually runs the step.
+  ///     <para>WHY THIS IS NOT <see cref="Reassign"/>: a reassign moves a live claim between
+  ///     two real sessions. This is the narrower act of replacing a guess with the fact, and it
+  ///     is the only correction a stranded step needs.</para>
+  ///     <para>REFUSED FOR A REAL CLAIMANT. A session id that is not a placeholder names a
+  ///     session that holds the step; adopting over it would take work from the session doing
+  ///     it. Idempotent for the claimant already recorded, because adoption runs mechanically at
+  ///     every session open - including the ones that are already correct.</para></summary>
+  /// <param name="sessionId">The real session that owns the step.</param>
+  public ChainStep Adopt(string sessionId)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+    return Adoptable(sessionId.Trim())
+      ? this with { SessionId = sessionId.Trim(), Actor = ChainActor.Session(sessionId) }
+      : throw new ChainInputException(NotAdoptable());
+  }
+
+  /// <summary>True when <paramref name="sessionId"/> may take this step's claim: it already
+  ///     holds it, or the claim is a placeholder.</summary>
+  private bool Adoptable(string sessionId)
+    => Status == ChainStepStatus.Running
+        && (string.Equals(SessionId, sessionId, StringComparison.Ordinal) || HoldsPlaceholderClaim);
+
+  /// <summary>Why this step cannot be adopted, naming the claimant that would be displaced.</summary>
+  private string NotAdoptable() => Status != ChainStepStatus.Running
+    ? $"step {Position} is {Status}; only a running step's claim can be adopted."
+    : $"step {Position} is held by session {SessionId}; only a placeholder claim can be adopted, "
+        + $"because a real claimant is the session doing the work.";
+
   /// <summary>Returns this step to Pending without settling it (issue #301): a claim whose
   ///     launch failed, so no session ever ran. The attempt count is KEPT - the launch was
   ///     still an attempt - while the claim clock and the claimant are cleared, because there

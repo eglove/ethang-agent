@@ -343,4 +343,85 @@ public class ChainAdvanceServiceTests
     Assert.NotNull(stored.ParkReason);
     Assert.Contains("neither Done nor Skipped", stored.ParkReason, StringComparison.Ordinal);
   }
+
+  /// <summary>A FAILED REASSIGNMENT MUST BE REPORTED (stranded chain claims). The harness
+  ///     claims a step under a placeholder id and corrects it to the real session after the
+  ///     launch answers. That correction is a CAS write, and it used to be discarded with
+  ///     <c>_ = await ...</c>: a lost race left the step owned by a session that never
+  ///     existed, the session that did the work could not complete it, and nothing said so.
+  ///     <para>THE PREDICTION: when the correction is refused, the advance returns a typed
+  ///     failure naming the step, instead of a success whose record is wrong.</para></summary>
+  [Fact]
+  public async Task AdvanceAsync_WhenTheClaimCannotBeReassigned_ReportsItInsteadOfSucceeding()
+  {
+    ConflictOnNextSaveStore store = new();
+    FakeHost host = new();
+    ChainService chains = new(store);
+    Chain chain = Must(await chains.CreateAsync(ChainCreation.Implementing("C:\\ws", 3, 1, "t",
+        "session-root", [1, 2]), T0, TestContext.Current.CancellationToken).ConfigureAwait(true));
+    _ = Must(await chains.ClaimStepAsync(chain.Id, 1, "session-a", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    // The settle and the claim land; the CORRECTION is the write that loses the race. That is
+    // the shape a concurrent writer produces, and the only write it strands is the reassign.
+    store.SuccessesRemaining = 2;
+    ChainAdvanceService service = new(chains, host);
+
+    Result<ChainAdvance> advance = await service.OnCompletionAsync("session-a", planId: 3, T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    // A refusal is a normal outcome, never an exception: it is a SUCCESSFUL Result carrying a
+    // refused advance, which is what the model and the shell both read.
+    ChainAdvance decision = Must(advance);
+    Assert.Equal(ChainAdvanceKind.Refused, decision.Kind);
+    Assert.Equal(ChainAdvanceCode.ClaimNotCorrected, decision.Code);
+    Assert.Contains("step 2", decision.Reason, StringComparison.Ordinal);
+    // AND THE STEP IS STILL RECOVERABLE: it holds the placeholder, which adoption repairs.
+    Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken));
+    Assert.True(stored.StepAt(2)!.HoldsPlaceholderClaim);
+  }
+
+  /// <summary>A store whose saves can be made to lose the CAS race, so the one write under
+  ///     test can be refused without a second thread.</summary>
+  private sealed class ConflictOnNextSaveStore : IChainStore
+  {
+    private readonly FakeStore _inner = new();
+
+    /// <summary>How many saves still land before every later one loses the race.</summary>
+    public int SuccessesRemaining { get; set; } = int.MaxValue;
+
+    public Task<Result<Chain>> CreateAsync(Chain draft, CancellationToken ct = default)
+        => _inner.CreateAsync(draft, ct);
+
+    public Task<Result<Chain>> GetAsync(int id, CancellationToken ct = default)
+        => _inner.GetAsync(id, ct);
+
+    public Task<Result<ChainCatalog>> ListAsync(ChainStatus? status, CancellationToken ct = default)
+        => _inner.ListAsync(status, ct);
+
+    public Task<Result<Chain?>> FindBySessionAsync(string sessionId, CancellationToken ct = default)
+        => _inner.FindBySessionAsync(sessionId, ct);
+
+    public async Task<Result<Chain>> SaveAsync(Chain chain, int expectedVersion, CancellationToken ct = default)
+    {
+      if (SuccessesRemaining <= 0)
+      {
+        // The other writer's version wins, exactly as a concurrent save leaves the row: the
+        // stored chain keeps its OWN content and only its version moves. Re-saving the caller's
+        // chain here would persist the very write this store is refusing.
+        Result<Chain> current = await _inner.GetAsync(chain.Id, ct).ConfigureAwait(false);
+        if (current.IsSuccess)
+        {
+          _ = await _inner.SaveAsync(current.Value with { UpdatedAt = T0.AddSeconds(1) },
+              current.Value.Version, ct).ConfigureAwait(false);
+        }
+
+        return Result.Failure<Chain>(new DomainError("VersionConflict", "chain changed under you"));
+      }
+
+      SuccessesRemaining--;
+      return await _inner.SaveAsync(chain, expectedVersion, ct).ConfigureAwait(false);
+    }
+  }
 }
+

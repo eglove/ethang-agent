@@ -63,11 +63,12 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   ///     owns <c>create</c>, and the collision is a startup failure rather than a shadowing.
   ///     <c>start</c> is also the truer name: the action does not merely write a record, it
   ///     converts a plan into a chain AND starts step 1.</para></summary>
-  public static readonly string[] ActionNames = ["start", "resume-parked"];
+  public static readonly string[] ActionNames = ["start", "resume-parked", "abandon"];
 
   private const string IdParam = "id";
   private const string PlanIdParam = "planId";
   private const string StepsParam = "steps";
+  private const string ReasonParam = "reason";
   private const string PositionParam = "position";
   private const string RoleParam = "role";
   private const string GroupParam = "group";
@@ -121,6 +122,25 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             """,
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. The chain to resume, >= 1.")],
             [IdParam]),
+       // THE EXIT A STUCK CHAIN OTHERWISE DOES NOT HAVE. Abandoned is terminal and ungated in the
+       // domain, and until this action existed nothing could reach it: resume-parked refuses a
+       // chain that is Running, and no session can complete a step it does not hold - so a chain
+       // whose claim was stranded was unrecoverable by any surface.
+       new("abandon", "Drop a chain: mark it Abandoned with the reason, and stop executing it.",
+             """
+             Drops the chain. Abandoned is terminal and FREEZES the record: no step can be claimed, settled, or reopened afterwards, and the chain no longer advances.
+             This is the honest exit for work that is being dropped rather than finished, and it is the only move available to a chain that cannot advance and is not parked - resume-parked refuses a Running chain, and a step held by a session that does not exist cannot be completed by anyone.
+             The reason is REQUIRED and is recorded on the chain, because a chain marked Abandoned with no explanation cannot be told apart from a defect by the next reader.
+             Refused on a chain that is already terminal: Completed and Abandoned are both finished, and a chain cannot stop twice - moving it would erase the fact that the work landed.
+             Output contract:
+             [chain] abandoned #<id>: <reason>
+             Errors: InvalidActionInput (bad params), ChainNotFound, and InvalidTransition when the chain is already terminal (the message names which).
+             """,
+             [
+                 new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. The chain to abandon, >= 1."),
+                 new ActionParameter(ReasonParam, ActionParameterTypes.StringType, "Required. Why the work is being dropped; recorded on the chain."),
+             ],
+             [IdParam, ReasonParam]),
   ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(string actionName, string jsonArguments,
@@ -132,6 +152,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
       {
         "start" => await CreateAsync(jsonArguments, ct).ConfigureAwait(false),
         "resume-parked" => await ResumeAsync(jsonArguments).ConfigureAwait(false),
+        "abandon" => await AbandonAsync(jsonArguments).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
     }
@@ -155,6 +176,21 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
         ? Gutter(new DomainError("ResumeUnsupported",
             "this host cannot start a chain step's session, so the chain was NOT resumed."))
         : await _resume(id).ConfigureAwait(false);
+  }
+
+  /// <summary>Drops the chain (see the action's own contract).</summary>
+  /// <param name="json">The action's arguments.</param>
+  private async Task<CapabilityInvocationResult> AbandonAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam, ReasonParam));
+    int id = ReqChainId(args);
+    string reason = ReqText(args, ReasonParam);
+    Result<Chain> abandoned = await _chains
+        .AbandonAsync(id, reason, ChainActor.User, _clock.GetUtcNow()).ConfigureAwait(false);
+    return abandoned.IsSuccess
+      ? CapabilityInvocationResult.Ok(string.Create(CultureInfo.InvariantCulture,
+          $"[chain] abandoned #{id}: {reason}"))
+      : Gutter(abandoned.Error);
   }
 
   private async Task<CapabilityInvocationResult> CreateAsync(string json, CancellationToken ct)
@@ -427,6 +463,19 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             && id >= 1
         ? id
         : throw new ChainInputException($"'{IdParam}' is required and must be an integer >= 1.");
+  }
+
+  /// <summary>Reads the required non-blank string argument <paramref name="name"/>.</summary>
+  /// <param name="args">The parsed arguments.</param>
+  /// <param name="name">The parameter name.</param>
+  private static string ReqText(Dictionary<string, JsonElement> args, string name)
+  {
+    return args.TryGetValue(name, out JsonElement element)
+            && element.ValueKind == JsonValueKind.String
+            && element.GetString() is { } text
+            && !string.IsNullOrWhiteSpace(text)
+        ? text.Trim()
+        : throw new ChainInputException($"'{name}' is required and must be a non-empty string.");
   }
 
   private static Dictionary<string, JsonElement> ParseArgs(string json, HashSet<string> allowed)

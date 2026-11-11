@@ -237,6 +237,54 @@ public sealed record Chain(
           $"chain #{Id} step {position} is {step.Status}; only a running step's claim can be reassigned.");
   }
 
+  /// <summary>Drops the chain: a terminal status for work that is being abandoned rather than
+  ///     finished.
+  ///     <para>THE EXIT A CHAIN OTHERWISE DOES NOT HAVE. <c>resume-parked</c> refuses a chain that
+  ///     is Running, no session can complete a step it does not hold, and a chain whose claim is
+  ///     stranded therefore cannot be moved by anything. Abandoning is the honest exit: the record
+  ///     says the work was dropped, which is true, instead of saying it is in progress forever.</para>
+  ///     <para>IT REFUSES A FINISHED CHAIN, because Abandoned and Completed are both terminal and a
+  ///     chain cannot stop twice - the move would erase the fact that the work landed.</para>
+  ///     <para>THE REASON IS REQUIRED. A chain marked Abandoned with no explanation is a record
+  ///     nobody can act on, and the next reader cannot tell a deliberate drop from a defect.</para>
+  ///     </summary>
+  /// <param name="reason">Why the work is being dropped.</param>
+  /// <param name="now">The clock.</param>
+  public Chain Abandon(string reason, DateTimeOffset now)
+  {
+    EnsureMutable();
+    ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+    Violation? violation = new ChainStatusTransition(ChainStatus.Abandoned).ViolationFor(this);
+    return violation is not null
+      ? throw new ChainInputException(violation.Message)
+      : this with
+      {
+        Status = ChainStatus.Abandoned,
+        ParkReason = reason.Trim(),
+        ParkedAtPosition = null,
+        UpdatedAt = now,
+      };
+  }
+
+  /// <summary>Corrects a PLACEHOLDER claim on the step at <paramref name="position"/> to the
+  ///     session that actually runs it.
+  ///     <para>THE HARNESS CLAIMS BEFORE IT CAN KNOW THE SESSION, so every claim is written
+  ///     twice: once under a provisional id to hold the step during the launch, once as the real
+  ///     id once the launch answers. This is the second write as an act of its own, so a step left
+  ///     on the placeholder can be repaired without inventing an attempt or a status.</para>
+  ///     <para>A REAL CLAIMANT IS AN OWNER and is never displaced - see
+  ///     <see cref="ChainStep.Adopt"/>, which owns that rule.</para></summary>
+  /// <param name="position">The 1-based step position.</param>
+  /// <param name="sessionId">The real session that owns the step.</param>
+  /// <param name="now">The clock the record write is stamped with.</param>
+  public Chain AdoptStep(int position, string sessionId, DateTimeOffset now)
+  {
+    EnsureMutable();
+    ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+    int index = IndexOf(position);
+    return ReplaceStep(index, Steps[index].Adopt(sessionId), now);
+  }
+
   /// <summary>Anchors the step at <paramref name="position"/> to the git worktree its session
   ///     runs in, and to the branch checked out there.</summary>
   /// <param name="position">The 1-based step position.</param>

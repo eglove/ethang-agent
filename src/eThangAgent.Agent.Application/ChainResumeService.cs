@@ -110,8 +110,16 @@ public sealed class ChainResumeService(ChainService chains, IChainResumeLaunchPo
       return Result.Failure<ChainResumeOutcome>(started.Error);
     }
 
-    _ = await _chains.ReassignStepAsync(chain.Id, step.Position, started.Value, now, ct)
-        .ConfigureAwait(false);
-    return Result.Success(new ChainResumeOutcome(chain.Id, rearmed, step.Position, started.Value));
+    // THE CORRECTION IS A WRITE THAT CAN BE REFUSED, and discarding it strands the step on the
+    // placeholder exactly as a discarded advance would. The step stays recoverable - the
+    // session adopts it when it opens - but the resume must not report a record it did not get.
+    Result<Chain> reassigned = await _chains.ReassignStepAsync(chain.Id, step.Position,
+        started.Value, now, ct).ConfigureAwait(false);
+    return reassigned.IsSuccess
+      ? Result.Success(new ChainResumeOutcome(chain.Id, rearmed, step.Position, started.Value))
+      : Result.Failure<ChainResumeOutcome>(new DomainError(ChainAdvanceCode.ClaimNotCorrected,
+          $"chain #{chain.Id} step {step.Position} was started as session {started.Value} but its "
+          + $"claim could not be corrected to it ({reassigned.Error.Code}: {reassigned.Error.Message}); "
+          + "the step is still held by a placeholder and will be adopted when that session opens."));
   }
 }

@@ -123,6 +123,24 @@ public sealed class ChainService(IChainStore store)
         (_, _) => StepChanged?.Invoke(
             new ChainStepChanged(id, position, "claimed", ChainActor.Session(sessionId), now)), ct);
 
+  /// <summary>Corrects a PLACEHOLDER claim to the session that actually runs the step, which is
+  ///     the repair for a step whose reassignment never landed.
+  ///     <para>ITS OWN ACT RATHER THAN A SECOND <see cref="ReassignStepAsync"/>, because the two
+  ///     are asked at different moments and by different callers: a reassign is the harness
+  ///     finishing a launch it started, and an adoption is anything - a later advance, or the
+  ///     session itself at open - repairing a claim that is already wrong. Both spend no attempt,
+  ///     because the launch was the attempt.</para></summary>
+  /// <param name="id">The chain id.</param>
+  /// <param name="position">The 1-based step position.</param>
+  /// <param name="sessionId">The real session that owns the step.</param>
+  /// <param name="now">The clock the record write is stamped with.</param>
+  /// <param name="ct">Cancellation.</param>
+  public Task<Result<Chain>> AdoptStepAsync(int id, int position, string sessionId,
+      DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.AdoptStep(position, sessionId, now), now,
+        (_, _) => StepChanged?.Invoke(
+            new ChainStepChanged(id, position, "adopted", ChainActor.Session(sessionId), now)), ct);
+
   /// <summary>Re-enters a FAILED step for the session that ran it (issue #303 D1): a retry
   ///     resumes, it does not restart. The attempt count is untouched - see
   ///     <see cref="Chain.RetryStep"/>.</summary>
@@ -207,6 +225,20 @@ public sealed class ChainService(IChainStore store)
       StepChanged?.Invoke(new ChainStepChanged(id, rearmed, "pending", actor, now));
     }
   }
+
+  /// <summary>Drops the chain: Abandoned, with the reason recorded on it.
+  ///     <para>THE HUMAN'S ACT, not an agent's: abandoning is the decision to stop doing the work,
+  ///     which is the one thing the harness cannot decide for the person directing it.</para></summary>
+  /// <param name="id">The chain id.</param>
+  /// <param name="reason">Why the work is being dropped.</param>
+  /// <param name="actor">Who dropped it.</param>
+  /// <param name="now">The clock.</param>
+  /// <param name="ct">Cancellation.</param>
+  public Task<Result<Chain>> AbandonAsync(int id, string reason, ChainActor actor,
+      DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.Abandon(reason, now), now,
+        (before, _) => StatusChanged?.Invoke(new ChainStatusChanged(
+            id, before.Status, ChainStatus.Abandoned, actor, reason, now)), ct);
 
   /// <summary>Records the final agent's session id on a completed chain.</summary>
   public Task<Result<Chain>> RecordFinalSessionAsync(int id, string sessionId, DateTimeOffset now,

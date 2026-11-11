@@ -1376,7 +1376,13 @@ public static class AgentComposition
         // production turn, and a contract that did not travel would leave the prompt silent
         // in the only process that serves the model. Unconditional registration: a session
         // outside a chain resolves null and renders nothing.
-        .AddSingleton<ChainContractCarrier>();
+        .AddSingleton<ChainContractCarrier>()
+    // The stranded-claim repair: a session that opens on a chain step adopts a placeholder claim,
+    // because opening is the first moment the real id exists and the only moment the repair can
+    // run. Registered beside the carrier it reads, and unconditionally: a container with no chain
+    // machinery resolves the service and the service refuses by name rather than doing nothing.
+    .AddSingleton(sp => new ChainClaimAdoptionService(
+        sp.GetRequiredService<IChainStore>(), sp.GetRequiredService<ChainService>()));
   }
 
   /// <summary>Registers the IN-PROCESS runtime as this container's <see cref="IAgentRuntime"/>.

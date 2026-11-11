@@ -19,6 +19,12 @@ public static class ChainAdvanceCode
   ///     lifecycle question #303 owns, reported rather than guessed.</summary>
   public const string StepsUnsettled = "ChainStepsUnsettled";
 
+  /// <summary>The launch succeeded but its claim could not be corrected to the new session, so
+  ///     the step is still held by the placeholder the harness claimed it under. The step is
+  ///     recoverable - the session adopts it when it opens - but a caller that ignores this
+  ///     reports an advance whose record is wrong.</summary>
+  public const string ClaimNotCorrected = "ChainClaimNotCorrected";
+
   /// <summary>An act on the universal floor was attempted, so the chain was PARKED (issue #304).
   ///     Distinct from every other park: no gate could have licensed the act, so the remedy is a
   ///     human's decision rather than a re-run.</summary>

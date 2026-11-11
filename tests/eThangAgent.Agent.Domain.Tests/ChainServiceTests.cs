@@ -271,4 +271,60 @@ public class ChainServiceTests
     Assert.Equal(ChainStatus.Running, resumed.Value.Status);
     Assert.Null(resumed.Value.ParkReason);
   }
+
+  // ---- A PLACEHOLDER CLAIM IS A GUESS, NOT AN OWNER (stranded chain claims) ----
+
+  [Fact]
+  public async Task AdoptStepAsync_MovesAPlaceholderClaimToTheRealSession_WithoutSpendingAnAttempt()
+  {
+    (ChainService service, _) = New();
+    Chain chain = Must(await CreateChainAsync(service, 1));
+    _ = await service.ClaimStepAsync(chain.Id, 1, "pending-abc123", T0,
+        TestContext.Current.CancellationToken);
+
+    Result<Chain> adopted = await service.AdoptStepAsync(chain.Id, 1, "real-session", T0,
+        TestContext.Current.CancellationToken);
+
+    Assert.True(adopted.IsSuccess, adopted.Error?.Message ?? "adoption must succeed");
+    ChainStep step = adopted.Value.Steps[0];
+    Assert.Equal("real-session", step.SessionId);
+    // The launch WAS the attempt; correcting who owns it is not a second one.
+    Assert.Equal(1, step.Attempts);
+    Assert.Equal(ChainStepStatus.Running, step.Status);
+  }
+
+  [Fact]
+  public async Task AdoptStepAsync_RefusesToStealALiveClaimFromAnotherSession()
+  {
+    (ChainService service, _) = New();
+    Chain chain = Must(await CreateChainAsync(service, 1));
+    _ = await service.ClaimStepAsync(chain.Id, 1, "session-a", T0,
+        TestContext.Current.CancellationToken);
+
+    Result<Chain> adopted = await service.AdoptStepAsync(chain.Id, 1, "session-b", T0,
+        TestContext.Current.CancellationToken);
+
+    // A REAL claimant is an owner. Only a placeholder may be corrected, or adoption would be
+    // a way to take a step from the session actually working on it.
+    Assert.False(adopted.IsSuccess);
+    Assert.Equal("InvalidTransition", adopted.Error.Code);
+  }
+
+  [Fact]
+  public async Task AdoptStepAsync_IsIdempotent_ForTheSessionThatAlreadyHoldsTheStep()
+  {
+    (ChainService service, _) = New();
+    Chain chain = Must(await CreateChainAsync(service, 1));
+    _ = await service.ClaimStepAsync(chain.Id, 1, "real-session", T0,
+        TestContext.Current.CancellationToken);
+
+    Result<Chain> adopted = await service.AdoptStepAsync(chain.Id, 1, "real-session", T0,
+        TestContext.Current.CancellationToken);
+
+    // A session that already owns its step must not be refused for asking: adoption runs
+    // mechanically at every session open, including the ones that are already correct.
+    Assert.True(adopted.IsSuccess, adopted.Error?.Message ?? "a self-adoption must succeed");
+    Assert.Equal("real-session", adopted.Value.Steps[0].SessionId);
+  }
 }
+

@@ -223,6 +223,12 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
             "the conversation host could not be started: " + ex.Message));
       }
 
+      // A CHAIN STEP'S CLAIM IS REPAIRED HERE, because here is the first moment the session's
+      // real id exists. The harness claimed the step under a placeholder before this launch, and
+      // the correction after it is a CAS write that can be lost - leaving the step owned by a
+      // session that never existed. The session that IS doing the work then cannot complete it.
+      await AdoptChainClaimAsync(services, chainContract, bootstrapped.Value, ct).ConfigureAwait(false);
+
       // Provider lineups are no longer published at session open: the model picker
       // (host UI) fetches the catalog lazily when shown, for either provider.
       return Result.Success(BuildSession(services, bootstrapped.Value, anchor, providerName, []));
@@ -238,6 +244,32 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // would hand a member's checkout to the next launch that runs on this flow.
       SetAnchor(scope, null);
     }
+  }
+
+  /// <summary>Repairs a stranded chain claim for the session that just opened.
+  ///     <para>BEST EFFORT BY CONTRACT, and the reason is the same one orphan repair gives: this
+  ///     runs on the open path, where a fault would take down a session that is otherwise fine.
+  ///     A chain that cannot be read leaves the claim where it is, which is exactly the state the
+  ///     next open will try again from.</para>
+  ///     <para>A SESSION THAT IS NOT A CHAIN STEP ASKS NOTHING. There is no claim to adopt, and a
+  ///     store read for every ordinary session open would be a query nobody needs.</para></summary>
+  /// <param name="services">The container being built.</param>
+  /// <param name="contract">The chain this session executes a step of, or null.</param>
+  /// <param name="sessionId">The session that just opened.</param>
+  /// <param name="ct">Cancellation.</param>
+  private static async Task AdoptChainClaimAsync(ServiceProvider services, ChainContract? contract,
+      AgentId sessionId, CancellationToken ct)
+  {
+    if (contract is null
+        || services.GetService<ChainClaimAdoptionService>() is not { } adoption)
+    {
+      return;
+    }
+
+    // The chain and the step both come from the record the launch was built from, so nothing here
+    // re-derives them from what a session says about itself.
+    _ = await adoption.AdoptAsync(contract.ChainId, contract.Position, sessionId.ToString(),
+        DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
   }
 
   /// <summary>Sets the ambient checkout, or clears it when <paramref name="anchor"/> is null.
