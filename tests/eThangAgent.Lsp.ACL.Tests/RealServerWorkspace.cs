@@ -95,6 +95,48 @@ internal static class RealServerWorkspace
     return serverPath;
   }
 
+  /// <summary>Installs one package into a workspace with the npm this machine provides,
+  ///     producing the node_modules layout a developer's own install leaves behind. Used to
+  ///     give a fixture a copy of a package that differs from the one the app installs.
+  ///     <para>NPM IS FOUND THE WAY THE STRATEGY FINDS IT - beside node on PATH - so a machine
+  ///     without node skips the calling test rather than failing it.</para></summary>
+  public static async Task InstallNpmPackageAsync(
+      string workspace,
+      string packageId,
+      string version,
+      CancellationToken ct)
+  {
+    PrerequisiteProbeResult node = LspPrerequisiteProbe.CreateDefault().Probe("node");
+    if (node.Status != PrerequisiteStatus.Present || string.IsNullOrWhiteSpace(node.ExecutablePath))
+    {
+      OptInTest.SkipUnlessEnabled("ETHANG_LSP_REAL_SERVER",
+          "to install " + packageId + " into a fixture workspace; node is not on this machine.");
+    }
+
+    string npm = Path.Combine(Path.GetDirectoryName(node.ExecutablePath)!, "npm.cmd");
+    System.Diagnostics.ProcessStartInfo startInfo = new(npm)
+    {
+      CreateNoWindow = true,
+      UseShellExecute = false,
+      RedirectStandardOutput = true,
+      RedirectStandardError = true,
+    };
+    foreach (string argument in new[] { "install", "--prefix", workspace, "--no-audit", "--no-fund",
+        packageId + "@" + version })
+    {
+      startInfo.ArgumentList.Add(argument);
+    }
+
+    using System.Diagnostics.Process process = System.Diagnostics.Process.Start(startInfo)!;
+    Task<string> output = process.StandardOutput.ReadToEndAsync(ct);
+    Task<string> error = process.StandardError.ReadToEndAsync(ct);
+    await process.WaitForExitAsync(ct).ConfigureAwait(true);
+    Assert.True(process.ExitCode == 0,
+        "npm install " + packageId + "@" + version + " failed: " + await error.ConfigureAwait(true));
+    Assert.True(Directory.Exists(Path.Combine(workspace, "node_modules", packageId)),
+        packageId + " must be on disk after the install: " + await output.ConfigureAwait(true));
+  }
+
   /// <summary>The line a fixture declares <paramref name="symbol"/> on: the first line that
   ///     names it, which is the declaration in a fixture that declares before it calls.</summary>
   public static int DeclarationLine(string file, string symbol)
