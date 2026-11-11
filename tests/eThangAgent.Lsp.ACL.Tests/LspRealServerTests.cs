@@ -22,9 +22,11 @@ public class LspRealServerTests
 {
   private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-  /// <summary>The two languages the real-server tier covers, and nothing else: a third
-  ///     language's artifact is never required by a test run.</summary>
-  public static TheoryData<string> RealServerLanguages() => ["csharp", "rust"];
+  /// <summary>The languages the real-server tier covers, and nothing else: a third
+  ///     language's artifact is never required by a test run. TypeScript is here because its
+  ///     server is the one installed through a package manager rather than a pinned artifact,
+  ///     so it is the only row whose install depends on the layout that toolchain chooses.</summary>
+  public static TheoryData<string> RealServerLanguages() => ["csharp", "rust", "typescript"];
 
   [Theory]
   [MemberData(nameof(RealServerLanguages))]
@@ -45,10 +47,7 @@ public class LspRealServerTests
     string expectedDirectory = row.InstallKind == LspInstallKind.Toolchain
         ? Path.Combine(installRoot, row.LanguageId, row.Version)
         : Path.Combine(installRoot, row.PackageId, row.Version);
-    Assert.Equal(
-        Path.Combine(expectedDirectory,
-            row.EntryPointRelativePath.Replace('/', Path.DirectorySeparatorChar), row.ServerFileName),
-        serverPath);
+    Assert.Contains(serverPath, LspInstallLayout.EntryPointCandidates(row, expectedDirectory));
     Assert.True(File.Exists(serverPath), "the verified server must be on disk: " + serverPath);
 
     string workspace = TestTempRoot.CreateDirectory("real-ws-" + languageId).FullName;

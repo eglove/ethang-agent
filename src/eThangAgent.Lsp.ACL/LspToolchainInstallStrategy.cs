@@ -13,7 +13,12 @@ public sealed record LspToolchainCommand(
 /// <summary>Installs a row through a toolchain the machine provides. The prerequisite is
 ///     looked up before anything runs, and a machine without it gets no process at all. The
 ///     command installs into an app-owned prefix, never into a global toolchain directory,
-///     and the install only counts when the expected entry point is on disk afterwards.</summary>
+///     and the install only counts when the expected entry point is on disk afterwards.
+///     <para>THE LAUNCHER LANDS AT THE PREFIX ROOT: every command is built so the launcher it
+///     produces lands where <see cref="LspInstallLayout.EntryPoint"/> looks for it, which for
+///     a toolchain row is the prefix itself.</para>
+///     <para>A row's companion packages are installed into the same prefix by the same
+///     command, so a server that resolves another package at run time finds it.</para></summary>
 public sealed class LspToolchainInstallStrategy : ILspInstallStrategy
 {
   private readonly LspPrerequisiteProbe _probe;
@@ -58,13 +63,20 @@ public sealed class LspToolchainInstallStrategy : ILspInstallStrategy
     int exitCode = await _run(command, cancellationToken).ConfigureAwait(false);
     if (exitCode != 0)
     {
-      return new LspInstallResult(LspInstallOutcome.DownloadFailed, row);
+      return new LspInstallResult(LspInstallOutcome.DownloadFailed, row,
+          $"{Path.GetFileName(command.Executable)} exited with code {exitCode} while installing "
+          + $"{row.PackageId} {row.Version}.");
     }
 
-    LspInstallOutcome outcome = ResolveInstalled(row, installRoot) is null
-        ? LspInstallOutcome.DownloadFailed
-        : LspInstallOutcome.Installed;
-    return new LspInstallResult(outcome, row);
+    string? installed = ResolveInstalled(row, installRoot);
+    if (installed is null)
+    {
+      return new LspInstallResult(LspInstallOutcome.DownloadFailed, row,
+          $"{Path.GetFileName(command.Executable)} reported success but "
+          + $"{LspInstallLayout.EntryPoint(row, prefix)} is not on disk.");
+    }
+
+    return new LspInstallResult(LspInstallOutcome.Installed, row);
   }
 
   public string? ResolveInstalled(LspLanguageRow row, string installRoot) =>
@@ -84,16 +96,20 @@ public sealed class LspToolchainInstallStrategy : ILspInstallStrategy
     switch (tool.ToUpperInvariant())
     {
       case "NODE":
+        // --global is what puts the launcher at the prefix root; a plain --prefix install
+        // nests it in node_modules/.bin, where the row's entry point is not.
         executable = Path.Combine(Path.GetDirectoryName(executable)!, "npm.cmd");
         arguments =
         [
             "install",
+            "--global",
             "--prefix",
             prefix,
             "--no-audit",
             "--no-fund",
             row.PackageId + "@" + row.Version,
         ];
+        arguments.AddRange(row.Companions.Select(companion => companion.Spec));
         break;
       case "GEM":
         arguments =
@@ -105,7 +121,7 @@ public sealed class LspToolchainInstallStrategy : ILspInstallStrategy
             "--install-dir",
             prefix,
             "--bindir",
-            Path.Combine(prefix, "bin"),
+            prefix,
             "--no-document",
         ];
         break;

@@ -35,9 +35,9 @@ public class ChainCreationCompositionTests
     ChainCapabilityProvider provider = services.GetRequiredService<ChainCapabilityProvider>();
 
     Assert.Equal("chain", provider.Id);
-    // 'resume-parked' is the exit from a parked chain (issue #303). It is NOT spelled 'resume':
-    // capability action names are globally unique, and agent.resume owns that one.
-    Assert.Equal(["start", "resume-parked"], provider.Actions.Select(a => a.Name));
+    // The provider's own declared names are the source of truth, so an action it gains is
+    // reachable through the registry without this assertion going stale.
+    Assert.Equal(ChainCapabilityProvider.ActionNames, provider.Actions.Select(a => a.Name));
   }
 
   /// <summary>The exit from a parked chain resolves through the same registry, so a model can

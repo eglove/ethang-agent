@@ -41,6 +41,21 @@ internal static class RealServerWorkspace
       return (Path.Combine(root, "Program.cs"), "Program.cs");
     }
 
+    if (string.Equals(languageId, "typescript", StringComparison.Ordinal))
+    {
+      File.WriteAllText(Path.Combine(root, "package.json"),
+                               /*lang=json,strict*/
+                               "{ \"name\": \"probe\", \"version\": \"0.1.0\" }");
+      File.WriteAllLines(Path.Combine(root, "main.ts"),
+      [
+          "function greet(): void {",
+          "}",
+          "",
+          "greet();",
+      ]);
+      return (Path.Combine(root, "main.ts"), "main.ts");
+    }
+
     _ = Directory.CreateDirectory(Path.Combine(root, "src"));
     File.WriteAllLines(Path.Combine(root, "Cargo.toml"),
     [

@@ -31,7 +31,8 @@ public static class LspServerCatalog
       Checksum: null,
       EntryPointRelativePath: "",
       ServerFileName: "typescript-language-server.cmd",
-      Arguments: ["--stdio"]);
+      Arguments: ["--stdio"],
+      CompanionPackages: [new LspCompanionPackage("typescript", "6.0.3")]);
 
   private static readonly LspLanguageRow PythonRow = new(
       LanguageId: "python",

@@ -64,13 +64,32 @@ internal static class LspInstallLayout
           row.EntryPointRelativePath.Replace('/', Path.DirectorySeparatorChar),
           row.ServerFileName);
 
+  /// <summary>Every name the entry point may carry inside <paramref name="directory"/>. A
+  ///     downloaded row lands exactly the file its artifact holds. A toolchain row's launcher
+  ///     is written by the toolchain, which chooses the wrapper its platform uses, so the
+  ///     row's own name is tried first and the other Windows launcher wrappers after it.</summary>
+  public static IReadOnlyList<string> EntryPointCandidates(LspLanguageRow row, string directory)
+  {
+    ArgumentNullException.ThrowIfNull(row);
+    ArgumentException.ThrowIfNullOrWhiteSpace(directory);
+    string declared = EntryPoint(row, directory);
+    if (row.InstallKind != LspInstallKind.Toolchain)
+    {
+      return [declared];
+    }
+
+    string stem = Path.Combine(Path.GetDirectoryName(declared)!, Path.GetFileNameWithoutExtension(declared));
+    return [.. new[] { declared, stem + ".cmd", stem + ".bat", stem + ".exe" }
+        .Distinct(StringComparer.OrdinalIgnoreCase)];
+  }
+
   /// <summary>The installed entry point, or null when it is not on disk.</summary>
   public static string? InstalledEntryPoint(LspLanguageRow row, string installRoot)
   {
     ArgumentNullException.ThrowIfNull(row);
     ArgumentException.ThrowIfNullOrWhiteSpace(installRoot);
-    string candidate = EntryPoint(row, DirectoryFor(row, installRoot));
-    return File.Exists(candidate) ? candidate : null;
+    string directory = DirectoryFor(row, installRoot);
+    return EntryPointCandidates(row, directory).FirstOrDefault(File.Exists);
   }
 
   /// <summary>The identity an install is remembered by. Two rows sharing a package id stay

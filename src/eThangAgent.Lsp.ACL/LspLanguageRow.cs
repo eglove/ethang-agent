@@ -1,5 +1,13 @@
 namespace eThangAgent.Lsp.ACL;
 
+/// <summary>A package an install places beside a language server in the same prefix, for a
+///     server that resolves another package at run time rather than bundling it.</summary>
+public sealed record LspCompanionPackage(string PackageId, string Version)
+{
+  /// <summary>The package spec a package manager installs: <c>id@version</c>.</summary>
+  public string Spec => PackageId + "@" + Version;
+}
+
 /// <summary>One language this app can serve: the files it claims, the manifests that mark a
 ///     workspace as needing it, and everything an install needs to place a server on this
 ///     machine.
@@ -11,7 +19,10 @@ namespace eThangAgent.Lsp.ACL;
 ///     <para><c>ArchiveAddress</c> is where an <see cref="LspInstallKind.Archive"/> row's artifact
 ///     is published, and null for every other kind.</para>
 ///     <para><c>EntryPointRelativePath</c> is the directory inside an extracted archive that
-///     holds the server, and is empty for a toolchain row, which extracts nothing.</para></summary>
+///     holds the server, and is empty for a toolchain row, which extracts nothing.</para>
+///     <para><c>CompanionPackages</c> are the packages an install places beside the server in
+///     the same prefix, for a server that resolves another package at run time rather than
+///     bundling it.</para></summary>
 public sealed record LspLanguageRow(
     string LanguageId,
     string DisplayName,
@@ -25,8 +36,13 @@ public sealed record LspLanguageRow(
     string EntryPointRelativePath,
     string ServerFileName,
     IReadOnlyList<string> Arguments,
-    string? ArchiveAddress = null)
+    string? ArchiveAddress = null,
+    IReadOnlyList<LspCompanionPackage>? CompanionPackages = null)
 {
+  /// <summary>The packages an install places beside the server, empty when the server needs
+  ///     none.</summary>
+  public IReadOnlyList<LspCompanionPackage> Companions => CompanionPackages ?? [];
+
   /// <summary>True when <paramref name="path"/> carries an extension this row claims.</summary>
   public bool Claims(string path)
   {

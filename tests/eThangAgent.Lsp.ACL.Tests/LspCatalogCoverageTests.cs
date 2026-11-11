@@ -259,6 +259,68 @@ public class LspCatalogCoverageTests
     finally { Directory.Delete(root, true); }
   }
 
+  /// <summary>A node-backed row asks npm for the layout the row's entry point assumes. A
+  ///     plain <c>--prefix</c> install nests its launcher in <c>node_modules/.bin</c>, where
+  ///     <see cref="LspInstallLayout"/> does not look, so the install reports success and the
+  ///     server is then unresolvable; <c>--global</c> is what puts the launcher at the prefix
+  ///     root. Nothing else in the suite spawns npm, so this is where that is checked.</summary>
+  [Theory]
+  [MemberData(nameof(EveryLanguage))]
+  public async Task ANodeBackedRow_AsksNpmForTheLayoutItsEntryPointAssumes(string languageId)
+  {
+    LspLanguageRow row = LspServerCatalog.ForLanguage(languageId)!;
+    if (row.InstallKind != LspInstallKind.Toolchain
+        || !string.Equals(row.PrerequisiteExecutable, "node", StringComparison.Ordinal))
+    {
+      return;
+    }
+
+    string root = TempRoot();
+    try
+    {
+      LspToolchainCommand? observed = null;
+      LspToolchainInstallStrategy strategy = new(
+          new LspPrerequisiteProbe(_ => PrerequisiteProbeResult.Found("C:\\nodejs\\node.exe")),
+          run: (command, _) => { observed = command; return Task.FromResult(1); });
+      _ = await strategy.InstallAsync(row, root, Ct);
+      Assert.NotNull(observed);
+      Assert.Equal(Path.Combine("C:\\nodejs", "npm.cmd"), observed.Executable);
+      Assert.Contains("--global", observed.Arguments);
+      Assert.Contains("--prefix", observed.Arguments);
+    }
+    finally { Directory.Delete(root, true); }
+  }
+
+  /// <summary>Every companion package a row declares reaches the install command as a pinned
+  ///     <c>id@version</c> spec, so a server that resolves another package at run time finds
+  ///     it in the same prefix.</summary>
+  [Theory]
+  [MemberData(nameof(EveryLanguage))]
+  public async Task ACompanionPackageRow_InstallsItBesideTheServer(string languageId)
+  {
+    LspLanguageRow row = LspServerCatalog.ForLanguage(languageId)!;
+    if (row.Companions.Count == 0)
+    {
+      return;
+    }
+
+    string root = TempRoot();
+    try
+    {
+      LspToolchainCommand? observed = null;
+      LspToolchainInstallStrategy strategy = new(
+          new LspPrerequisiteProbe(_ => PrerequisiteProbeResult.Found("C:\\nodejs\\node.exe")),
+          run: (command, _) => { observed = command; return Task.FromResult(1); });
+      _ = await strategy.InstallAsync(row, root, Ct);
+      Assert.NotNull(observed);
+      foreach (LspCompanionPackage companion in row.Companions)
+      {
+        Assert.Contains(companion.PackageId + "@" + companion.Version, observed.Arguments);
+      }
+    }
+    finally { Directory.Delete(root, true); }
+  }
+
   /// <summary>An archive row's artifact is verified against the row's own checksum before
   ///     anything is extracted, for every archive row: a substituted archive installs nothing.
   ///     </summary>
@@ -423,10 +485,15 @@ public class LspCatalogCoverageTests
         + string.Join(", ", unearned));
   }
 
-  /// <summary>The real-server tier is exactly the two languages the plan names, so a third
-  ///     language's server is never required by a test run.</summary>
+  /// <summary>The real-server tier holds exactly one language per install kind: C# through
+  ///     a pinned NuGet artifact, Rust through a pinned archive, and TypeScript through a
+  ///     package manager. One per kind is what the tier is for - each kind installs by a
+  ///     different mechanism, and a kind with no real install in the tier is a mechanism
+  ///     nothing exercises end to end. It is deliberately not every language: a language's
+  ///     server is never required by a test run unless its kind would otherwise go untested.
+  ///     </summary>
   [Fact]
-  public void TheRealServerTierCoversExactlyCSharpAndRust()
+  public void TheRealServerTierCoversOneLanguagePerInstallKind()
   {
     string[] realServerFiles =
     [
@@ -451,7 +518,20 @@ public class LspCatalogCoverageTests
     }
 
     string[] covered = [.. languages.Order(StringComparer.Ordinal)];
-    Assert.Equal(["csharp", "rust"], covered);
+    Assert.Equal(["csharp", "rust", "typescript"], covered);
+
+    // The same claim stated as the property it protects: every install kind the catalog
+    // uses appears in the tier, so no kind's install path goes unexercised.
+    string[] kindsCovered = [.. LspServerCatalog.All
+        .Where(row => languages.Contains(row.LanguageId))
+        .Select(row => row.InstallKind.ToString())
+        .Distinct(StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal)];
+    string[] kindsCatalogued = [.. LspServerCatalog.All
+        .Select(row => row.InstallKind.ToString())
+        .Distinct(StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal)];
+    Assert.Equal(kindsCatalogued, kindsCovered);
   }
 
   /// <summary>The catalog member a row is reached by when it has one, so a test that names

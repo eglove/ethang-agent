@@ -410,6 +410,51 @@ public class LspInstallStrategyTests
     finally { Directory.Delete(root, true); }
   }
 
+  /// <summary>A toolchain row's launcher is written by the toolchain, which picks the
+  ///     wrapper its platform uses: npm writes a .cmd, RubyGems a .bat. The row names the
+  ///     wrapper it expects, and resolution accepts whichever one the toolchain actually
+  ///     produced - otherwise a successful install resolves to nothing and the server is
+  ///     reported missing.</summary>
+  [Theory]
+  [InlineData("solargraph.cmd")]
+  [InlineData("solargraph.bat")]
+  [InlineData("solargraph.exe")]
+  public void AToolchainLauncher_ResolvesWhicheverWrapperTheToolchainWrote(string written)
+  {
+    string root = TempRoot();
+    try
+    {
+      LspLanguageRow row = ToolchainRow("ruby", "solargraph", "solargraph.cmd", prerequisite: "gem");
+      string prefix = Path.Combine(root, row.LanguageId, row.Version);
+      _ = Directory.CreateDirectory(prefix);
+      File.WriteAllText(Path.Combine(prefix, written), "shim");
+
+      Assert.Equal(Path.Combine(prefix, written),
+          LspInstallLayout.InstalledEntryPoint(row, root));
+    }
+    finally { Directory.Delete(root, true); }
+  }
+
+  /// <summary>A downloaded row lands exactly the file its artifact holds, so resolution does
+  ///     not go looking for a wrapper the artifact never contained.</summary>
+  [Fact]
+  public void ADownloadedRow_ResolvesOnlyTheNameItsArtifactHolds()
+  {
+    string root = TempRoot();
+    try
+    {
+      LspLanguageRow row = ArchiveRow("rust-analyzer", string.Empty, "rust-analyzer.exe", Sha256([1]));
+      string directory = Path.Combine(root, row.PackageId, row.Version);
+      _ = Directory.CreateDirectory(directory);
+      File.WriteAllText(Path.Combine(directory, "rust-analyzer.cmd"), "not the artifact's name");
+
+      Assert.Null(LspInstallLayout.InstalledEntryPoint(row, root));
+      Assert.Equal([Path.Combine(directory, "rust-analyzer.exe")],
+          LspInstallLayout.EntryPointCandidates(row, directory));
+    }
+    finally { Directory.Delete(root, true); }
+  }
+
   [Fact]
   public void ResolveInstalled_ReturnsNullForEveryKind_WhenNothingIsOnDisk()
   {
