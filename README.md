@@ -62,7 +62,7 @@ An ACL exists because its seam earns its keep. ACLs share no domain code with ea
 
 ## Technology Stack & Constraints
 
-- **Runtime**: .NET 10.
+- **Runtime**: .NET 11.
 - **Language**: C#.
 - **Platform**: Windows only — all path handling, process execution, and scripting assume Windows.
 - **Exec / Scripting**: Roslyn C# scripting. There is no PowerShell anywhere in the solution, and external processes are spawned directly with native .NET `Process` APIs rather than through a shell.
