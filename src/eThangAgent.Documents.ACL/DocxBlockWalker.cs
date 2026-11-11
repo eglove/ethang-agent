@@ -54,7 +54,7 @@ public static class DocxBlockWalker
   private static string NameOf(Uri uri)
   {
     string raw = uri.OriginalString;
-    int slash = raw.LastIndexOf('/');
+    int slash = raw.LastIndexOf('/', StringComparison.Ordinal);
     return slash < 0 ? raw : raw[(slash + 1)..];
   }
 
@@ -151,7 +151,7 @@ public static class DocxBlockWalker
       }
     }
 
-    List<DocxSectionLayers> sections = new(sectPrs.Count);
+    List<DocxSectionLayers> sections = [with(sectPrs.Count)];
     for (int i = 0; i < sectPrs.Count; i++)
     {
       sections.Add(LayersOf(i + 1, sectPrs[i], main));

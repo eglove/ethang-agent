@@ -17,9 +17,7 @@ public class ServedModelIdWireTests
   public void ParseResponse_ResponseBodyCarriesModel_CapturesItVerbatim()
   {
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"model":"cohere/north-mini-code:free","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"model":"cohere/north-mini-code:free","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Equal("cohere/north-mini-code:free", result.Value.ServedModelId);
@@ -32,9 +30,7 @@ public class ServedModelIdWireTests
     // in the body - there is no fallback to a request id here, and there cannot be: the
     // request is not in scope.
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.ServedModelId);
@@ -46,9 +42,7 @@ public class ServedModelIdWireTests
     // An empty string names nothing. Treating it as a name would put a blank model id on
     // the ledger row and price it against an empty catalog key.
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"model":"","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"model":"","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.ServedModelId);

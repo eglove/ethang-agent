@@ -66,7 +66,7 @@ public sealed class SkillRegistryTool(SkillRegistryService registry) : ITool
       };
 
   private static System.Text.Json.JsonElement budgetArguments(RawToolInput input) =>
-      System.Text.Json.JsonDocument.Parse(input.JsonArguments).RootElement;
+      System.Text.Json.JsonElement.Parse(input.JsonArguments);
 
   private async Task<ToolResult> InstallAsync(RawToolInput input, CancellationToken ct)
   {

@@ -51,7 +51,7 @@ public class CompactionWiringTests
 
   private sealed class FakePreferences : Storage.ACL.IAppPreferenceStore
   {
-    public Dictionary<string, string> Store { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> Store { get; } = [with(StringComparer.Ordinal)];
 
     public Task<string?> GetAsync(string key, CancellationToken ct = default)
         => Task.FromResult(Store.TryGetValue(key, out string? value) ? value : null);

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- A Roslyn analyzer runs inside the compiler host, so it targets the
-       compiler's own framework rather than the product's net10.0. -->
+       compiler's own framework rather than the product's net11.0. -->
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>

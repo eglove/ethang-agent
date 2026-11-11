@@ -91,7 +91,7 @@ public sealed class LspToolchainInstallStrategy : ILspInstallStrategy
   private static LspToolchainCommand BuildCommand(LspLanguageRow row, string executable, string prefix)
   {
     string tool = Path.GetFileNameWithoutExtension(executable);
-    Dictionary<string, string> environment = new(StringComparer.OrdinalIgnoreCase);
+    Dictionary<string, string> environment = [with(StringComparer.OrdinalIgnoreCase)];
     List<string> arguments;
     switch (tool.ToUpperInvariant())
     {

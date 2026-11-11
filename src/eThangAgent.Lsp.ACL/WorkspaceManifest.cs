@@ -14,11 +14,12 @@ internal static class WorkspaceManifest
   /// <summary>Directories that never hold the manifest a workspace should be loaded from.
   ///     Build output and dependency caches carry their own project files, and loading one
   ///     of those loads a fragment of the workspace instead of the workspace.</summary>
-  private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
-  {
+  private static readonly HashSet<string> ExcludedDirectories =
+  [
+    with(StringComparer.OrdinalIgnoreCase),
     ".git", ".svn", ".hg", "bin", "obj", "node_modules", "packages",
     ".worktrees", ".venv", "venv", "__pycache__", ".idea", ".vs", ".vscode", ".nuget",
-  };
+  ];
 
   /// <summary>How many directories one search may visit.</summary>
   private const int MaxDirectories = 4096;

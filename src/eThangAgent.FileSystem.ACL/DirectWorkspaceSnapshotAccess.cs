@@ -43,7 +43,7 @@ public sealed class DirectWorkspaceSnapshotAccess : IWorkspaceSnapshotAccess
       return Task.FromResult(WorkspaceSnapshot.Unavailable(workspaceRoot ?? string.Empty));
     }
 
-    Dictionary<string, WorkspaceFileFingerprint> files = new(StringComparer.OrdinalIgnoreCase);
+    Dictionary<string, WorkspaceFileFingerprint> files = [with(StringComparer.OrdinalIgnoreCase)];
     bool complete = Walk(workspaceRoot, workspaceRoot, files, ct);
     return Task.FromResult(WorkspaceSnapshot.Create(workspaceRoot, files, complete));
   }

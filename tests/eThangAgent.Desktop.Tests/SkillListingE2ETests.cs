@@ -306,10 +306,10 @@ public class SkillListingE2ETests
       return string.Empty;
     }
 
-    int next = listing.IndexOf('\n', start + header.Length + 1);
+    int next = listing.IndexOf('\n', start + header.Length + 1, StringComparison.Ordinal);
     while (next >= 0)
     {
-      int lineEnd = listing.IndexOf('\n', next + 1);
+      int lineEnd = listing.IndexOf('\n', next + 1, StringComparison.Ordinal);
       string line = listing[(next + 1)..(lineEnd < 0 ? listing.Length : lineEnd)];
       if (line.StartsWith("## ", StringComparison.Ordinal)
           || line.StartsWith("[skills listing", StringComparison.Ordinal)

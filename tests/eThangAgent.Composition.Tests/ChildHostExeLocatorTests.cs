@@ -20,14 +20,15 @@ public class ChildHostExeLocatorTests
 
   private static void PlantWindowsExe(string repoRoot, string configuration)
   {
-    string dir = Path.Combine(repoRoot, "src", "eThangAgent.ChildHost", "bin", configuration, "net10.0-windows");
+    string dir = Path.Combine(repoRoot, "src", "eThangAgent.ChildHost", "bin", configuration, "net11.0-windows");
     _ = Directory.CreateDirectory(dir);
     File.WriteAllText(Path.Combine(dir, ExeName), string.Empty);
   }
 
-  private static void PlantExe(string repoRoot, string configuration)
+  /// <summary>Plants the pre-TFM-bump output folder a dev machine may still hold.</summary>
+  private static void PlantStaleWindowsExe(string repoRoot, string configuration)
   {
-    string dir = Path.Combine(repoRoot, "src", "eThangAgent.ChildHost", "bin", configuration, "net10.0");
+    string dir = Path.Combine(repoRoot, "src", "eThangAgent.ChildHost", "bin", configuration, "net10.0-windows");
     _ = Directory.CreateDirectory(dir);
     File.WriteAllText(Path.Combine(dir, ExeName), string.Empty);
   }
@@ -38,11 +39,11 @@ public class ChildHostExeLocatorTests
     string repo = MakeFakeRepo();
     try
     {
-      PlantExe(repo, "Debug");
+      PlantWindowsExe(repo, "Debug");
 
       string resolved = ChildHostExeLocator.ResolveFromRepoRoot(repo);
 
-      Assert.EndsWith(Path.Combine("bin", "Debug", "net10.0", ExeName), resolved, StringComparison.Ordinal);
+      Assert.EndsWith(Path.Combine("bin", "Debug", "net11.0-windows", ExeName), resolved, StringComparison.Ordinal);
       Assert.True(File.Exists(resolved));
     }
     finally
@@ -57,11 +58,11 @@ public class ChildHostExeLocatorTests
     string repo = MakeFakeRepo();
     try
     {
-      PlantExe(repo, "Release");
+      PlantWindowsExe(repo, "Release");
 
       string resolved = ChildHostExeLocator.ResolveFromRepoRoot(repo);
 
-      Assert.EndsWith(Path.Combine("bin", "Release", "net10.0", ExeName), resolved, StringComparison.Ordinal);
+      Assert.EndsWith(Path.Combine("bin", "Release", "net11.0-windows", ExeName), resolved, StringComparison.Ordinal);
       Assert.True(File.Exists(resolved));
     }
     finally
@@ -76,72 +77,31 @@ public class ChildHostExeLocatorTests
     string repo = MakeFakeRepo();
     try
     {
-      PlantExe(repo, "Debug");
-      PlantExe(repo, "Release");
-
-      string resolved = ChildHostExeLocator.ResolveFromRepoRoot(repo);
-
-      Assert.EndsWith(Path.Combine("bin", "Debug", "net10.0", ExeName), resolved, StringComparison.Ordinal);
-    }
-    finally
-    {
-      Directory.Delete(repo, recursive: true);
-    }
-  }
-  [Fact]
-  public void ResolveFromRepoRoot_Finds_The_WindowsTfm_Output()
-  {
-    // The ChildHost project targets net10.0-windows; its build output lands in
-    // bin/<config>/net10.0-windows/. A locator that probes only net10.0 fails on
-    // every fresh checkout and worktree (the follow-up pass's environmental blocker).
-    string repo = MakeFakeRepo();
-    try
-    {
       PlantWindowsExe(repo, "Debug");
-
-      string resolved = ChildHostExeLocator.ResolveFromRepoRoot(repo);
-
-      Assert.EndsWith(Path.Combine("bin", "Debug", "net10.0-windows", ExeName), resolved, StringComparison.Ordinal);
-      Assert.True(File.Exists(resolved));
-    }
-    finally
-    {
-      Directory.Delete(repo, recursive: true);
-    }
-  }
-
-  [Fact]
-  public void ResolveFromRepoRoot_Prefers_WindowsTfm_Over_PlainTfm_StaleFolder()
-  {
-    // A stale pre-TFM-bump net10.0 folder must not win over the live output.
-    string repo = MakeFakeRepo();
-    try
-    {
-      PlantExe(repo, "Debug");          // stale-shape folder
-      PlantWindowsExe(repo, "Debug");   // the real output
-
-      string resolved = ChildHostExeLocator.ResolveFromRepoRoot(repo);
-
-      Assert.EndsWith(Path.Combine("bin", "Debug", "net10.0-windows", ExeName), resolved, StringComparison.Ordinal);
-    }
-    finally
-    {
-      Directory.Delete(repo, recursive: true);
-    }
-  }
-
-  [Fact]
-  public void ResolveFromRepoRoot_Falls_Back_To_The_WindowsTfm_Release_Output()
-  {
-    string repo = MakeFakeRepo();
-    try
-    {
       PlantWindowsExe(repo, "Release");
 
       string resolved = ChildHostExeLocator.ResolveFromRepoRoot(repo);
 
-      Assert.EndsWith(Path.Combine("bin", "Release", "net10.0-windows", ExeName), resolved, StringComparison.Ordinal);
-      Assert.True(File.Exists(resolved));
+      Assert.EndsWith(Path.Combine("bin", "Debug", "net11.0-windows", ExeName), resolved, StringComparison.Ordinal);
+    }
+    finally
+    {
+      Directory.Delete(repo, recursive: true);
+    }
+  }
+  [Fact]
+  public void ResolveFromRepoRoot_Prefers_The_Live_Tfm_Over_A_Stale_Folder()
+  {
+    // A stale pre-TFM-bump net10.0-windows folder must not win over the live output.
+    string repo = MakeFakeRepo();
+    try
+    {
+      PlantStaleWindowsExe(repo, "Debug");          // stale-shape folder
+      PlantWindowsExe(repo, "Debug");   // the real output
+
+      string resolved = ChildHostExeLocator.ResolveFromRepoRoot(repo);
+
+      Assert.EndsWith(Path.Combine("bin", "Debug", "net11.0-windows", ExeName), resolved, StringComparison.Ordinal);
     }
     finally
     {
@@ -208,7 +168,7 @@ public class ChildHostExeLocatorTests
       string resolved = ChildHostExeLocator.Resolve(repo, appDir);
 
       Assert.Equal(
-          Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0-windows", ExeName),
+          Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net11.0-windows", ExeName),
           resolved);
     }
     finally

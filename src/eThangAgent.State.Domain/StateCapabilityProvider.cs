@@ -308,7 +308,7 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
       throw new StateInputException("Arguments must be a JSON object.");
     }
 
-    Dictionary<string, JsonElement> args = new(StringComparer.Ordinal);
+    Dictionary<string, JsonElement> args = [with(StringComparer.Ordinal)];
     foreach (JsonProperty property in root.EnumerateObject())
     {
       if (!allowed.Contains(property.Name))

@@ -10,10 +10,10 @@ namespace eThangAgent.Lsp.ACL;
 ///     <c>src/</c> is ordinary. Looking only at the top level made that layout invisible.</para></summary>
 public static class LspWorkspaceSolution
 {
-  private static readonly HashSet<string> SolutionExtensions = new(StringComparer.OrdinalIgnoreCase)
-  {
-    ".slnx", ".sln",
-  };
+  private static readonly HashSet<string> SolutionExtensions =
+  [
+with(StringComparer.OrdinalIgnoreCase),     ".slnx", ".sln",
+  ];
 
   /// <summary>The solution file to load, or null when the workspace has none and the
   /// server's file-based project system is the only model available.</summary>

@@ -429,7 +429,7 @@ public sealed class DirectFileSystemAccess(ITextConventionPolicy conventions) : 
 
     string lastTerminator = lines[endLine - 1].Terminator;
     bool owesTerminator = normalizedNew.Length > 0
-        && !normalizedNew.EndsWith('\n')
+        && !normalizedNew.EndsWith('\n', StringComparison.Ordinal)
         && (endLine < lines.Count || lastTerminator.Length > 0);
     _ = owesTerminator ? sb.Append(normalizedNew).Append(lastTerminator) : sb.Append(normalizedNew);
 

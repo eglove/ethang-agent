@@ -22,10 +22,10 @@ public class ForegroundGateWireTests
   public void Click_WithEventStrategy_AndMismatchedForeground_IsRefusedBeforeDispatch()
   {
     PipeServer server = FakeConnectionFactory.WithForeground(expected: 4242, actual: 1);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{" + q("token") + ":" + q("t") + "}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{" + q("token") + ":" + q("t") + "}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "click",
-        JsonDocument.Parse("{" + q("strategy") + ":" + q("event") + "," + q("app_ref") + ":{" + q("pid") + ":4242}}").RootElement, connectionId: 1);
+        JsonElement.Parse("{" + q("strategy") + ":" + q("event") + "," + q("app_ref") + ":{" + q("pid") + ":4242}}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("foreground_required", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.SendInputCalls); // nothing dispatched - gate is BEFORE send

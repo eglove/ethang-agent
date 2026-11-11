@@ -113,7 +113,7 @@ public sealed class LspArchiveInstallStrategy : ILspInstallStrategy
     bool written = false;
     foreach (ZipArchiveEntry entry in zip.Entries)
     {
-      if (entry.FullName.EndsWith('/'))
+      if (entry.FullName.EndsWith('/', StringComparison.Ordinal))
       {
         continue;
       }
@@ -151,7 +151,7 @@ public sealed class LspArchiveInstallStrategy : ILspInstallStrategy
     }
 
     string relative = normalized[prefix.Length..];
-    if (relative.Length == 0 || relative.EndsWith('/'))
+    if (relative.Length == 0 || relative.EndsWith('/', StringComparison.Ordinal))
     {
       return false;
     }

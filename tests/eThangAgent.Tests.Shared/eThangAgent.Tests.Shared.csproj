@@ -9,9 +9,9 @@
   <PropertyGroup>
     <IsTestProject>false</IsTestProject>
     <OutputType>Library</OutputType>
-    <!-- Composition is net10.0-windows (the platform is Windows-only by design), so the
+    <!-- Composition is net11.0-windows (the platform is Windows-only by design), so the
          support assembly that owns session disposal targets the same framework. -->
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net11.0-windows</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Remove="xunit.v3" />

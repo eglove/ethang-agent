@@ -71,7 +71,7 @@ public sealed class LspNuGetInstallStrategy : ILspInstallStrategy
       string prefix = row.EntryPointRelativePath.Replace('\\', '/').TrimEnd('/') + "/";
       List<ZipArchiveEntry> shipped = [.. archive.Entries
           .Where(e => e.FullName.Replace('\\', '/').StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-              && !e.FullName.EndsWith('/'))];
+              && !e.FullName.EndsWith('/', StringComparison.Ordinal))];
       if (!shipped.Any(e => string.Equals(
               Path.GetFileName(e.FullName.Replace('\\', '/')),
               row.ServerFileName,

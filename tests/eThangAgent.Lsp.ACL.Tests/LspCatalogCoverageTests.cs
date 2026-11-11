@@ -502,7 +502,7 @@ public class LspCatalogCoverageTests
         "LspRealServerDiagnosticsTests.cs",
     ];
 
-    HashSet<string> languages = new(StringComparer.Ordinal);
+    HashSet<string> languages = [with(StringComparer.Ordinal)];
     foreach (string file in realServerFiles)
     {
       string text = File.ReadAllText(Path.Combine(AssemblyDirectory(), file));

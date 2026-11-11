@@ -7,7 +7,7 @@ public sealed class LspDaemonExeLocator
 {
   public const string ExeName = "eThangAgent.Lsp.Host.exe";
   private static readonly string[] ConfigurationPreference = ["Debug", "Release"];
-  private static readonly string[] TfmPreference = ["net10.0-windows", "net10.0"];
+  private static readonly string[] TfmPreference = ["net11.0-windows", "net10.0-windows"];
 
   private readonly Func<string, bool> _fileExists;
   private readonly string? _repoRoot;

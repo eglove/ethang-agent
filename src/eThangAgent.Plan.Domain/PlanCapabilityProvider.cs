@@ -54,7 +54,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   ///     'your steps are unfinished' from 'this is not your step'.</summary>
   public const string StepNotAssignedCode = "ChainStepNotAssigned";
 
-  private static readonly HashSet<string> StepAllowed = new(StringComparer.Ordinal) { Title, Detail };
+  private static readonly HashSet<string> StepAllowed = [with(StringComparer.Ordinal), Title, Detail];
 
   private readonly PlanService _service = service ?? throw new ArgumentNullException(nameof(service));
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
@@ -771,7 +771,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       throw new PlanInputException("Arguments must be a JSON object.");
     }
 
-    Dictionary<string, JsonElement> args = new(StringComparer.Ordinal);
+    Dictionary<string, JsonElement> args = [with(StringComparer.Ordinal)];
     foreach (JsonProperty property in root.EnumerateObject())
     {
       if (!allowed.Contains(property.Name))
@@ -867,7 +867,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
         throw new PlanInputException($"'steps[{index}]' must be a step object.");
       }
 
-      Dictionary<string, JsonElement> step = new(StringComparer.Ordinal);
+      Dictionary<string, JsonElement> step = [with(StringComparer.Ordinal)];
       foreach (JsonProperty property in item.EnumerateObject())
       {
         if (!StepAllowed.Contains(property.Name))

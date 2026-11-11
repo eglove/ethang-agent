@@ -56,10 +56,10 @@ public class InputPositioningTests
   public void Click_CoordinateTarget_DispatchesMoveThenButton_AtTheRequestedPoint_NoRealInput()
   {
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "click",
-        JsonDocument.Parse("{\"x\":100,\"y\":50}").RootElement, connectionId: 1);
+        JsonElement.Parse("{\"x\":100,\"y\":50}"), connectionId: 1);
     Assert.Null(reply.Error);
     Assert.Equal(1, server.InputDispatch.ClickCalls);
     Assert.Equal((100, 50), server.InputDispatch.LastClickPoint);
@@ -72,10 +72,10 @@ public class InputPositioningTests
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
     CountingElementOps ops = new();
     server.InputDispatch.SetElementOps(ops);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "click",
-        JsonDocument.Parse("{\"element\":7}").RootElement, connectionId: 1);
+        JsonElement.Parse("{\"element\":7}"), connectionId: 1);
     Assert.Null(reply.Error);
     Assert.Equal([7], ops.Invoked);
     Assert.Equal(0, server.InputDispatch.ClickCalls); // the element path, never the pointer path
@@ -85,10 +85,10 @@ public class InputPositioningTests
   public void Click_UnresolvableElementTarget_IsTypedInvalidRequest_NothingDispatched()
   {
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "click",
-        JsonDocument.Parse("{\"element\":77}").RootElement, connectionId: 1);
+        JsonElement.Parse("{\"element\":77}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.ClickCalls);
@@ -99,10 +99,10 @@ public class InputPositioningTests
   public void Click_EventStrategy_MismatchedForeground_RefusesBeforeAnyRow()
   {
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 1);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "click",
-        JsonDocument.Parse("{\"x\":5,\"y\":6,\"strategy\":\"event\",\"app_ref\":{\"pid\":4242}}").RootElement, connectionId: 1);
+        JsonElement.Parse("{\"x\":5,\"y\":6,\"strategy\":\"event\",\"app_ref\":{\"pid\":4242}}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("foreground_required", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.ClickCalls);
@@ -115,10 +115,10 @@ public class InputPositioningTests
   public void Scroll_Vertical_CoordinateTarget_PositionsCursorThenWheels_NoRealInput()
   {
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "scroll",
-        JsonDocument.Parse("{\"x\":12,\"y\":34,\"scroll_direction\":\"down\",\"scroll_amount\":2}").RootElement, connectionId: 1);
+        JsonElement.Parse("{\"x\":12,\"y\":34,\"scroll_direction\":\"down\",\"scroll_amount\":2}"), connectionId: 1);
     Assert.Null(reply.Error);
     Assert.Equal(1, server.InputDispatch.ScrollCalls);
     Assert.Equal((12, 34), server.InputDispatch.LastScrollPoint);
@@ -131,10 +131,10 @@ public class InputPositioningTests
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
     CountingElementOps ops = new();
     server.InputDispatch.SetElementOps(ops);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "scroll",
-        JsonDocument.Parse("{\"element\":7,\"scroll_direction\":\"down\",\"scroll_amount\":1}").RootElement, connectionId: 1);
+        JsonElement.Parse("{\"element\":7,\"scroll_direction\":\"down\",\"scroll_amount\":1}"), connectionId: 1);
     Assert.Null(reply.Error);
     Assert.Equal([(7, "down", 1)], ops.Scrolled);
     Assert.Equal(0, server.InputDispatch.ScrollCalls); // element path, never the wheel path
@@ -144,10 +144,10 @@ public class InputPositioningTests
   public void Scroll_Horizontal_CoordinateTarget_IsTypedActionUnavailable_NothingDispatched()
   {
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "scroll",
-        JsonDocument.Parse("{\"x\":1,\"y\":2,\"scroll_direction\":\"left\",\"scroll_amount\":1}").RootElement, connectionId: 1);
+        JsonElement.Parse("{\"x\":1,\"y\":2,\"scroll_direction\":\"left\",\"scroll_amount\":1}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("action_unavailable", reply.Error.Value.Code);
     Assert.Contains("horizontal", reply.Error.Value.Message, StringComparison.Ordinal);
@@ -159,10 +159,10 @@ public class InputPositioningTests
   public void Scroll_UnresolvableTarget_IsTypedInvalidRequest_NothingDispatched()
   {
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "scroll",
-        JsonDocument.Parse("{\"scroll_direction\":\"up\",\"scroll_amount\":1}").RootElement, connectionId: 1);
+        JsonElement.Parse("{\"scroll_direction\":\"up\",\"scroll_amount\":1}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.ScrollCalls);

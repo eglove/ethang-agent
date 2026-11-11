@@ -51,7 +51,7 @@ public class DeployedHostResolutionTests
     try
     {
       File.WriteAllText(Path.Combine(repo, "eThangAgent.slnx"), string.Empty);
-      string hostDir = Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0-windows");
+      string hostDir = Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net11.0-windows");
       _ = Directory.CreateDirectory(hostDir);
       string host = Path.Combine(hostDir, HostExeName);
       File.WriteAllText(host, string.Empty);
@@ -79,7 +79,7 @@ public class DeployedHostResolutionTests
     try
     {
       File.WriteAllText(Path.Combine(repo, "eThangAgent.slnx"), string.Empty);
-      string hostDir = Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0-windows");
+      string hostDir = Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net11.0-windows");
       _ = Directory.CreateDirectory(hostDir);
       File.WriteAllText(Path.Combine(hostDir, HostExeName), string.Empty);
       string appDir = TestTempRoot.CreateDirectory("ethang-repo-app-bin").FullName;

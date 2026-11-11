@@ -54,7 +54,7 @@ public sealed class SqliteChainSessionCostSource(AppDatabase database) : IChainS
       _ = command.Parameters.AddWithValue("@sessions",
           JsonSerializer.Serialize(sessionIds.Distinct(StringComparer.Ordinal)));
 
-      Dictionary<string, UsageAccumulator> totals = new(StringComparer.Ordinal);
+      Dictionary<string, UsageAccumulator> totals = [with(StringComparer.Ordinal)];
       using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
       while (await reader.ReadAsync(ct).ConfigureAwait(false))
       {

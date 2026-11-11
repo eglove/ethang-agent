@@ -20,7 +20,7 @@ public class LspDaemonExeLocatorTests
   [Fact]
   public void Resolve_FallsBackToRepoBuildOutput()
   {
-    string expected = Path.Combine(@"C:\repo", "src", "eThangAgent.Lsp.Host", "bin", "Debug", "net10.0-windows", LspDaemonExeLocator.ExeName);
+    string expected = Path.Combine(@"C:\repo", "src", "eThangAgent.Lsp.Host", "bin", "Debug", "net11.0-windows", LspDaemonExeLocator.ExeName);
     LspDaemonExeLocator locator = new(p => p == expected, @"C:\repo", @"C:\app");
 
     Assert.Equal(expected, locator.Resolve());

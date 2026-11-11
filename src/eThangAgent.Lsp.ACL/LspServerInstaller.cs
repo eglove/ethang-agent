@@ -10,8 +10,8 @@ public sealed class LspServerInstaller
   private readonly string _root;
   private readonly IReadOnlyDictionary<LspInstallKind, ILspInstallStrategy> _strategies;
   private readonly Lock _gate = new();
-  private readonly Dictionary<string, Task<LspInstallResult>> _inflight = new(StringComparer.Ordinal);
-  private readonly Dictionary<string, LspInstallOutcome> _failed = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, Task<LspInstallResult>> _inflight = [with(StringComparer.Ordinal)];
+  private readonly Dictionary<string, LspInstallOutcome> _failed = [with(StringComparer.Ordinal)];
 
   public LspServerInstaller(
       string root,

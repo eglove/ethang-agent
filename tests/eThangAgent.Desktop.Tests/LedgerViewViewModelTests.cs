@@ -48,7 +48,7 @@ public sealed class LedgerViewViewModelTests : IDisposable
   ///     indistinguishable from the host appending one.</summary>
   private sealed class FakeLedgerAccess : IExperimentLedgerAccess
   {
-    public Dictionary<string, string> Ledgers { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> Ledgers { get; } = [with(StringComparer.Ordinal)];
 
     public DomainError? ListFailure { get; set; }
 

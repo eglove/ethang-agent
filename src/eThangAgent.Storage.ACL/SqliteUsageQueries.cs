@@ -268,8 +268,8 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
     }
 
     UsageTally overall = new();
-    Dictionary<string, UsageTally> byClass = new(StringComparer.Ordinal);
-    Dictionary<string, UsageTally> byModel = new(StringComparer.Ordinal);
+    Dictionary<string, UsageTally> byClass = [with(StringComparer.Ordinal)];
+    Dictionary<string, UsageTally> byModel = [with(StringComparer.Ordinal)];
     foreach (UsageRow row in rows)
     {
       overall.Add(row);

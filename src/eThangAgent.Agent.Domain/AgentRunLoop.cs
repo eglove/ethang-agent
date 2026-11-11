@@ -630,7 +630,7 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
       // a stuck row can be explained.
       await Console.Error.WriteLineAsync(
           $"[agent] terminal persist failed for {terminal.Id} (status={terminal.Status}): "
-          + $"[{update.Error.Code}] {update.Error.Message}").ConfigureAwait(false);
+          + $"[{update.Error.Code}] {update.Error.Message}", CancellationToken.None).ConfigureAwait(false);
       throw new InvalidOperationException(
           $"failed to persist terminal state for agent '{terminal.Id}': " +
           $"[{update.Error.Code}] {update.Error.Message}");

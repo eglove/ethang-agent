@@ -28,9 +28,9 @@ public sealed class ObservationLedger
     EnsureUniqueElementIndexes(elements);
     int next = NextStateNumber(window);
 
-    SortedDictionary<int, LedgerElementRef> currentRefs = new(elements
+    SortedDictionary<int, LedgerElementRef> currentRefs = [with(elements
         .OrderBy(static e => e.Index)
-        .ToDictionary(static e => e.Index, static e => new LedgerElementRef(e.Role, e.Title ?? "")));
+        .ToDictionary(static e => e.Index, static e => new LedgerElementRef(e.Role, e.Title ?? "")))];
 
     (int? modelVisibleState, SortedDictionary<int, LedgerElementRef>? modelVisibleRefs, LedgerWindow? baseline) =
       ResolveBaseline(window, next, currentRefs, fingerprint, treeShownToModel, screenshotOnly);

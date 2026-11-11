@@ -18,9 +18,9 @@ public class ObservationEnvelopeContractTests
     // succeed so the WALK's deadline behavior is the only variable under test.
     TimedOutObserver observer = new();
     PipeServer server = new(new BrokerConfig("ignored-pipe", "t"), observer);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     BrokerResponse reply = server.Dispatch(2, "capture_app",
-      JsonDocument.Parse("{\"app_ref\":{\"pid\":424242}}").RootElement, connectionId: 1);
+      JsonElement.Parse("{\"app_ref\":{\"pid\":424242}}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("timeout", reply.Error.Value.Code);
     Assert.Contains("deadline", reply.Error.Value.Message, StringComparison.Ordinal);
@@ -31,9 +31,9 @@ public class ObservationEnvelopeContractTests
   {
     RealBrokerObserver observer = new();
     PipeServer server = new(new BrokerConfig("ignored-pipe", "t"), observer);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     BrokerResponse reply = server.Dispatch(2, "capture_app",
-      JsonDocument.Parse("{\"app_ref\":{\"pid\":999999}}").RootElement, connectionId: 1);
+      JsonElement.Parse("{\"app_ref\":{\"pid\":999999}}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("app_not_found", reply.Error.Value.Code);
   }

@@ -80,14 +80,14 @@ internal static class HealedHost
   {
     string binRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
         "..", "..", "..", "..", "..", "src", "eThangAgent.ComputerUse.Host", "bin"));
-    // The test assembly lives at …\bin\{config}\net10.0-windows\; walk up one
+    // The test assembly lives at …\bin\{config}\net11.0-windows\; walk up one
     // level and take the configuration directory's name.
     string? binConfigDir = Path.GetDirectoryName(Path.GetDirectoryName(
         Path.GetFullPath(typeof(RivalOnAndReconnectTests).Assembly.Location)));
     string? configuration = Path.GetFileName(binConfigDir);
     if (configuration is "Debug" or "Release")
     {
-      string candidate = Path.Combine(binRoot, configuration, "net10.0-windows", "eThangAgent.ComputerUse.Host.exe");
+      string candidate = Path.Combine(binRoot, configuration, "net11.0-windows", "eThangAgent.ComputerUse.Host.exe");
       if (File.Exists(candidate))
       {
         return candidate;
@@ -97,6 +97,6 @@ internal static class HealedHost
     string? newest = Directory.EnumerateFiles(binRoot, "eThangAgent.ComputerUse.Host.exe", SearchOption.AllDirectories)
         .OrderByDescending(File.GetLastWriteTimeUtc)
         .FirstOrDefault();
-    return newest ?? Path.Combine(binRoot, "Debug", "net10.0-windows", "eThangAgent.ComputerUse.Host.exe");
+    return newest ?? Path.Combine(binRoot, "Debug", "net11.0-windows", "eThangAgent.ComputerUse.Host.exe");
   }
 }

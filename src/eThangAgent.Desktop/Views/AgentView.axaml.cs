@@ -342,7 +342,7 @@ internal partial class AgentView : UserControl
       _ = Vm?.UpdateReferenceCostAsync(text);
     }
 
-    bool commandMode = text.TrimStart().StartsWith('!');
+    bool commandMode = text.TrimStart().StartsWith('!', StringComparison.Ordinal);
     if (commandMode)
     {
       InputBox.Classes.Add("command");

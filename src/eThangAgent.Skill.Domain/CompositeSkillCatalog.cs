@@ -157,8 +157,8 @@ public sealed class CompositeSkillCatalog(ISkillCatalog builtIns, ISkillDirector
 
     List<(int CandidateIndex, string Line)> collisions = [];
     List<(string Label, SkillDefinition Skill)> winners = [];
-    Dictionary<string, int> winnerIndexByName = new(StringComparer.Ordinal);
-    HashSet<string> reportedCollisions = new(StringComparer.Ordinal);
+    Dictionary<string, int> winnerIndexByName = [with(comparer: StringComparer.Ordinal)];
+    HashSet<string> reportedCollisions = [with(comparer: StringComparer.Ordinal)];
     foreach ((int candidateIndex, string label, SkillDefinition skill) in candidates)
     {
       if (winnerIndexByName.TryGetValue(skill.Name, out int winnerIndex))

@@ -35,7 +35,7 @@ public class CompositionGuardTests
     Assert.Equal(2, options.MaxConcurrentAgents); // preserved
   }
 
-  public static TheoryData<string, AgentHostOptions> BothHostShapes => new()
+  public static TheoryData<string, AgentHostOptions> BothHostShapes() => new()
     {
         { "terminal-shaped", new AgentHostOptions(
             FixedWorkspaceContext.ForPath(Path.GetFullPath(".")),

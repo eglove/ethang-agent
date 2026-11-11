@@ -74,7 +74,7 @@ internal sealed class ChainAdvanceHost(
 #pragma warning restore CA1031 // Do not catch general exception types
     {
       await Console.Error.WriteLineAsync(
-          $"chain advance: reading worktree {path} failed: {ex.Message}").ConfigureAwait(false);
+          $"chain advance: reading worktree {path} failed: {ex.Message}", CancellationToken.None).ConfigureAwait(false);
       return false;
     }
   }
@@ -103,7 +103,7 @@ internal sealed class ChainAdvanceHost(
 #pragma warning restore CA1031 // Do not catch general exception types
     {
       await Console.Error.WriteLineAsync(
-          $"chain advance: removing worktree {path} failed: {ex.Message}").ConfigureAwait(false);
+          $"chain advance: removing worktree {path} failed: {ex.Message}", CancellationToken.None).ConfigureAwait(false);
     }
   }
 
@@ -126,8 +126,8 @@ internal sealed class ChainAdvanceHost(
     catch (Exception ex)
 #pragma warning restore CA1031 // Do not catch general exception types
     {
-      await Console.Error.WriteLineAsync($"chain advance: closing session {sessionId} failed: {ex.Message}")
-          .ConfigureAwait(false);
+      await Console.Error.WriteLineAsync($"chain advance: closing session {sessionId} failed: {ex.Message}",
+          CancellationToken.None).ConfigureAwait(false);
     }
   }
 

@@ -8,7 +8,7 @@ public sealed record LspServerConfig(string LanguageId, string Command, IReadOnl
   public bool ClaimsExtension(string extension)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(extension);
-    string ext = extension.StartsWith('.') ? extension : "." + extension;
+    string ext = extension.StartsWith('.', StringComparison.Ordinal) ? extension : "." + extension;
     return Extensions.Any(e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase));
   }
 }

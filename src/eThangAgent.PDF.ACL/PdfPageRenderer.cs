@@ -65,7 +65,7 @@ public static class PdfPageRenderer
       }
 
       RenderOptions options = new(Dpi: dpi);
-      List<PdfPageImage> images = new(pages.Count);
+      List<PdfPageImage> images = [with(pages.Count)];
       foreach (int page in pages)
       {
         using SKBitmap bitmap = Conversion.ToImage(bytes, new Index(page - 1), options: options);
@@ -105,7 +105,7 @@ public static class PdfPageRenderer
     for (int i = 0; i < parsed.Value.Segments.Count; i++)
     {
       PdfPageSegment segment = parsed.Value.Segments[i];
-      bool openTail = parts[i].Trim().EndsWith('-');
+      bool openTail = parts[i].Trim().EndsWith('-', StringComparison.Ordinal);
       int last = openTail ? total : segment.End ?? segment.Start;
       if (segment.Start > total)
       {

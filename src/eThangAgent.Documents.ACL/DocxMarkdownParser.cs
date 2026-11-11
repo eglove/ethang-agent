@@ -81,7 +81,7 @@ public static class DocxMarkdownParser
         continue;
       }
 
-      if (trimmed.StartsWith('|'))
+      if (trimmed.StartsWith('|', StringComparison.Ordinal))
       {
         paragraphLines.Clear();
         if (tableLines is null)
@@ -136,7 +136,7 @@ public static class DocxMarkdownParser
       return true;
     }
 
-    if (trimmed.StartsWith('#'))
+    if (trimmed.StartsWith('#', StringComparison.Ordinal))
     {
       throw new MarkdownInvalidException(lineNo + 1);
     }
@@ -199,7 +199,7 @@ public static class DocxMarkdownParser
       }
 
       string inner = line[1..];
-      if (inner.EndsWith('|'))
+      if (inner.EndsWith('|', StringComparison.Ordinal))
       {
         inner = inner[..^1];
       }
@@ -227,7 +227,7 @@ public static class DocxMarkdownParser
     while (at < text.Length)
     {
       int bold = text.IndexOf("**", at, StringComparison.Ordinal);
-      int italic = text.IndexOf('*', at);
+      int italic = text.IndexOf('*', at, StringComparison.Ordinal);
       if (bold < 0 && italic < 0)
       {
         spans.Add(new DocxMarkdownSpan(text[at..], false, false));
@@ -263,7 +263,7 @@ public static class DocxMarkdownParser
     // marker is a violation); returns the index after it.
     static int ItalicSpan(string text, int open, List<DocxMarkdownSpan> spans)
     {
-      int close = text.IndexOf('*', open + 1);
+      int close = text.IndexOf('*', open + 1, StringComparison.Ordinal);
       if (close < 0)
       {
         throw new MarkdownInvalidException(0);

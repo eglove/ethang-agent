@@ -22,7 +22,7 @@ public class PipeServerDispatchTests
   public void Authenticate_WithCorrectToken_ReturnsOk()
   {
     PipeServer server = FakeConnectionFactory.Token("t");
-    BrokerResponse reply = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Result);
     Assert.True(reply.Result.Value.TryGetProperty("ok", out JsonElement ok) && ok.ValueKind == JsonValueKind.True);
   }
@@ -31,7 +31,7 @@ public class PipeServerDispatchTests
   public void Authenticate_WithWrongToken_ReturnsNotAuthorized()
   {
     PipeServer server = FakeConnectionFactory.Token("secret");
-    BrokerResponse reply = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"wrong"}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"wrong"}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("not_authorized", reply.Error.Value.Code);
   }
@@ -40,7 +40,7 @@ public class PipeServerDispatchTests
   public void Authenticate_MissingTokenParam_IsInvalidRequest()
   {
     PipeServer server = FakeConnectionFactory.Token("t");
-    BrokerResponse reply = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"other":1}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"other":1}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
   }
@@ -49,7 +49,7 @@ public class PipeServerDispatchTests
   public void Authenticate_NotOnFixedIdZero_IsInvalidRequest()
   {
     PipeServer server = FakeConnectionFactory.Token("t");
-    BrokerResponse reply = server.Dispatch(7, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(7, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
   }
@@ -58,7 +58,7 @@ public class PipeServerDispatchTests
   public void Hello_NotOnIdOne_IsInvalidRequest()
   {
     PipeServer server = FakeConnectionFactory.Authorized(1);
-    BrokerResponse reply = server.Dispatch(9, "hello", JsonDocument.Parse("""{"protocolVersion":1,"platform":"windows"}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(9, "hello", JsonElement.Parse("""{"protocolVersion":1,"platform":"windows"}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
   }
@@ -67,7 +67,7 @@ public class PipeServerDispatchTests
   public void Hello_UnknownPlatform_IsVersionMismatch()
   {
     PipeServer server = FakeConnectionFactory.Authorized(1);
-    BrokerResponse reply = server.Dispatch(1, "hello", JsonDocument.Parse("""{"protocolVersion":1,"platform":"linux"}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(1, "hello", JsonElement.Parse("""{"protocolVersion":1,"platform":"linux"}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("version_mismatch", reply.Error.Value.Code);
   }
@@ -76,7 +76,7 @@ public class PipeServerDispatchTests
   public void Hello_WrongProtocol_IsVersionMismatch()
   {
     PipeServer server = FakeConnectionFactory.Authorized(1);
-    BrokerResponse reply = server.Dispatch(1, "hello", JsonDocument.Parse("""{"protocolVersion":2,"platform":"windows"}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(1, "hello", JsonElement.Parse("""{"protocolVersion":2,"platform":"windows"}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("version_mismatch", reply.Error.Value.Code);
   }
@@ -85,7 +85,7 @@ public class PipeServerDispatchTests
   public void Hello_BeforeAuthenticate_IsNotAuthorized()
   {
     PipeServer newServer = FakeConnectionFactory.Token("t");
-    BrokerResponse reply = newServer.Dispatch(1, "hello", JsonDocument.Parse("""{"protocolVersion":1,"platform":"windows"}""").RootElement, connectionId: 1);
+    BrokerResponse reply = newServer.Dispatch(1, "hello", JsonElement.Parse("""{"protocolVersion":1,"platform":"windows"}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("not_authorized", reply.Error.Value.Code);
   }
@@ -192,7 +192,7 @@ public class PipeServerDispatchTests
   public void CaptureApp_OnSkeletonObserver_IsUnimplemented()
   {
     PipeServer server = FakeConnectionFactory.Authorized(1);
-    BrokerResponse reply = server.Dispatch(2, "capture_app", JsonDocument.Parse("""{"app_ref":{"pid":1}}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(2, "capture_app", JsonElement.Parse("""{"app_ref":{"pid":1}}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("unimplemented", reply.Error.Value.Code);
   }
@@ -208,7 +208,7 @@ public class PipeServerDispatchTests
   public void Hello_OkCarriesProtocolAndPlatform()
   {
     PipeServer server = FakeConnectionFactory.Authorized(1);
-    BrokerResponse hello = server.Dispatch(1, "hello", JsonDocument.Parse("""{"protocolVersion":1,"platform":"windows"}""").RootElement, connectionId: 1);
+    BrokerResponse hello = server.Dispatch(1, "hello", JsonElement.Parse("""{"protocolVersion":1,"platform":"windows"}"""), connectionId: 1);
     _ = Assert.NotNull(hello.Result);
     Assert.True(hello.Result.Value.TryGetProperty("protocol", out _) && hello.Result.Value.TryGetProperty("platform", out _));
   }
@@ -217,7 +217,7 @@ public class PipeServerDispatchTests
   public void InputMethod_RequiresControllerLease()
   {
     PipeServer server = FakeConnectionFactory.Authorized(4);
-    BrokerResponse reply = server.Dispatch(2, "press_key", JsonDocument.Parse("""{"key":"a"}""").RootElement, connectionId: 4);
+    BrokerResponse reply = server.Dispatch(2, "press_key", JsonElement.Parse("""{"key":"a"}"""), connectionId: 4);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("controller_busy", reply.Error.Value.Code);
   }
@@ -228,7 +228,7 @@ public class PipeServerDispatchTests
     PipeServer server = FakeConnectionFactory.Authorized(1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     _ = server.InputSerializer.TryBegin("click");
-    BrokerResponse busy = server.Dispatch(3, "press_key", JsonDocument.Parse("""{"key":"a"}""").RootElement, connectionId: 1);
+    BrokerResponse busy = server.Dispatch(3, "press_key", JsonElement.Parse("""{"key":"a"}"""), connectionId: 1);
     _ = Assert.NotNull(busy.Error);
     Assert.Equal("input_busy", busy.Error.Value.Code);
     Assert.Contains("action_sent=false", busy.Error.Value.Details ?? "", StringComparison.Ordinal);
@@ -249,7 +249,7 @@ public class PipeServerDispatchTests
   {
     FakeObserver observer = new();
     PipeServer server = new(new BrokerConfig("ignored-pipe", "t"), observer);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     server.DropConnection(1);
     Assert.Equal([1], observer.LostOwners);
@@ -315,7 +315,7 @@ internal static class FakeConnectionFactory
     PipeServer server = Token("t");
     foreach (int connectionId in connectionIds)
     {
-      _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId);
+      _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId);
     }
 
     return server;

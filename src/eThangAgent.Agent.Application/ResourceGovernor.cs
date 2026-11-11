@@ -49,7 +49,7 @@ public sealed class ResourceGovernor(
     TimeProvider clock,
     Func<int> openConversations)
 {
-  private readonly Dictionary<string, Episode> _episodes = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, Episode> _episodes = [with(StringComparer.Ordinal)];
 
   /// <summary>The interval this governor asks its host to tick at. The single source of
   ///     truth is <see cref="WatchdogOptions.ResourceTickInterval"/>; this only surfaces it

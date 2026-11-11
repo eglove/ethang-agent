@@ -19,8 +19,8 @@ public sealed class FullDuplexStream : Stream
 
   public static (FullDuplexStream Client, FullDuplexStream Server) CreatePair()
   {
-    BlockingCollection<byte> toServer = new(boundedCapacity: 1 << 20);
-    BlockingCollection<byte> toClient = new(boundedCapacity: 1 << 20);
+    BlockingCollection<byte> toServer = [with(boundedCapacity: 1 << 20)];
+    BlockingCollection<byte> toClient = [with(boundedCapacity: 1 << 20)];
     FullDuplexStream client = new(toServer, toClient);
     FullDuplexStream server = new(toClient, toServer);
     return (client, server);

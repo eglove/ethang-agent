@@ -94,7 +94,7 @@ public sealed class DirectorySkillSource : ISkillDirectorySource
 
   private static IEnumerable<string> EnumerateVisibleSubdirectories(string directoryPath) =>
       Directory.EnumerateDirectories(directoryPath)
-          .Where(f => !Path.GetFileName(f).StartsWith('.'))
+          .Where(f => !Path.GetFileName(f).StartsWith('.', StringComparison.Ordinal))
           .OrderBy(f => f, StringComparer.Ordinal);
 
   /// <summary>File-name matching is case-sensitive (agentskills.io convention);

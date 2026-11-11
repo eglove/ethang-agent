@@ -16,7 +16,7 @@ public static class ResultSchemaValidator
     JsonElement report;
     try
     {
-      report = JsonDocument.Parse(reportJson).RootElement;
+      report = JsonElement.Parse(reportJson);
     }
     catch (JsonException ex)
     {

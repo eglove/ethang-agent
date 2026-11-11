@@ -42,7 +42,7 @@ public static class StubLspServer
       string stderr = build.StandardError.ReadToEnd();
       build.WaitForExit();
       Assert.True(build.ExitCode == 0, "the stub language server failed to build: " + stdout + stderr);
-      _outputDirectory = Path.Combine(Path.GetDirectoryName(project)!, "bin", "Debug", "net10.0");
+      _outputDirectory = Path.Combine(Path.GetDirectoryName(project)!, "bin", "Debug", "net11.0");
       Assert.True(File.Exists(Path.Combine(_outputDirectory, "ethang-fake-lsp.exe")),
           "the stub language server was built but is not where its project puts it: " + _outputDirectory);
       return _outputDirectory;

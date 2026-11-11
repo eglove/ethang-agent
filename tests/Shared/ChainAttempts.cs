@@ -11,7 +11,7 @@ namespace eThangAgent.TestSupport;
 ///     each test made every one of them a place to get the rule wrong, and they all had to be
 ///     rewritten when the claim rule changed.</para>
 ///     <para>LINKED SOURCE, not a project reference: the domain and application suites target
-///     plain net10.0 and the support projects do not, so this file is compiled into each of
+///     plain net11.0 and the support projects do not, so this file is compiled into each of
 ///     them instead of dragging a framework along.</para></summary>
 internal static class ChainAttempts
 {

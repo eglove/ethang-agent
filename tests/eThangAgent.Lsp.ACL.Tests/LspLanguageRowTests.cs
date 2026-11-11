@@ -128,7 +128,7 @@ public class LspLanguageRowTests
   [Fact]
   public void Catalog_NoExtensionIsClaimedByTwoRows()
   {
-    HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+    HashSet<string> seen = [with(StringComparer.OrdinalIgnoreCase)];
     foreach (LspLanguageRow row in LspServerCatalog.All)
     {
       foreach (string extension in row.Extensions)
@@ -141,7 +141,7 @@ public class LspLanguageRowTests
   [Fact]
   public void Catalog_LanguageIdsAreUnique()
   {
-    HashSet<string> ids = new(StringComparer.Ordinal);
+    HashSet<string> ids = [with(StringComparer.Ordinal)];
     foreach (LspLanguageRow row in LspServerCatalog.All)
     {
       Assert.True(ids.Add(row.LanguageId), row.LanguageId + " appears twice");

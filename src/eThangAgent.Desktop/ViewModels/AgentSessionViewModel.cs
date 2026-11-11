@@ -1064,7 +1064,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     // Slash detection reads the RAW input's first character (spec #28: no trim —
     // leading-whitespace input is not slash input) and runs before the ! check.
-    if (rawInput!.StartsWith('/'))
+    if (rawInput!.StartsWith('/', StringComparison.Ordinal))
     {
       await SubmitSlashAsync(rawInput).ConfigureAwait(true);
       return;
@@ -1073,7 +1073,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // The ! prefix is a USER-side shell command, not an LLM turn: it runs against the
     // workspace directly — even while a turn is in flight (it never steers the model).
     // Shell input carries no references: what the user types after ! is the command.
-    if (input.StartsWith('!'))
+    if (input.StartsWith('!', StringComparison.Ordinal))
     {
       await RunCommandAsync(input[1..].Trim()).ConfigureAwait(true);
       return;

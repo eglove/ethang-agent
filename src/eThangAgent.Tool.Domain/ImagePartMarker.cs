@@ -55,7 +55,7 @@ public static class ImagePartMarker
     {
       padding = 2;
     }
-    else if (base64Data.Length >= 1 && base64Data.EndsWith('='))
+    else if (base64Data.Length >= 1 && base64Data.EndsWith('=', StringComparison.Ordinal))
     {
       padding = 1;
     }

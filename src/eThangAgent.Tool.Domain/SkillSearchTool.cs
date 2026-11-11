@@ -36,7 +36,7 @@ public sealed class SkillSearchTool(SkillRegistryService registry) : ITool
 
   private Func<CancellationToken, Task<ToolResult>> SearchCoreAsync(RawToolInput input) => async token =>
   {
-    Result<string> query = SkillRegistryInputs.ParseQuery(System.Text.Json.JsonDocument.Parse(input.JsonArguments).RootElement);
+    Result<string> query = SkillRegistryInputs.ParseQuery(System.Text.Json.JsonElement.Parse(input.JsonArguments));
     if (!query.IsSuccess)
     {
       return Fail(query.Error);

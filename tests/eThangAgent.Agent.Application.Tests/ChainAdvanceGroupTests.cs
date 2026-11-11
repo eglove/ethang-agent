@@ -84,7 +84,7 @@ public class ChainAdvanceGroupTests
     public List<string> Closed { get; } = [];
 
     /// <summary>The checkouts that hold uncommitted work.</summary>
-    public HashSet<string> Dirty { get; } = new(StringComparer.Ordinal);
+    public HashSet<string> Dirty { get; } = [with(StringComparer.Ordinal)];
 
     /// <summary>The worktrees the host was asked to remove, in the order it was asked.</summary>
     public List<string> Removed { get; } = [];

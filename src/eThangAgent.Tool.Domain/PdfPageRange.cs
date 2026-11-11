@@ -30,7 +30,7 @@ public sealed record PdfPageRange(IReadOnlyList<PdfPageSegment> Segments)
     }
 
     string[] parts = text.Split(',');
-    List<PdfPageSegment> segments = new(parts.Length);
+    List<PdfPageSegment> segments = [with(parts.Length)];
     HashSet<int> claimed = [];
     bool sawOpenTail = false;
 

@@ -80,7 +80,7 @@ public static class RegistryLayoutNormalizer
   private static IEnumerable<string> VisibleSubdirectories(string directory) =>
       Directory.Exists(directory)
           ? Directory.EnumerateDirectories(directory)
-              .Where(f => !Path.GetFileName(f).StartsWith('.'))
+              .Where(f => !Path.GetFileName(f).StartsWith('.', StringComparison.Ordinal))
               .OrderBy(f => f, StringComparer.Ordinal)
           : [];
 

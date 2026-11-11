@@ -10,7 +10,7 @@ namespace eThangAgent.ComputerUse.ACL;
 ///     connection, defeating the ledger fail-closed contracts. The cache is
 ///     process-lifetime and thread-safe; the access instances are shared, so
 ///     disposal stays the composition's concern (DisposeAsync is a no-op when the
-///     access does not own its supervisor). Registered by net10.0-windows hosts at
+///     access does not own its supervisor). Registered by net11.0-windows hosts at
 ///     the PROCESS level; hosts without the ACL never enable the tool (and never
 ///     construct this provider).</summary>
 public sealed class BrokerComputerAccessProvider(BrokerRegistry registry) : IComputerAccessProvider

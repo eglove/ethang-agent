@@ -9,7 +9,7 @@ namespace eThangAgent.ToolDomain.Tests;
 public class MarkdownDocumentParserTests
 {
   private static Result<MarkdownDocument> Parse(string documentJson) =>
-      MarkdownDocumentParser.Parse(JsonDocument.Parse(documentJson).RootElement);
+      MarkdownDocumentParser.Parse(JsonElement.Parse(documentJson));
 
   private const string TextDoc = /*lang=json,strict*/ """{"blocks":[{"type":"text","text":"Hi"}]}""";
 

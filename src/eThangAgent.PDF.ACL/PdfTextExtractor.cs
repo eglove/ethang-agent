@@ -52,7 +52,7 @@ public static class PdfTextExtractor
       }
 
       int take = Math.Min(maxPages, totalPages - offset);
-      List<PdfPageText> pages = new(take);
+      List<PdfPageText> pages = [with(take)];
       for (int i = 0; i < take; i++)
       {
         int pageNumber = offset + i + 1;

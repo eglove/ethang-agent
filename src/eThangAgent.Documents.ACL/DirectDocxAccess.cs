@@ -1359,7 +1359,7 @@ public sealed class DirectDocxAccess : IDocxAccess
   private static string PartName(ImagePart part)
   {
     string raw = part.Uri.OriginalString;
-    int slash = raw.LastIndexOf('/');
+    int slash = raw.LastIndexOf('/', StringComparison.Ordinal);
     return slash < 0 ? raw : raw[(slash + 1)..];
   }
 

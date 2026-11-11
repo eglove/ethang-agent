@@ -176,8 +176,8 @@ public class StateServiceTests
 
   private sealed class FakeStateStore : IStateStore
   {
-    private readonly Dictionary<string, StateKeyValue> _keys = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, TransitionRecord> _transitions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, StateKeyValue> _keys = [with(StringComparer.Ordinal)];
+    private readonly Dictionary<string, TransitionRecord> _transitions = [with(StringComparer.Ordinal)];
     private readonly List<StateEvent> _events = [];
     private long _eventSeq;
 

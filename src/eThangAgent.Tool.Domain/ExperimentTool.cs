@@ -345,11 +345,12 @@ public sealed class ExperimentTool(IExperimentLedgerStore store, IRefutationStor
     }
 
     int open = ExperimentLedger.OpenPredictions(records);
-    List<string> lines = new(Math.Min(records.Count, ListCap) + 2)
-    {
+    List<string> lines =
+    [
+        with(Math.Min(records.Count, ListCap) + 2),
         $"[experiment] {key}: {records.Count} record(s), {open} open prediction(s)",
-    };
-    lines.AddRange(records.Take(ListCap).Select(r => r.Raw));
+        .. records.Take(ListCap).Select(r => r.Raw),
+    ];
     int dropped = records.Count - ListCap;
     if (dropped > 0)
     {

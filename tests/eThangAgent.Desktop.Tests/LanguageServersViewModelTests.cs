@@ -15,7 +15,7 @@ public class LanguageServersViewModelTests
   ///     it, and one instance shared by two pages proves a restart reads the value back.</summary>
   private sealed class MemoryPreferences : IAppPreferenceStore
   {
-    private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _values = [with(StringComparer.Ordinal)];
 
     public Task<string?> GetAsync(string key, CancellationToken ct = default) =>
         Task.FromResult(_values.TryGetValue(key, out string? value) ? value : null);

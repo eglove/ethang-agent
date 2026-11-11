@@ -38,7 +38,7 @@ public sealed class EmbeddedSkillCatalog : ISkillCatalog
 
     Assembly assembly = typeof(EmbeddedSkillCatalog).Assembly;
     string prefix = assembly.GetName().Name + ".skills.";
-    Dictionary<string, SkillDefinition> byName = new(StringComparer.Ordinal);
+    Dictionary<string, SkillDefinition> byName = [with(comparer: StringComparer.Ordinal)];
     foreach (string? resourceName in assembly.GetManifestResourceNames()
                  .Where(n => n.StartsWith(prefix, StringComparison.Ordinal) && n.EndsWith(".md", StringComparison.Ordinal)))
     {

@@ -17,7 +17,7 @@ public sealed record DeliveredScreenshot(int Width, int Height, byte[] Jpeg, str
 #pragma warning restore CA1819
 
 /// <summary>The screenshot-encode ladder (spec 3.5): decode the broker's PNG
-///     (WPF imaging, already on net10.0-windows), alpha-composite onto white,
+///     (WPF imaging, already on net11.0-windows), alpha-composite onto white,
 ///     downscale so the longest edge stays at or under 1280 (high-quality), then
 ///     walk a quality ladder (75, -15 steps, floor 40) and 0.8 shrink steps
 ///     (floor edge 320) until the base64 fits the delivery bound (190 KiB).

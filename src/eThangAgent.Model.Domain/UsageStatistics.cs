@@ -38,6 +38,34 @@ public static class UsageStatistics
         : (sorted[middle - 1] + sorted[middle]) / 2d;
   }
 
+  /// <summary>The MEDIAN of money measurements, kept in decimal arithmetic end to end.
+  ///     <para>WHY ITS OWN NAME: a same-named <c>Median</c> overload for decimals would make
+  ///     every collection-expression argument ambiguous — <c>Median([1, 2])</c> converts to
+  ///     neither <c>IEnumerable&lt;double&gt;</c> nor <c>IEnumerable&lt;decimal&gt;</c> — so the
+  ///     cost median states its subject instead.</para>
+  ///     <para>WHY NOT THROUGH double: .NET 11 made the double-to-decimal conversion exact, so
+  ///     a price routed through <c>double</c> comes back with its full binary expansion (0.10
+  ///     becomes 0.1000000000000000055511151231). A median of prices is money, not a
+  ///     duration, so it is computed from the decimals the store parsed.</para></summary>
+  public static decimal? MedianCost(IEnumerable<decimal>? measurements)
+  {
+    if (measurements is null)
+    {
+      return null;
+    }
+
+    decimal[] sorted = [.. measurements.OrderBy(value => value)];
+    if (sorted.Length == 0)
+    {
+      return null;
+    }
+
+    int middle = sorted.Length / 2;
+    return sorted.Length % 2 == 1
+        ? sorted[middle]
+        : (sorted[middle - 1] + sorted[middle]) / 2m;
+  }
+
   /// <summary>The value at the given percentile of the supplied measurements, or null when
   ///     there are none. Used for the reliability signal (issue #295): the p90 of a provider's
   ///     call durations is how long its slow calls take, which a median alone hides.

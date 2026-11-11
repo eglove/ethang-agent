@@ -29,7 +29,7 @@ public class ScriptToolsWrapperCoverageTests
   // ScriptTools members that are not tool wrappers: the generic dispatch form, the
   // catalog readers, and the static Require helper.
   private static readonly HashSet<string> NonWrapperMethods =
-      new(StringComparer.Ordinal) { "Invoke", "List", "Describe" };
+      [with(StringComparer.Ordinal), "Invoke", "List", "Describe"];
 
   // 'exec' is the one wrapper with no capability action behind it, by design: exec
   // CANNOT call itself (the bootstrap states it outright), so ExecTool is registered on
@@ -38,7 +38,7 @@ public class ScriptToolsWrapperCoverageTests
   // resolves to UnknownAction - a NAMED exception, verified by the Resolve assertion
   // below rather than assumed, so the day exec joins the surface this test says so.
   private static readonly HashSet<string> WrappersWithoutAnAction =
-      new(StringComparer.Ordinal) { "exec" };
+      [with(StringComparer.Ordinal), "exec"];
 
   private static ServiceProvider Build()
   {

@@ -27,7 +27,7 @@ public sealed class SessionRequestChannel
   // the fine-grained synchronization.
   private Action<string>? _emitter;
   private readonly Lock _gate = new();
-  private readonly Dictionary<string, TaskCompletionSource<Result<string>>> _pending = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, TaskCompletionSource<Result<string>>> _pending = [with(StringComparer.Ordinal)];
 
   /// <summary>Connects the channel to one turn's emitter. Called at turn start; a
   ///     previous turn's emitter is replaced (turns are serialized by the turn gate).</summary>

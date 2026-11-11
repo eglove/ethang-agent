@@ -259,7 +259,7 @@ runner,
   ///     ledger's counts.</para></summary>
   internal sealed class FakeLedgerAccess : ToolDomain.IExperimentLedgerAccess
   {
-    public Dictionary<string, string> Ledgers { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> Ledgers { get; } = [with(StringComparer.Ordinal)];
 
     public Task<Result<IReadOnlyList<ToolDomain.LedgerSummary>>> ListAsync(CancellationToken ct = default)
     {

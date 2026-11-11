@@ -17,7 +17,7 @@ public class ServerToolCallParsingTests
     const string body = /*lang=json,strict*/
         """{"status":"completed","output":[{"type":"web_search_call","id":"ws1","status":"completed","action":{"type":"search","query":"best coffee grinder"}},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}""";
 
-    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 
     Assert.True(result.IsSuccess);
     ServerToolCall call = Assert.Single(result.Value.ServerToolCalls);
@@ -31,7 +31,7 @@ public class ServerToolCallParsingTests
     const string body = /*lang=json,strict*/
         """{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"plain"}]}]}""";
 
-    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 
     Assert.True(result.IsSuccess);
     Assert.Empty(result.Value.ServerToolCalls);
@@ -69,7 +69,7 @@ public class ServerToolCallParsingTests
     const string body = /*lang=json,strict*/
         """{"status":"completed","output":[{"type":"openrouter:web_search","id":"st_tmp_1","status":"completed","action":{"type":"search","query":"current stable .NET version"}},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}""";
 
-    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 
     Assert.True(result.IsSuccess);
     ServerToolCall call = Assert.Single(result.Value.ServerToolCalls);
@@ -83,7 +83,7 @@ public class ServerToolCallParsingTests
     const string body = /*lang=json,strict*/
         """{"status":"completed","output":[{"type":"openrouter:web_search","id":"st_tmp_1","status":"completed","action":{"type":"search","query":"dotnet","sources":[{"type":"url","url":"https://dotnet.microsoft.com/x"},{"type":"url","url":"https://learn.microsoft.com/y"}]}},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}""";
 
-    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 
     Assert.True(result.IsSuccess);
     ServerToolCall call = Assert.Single(result.Value.ServerToolCalls);

@@ -216,7 +216,7 @@ public sealed record CommitMessage(string Rendered, string Subject)
   /// <summary>Returns the names of whichever parameters carry a value.</summary>
   private static string[] PresentAmong(string? type, string? scope, string? emojiKey)
   {
-    List<string> present = new(3);
+    List<string> present = [with(3)];
     if (!string.IsNullOrEmpty(type))
     {
       present.Add(nameof(type));

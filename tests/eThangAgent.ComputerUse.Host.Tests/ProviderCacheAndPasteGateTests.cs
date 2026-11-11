@@ -58,10 +58,10 @@ public class BrokerComputerAccessProviderTests
     // F6: paste without an element target gates like click: the foreground window
     // must match the target app, else foreground_required and NO clipboard write.
     PipeServer server = FakeConnectionFactory.WithForeground(expected: 4242, actual: 1);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "paste",
-      JsonDocument.Parse("{\"text\":\"hi\",\"app_ref\":{\"pid\":4242}}").RootElement, connectionId: 1);
+      JsonElement.Parse("{\"text\":\"hi\",\"app_ref\":{\"pid\":4242}}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("foreground_required", reply.Error.Value.Code);
   }
@@ -74,10 +74,10 @@ public class BrokerComputerAccessProviderTests
     // No focus is consulted and nothing is dispatched on the refusal.
     PipeServer server = FakeConnectionFactory.WithForeground(expected: 4242, actual: 1);
     server.InputDispatch.SetElementOps(new CountingElementOps());
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "paste",
-      JsonDocument.Parse("{\"text\":\"hi\",\"element\":3,\"app_ref\":{\"pid\":4242}}").RootElement, connectionId: 1);
+      JsonElement.Parse("{\"text\":\"hi\",\"element\":3,\"app_ref\":{\"pid\":4242}}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("foreground_required", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.SendInputCalls);
@@ -92,10 +92,10 @@ public class BrokerComputerAccessProviderTests
     // paste must refuse typed with zero dispatches.
     PipeServer server = FakeConnectionFactory.WithForeground(expected: 4242, actual: 4242);
     server.InputDispatch.SetElementOps(new BoundsOnlyResolver());
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "paste",
-      JsonDocument.Parse("{\"text\":\"hi\",\"element\":3,\"app_ref\":{\"pid\":4242}}").RootElement, connectionId: 1);
+      JsonElement.Parse("{\"text\":\"hi\",\"element\":3,\"app_ref\":{\"pid\":4242}}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.SendInputCalls);
@@ -109,10 +109,10 @@ public class BrokerComputerAccessProviderTests
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
     CountingElementOps ops = new();
     server.InputDispatch.SetElementOps(ops);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "type_text",
-      JsonDocument.Parse("{\"text\":\"hello\",\"element\":5}").RootElement, connectionId: 1);
+      JsonElement.Parse("{\"text\":\"hello\",\"element\":5}"), connectionId: 1);
     Assert.Null(reply.Error);
     Assert.Equal([5], ops.Focused);       // the element_focus path ran
     Assert.Equal(1, server.InputDispatch.SendInputCalls); // then the text dispatch
@@ -124,10 +124,10 @@ public class BrokerComputerAccessProviderTests
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
     CountingElementOps ops = new();
     server.InputDispatch.SetElementOps(ops);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "type_text",
-      JsonDocument.Parse("{\"text\":\"hello\"}").RootElement, connectionId: 1);
+      JsonElement.Parse("{\"text\":\"hello\"}"), connectionId: 1);
     Assert.Null(reply.Error);
     Assert.Empty(ops.Focused);
     Assert.Equal(1, server.InputDispatch.SendInputCalls);
@@ -138,10 +138,10 @@ public class BrokerComputerAccessProviderTests
   {
     PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 4242);
     server.InputDispatch.SetElementOps(new BoundsOnlyResolver()); // bounds-only: cannot focus
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "type_text",
-      JsonDocument.Parse("{\"text\":\"hello\",\"element\":3}").RootElement, connectionId: 1);
+      JsonElement.Parse("{\"text\":\"hello\",\"element\":3}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.SendInputCalls);

@@ -397,5 +397,5 @@ internal static partial class NativeInput
 
   [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   [LibraryImport("user32.dll", SetLastError = true)]
-  internal static partial uint SendInput(uint nInputs, Input[] pInputs, int cbSize);
+  internal static partial uint SendInput(uint nInputs, [In] Input[] pInputs, int cbSize);
 }

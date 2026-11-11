@@ -69,7 +69,7 @@ internal sealed class EditorConfigDocument
 ///     and the properties it declares, case-insensitive by editorconfig convention.</summary>
 internal sealed class EditorConfigSection(string? glob)
 {
-  private readonly Dictionary<string, string> _properties = new(StringComparer.OrdinalIgnoreCase);
+  private readonly Dictionary<string, string> _properties = [with(StringComparer.OrdinalIgnoreCase)];
 
   /// <summary>The section glob, or null for entries that precede any section header.</summary>
   public string? Glob { get; } = glob;

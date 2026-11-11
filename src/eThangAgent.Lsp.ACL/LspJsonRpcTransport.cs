@@ -25,7 +25,7 @@ public sealed class LspJsonRpcTransport
   private readonly TimeSpan _timeout;
   private readonly SemaphoreSlim _writeLock = new(1, 1);
   private readonly Queue<string> _incoming = new();
-  private readonly HashSet<string> _registrations = new(StringComparer.Ordinal);
+  private readonly HashSet<string> _registrations = [with(StringComparer.Ordinal)];
   private readonly System.Collections.Concurrent.ConcurrentDictionary<int, TaskCompletionSource<string>> _pending = new();
   private readonly Lock _readerLock = new();
   private readonly CancellationTokenSource _readerCts;

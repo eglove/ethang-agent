@@ -36,8 +36,8 @@ internal sealed class ChainLifecycleHost(Func<AgentId, string, Task<bool>> resum
     catch (Exception ex)
 #pragma warning restore CA1031 // Do not catch general exception types
     {
-      await Console.Error.WriteLineAsync($"chain lifecycle: resuming session {sessionId} failed: {ex.Message}")
-          .ConfigureAwait(false);
+      await Console.Error.WriteLineAsync($"chain lifecycle: resuming session {sessionId} failed: {ex.Message}",
+          CancellationToken.None).ConfigureAwait(false);
       return false;
     }
   }

@@ -59,7 +59,7 @@ public sealed class ChainLedgerSlugTests
     // A hyphen at the cut would read as a truncated word rather than as a bound.
     string title = new string('a', ChainLedgerSlug.MaxLength - 1) + " b";
 
-    Assert.False(ChainLedgerSlug.For(title).EndsWith('-'));
+    Assert.False(ChainLedgerSlug.For(title).EndsWith('-', StringComparison.Ordinal));
   }
 
   [Fact]

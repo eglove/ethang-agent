@@ -112,7 +112,7 @@ public sealed class ConversationContextService(Conversation conversation)
     }
 
     HashSet<int> doomed = [.. positions];
-    List<Message> updated = new(messages.Count - doomed.Count);
+    List<Message> updated = [with(messages.Count - doomed.Count)];
     for (int i = 0; i < messages.Count; i++)
     {
       if (!doomed.Contains(i))
@@ -249,7 +249,7 @@ public sealed class ConversationContextService(Conversation conversation)
     if (message.ToolCalls is { Count: > 0 } calls)
     {
       string rendered = string.Join(" ", calls.Select(call => $"tool_call({call.Id}): {call.Name}({call.Arguments})"));
-      lines[^1] += (lines[^1].EndsWith(' ') ? "" : " ") + rendered;
+      lines[^1] += (lines[^1].EndsWith(' ', StringComparison.Ordinal) ? "" : " ") + rendered;
     }
 
     if (message.Parts is { Count: > 0 })
@@ -259,12 +259,12 @@ public sealed class ConversationContextService(Conversation conversation)
           ? PartRender.ForImage(image.MediaType, image.Base64Data)
           : PartRender.ForText(((MessagePart.TextPart)part).Text))];
       ImagePartMarker.AppendParts(sb, parts);
-      lines[^1] += (lines[^1].EndsWith(' ') ? "" : " ") + sb.ToString().Trim();
+      lines[^1] += (lines[^1].EndsWith(' ', StringComparison.Ordinal) ? "" : " ") + sb.ToString().Trim();
     }
 
     if (message.ToolCallId is not null)
     {
-      lines[^1] += (lines[^1].EndsWith(' ') ? "" : " ") + $"[answers {message.ToolCallId}]";
+      lines[^1] += (lines[^1].EndsWith(' ', StringComparison.Ordinal) ? "" : " ") + $"[answers {message.ToolCallId}]";
     }
   }
 }

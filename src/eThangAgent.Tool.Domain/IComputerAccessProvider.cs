@@ -1,6 +1,6 @@
 namespace eThangAgent.ToolDomain;
 
-/// <summary>Computer-use host seam: net10.0-windows hosts register the BrokerRegistry-backed
+/// <summary>Computer-use host seam: net11.0-windows hosts register the BrokerRegistry-backed
 ///     provider (one broker per workspace root, shared by every session in it) at composition;
 ///     composition gates the 'computer' tool on settings.ComputerUse. There is NO null fallback
 ///     in production: the composition's ComputerToolBindings dereferences the provider's return

@@ -354,7 +354,7 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
 
     try
     {
-      string prefix = existing.Length > 0 && !existing.EndsWith('\n') ? "\n" : string.Empty;
+      string prefix = existing.Length > 0 && !existing.EndsWith('\n', StringComparison.Ordinal) ? "\n" : string.Empty;
       await File.AppendAllTextAsync(excludePath, prefix + ExcludeEntry + "\n", ct).ConfigureAwait(false);
       return Result.Success(true);
     }

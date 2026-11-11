@@ -20,12 +20,13 @@ public static class AdvisoryDiagnosticsAppender
 
   /// <summary>Code extensions the advisory slice consults. A file whose extension is
   /// not listed is non-code: no server is consulted, no text is appended.</summary>
-  private static readonly HashSet<string> CodeExtensions = new(StringComparer.OrdinalIgnoreCase)
-  {
+  private static readonly HashSet<string> CodeExtensions =
+  [
+    with(StringComparer.OrdinalIgnoreCase),
     ".cs", ".fs", ".fsx", ".vb", ".ts", ".tsx", ".js", ".jsx",
     ".py", ".java", ".c", ".h", ".cpp", ".hpp", ".cc", ".go",
     ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".hs",
-  };
+  ];
 
   /// <summary>True when <paramref name="path"/> names a code file the advisory slice
   /// consults. Non-code files are byte-identical: the source is never called.</summary>

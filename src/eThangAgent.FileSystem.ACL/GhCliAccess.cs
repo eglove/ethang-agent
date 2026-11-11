@@ -285,7 +285,7 @@ public sealed class GhCliAccess(Func<string?> resolveGh, Func<string?> resolveGi
     }
 
     string trimmed = url.Trim().TrimEnd('/');
-    int slash = trimmed.LastIndexOf('/');
+    int slash = trimmed.LastIndexOf('/', StringComparison.Ordinal);
     return slash >= 0
         && int.TryParse(trimmed[(slash + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out int number)
         ? number
@@ -657,7 +657,7 @@ public sealed class GhCliAccess(Func<string?> resolveGh, Func<string?> resolveGi
     {
       // scp-style: [user@]host:owner/name
       int at = text.IndexOf('@', StringComparison.Ordinal);
-      int colon = text.IndexOf(':', at + 1);
+      int colon = text.IndexOf(':', at + 1, StringComparison.Ordinal);
       if (colon <= at + 1)
       {
         return false;

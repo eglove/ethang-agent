@@ -2,25 +2,28 @@ namespace eThangAgent.Lsp.ACL;
 
 public static class CodeDetector
 {
-  private static readonly HashSet<string> ManifestNames = new(StringComparer.OrdinalIgnoreCase)
-  {
+  private static readonly HashSet<string> ManifestNames =
+  [
+    with(StringComparer.OrdinalIgnoreCase),
     ".sln", ".slnx", ".csproj", ".fsproj", ".vbproj", ".vcxproj",
     "package.json", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml",
     "composer.json", "Gemfile", "requirements.txt"
-  };
+  ];
 
-  private static readonly HashSet<string> CodeExtensions = new(StringComparer.OrdinalIgnoreCase)
-  {
+  private static readonly HashSet<string> CodeExtensions =
+  [
+    with(StringComparer.OrdinalIgnoreCase),
     ".cs", ".fs", ".vb", ".cpp", ".h", ".hpp", ".c", ".ts", ".tsx",
     ".js", ".jsx", ".mjs", ".py", ".java", ".go", ".rs", ".rb", ".php",
     ".swift", ".kt", ".scala", ".sh", ".ps1", ".sql"
-  };
+  ];
 
-  private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
-  {
+  private static readonly HashSet<string> ExcludedDirectories =
+  [
+    with(StringComparer.OrdinalIgnoreCase),
     ".git", ".svn", ".hg", "bin", "obj", "node_modules", "packages",
     ".worktrees", ".venv", "venv", "__pycache__", ".idea", ".vs", ".vscode", ".nuget"
-  };
+  ];
 
   private const int MaxFiles = 2000;
 

@@ -15,7 +15,7 @@ public class LspRenameApplierTests
 
   private sealed class FakeFs : IFileSystemAccess
   {
-    public Dictionary<string, string> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> Files { get; } = [with(StringComparer.OrdinalIgnoreCase)];
 
     public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine, CancellationToken ct = default)
         => throw new NotSupportedException();
@@ -28,7 +28,7 @@ public class LspRenameApplierTests
 
   private sealed class FakeWrite : IFileWriteAccess
   {
-    public Dictionary<string, string> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> Files { get; } = [with(StringComparer.OrdinalIgnoreCase)];
     public List<string> Written { get; } = [];
     public string? FailOn { get; set; }
 

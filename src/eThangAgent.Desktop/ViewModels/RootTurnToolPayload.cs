@@ -39,7 +39,7 @@ internal sealed record RootTurnToolPayload(string Name, string Arguments, string
     ArgumentNullException.ThrowIfNull(payload);
     // The JSON result shape starts with '{': try it first, so a tool named 'result' or
     // 'call' cannot be misread by the legacy text branches.
-    return payload.StartsWith('{')
+    return payload.StartsWith('{', StringComparison.Ordinal)
         ? ParseJsonResult(payload)
         : payload switch
         {
@@ -58,7 +58,7 @@ internal sealed record RootTurnToolPayload(string Name, string Arguments, string
   private static RootTurnToolPayload? ParseCall(string body)
   {
     int nameEnd = body.IndexOf(' ', StringComparison.Ordinal);
-    int positionEnd = nameEnd < 0 ? -1 : body.IndexOf(' ', nameEnd + 1);
+    int positionEnd = nameEnd < 0 ? -1 : body.IndexOf(' ', nameEnd + 1, StringComparison.Ordinal);
     if (nameEnd <= 0 || positionEnd < 0
         || !body[(nameEnd + 1)..positionEnd].Contains('/', StringComparison.Ordinal))
     {
@@ -107,7 +107,7 @@ internal sealed record RootTurnToolPayload(string Name, string Arguments, string
       return null;
     }
 
-    int statusEnd = body.IndexOf(' ', nameEnd + 1);
+    int statusEnd = body.IndexOf(' ', nameEnd + 1, StringComparison.Ordinal);
     string status = statusEnd < 0 ? body[(nameEnd + 1)..] : body[(nameEnd + 1)..statusEnd];
     bool isError = string.Equals(status, "error", StringComparison.Ordinal);
     if (!isError && !string.Equals(status, "ok", StringComparison.Ordinal))

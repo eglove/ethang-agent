@@ -80,7 +80,7 @@ public sealed record CommitFilePaths(IReadOnlyList<string> Paths)
   ///     '/a.cs' is rooted but not drive-absolute, and 'C:x' is drive-relative —
   ///     all rejected as out-of-workspace by hand.</summary>
   private static bool IsAbsolute(string p) =>
-      p.StartsWith('/') || p.StartsWith('\\') ||
+      p.StartsWith('/', StringComparison.Ordinal) || p.StartsWith('\\', StringComparison.Ordinal) ||
       (p.Length >= 2 && p[1] == ':' && char.IsLetter(p[0]));
 
   /// <summary>Exact '..' segment check; 'a..b' is a legal file name.</summary>

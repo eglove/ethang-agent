@@ -15,7 +15,7 @@ public class ClipboardPasterTests
     RecordingClipboard clipboard = new(consumed: true);
     ClipboardPaster paster = new(clipboard, new RecordingKeyDispatch(clipboard), WaitJournal(clipboard));
     using InputOperation operation = CreateOperation();
-    BrokerResponse response = paster.Paste(operation, JsonDocument.Parse("""{"text":"hello"}""").RootElement);
+    BrokerResponse response = paster.Paste(operation, JsonElement.Parse("""{"text":"hello"}"""));
     Assert.Null(response.Error);
     Assert.Equal(
       ["save", "set", "ctrl+v", "wait", "restore"],
@@ -28,7 +28,7 @@ public class ClipboardPasterTests
     RecordingClipboard clipboard = new(consumed: false);
     ClipboardPaster paster = new(clipboard, new RecordingKeyDispatch(clipboard), WaitJournal(clipboard));
     using InputOperation operation = CreateOperation();
-    BrokerResponse response = paster.Paste(operation, JsonDocument.Parse("""{"text":"hello"}""").RootElement);
+    BrokerResponse response = paster.Paste(operation, JsonElement.Parse("""{"text":"hello"}"""));
     _ = Assert.NotNull(response.Error);
     Assert.Equal("timeout", response.Error.Value.Code);
     Assert.Equal("restore", clipboard.Journal[^1]);
@@ -40,7 +40,7 @@ public class ClipboardPasterTests
     RecordingClipboard clipboard = new(consumed: true) { SavedContent = "previous" };
     ClipboardPaster paster = new(clipboard, new RecordingKeyDispatch(clipboard), WaitJournal(clipboard));
     using InputOperation operation = CreateOperation();
-    _ = paster.Paste(operation, JsonDocument.Parse("""{"text":"hello"}""").RootElement);
+    _ = paster.Paste(operation, JsonElement.Parse("""{"text":"hello"}"""));
     Assert.Equal("previous", clipboard.LastRestored);
   }
 
@@ -51,7 +51,7 @@ public class ClipboardPasterTests
     int polls = 0;
     ClipboardPaster paster = new(clipboard, new RecordingKeyDispatch(clipboard), () => ++polls >= 3);
     using InputOperation operation = CreateOperation();
-    BrokerResponse response = paster.Paste(operation, JsonDocument.Parse("""{"text":"hello"}""").RootElement);
+    BrokerResponse response = paster.Paste(operation, JsonElement.Parse("""{"text":"hello"}"""));
     Assert.Null(response.Error);
     Assert.True(polls >= 3, "the paster must poll the consumption signal within the window");
   }
@@ -62,7 +62,7 @@ public class ClipboardPasterTests
     RecordingClipboard clipboard = new(consumed: true);
     ClipboardPaster paster = new(clipboard, new RecordingKeyDispatch(clipboard), WaitJournal(clipboard));
     using InputOperation operation = CreateOperation();
-    BrokerResponse response = paster.Paste(operation, JsonDocument.Parse("""{}""").RootElement);
+    BrokerResponse response = paster.Paste(operation, JsonElement.Parse("""{}"""));
     _ = Assert.NotNull(response.Error);
     Assert.Equal("invalid_request", response.Error.Value.Code);
     Assert.Empty(clipboard.Journal);

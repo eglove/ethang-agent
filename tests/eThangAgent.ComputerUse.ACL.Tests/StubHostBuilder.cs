@@ -30,7 +30,7 @@ internal static class StubHostBuilder
       _ = build.StandardOutput.ReadToEndAsync();
       build.WaitForExit();
       Assert.True(build.ExitCode == 0, "stub host build failed");
-      _hostExe = Path.Combine(Path.GetDirectoryName(resolved)!, "bin", "Debug", "net10.0", "ethang-cu-stubhost.exe");
+      _hostExe = Path.Combine(Path.GetDirectoryName(resolved)!, "bin", "Debug", "net11.0", "ethang-cu-stubhost.exe");
       return _hostExe;
     }
   }

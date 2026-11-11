@@ -14,7 +14,7 @@ public static class SkillMarkdown
   public static Result<ParsedSkill> Parse(string text)
   {
     ArgumentNullException.ThrowIfNull(text);
-    if (text.StartsWith('\uFEFF'))
+    if (text.StartsWith('\uFEFF', StringComparison.Ordinal))
     {
       text = text[1..];
     }
@@ -74,7 +74,7 @@ public static class SkillMarkdown
     private int? _version;
     private bool _versionSeen;
     private bool _inMetadataBlock;
-    private readonly HashSet<string> _warningsSeen = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _warningsSeen = [with(comparer: StringComparer.Ordinal)];
     private readonly List<string> _warnings = [];
     private int _close = -1;
 
@@ -204,7 +204,7 @@ public static class SkillMarkdown
     }
 
     private static bool IsIndented(string line) =>
-        line.StartsWith(' ') || line.StartsWith('\t');
+        line.StartsWith(' ', StringComparison.Ordinal) || line.StartsWith('\t', StringComparison.Ordinal);
 
     /// <summary>Strips ONE matching pair of single or double quotes; unmatched or
     ///     partial quoting is left verbatim.</summary>

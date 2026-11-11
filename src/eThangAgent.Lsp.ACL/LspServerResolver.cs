@@ -24,7 +24,7 @@ public sealed class LspServerResolver
   private readonly IReadOnlyList<string> _knownRoots;
   private readonly string _serverFileName;
   private readonly Func<LspLanguageRow, string?> _downloadedServer;
-  private readonly Dictionary<string, string?> _cache = new(StringComparer.OrdinalIgnoreCase);
+  private readonly Dictionary<string, string?> _cache = [with(StringComparer.OrdinalIgnoreCase)];
 
   public LspServerResolver(
     Func<string, bool> fileExists,

@@ -63,7 +63,7 @@ public static class SurfaceClassifier
 ///     injection happens at composition; the comparison logic here is unit-covered.</summary>
 public sealed class SurfaceTracker
 {
-  private readonly Dictionary<string, (long Handle, SurfaceKind Kind)> _last = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, (long Handle, SurfaceKind Kind)> _last = [with(comparer: StringComparer.Ordinal)];
 
   /// <summary>Records one observation and returns the lifecycle it represents.</summary>
   public SurfaceLifecycle Observe(string appKey, long windowHandle, SurfaceKind kind)

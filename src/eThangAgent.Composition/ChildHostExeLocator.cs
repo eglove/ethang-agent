@@ -24,9 +24,9 @@ public static class ChildHostExeLocator
   public static string ResolveFromRepoRoot(string repoRoot, IReadOnlyList<string> configurationPreference)
   {
     ArgumentNullException.ThrowIfNull(configurationPreference);
-    // TFM folders: the project targets net10.0-windows (the live output shape);
-    // net10.0 is the pre-TFM-bump shape that lingers on dev machines only.
-    string[] tfmPreference = ["net10.0-windows", "net10.0"];
+    // TFM folders: the project targets net11.0-windows (the live output shape);
+    // net10.0-windows is the pre-TFM-bump shape that lingers on dev machines only.
+    string[] tfmPreference = ["net11.0-windows", "net10.0-windows"];
     foreach (string configuration in configurationPreference)
     {
       foreach (string tfm in tfmPreference)
@@ -41,7 +41,7 @@ public static class ChildHostExeLocator
 
     // No built host found: return the live-shape location so the caller's
     // not-found error names where the build actually lands.
-    return Path.Combine(repoRoot, "src", "eThangAgent.ChildHost", "bin", configurationPreference[0], "net10.0-windows", "eThangAgent.ChildHost.exe");
+    return Path.Combine(repoRoot, "src", "eThangAgent.ChildHost", "bin", configurationPreference[0], "net11.0-windows", "eThangAgent.ChildHost.exe");
   }
 
   /// <summary>The checkout that CONTAINS the given assembly, or null when the assembly

@@ -13,8 +13,7 @@ public static class MarkdownDocumentParser
 {
   private const string Items = "items";
 
-  private static readonly HashSet<string> AlertWords = new(StringComparer.Ordinal)
-    { "CAUTION", "IMPORTANT", "NOTE", "TIP", "WARNING" };
+  private static readonly HashSet<string> AlertWords = [with(StringComparer.Ordinal), "CAUTION", "IMPORTANT", "NOTE", "TIP", "WARNING"];
 
   private static Result<MarkdownDocument> Fail(DomainError e) => Result.Failure<MarkdownDocument>(e);
 

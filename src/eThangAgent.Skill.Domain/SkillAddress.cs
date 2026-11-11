@@ -66,7 +66,7 @@ public sealed record SkillAddress(SkillAddressKind Kind, string Owner, string Re
   {
     int schemeEnd = trimmed.IndexOf("://", StringComparison.Ordinal) + 3;
     string remainder = trimmed[schemeEnd..];
-    if (remainder.StartsWith('/'))
+    if (remainder.StartsWith('/', StringComparison.Ordinal))
     {
       return FileUrlSegments(trimmed, remainder);
     }

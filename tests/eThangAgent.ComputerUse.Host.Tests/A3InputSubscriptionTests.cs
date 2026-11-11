@@ -12,9 +12,9 @@ public class A3InputSubscriptionTests
   public void OwnerLost_CancelsActiveHold_AndClearsModifiers()
   {
     PipeServer server = FakeConnectionFactory.WithAlwaysSucceedingInput();
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
-    _ = server.Dispatch(3, "hold_key", JsonDocument.Parse("""{"key":"ctrl+a","hold_seconds":5}""").RootElement, connectionId: 1);
+    _ = server.Dispatch(3, "hold_key", JsonElement.Parse("""{"key":"ctrl+a","hold_seconds":5}"""), connectionId: 1);
     Assert.True(server.InputDispatch.HasActiveHold, "a hold must be ACTIVE after hold_key");
     Assert.True(server.InputDispatch.HasSyntheticModifiers, "modifiers are synthetic during a hold");
     server.DropConnection(1);

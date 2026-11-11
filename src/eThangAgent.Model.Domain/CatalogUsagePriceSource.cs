@@ -57,7 +57,7 @@ public interface IUsagePriceSource
 public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePriceSource
 {
   private readonly IModelCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
-  private readonly Dictionary<string, ModelProviderEntry> _memo = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, ModelProviderEntry> _memo = [with(StringComparer.Ordinal)];
   private readonly Lock _memoLock = new();
 
   public async Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,

@@ -10,7 +10,7 @@ internal sealed class FakeSkillDirectorySource
 {
   public int ListCalls { get; private set; }
 
-  private readonly Dictionary<string, Func<SkillDirectoryLoad>> _handlers = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, Func<SkillDirectoryLoad>> _handlers = [with(StringComparer.Ordinal)];
 
   public void LoadReturns(string directoryPath, params SkillDefinition[] skills) =>
       _handlers[directoryPath] = () => new SkillDirectoryLoad(skills, []);

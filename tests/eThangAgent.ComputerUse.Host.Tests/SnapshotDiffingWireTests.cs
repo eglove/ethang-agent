@@ -103,7 +103,7 @@ public class SnapshotDiffingWireTests
     _ = server.Dispatch(0, "authenticate", TokenJson().RootElement, connectionId: 1);
     string snapshotMode = disableDiffing ? "force_full" : "auto";
     string parameters = "{" + Quote("app_ref") + ":{" + Quote("pid") + ":1}," + Quote("snapshot_mode") + ":" + Quote(snapshotMode) + "}";
-    return server.Dispatch(2, "capture_app", JsonDocument.Parse(parameters).RootElement, connectionId: 1);
+    return server.Dispatch(2, "capture_app", JsonElement.Parse(parameters), connectionId: 1);
   }
 
   private static string Quote(string name) => "\"" + name + "\"";

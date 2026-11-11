@@ -19,11 +19,12 @@ public static class LspWorkspaceLanguages
   /// <summary>Directories that never hold the code a workspace should be served from: build
   ///     output and dependency caches carry their own sources, and serving one of those serves
   ///     a fragment of the workspace instead of the workspace.</summary>
-  private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
-  {
+  private static readonly HashSet<string> ExcludedDirectories =
+  [
+    with(StringComparer.OrdinalIgnoreCase),
     ".git", ".svn", ".hg", "bin", "obj", "node_modules", "packages",
     ".worktrees", ".venv", "venv", "__pycache__", ".idea", ".vs", ".vscode", ".nuget",
-  };
+  ];
 
   /// <summary>How many files one walk may visit.</summary>
   private const int MaxFiles = 2000;
@@ -41,8 +42,8 @@ public static class LspWorkspaceLanguages
       return [];
     }
 
-    Dictionary<string, int> counts = new(StringComparer.Ordinal);
-    HashSet<string> manifests = new(StringComparer.Ordinal);
+    Dictionary<string, int> counts = [with(StringComparer.Ordinal)];
+    HashSet<string> manifests = [with(StringComparer.Ordinal)];
     using CancellationTokenSource budget = new(Budget);
     int visited = 0;
     Walk(workspaceRoot, counts, manifests, ref visited, budget.Token);

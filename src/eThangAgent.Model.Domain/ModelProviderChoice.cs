@@ -36,7 +36,7 @@ public sealed record ModelProviderChoice(string ModelId, string? ProviderName = 
     }
 
     string trimmed = stored.Trim();
-    if (!trimmed.StartsWith('{'))
+    if (!trimmed.StartsWith('{', StringComparison.Ordinal))
     {
       // The legacy shape: a bare model id.
       return Result.Success(new ModelProviderChoice(trimmed));

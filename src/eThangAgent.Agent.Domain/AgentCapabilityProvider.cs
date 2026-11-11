@@ -484,7 +484,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             "arguments must be a JSON object."));
       }
 
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "id" };
+      HashSet<string> allowed = [with(StringComparer.Ordinal), "id"];
       string[] unknown = [.. doc.RootElement.EnumerateObject()
           .Where(p => !allowed.Contains(p.Name))
           .Select(p => p.Name)];

@@ -12,7 +12,7 @@ public static class ModelAttribution
   /// <summary>Model ids that name no model: the provider's routing pseudo-model, whose
   ///     real serving model arrives separately whenever the provider names one.</summary>
   private static readonly HashSet<string> Unattributable =
-      new(StringComparer.OrdinalIgnoreCase) { "openrouter/auto" };
+      [with(StringComparer.OrdinalIgnoreCase), "openrouter/auto"];
 
   /// <summary>Vendor slug - the model id's leading segment - to the GitHub org that
   ///     publishes the model.</summary>
@@ -135,7 +135,7 @@ public static class ModelAttribution
   ///     dotted version, and every other token is cased.</summary>
   private static string JoinName(string[] tokens)
   {
-    List<string> words = new(tokens.Length);
+    List<string> words = [with(tokens.Length)];
     foreach (string token in tokens)
     {
       if (words.Count > 0 && IsVersion(token) && IsVersion(words[^1]))

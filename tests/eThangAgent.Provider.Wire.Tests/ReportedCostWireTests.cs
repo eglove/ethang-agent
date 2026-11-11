@@ -8,15 +8,19 @@ namespace eThangAgent.Provider.Wire.Tests;
 
 public class ReportedCostWireTests
 {
+  // The expected value is stated as decimal text, not as a double literal: .NET 11's
+  // double-to-decimal conversion is exact, so (decimal)0.0012d is the binary expansion
+  // 0.0011999999999999998948757574 rather than the 0.0012 the wire actually carried.
   [Theory]
-  [InlineData("0.0012", 0.0012)]
-  [InlineData("0", 0)]
-  public void NonStreaming_ReportedCost_IsPreserved(string cost, double expected)
+  [InlineData("0.0012", "0.0012")]
+  [InlineData("0", "0")]
+  public void NonStreaming_ReportedCost_IsPreserved(string cost, string expectedText)
   {
     using JsonDocument doc = JsonDocument.Parse($"{{\"output\":[],\"usage\":{{\"input_tokens\":10,\"output_tokens\":2,\"cost\":{cost}}}}}");
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(doc.RootElement);
     Assert.True(result.IsSuccess);
-    Assert.Equal((decimal)expected, result.Value.Usage!.Value.ReportedCost);
+    decimal expected = decimal.Parse(expectedText, System.Globalization.CultureInfo.InvariantCulture);
+    Assert.Equal(expected, result.Value.Usage!.Value.ReportedCost);
   }
 
   [Theory]

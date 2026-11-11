@@ -83,7 +83,7 @@ public class ChainAdvanceReviewTests
   private sealed class FakeReviews : IChainReviewSource
   {
     public Dictionary<string, ChainReviewRecord> BySession { get; } =
-        new(StringComparer.Ordinal);
+        [with(StringComparer.Ordinal)];
 
     public List<ChainReviewRecord> Written { get; } = [];
 

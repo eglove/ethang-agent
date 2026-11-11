@@ -219,7 +219,7 @@ public sealed record ProviderPerformanceReport(
     // endpoint-less catalog row, and treating that fallback as a slug would make a bare name
     // look like an endpoint identity - reintroducing the very ambiguity this method exists to
     // remove (a name bound to itself is not evidence of which endpoint served).
-    Dictionary<string, string> slugByModelAndStamp = new(StringComparer.Ordinal);
+    Dictionary<string, string> slugByModelAndStamp = [with(StringComparer.Ordinal)];
     foreach (ModelProviderEntry entry in entries.Where(e => e is not null && e.Variant.Slug is not null))
     {
       slugByModelAndStamp[$"{entry.ModelId}\u001F{entry.RoutingSlug}"] = entry.Variant.Slug!;

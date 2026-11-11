@@ -17,7 +17,7 @@ public class NdjsonPipeClientTests
     try
     {
       NdjsonPipeClient client = await broker.ConnectClientAsync().ConfigureAwait(true);
-      BrokerReply reply = await client.RequestAsync("list_applications", JsonDocument.Parse("{}").RootElement, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      BrokerReply reply = await client.RequestAsync("list_applications", JsonElement.Parse("{}"), TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.Equal(2, reply.Id);
       Assert.True(reply.Result is not null, "expected a result payload");
     }
@@ -170,7 +170,7 @@ public class NdjsonPipeClientTests
       const string unicode = "\u7A97\u53E3 \u6807\u9898 \U0001F600 endv\u00E4";
       var payload = new { title = unicode, note = "\u00E4\u00F6\u00FC \ud83d\ude00" };
       string raw = JsonSerializer.Serialize(payload, RelaxedOptions.Instance);
-      BrokerReply reply = await client.RequestAsync(unicode, JsonDocument.Parse(raw).RootElement, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      BrokerReply reply = await client.RequestAsync(unicode, JsonElement.Parse(raw), TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.Equal(2, reply.Id);
       bool hasResult = reply.Result is not null;
       Assert.True(hasResult, "expected a result payload");

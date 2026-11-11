@@ -33,7 +33,7 @@ public class ServerToolCallImageParsingTests
         + ImageGenerationItem("completed", "data:image/png;base64," + PngBase64)
         + ",{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"here it is\"}]}]}";
 
-    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 
     Assert.True(result.IsSuccess);
     ServerToolCall call = Assert.Single(result.Value.ServerToolCalls);
@@ -51,7 +51,7 @@ public class ServerToolCallImageParsingTests
     string body = "{\"status\":\"completed\",\"output\":["
         + ImageGenerationItem("in_progress", null) + "]}";
 
-    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 
     Assert.True(result.IsSuccess);
     ServerToolCall call = Assert.Single(result.Value.ServerToolCalls);
@@ -67,7 +67,7 @@ public class ServerToolCallImageParsingTests
     string body = "{\"status\":\"completed\",\"output\":["
         + ImageGenerationItem("completed", "https://cdn.example/x.png") + "]}";
 
-    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 
     Assert.True(result.IsSuccess);
     ServerToolCall call = Assert.Single(result.Value.ServerToolCalls);
@@ -80,7 +80,7 @@ public class ServerToolCallImageParsingTests
     // The existing shapes must parse byte-identically: no image member appears.
     const string body = "{\"status\":\"completed\",\"output\":[{\"type\":\"openrouter:web_search\",\"id\":\"st1\",\"status\":\"completed\",\"action\":{\"type\":\"search\",\"query\":\"dotnet\",\"sources\":[{\"type\":\"url\",\"url\":\"https://a.example/x\"}]}}]}";
 
-    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+    Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 
     Assert.True(result.IsSuccess);
     ServerToolCall call = Assert.Single(result.Value.ServerToolCalls);

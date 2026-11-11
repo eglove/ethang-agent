@@ -8,7 +8,7 @@ namespace eThangAgent.ToolDomain.Tests;
 public class ToolArgumentsOptionalStringArrayTests
 {
   private static Result<IReadOnlyList<string>?> Parse(string json) =>
-      ToolArguments.OptionalStringArray(JsonDocument.Parse(json).RootElement, "files");
+      ToolArguments.OptionalStringArray(JsonElement.Parse(json), "files");
 
   [Fact]
   public void AbsentKey_ReturnsNull()

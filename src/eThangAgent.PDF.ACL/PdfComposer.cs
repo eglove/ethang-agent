@@ -237,7 +237,7 @@ public static class PdfComposer
         continue;
       }
 
-      if (trimmed.StartsWith('|'))
+      if (trimmed.StartsWith('|', StringComparison.Ordinal))
       {
         paragraphLines.Clear();
         if (tableLines is null)
@@ -285,7 +285,7 @@ public static class PdfComposer
   /// <summary>A '#' line that opens no heading form is a subset violation; any other
   ///     non-heading line simply is not a heading.</summary>
   private static bool RejectBareHash(string trimmed, int lineIndex)
-      => trimmed.StartsWith('#') ? throw new PdfMarkdownInvalidException(lineIndex + 1) : false;
+      => trimmed.StartsWith('#', StringComparison.Ordinal) ? throw new PdfMarkdownInvalidException(lineIndex + 1) : false;
 
   /// <summary>The heading level the line opens ('# ', '## ', '### '), or null.</summary>
   private static int? HeadingLevel(string trimmed)
@@ -359,7 +359,7 @@ public static class PdfComposer
       }
 
       string inner = line[1..];
-      if (inner.EndsWith('|'))
+      if (inner.EndsWith('|', StringComparison.Ordinal))
       {
         inner = inner[..^1];
       }
@@ -385,7 +385,7 @@ public static class PdfComposer
     while (at < text.Length)
     {
       int bold = text.IndexOf("**", at, StringComparison.Ordinal);
-      int italic = text.IndexOf('*', at);
+      int italic = text.IndexOf('*', at, StringComparison.Ordinal);
       if (bold < 0 && italic < 0)
       {
         spans.Add(new PdfMarkdownSpan(text[at..], false, false));
@@ -424,7 +424,7 @@ public static class PdfComposer
   ///     index the scan resumes at; an unclosed * marker is a violation.</summary>
   private static int TakeItalicSpan(string text, int italic, List<PdfMarkdownSpan> spans)
   {
-    int close = text.IndexOf('*', italic + 1);
+    int close = text.IndexOf('*', italic + 1, StringComparison.Ordinal);
     if (close < 0)
     {
       throw new PdfMarkdownInvalidException(0);

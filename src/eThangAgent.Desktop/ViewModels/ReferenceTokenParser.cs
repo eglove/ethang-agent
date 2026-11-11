@@ -25,7 +25,7 @@ internal static class ReferenceTokenParser
       return null;
     }
 
-    if (input.TrimStart().StartsWith('!'))
+    if (input.TrimStart().StartsWith('!', StringComparison.Ordinal))
     {
       return null; // shell input is verbatim: no reference resolution
     }

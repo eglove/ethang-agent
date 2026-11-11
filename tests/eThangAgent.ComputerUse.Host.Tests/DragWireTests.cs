@@ -14,10 +14,10 @@ public class DragWireTests
   public void Drag_WithCoordinateTargets_DispatchesThroughTheDragSink_NoRealInput()
   {
     PipeServer server = FakeConnectionFactory.WithAlwaysSucceedingDrag(foreground: 4242);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{" + q("token") + ":" + q("t") + "}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{" + q("token") + ":" + q("t") + "}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "drag",
-        JsonDocument.Parse("{" + q("x") + ":10," + q("y") + ":20," + q("to_x") + ":300," + q("to_y") + ":400}").RootElement, connectionId: 1);
+        JsonElement.Parse("{" + q("x") + ":10," + q("y") + ":20," + q("to_x") + ":300," + q("to_y") + ":400}"), connectionId: 1);
     Assert.Null(reply.Error);
     Assert.True(server.InputDispatch.DragCalls == 1, "the drag must reach the drag sink");
     Assert.Equal((10, 20), server.InputDispatch.LastDragFrom);
@@ -32,10 +32,10 @@ public class DragWireTests
     // as the from-point - the coordinate path - with the same honest accepted receipt.
     PipeServer server = FakeConnectionFactory.WithAlwaysSucceedingDrag(foreground: 4242);
     server.InputDispatch.SetElementOps(new FixedBoundsResolver([(9, 100, 80)]));
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{" + q("token") + ":" + q("t") + "}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{" + q("token") + ":" + q("t") + "}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "drag",
-        JsonDocument.Parse("{" + q("element") + ":9," + q("to_x") + ":700," + q("to_y") + ":800}").RootElement, connectionId: 1);
+        JsonElement.Parse("{" + q("element") + ":9," + q("to_x") + ":700," + q("to_y") + ":800}"), connectionId: 1);
     Assert.Null(reply.Error);
     Assert.True(server.InputDispatch.DragCalls == 1, "the element drag must reach the drag sink");
     Assert.Equal((100, 80), server.InputDispatch.LastDragFrom); // the element center
@@ -46,10 +46,10 @@ public class DragWireTests
   public void Drag_WithUnresolvableElementTargets_FailsHonestWithoutDispatch()
   {
     PipeServer server = FakeConnectionFactory.WithForeground(expected: 4242, actual: 4242);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{" + q("token") + ":" + q("t") + "}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{" + q("token") + ":" + q("t") + "}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "drag",
-        JsonDocument.Parse("{" + q("element") + ":77," + q("to_element") + ":78}").RootElement, connectionId: 1);
+        JsonElement.Parse("{" + q("element") + ":77," + q("to_element") + ":78}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.SendInputCalls);
@@ -60,10 +60,10 @@ public class DragWireTests
   public void Drag_WithEventStrategy_AndMismatchedForeground_RefusesBeforeDispatch()
   {
     PipeServer server = FakeConnectionFactory.WithForeground(expected: 4242, actual: 1);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{" + q("token") + ":" + q("t") + "}").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{" + q("token") + ":" + q("t") + "}"), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "drag",
-        JsonDocument.Parse("{" + q("x") + ":1," + q("y") + ":2," + q("to_x") + ":3," + q("to_y") + ":4," + q("strategy") + ":" + q("event") + "}").RootElement, connectionId: 1);
+        JsonElement.Parse("{" + q("x") + ":1," + q("y") + ":2," + q("to_x") + ":3," + q("to_y") + ":4," + q("strategy") + ":" + q("event") + "}"), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("foreground_required", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.SendInputCalls);

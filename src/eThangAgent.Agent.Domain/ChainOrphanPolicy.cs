@@ -24,7 +24,7 @@ public static class ChainOrphanPolicy
 
     // One stat per DISTINCT root: a workspace holds many chains, and a per-chain probe would
     // turn one rail refresh into hundreds of file-system calls.
-    Dictionary<string, bool> seen = new(StringComparer.OrdinalIgnoreCase);
+    Dictionary<string, bool> seen = [with(StringComparer.OrdinalIgnoreCase)];
     List<OrphanedChain> orphaned = [];
     foreach (ChainWorkspaceCandidate candidate in candidates)
     {

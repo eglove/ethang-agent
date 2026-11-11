@@ -39,12 +39,12 @@ public sealed record LspDiagnosticsResult(LspDiagnosticsState State, IReadOnlyLi
 /// union of both paths is deduplicated by identity.</summary>
 public sealed class LspDiagnosticStore
 {
-  private readonly Dictionary<string, List<LspDiagnostic>> _pushByUri = new(StringComparer.Ordinal);
-  private readonly Dictionary<string, List<LspDiagnostic>> _pullByUri = new(StringComparer.Ordinal);
-  private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, List<LspDiagnostic>> _pushByUri = [with(StringComparer.Ordinal)];
+  private readonly Dictionary<string, List<LspDiagnostic>> _pullByUri = [with(StringComparer.Ordinal)];
+  private readonly HashSet<string> _reported = [with(StringComparer.Ordinal)];
   private readonly Lock _gate = new();
 
-  private readonly Dictionary<string, string> _resultIdByUri = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, string> _resultIdByUri = [with(StringComparer.Ordinal)];
 
   public string? LastResultId => _resultIdByUri.Count > 0 ? _resultIdByUri.Values.Last() : null;
 
@@ -95,7 +95,7 @@ public sealed class LspDiagnosticStore
 
   private List<LspDiagnostic> Merge(string uri)
   {
-    HashSet<string> seen = new(StringComparer.Ordinal);
+    HashSet<string> seen = [with(StringComparer.Ordinal)];
     List<LspDiagnostic> merged = [];
     if (_pushByUri.TryGetValue(uri, out List<LspDiagnostic>? push))
     {

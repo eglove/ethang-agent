@@ -196,7 +196,7 @@ public sealed class ChildHostRootRunTests
 
     Assert.True(result.IsSuccess, result.Error?.Message);
     RootTurnEvent toolEvent = Assert.Single(events, e => e.Kind == "tool"
-        && e.Payload.StartsWith('{'));
+        && e.Payload.StartsWith('{', StringComparison.Ordinal));
     RootTurnToolResultPayload payload = RootTurnToolResultPayload.Parse(toolEvent.Payload)
         ?? throw new InvalidOperationException("the tool-result payload did not decode");
     Assert.Equal("probe", payload.Name);

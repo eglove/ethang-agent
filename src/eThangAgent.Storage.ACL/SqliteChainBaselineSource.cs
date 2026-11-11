@@ -149,7 +149,7 @@ public sealed class SqliteChainBaselineSource(AppDatabase database, string works
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = CostSql;
     _ = command.Parameters.AddWithValue("@ws", scope);
-    Dictionary<string, decimal> totals = new(StringComparer.Ordinal);
+    Dictionary<string, decimal> totals = [with(StringComparer.Ordinal)];
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
     while (await reader.ReadAsync(ct).ConfigureAwait(false))
     {
@@ -187,8 +187,7 @@ public sealed class SqliteChainBaselineSource(AppDatabase database, string works
             .Select(cost => cost!.Value),
     ];
     return new ChainTelemetryBaseline(runs.Count, completed.Count,
-        UsageStatistics.Median(durations), UsageStatistics.Median([.. priced.Select(c => (double)c)])
-            is { } costMedian ? (decimal)costMedian : null,
+        UsageStatistics.Median(durations), UsageStatistics.MedianCost(priced),
         completed.Count - priced.Count);
   }
 

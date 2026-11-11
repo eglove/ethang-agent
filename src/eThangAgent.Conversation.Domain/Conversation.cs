@@ -198,7 +198,7 @@ public class Conversation(IEnumerable<Message>? seed = null)
     Message last = updated[^1];
     return last.Role is Role.Assistant && last.ToolCalls is { Count: > 0 } calls
         ? calls.Select(call => call.Id).ToHashSet(StringComparer.Ordinal)
-        : new HashSet<string>(StringComparer.Ordinal);
+        : [with(StringComparer.Ordinal)];
   }
 
   /// <summary>Checks the tool result at <paramref name="index"/>: it must carry a tool

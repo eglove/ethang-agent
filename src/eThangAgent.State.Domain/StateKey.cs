@@ -12,7 +12,7 @@ public static class StateKey
     }
 
     int slash = key.IndexOf('/', StringComparison.Ordinal);
-    if (slash <= 0 || slash == key.Length - 1 || key.IndexOf('/', slash + 1) >= 0)
+    if (slash <= 0 || slash == key.Length - 1 || key.IndexOf('/', slash + 1, StringComparison.Ordinal) >= 0)
     {
       return Failure;
     }

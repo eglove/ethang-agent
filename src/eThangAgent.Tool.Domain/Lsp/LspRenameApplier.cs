@@ -36,8 +36,8 @@ public sealed class LspRenameApplier(IFileSystemAccess read, IFileWriteAccess wr
       return Result.Failure<LspRenameApplied>(grouped.Error);
     }
 
-    Dictionary<string, string> originals = new(StringComparer.OrdinalIgnoreCase);
-    Dictionary<string, string> rewritten = new(StringComparer.OrdinalIgnoreCase);
+    Dictionary<string, string> originals = [with(StringComparer.OrdinalIgnoreCase)];
+    Dictionary<string, string> rewritten = [with(StringComparer.OrdinalIgnoreCase)];
     foreach (KeyValuePair<string, List<LspRenameEdit>> file in grouped.Value)
     {
       Result<byte[]> bytes = await _read.ReadBytesAsync(file.Key, ct).ConfigureAwait(false);
@@ -78,7 +78,7 @@ public sealed class LspRenameApplier(IFileSystemAccess read, IFileWriteAccess wr
 
   private Result<Dictionary<string, List<LspRenameEdit>>> GroupByResolvedPath(IReadOnlyList<LspRenameEdit> edits)
   {
-    Dictionary<string, List<LspRenameEdit>> grouped = new(StringComparer.OrdinalIgnoreCase);
+    Dictionary<string, List<LspRenameEdit>> grouped = [with(StringComparer.OrdinalIgnoreCase)];
     foreach (LspRenameEdit edit in edits)
     {
       Result<string> resolved = ResolveTarget(_resolver, edit.Path);
@@ -123,7 +123,7 @@ public sealed class LspRenameApplier(IFileSystemAccess read, IFileWriteAccess wr
 
   private static Result<string> ApplyToText(string text, List<LspRenameEdit> edits, string path)
   {
-    List<(int Start, int End, string NewText)> spans = new(edits.Count);
+    List<(int Start, int End, string NewText)> spans = [with(edits.Count)];
     foreach (LspRenameEdit edit in edits)
     {
       int start = OffsetOf(text, edit.Line, edit.Character);
@@ -173,7 +173,7 @@ public sealed class LspRenameApplier(IFileSystemAccess read, IFileWriteAccess wr
     int index = 0;
     for (int current = 0; current < line; current++)
     {
-      int newline = text.IndexOf('\n', index);
+      int newline = text.IndexOf('\n', index, StringComparison.Ordinal);
       if (newline < 0)
       {
         return -1;
@@ -182,7 +182,7 @@ public sealed class LspRenameApplier(IFileSystemAccess read, IFileWriteAccess wr
       index = newline + 1;
     }
 
-    int terminator = text.IndexOf('\n', index);
+    int terminator = text.IndexOf('\n', index, StringComparison.Ordinal);
     int lineEnd = terminator < 0 ? text.Length : terminator;
     int contentEnd = lineEnd > index && text[lineEnd - 1] == '\r' ? lineEnd - 1 : lineEnd;
     return character > contentEnd - index ? -1 : index + character;

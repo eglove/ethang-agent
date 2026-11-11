@@ -77,7 +77,7 @@ public sealed class NamedPipeChildTransport : IChildTransport, IAsyncDisposable
       catch (IOException ex) when (ex.HResult is NoDataHResult or PipeNotConnectedHResult)
       {
         // A client connected and left before the accept was issued: nobody to serve.
-        await Console.Error.WriteLineAsync("accept-disturbed: " + ex.Message + "; re-arming").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync("accept-disturbed: " + ex.Message + "; re-arming", CancellationToken.None).ConfigureAwait(false);
         await server.DisposeAsync().ConfigureAwait(false);
       }
       // Named decision (CA1031): the pump is the transport's fault boundary — ANY failure here

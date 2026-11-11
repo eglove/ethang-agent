@@ -13,7 +13,7 @@ namespace eThangAgent.OpenRouter.ACL.Tests;
 ///     writes, and reports misses with the same named error the SQLite store uses.</summary>
 internal sealed class FakeModelCatalogCache : IModelCatalogCache
 {
-  private readonly Dictionary<string, ModelCatalogSnapshot> _store = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, ModelCatalogSnapshot> _store = [with(StringComparer.Ordinal)];
 
   public int WriteCount { get; private set; }
 

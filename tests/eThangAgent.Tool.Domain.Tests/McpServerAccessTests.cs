@@ -349,7 +349,7 @@ public class McpServerAccessTests
     LoggingStore store = new(server);
     McpServerAccess access = new(store, pool, "ws-test");
     McpOutcome outcome = await access.ExecuteAsync(new McpCommand.CallTool(server.Name, tool,
-        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone()),
+        System.Text.Json.JsonElement.Parse("{}").Clone()),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     return (outcome, store);
   }
@@ -411,7 +411,7 @@ public class McpServerAccessTests
     FakeStore store = new(ApprovedStdio());
     McpServerAccess access = new(store, pool, "ws-test");
     _ = await Run(access, new McpCommand.CallTool("demo", "echo",
-        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone())).ConfigureAwait(true);
+        System.Text.Json.JsonElement.Parse("{}").Clone())).ConfigureAwait(true);
     Assert.Equal(1, pool.ConnectCounts["demo"]);
 
     // The env edit + re-approval: same id, new env JSON, approved again.
@@ -420,7 +420,7 @@ public class McpServerAccessTests
 #pragma warning restore JSON002 // Probable JSON string detected
 
     _ = await Run(access, new McpCommand.CallTool("demo", "echo",
-        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone())).ConfigureAwait(true);
+        System.Text.Json.JsonElement.Parse("{}").Clone())).ConfigureAwait(true);
 
     Assert.Equal(2, pool.ConnectCounts["demo"]);
   }
@@ -432,9 +432,9 @@ public class McpServerAccessTests
     FakeStore store = new(ApprovedStdio());
     McpServerAccess access = new(store, pool, "ws-test");
     _ = await Run(access, new McpCommand.CallTool("demo", "echo",
-        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone())).ConfigureAwait(true);
+        System.Text.Json.JsonElement.Parse("{}").Clone())).ConfigureAwait(true);
     _ = await Run(access, new McpCommand.CallTool("demo", "echo",
-        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone())).ConfigureAwait(true);
+        System.Text.Json.JsonElement.Parse("{}").Clone())).ConfigureAwait(true);
 
     Assert.Equal(1, pool.ConnectCounts["demo"]);
   }

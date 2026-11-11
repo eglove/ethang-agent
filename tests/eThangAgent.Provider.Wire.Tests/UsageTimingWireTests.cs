@@ -105,9 +105,7 @@ public class UsageTimingWireTests
     // This is the acceptance criterion that keeps 'no first token' and 'instant first
     // token' distinguishable.
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.FirstTokenMs);
@@ -119,9 +117,7 @@ public class UsageTimingWireTests
     // This surface names no provider today (measured), but a wire that starts naming one
     // must be recorded rather than lost - the forward-compatible rule ServedModelId follows.
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"model":"m","provider":"DeepInfra","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"model":"m","provider":"DeepInfra","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Equal("DeepInfra", result.Value.ServedProvider);
@@ -134,9 +130,7 @@ public class UsageTimingWireTests
     // anything else - the request is not in scope here, and a pin is not a fact about
     // what served (issue #292 B3).
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"model":"m","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"model":"m","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.ServedProvider);
@@ -149,9 +143,7 @@ public class UsageTimingWireTests
     // which capacity tier actually served it. OpenRouter's service-tiers docs: the Responses
     // API returns service_tier "at the top level of the response object".
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"model":"m","service_tier":"flex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"model":"m","service_tier":"flex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Equal("flex", result.Value.ServedServiceTier);
@@ -165,9 +157,7 @@ public class UsageTimingWireTests
     // tier: a pin is an intention, and copying it here would fabricate the attribution this
     // member exists to make honest (the same rule ServedProvider follows).
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"model":"m","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"model":"m","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.ServedServiceTier);
@@ -179,9 +169,7 @@ public class UsageTimingWireTests
     // An explicit JSON null is the shape a standard-tier call actually returns, and it means
     // the same thing as absence: no tier information. It is not the string "null".
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"model":"m","service_tier":null,"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"model":"m","service_tier":null,"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.ServedServiceTier);
@@ -246,9 +234,7 @@ public class UsageTimingWireTests
   {
     // A blank name names nothing - the same rule the served model id follows.
     Result<ModelResponse> result = ResponsesApiRequestCore.ParseResponse(
-        JsonDocument.Parse(
-            /*lang=json,strict*/"""{"provider":"","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}""")
-            .RootElement);
+        JsonElement.Parse(/*lang=json,strict*/"""{"provider":"","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"plain"}]}]}"""));
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.ServedProvider);

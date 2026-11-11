@@ -68,11 +68,10 @@ public sealed class PipeServer
 {
   /// <summary>Methods that drive physical input (task 17 dispatch): they require the
   ///     controller lease and serialize through the InputSerializer gate.</summary>
-  private static readonly HashSet<string> InputMethods = new(StringComparer.Ordinal)
-  {
+  private static readonly HashSet<string> InputMethods = [with(comparer: StringComparer.Ordinal),
     "click", "scroll", "drag", "type_text", "press_key", "hold_key", "paste",
     "element_focus", "element_set_value", "element_perform_action", "element_select_text", "element_press",
-  };
+  ];
 
   private readonly BrokerConfig _config;
   private readonly Lock _gate = new();

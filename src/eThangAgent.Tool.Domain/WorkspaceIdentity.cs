@@ -48,7 +48,7 @@ public static class WorkspaceIdentity
 
     string trimmed = path.Trim();
     string withoutSeparators = trimmed.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-    return withoutSeparators.EndsWith(':') && trimmed.Length > withoutSeparators.Length
+    return withoutSeparators.EndsWith(':', StringComparison.Ordinal) && trimmed.Length > withoutSeparators.Length
         ? withoutSeparators + trimmed[withoutSeparators.Length]
         : withoutSeparators;
   }

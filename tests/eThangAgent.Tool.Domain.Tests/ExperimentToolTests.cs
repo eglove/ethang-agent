@@ -968,7 +968,7 @@ public class ExperimentToolTests
   ///     writes could not tell 'recorded once' from 'recorded twice', which is the contract.</summary>
   private sealed class FakeRefutationStore : IRefutationStore
   {
-    public Dictionary<string, string> Writes { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> Writes { get; } = [with(StringComparer.Ordinal)];
 
     public List<(string Key, string Value)> Calls { get; } = [];
 

@@ -8,7 +8,7 @@ namespace eThangAgent.ToolDomain.FileClaims;
 public sealed class SharedFileClaimStore : IFileClaimStore
 {
   private readonly Lock _gate = new();
-  private readonly Dictionary<string, Dictionary<string, FileClaim>> _byWorkspace = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, Dictionary<string, FileClaim>> _byWorkspace = [with(StringComparer.Ordinal)];
 
   public FileClaimResult Acquire(string workspaceId, string path, string sessionId, DateTimeOffset now)
   {
@@ -99,7 +99,7 @@ public sealed class SharedFileClaimStore : IFileClaimStore
   {
     if (!_byWorkspace.TryGetValue(workspaceId, out Dictionary<string, FileClaim>? table))
     {
-      table = new Dictionary<string, FileClaim>(StringComparer.Ordinal);
+      table = [with(StringComparer.Ordinal)];
       _byWorkspace[workspaceId] = table;
     }
     table[path] = claim;

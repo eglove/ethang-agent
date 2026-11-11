@@ -10,7 +10,7 @@ namespace eThangAgent.ComputerUse.ACL;
 public sealed class BrokerRegistry(Func<string> hostPath, Func<string, string> pipeNameFor)
 {
   private readonly Lock _gate = new();
-  private readonly Dictionary<string, BrokerSupervisor> _supervisors = new(StringComparer.OrdinalIgnoreCase);
+  private readonly Dictionary<string, BrokerSupervisor> _supervisors = [with(StringComparer.OrdinalIgnoreCase)];
 
   /// <summary>Production registry: Host exe path is a sibling of the app base directory;
   ///     pipe name is ethang-computer-use-{workspaceId} from the stable root hash.</summary>

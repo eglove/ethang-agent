@@ -44,7 +44,7 @@ public sealed class OpenRouterCatalogClient(
   ///     empty are different facts: null is 'not consulted', empty is 'consulted, nothing
   ///     eligible', and only the second refuses a restricted turn.</summary>
   private ZeroDataRetentionList? _zeroDataRetention;
-  private Dictionary<string, PublishedProviderStats> _published = new(StringComparer.Ordinal);
+  private Dictionary<string, PublishedProviderStats> _published = [with(StringComparer.Ordinal)];
   private DateTimeOffset _fetchedAt;
   private Task<Result<IReadOnlyList<ModelProviderEntry>>>? _refresh;
 
@@ -435,7 +435,7 @@ public sealed class OpenRouterCatalogClient(
   private async Task<Dictionary<string, PublishedProviderStats>> FetchPublishedStatsAsync(
       List<IntermediateModel> models, CancellationToken ct)
   {
-    Dictionary<string, PublishedProviderStats> stats = new(StringComparer.Ordinal);
+    Dictionary<string, PublishedProviderStats> stats = [with(StringComparer.Ordinal)];
     await Parallel.ForEachAsync(models, new ParallelOptions
     {
       MaxDegreeOfParallelism = _config.EndpointFetchConcurrency,
@@ -531,7 +531,7 @@ public sealed class OpenRouterCatalogClient(
   private async Task<Dictionary<string, PublishedProviderStats>> FetchPublishedStatsForModelAsync(
       IntermediateModel model, CancellationToken ct)
   {
-    Dictionary<string, PublishedProviderStats> stats = new(StringComparer.Ordinal);
+    Dictionary<string, PublishedProviderStats> stats = [with(StringComparer.Ordinal)];
     if (string.IsNullOrEmpty(model.Permaslug))
     {
       return stats;
@@ -635,7 +635,7 @@ public sealed class OpenRouterCatalogClient(
   private static Dictionary<string, string> CatalogKeysByEndpointId(JsonElement[] endpoints,
       IntermediateModel model)
   {
-    Dictionary<string, string> keysById = new(StringComparer.Ordinal);
+    Dictionary<string, string> keysById = [with(StringComparer.Ordinal)];
     foreach (JsonElement endpoint in endpoints)
     {
       if (endpoint.ValueKind == JsonValueKind.Object

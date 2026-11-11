@@ -182,7 +182,7 @@ public class LspDaemonConnectionTests
       ["range"] = RangeJson(0, 5, 8),
       ["selectionRange"] = RangeJson(0, 5, 8),
     };
-    return new JsonArray(symbol);
+    return [with(symbol)];
   }
 
   private static JsonObject WorkspaceEditJson(string uri)

@@ -13,9 +13,9 @@ public class WiredInputPathTests
     // Hazard-rule fix: wire tests use recording doubles - the ROUTE is real
     // (HandleInputMethod -> Dispatch -> send hook), never a real chord.
     PipeServer server = FakeConnectionFactory.WithAlwaysSucceedingInput();
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
-    BrokerResponse reply = server.Dispatch(3, "press_key", JsonDocument.Parse("""{"key":"a"}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "press_key", JsonElement.Parse("""{"key":"a"}"""), connectionId: 1);
     Assert.Null(reply.Error); // the recording double succeeds: the receipt is accepted
     Assert.True(server.InputDispatch.SendInputCalls > 0, "dispatch must reach the send hook before reporting accepted");
     Assert.True(server.InputDispatch.IsDoubleBacked, "the wire test must run on the double-backed dispatcher, never the real SendInput path");
@@ -25,9 +25,9 @@ public class WiredInputPathTests
   public void StrategyEvent_OnWiredPath_GateRefuses_WithRealForeground()
   {
     PipeServer server = FakeConnectionFactory.WithForeground(expected: 42, actual: 99);
-    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
-    BrokerResponse reply = server.Dispatch(3, "click", JsonDocument.Parse("""{"strategy":"event","app_ref":{"pid":42}}""").RootElement, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "click", JsonElement.Parse("""{"strategy":"event","app_ref":{"pid":42}}"""), connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("foreground_required", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.SendInputCalls);

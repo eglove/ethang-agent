@@ -111,7 +111,7 @@ public static class ResponsesApiStreamCore
   {
     while (await reader.ReadLineAsync(ct).ConfigureAwait(false) is { } line)
     {
-      if (line.Length == 0 || line.StartsWith(':'))
+      if (line.Length == 0 || line.StartsWith(':', StringComparison.Ordinal))
       {
         continue; // separator or keep-alive comment
       }

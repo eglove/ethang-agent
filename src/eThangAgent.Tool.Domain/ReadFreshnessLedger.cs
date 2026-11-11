@@ -11,7 +11,7 @@ namespace eThangAgent.ToolDomain;
 public sealed class ReadFreshnessLedger
 {
   private readonly Lock _lock = new();
-  private readonly Dictionary<string, (FileVersion Version, List<LineSpan> Ranges)> _entries = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, (FileVersion Version, List<LineSpan> Ranges)> _entries = [with(StringComparer.Ordinal)];
 
   /// <summary>Which spans of [startLine, endLine] the model already holds at
   ///     <paramref name="version"/>. A null version (legacy read) never covers.</summary>

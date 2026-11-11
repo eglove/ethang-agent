@@ -89,7 +89,7 @@ public sealed class HtmlAgilityMarkdownConverter : IHtmlToMarkdown
   }
 
   private static void RenderHeading(HtmlNode node, int level, Uri baseUrl, StringBuilder md)
-      => _ = md.Append(new string('#', level)).Append(' ').Append(Inline(node, baseUrl)).Append("\n\n");
+      => _ = md.Append('#', level).Append(' ').Append(Inline(node, baseUrl)).Append("\n\n");
 
   private static void RenderBlockquote(HtmlNode node, Uri baseUrl, StringBuilder md)
       => _ = md.Append("> ").Append(Inline(node, baseUrl).Replace("\n", "\n> ", StringComparison.Ordinal)).Append("\n\n");

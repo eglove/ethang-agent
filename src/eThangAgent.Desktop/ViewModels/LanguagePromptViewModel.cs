@@ -28,7 +28,7 @@ internal sealed partial class LanguagePromptViewModel : ObservableObject
   private readonly ILanguageServerInstaller _installer;
   private readonly IAppPreferenceStore? _preferences;
   private readonly Func<string, Task>? _openPage;
-  private readonly HashSet<string> _named = new(StringComparer.OrdinalIgnoreCase);
+  private readonly HashSet<string> _named = [with(StringComparer.OrdinalIgnoreCase)];
   private bool _busy;
 
   /// <summary>Builds the prompt over the catalog that names a language, the installer that

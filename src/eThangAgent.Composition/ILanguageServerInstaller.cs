@@ -45,7 +45,7 @@ public sealed class LanguageServerInstaller : ILanguageServerInstaller
   private readonly IReadOnlyDictionary<LspInstallKind, ILspInstallStrategy> _strategies;
   private readonly LspPrerequisiteProbe _probe;
   private readonly Lock _gate = new();
-  private readonly Dictionary<string, Task<LspInstallResult>> _inflight = new(StringComparer.OrdinalIgnoreCase);
+  private readonly Dictionary<string, Task<LspInstallResult>> _inflight = [with(StringComparer.OrdinalIgnoreCase)];
   private IReadOnlyList<string> _installed = [];
   private IReadOnlyList<InstalledLanguageServer> _entries = [];
 

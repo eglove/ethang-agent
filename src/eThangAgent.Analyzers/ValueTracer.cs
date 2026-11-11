@@ -59,12 +59,12 @@ internal sealed class ValueTracer
 
   /// <summary>Whether the value is read from a wall clock.</summary>
   public bool IsClock(ExpressionSyntax expression, SemanticModel model, CancellationToken ct)
-    => Classify(expression, model, new HashSet<ISymbol>(SymbolEqualityComparer.Default), ct).IsPureClock;
+    => Classify(expression, model, [with(comparer: SymbolEqualityComparer.Default)], ct).IsPureClock;
 
   /// <summary>Whether the value is bounded by <c>TestCeiling.Value</c>: it carries the ceiling and
   ///     nothing that is neither the ceiling nor a clock read.</summary>
   public bool IsCeilingBound(ExpressionSyntax expression, SemanticModel model, CancellationToken ct)
-    => Classify(expression, model, new HashSet<ISymbol>(SymbolEqualityComparer.Default), ct).IsBoundedByCeiling;
+    => Classify(expression, model, [with(comparer: SymbolEqualityComparer.Default)], ct).IsBoundedByCeiling;
 
   private Origin Classify(ExpressionSyntax? expression, SemanticModel model, HashSet<ISymbol> visiting,
       CancellationToken ct)
@@ -280,7 +280,7 @@ internal sealed class ValueTracer
 
   private Dictionary<IMethodSymbol, List<InvocationExpressionSyntax>> IndexCallSites()
   {
-    Dictionary<IMethodSymbol, List<InvocationExpressionSyntax>> index = new(SymbolEqualityComparer.Default);
+    Dictionary<IMethodSymbol, List<InvocationExpressionSyntax>> index = [with(comparer: SymbolEqualityComparer.Default)];
     foreach (SyntaxTree tree in _compilation.SyntaxTrees)
     {
       SemanticModel model = _compilation.GetSemanticModel(tree);

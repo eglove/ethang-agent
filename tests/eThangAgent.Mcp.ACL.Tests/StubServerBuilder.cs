@@ -30,7 +30,7 @@ internal static class StubServerBuilder
       _ = build.StandardOutput.ReadToEndAsync();
       build.WaitForExit();
       Assert.True(build.ExitCode == 0, "stub MCP server build failed");
-      _serverExe = Path.Combine(Path.GetDirectoryName(resolved)!, "bin", "Debug", "net10.0", "ethang-mcp-stubserver.exe");
+      _serverExe = Path.Combine(Path.GetDirectoryName(resolved)!, "bin", "Debug", "net11.0", "ethang-mcp-stubserver.exe");
       return _serverExe;
     }
   }

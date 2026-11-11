@@ -91,7 +91,7 @@ public sealed class HitRateLookup
   {
     ArgumentNullException.ThrowIfNull(rates);
     ArgumentNullException.ThrowIfNull(fallback);
-    Dictionary<string, HitRateAssumption> map = new(StringComparer.Ordinal);
+    Dictionary<string, HitRateAssumption> map = [with(StringComparer.Ordinal)];
     foreach (KeyValuePair<string, HitRateAssumption> pair in rates)
     {
       // A null key or value is a caller's bug, not a rate: dropping it keeps the lookup total

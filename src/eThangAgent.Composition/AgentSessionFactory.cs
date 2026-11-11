@@ -573,7 +573,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       string? globalStored, string? workspaceStored, string workspaceRoot)
   {
     List<SkillDirectory> resolved = [];
-    HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+    HashSet<string> seen = [with(StringComparer.OrdinalIgnoreCase)];
 
     // Global scope first, then workspace: the first scope to claim a path wins,
     // so a workspace duplicate of a global path is skipped here.

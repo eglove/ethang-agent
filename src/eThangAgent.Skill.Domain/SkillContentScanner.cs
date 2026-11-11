@@ -92,7 +92,7 @@ public static class SkillContentScanner
   public static bool LooksBinary(string extension, ReadOnlySpan<byte> head)
   {
     ArgumentNullException.ThrowIfNull(extension);
-    string ext = extension.StartsWith('.') ? extension : "." + extension;
+    string ext = extension.StartsWith('.', StringComparison.Ordinal) ? extension : "." + extension;
     if (BinaryExtensions.Contains(ext))
     {
       return true;
@@ -110,10 +110,9 @@ public static class SkillContentScanner
     return false;
   }
 
-  private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
-  {
+  private static readonly HashSet<string> BinaryExtensions = [with(comparer: StringComparer.OrdinalIgnoreCase),
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".zip", ".gz", ".tar", ".7z",
     ".exe", ".dll", ".so", ".dylib", ".ttf", ".otf", ".woff", ".woff2",
     ".pdf", ".db", ".sqlite",
-  };
+  ];
 }

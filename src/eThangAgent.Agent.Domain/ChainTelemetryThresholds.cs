@@ -119,7 +119,7 @@ public sealed record ChainTelemetryThresholds
           + "measurement. Write it first: " + Describe(RequiredKeys) + "."));
     }
 
-    Dictionary<string, decimal> values = new(StringComparer.Ordinal);
+    Dictionary<string, decimal> values = [with(StringComparer.Ordinal)];
     foreach (string raw in text.Split('\n'))
     {
       Result<bool> read = ReadLine(raw, values);

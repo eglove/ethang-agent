@@ -59,7 +59,7 @@ internal sealed class WorkspaceFileIndex(IFileSearchAccess search, string worksp
   ///     -1 no match.</summary>
   private static int RankOf(string path, string query)
   {
-    int separator = path.LastIndexOf('/');
+    int separator = path.LastIndexOf('/', StringComparison.Ordinal);
     string fileName = separator < 0 ? path : path[(separator + 1)..];
     return path switch
     {

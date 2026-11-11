@@ -110,7 +110,7 @@ public class ReviewRubricAvailabilityTests
     int open = body.IndexOf("```text\n", at, StringComparison.Ordinal);
     Assert.True(open >= 0, "missing the fenced contract block");
     int start = open + "```text\n".Length;
-    int end = body.IndexOf('\n', start);
+    int end = body.IndexOf('\n', start, StringComparison.Ordinal);
     Assert.True(end > start, "the contract block has no first line");
     return body[start..end];
   }

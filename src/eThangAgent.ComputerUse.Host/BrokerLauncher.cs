@@ -26,7 +26,7 @@ public sealed record BrokerLaunchOptions(
     ArgumentNullException.ThrowIfNull(tokenEnv);
     ArgumentNullException.ThrowIfNull(anyEnv);
     bool targetedInput = args.Contains(TargetedInputFlag, StringComparer.Ordinal);
-    string pipeName = args.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a) && !a.StartsWith('-'))
+    string pipeName = args.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a) && !a.StartsWith('-', StringComparison.Ordinal))
         ?? string.Empty;
     if (string.IsNullOrWhiteSpace(pipeName))
     {

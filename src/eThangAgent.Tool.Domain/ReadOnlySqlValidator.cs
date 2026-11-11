@@ -132,7 +132,7 @@ public static class ReadOnlySqlValidator
 
   private static (DomainError? Error, bool Done, bool Attach) ScanBracketed(string sql, ref int p)
   {
-    int close = sql.IndexOf(']', p + 1);
+    int close = sql.IndexOf(']', p + 1, StringComparison.Ordinal);
     if (close < 0)
     {
       return (Err("Unterminated bracketed identifier — close the bracket."), false, false);
@@ -198,7 +198,7 @@ public static class ReadOnlySqlValidator
 
   private static int LineCommentEnd(string sql, int p)
   {
-    int eol = sql.IndexOf('\n', p + 2);
+    int eol = sql.IndexOf('\n', p + 2, StringComparison.Ordinal);
     return eol < 0 ? sql.Length : eol + 1;
   }
 

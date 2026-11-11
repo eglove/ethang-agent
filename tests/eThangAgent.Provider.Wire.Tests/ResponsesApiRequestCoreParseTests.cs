@@ -151,5 +151,5 @@ public class ResponsesApiRequestCoreParseTests
   }
 
   private static Result<ModelResponse> Parse(string body) =>
-      ResponsesApiRequestCore.ParseResponse(JsonDocument.Parse(body).RootElement);
+      ResponsesApiRequestCore.ParseResponse(JsonElement.Parse(body));
 }

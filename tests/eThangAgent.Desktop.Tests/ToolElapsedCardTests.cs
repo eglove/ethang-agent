@@ -82,7 +82,7 @@ public class ToolElapsedCardTests
     Avalonia.Controls.Primitives.ToggleButton header = TestFixtures.ToolCards(view).First().GetVisualDescendants()
         .OfType<Avalonia.Controls.Primitives.ToggleButton>().First();
     TextBlock elapsed = header.GetVisualDescendants().OfType<TextBlock>()
-        .First(t => t.Text is not null && t.Text.EndsWith('s'));
+        .First(t => t.Text is not null && t.Text.EndsWith('s', StringComparison.Ordinal));
     Border chevron = header.GetVisualDescendants().OfType<Border>()
         .First(b => b.Name == "ExpandCollapseChevronBorder");
     double elapsedRight = RootX(elapsed) + elapsed.Bounds.Width;

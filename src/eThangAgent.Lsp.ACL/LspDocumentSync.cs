@@ -22,7 +22,7 @@ public sealed class LspDocumentSync
   private readonly string _languageId;
   private readonly HashSet<string> _extensions;
   private readonly ILspDocumentSync _sink;
-  private readonly Dictionary<string, int> _openVersions = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, int> _openVersions = [with(StringComparer.Ordinal)];
   private readonly Lock _gate = new();
 
   public LspDocumentSync(string workspaceId, string workspaceRoot, string languageId, IReadOnlyList<string> extensions, ILspDocumentSync sink)
@@ -185,7 +185,7 @@ public sealed class LspDocumentSync
 
   private static string NormalizeExtension(string extension)
   {
-    string ext = extension.StartsWith('.') ? extension : "." + extension;
+    string ext = extension.StartsWith('.', StringComparison.Ordinal) ? extension : "." + extension;
     return ext.ToUpperInvariant();
   }
 

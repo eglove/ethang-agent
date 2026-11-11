@@ -76,7 +76,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private const string ReviewRole = "review";
 
   private static readonly HashSet<string> StepAllowed =
-      new(StringComparer.Ordinal) { PositionParam, RoleParam, GroupParam };
+      [with(StringComparer.Ordinal), PositionParam, RoleParam, GroupParam];
 
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly IChainPlanSource _plans = plans ?? throw new ArgumentNullException(nameof(plans));
@@ -496,7 +496,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
       throw new ChainInputException("Arguments must be a JSON object.");
     }
 
-    Dictionary<string, JsonElement> args = new(StringComparer.Ordinal);
+    Dictionary<string, JsonElement> args = [with(StringComparer.Ordinal)];
     foreach (JsonProperty property in root.EnumerateObject())
     {
       if (!allowed.Contains(property.Name))
@@ -572,7 +572,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
 
   private static Result<ChainStepSeed> ParseStep(JsonElement item, int index)
   {
-    Dictionary<string, JsonElement> step = new(StringComparer.Ordinal);
+    Dictionary<string, JsonElement> step = [with(StringComparer.Ordinal)];
     foreach (JsonProperty property in item.EnumerateObject())
     {
       if (!StepAllowed.Contains(property.Name))

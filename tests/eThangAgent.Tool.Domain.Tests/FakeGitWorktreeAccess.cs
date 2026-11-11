@@ -7,7 +7,7 @@ namespace eThangAgent.ToolDomain.Tests;
 ///     operation so tool-level pass-through of seam error codes can be pinned.</summary>
 internal sealed class FakeGitWorktreeAccess : IGitWorktreeAccess
 {
-  private readonly Dictionary<string, WorktreeInfo> _worktrees = new(StringComparer.Ordinal);
+  private readonly Dictionary<string, WorktreeInfo> _worktrees = [with(StringComparer.Ordinal)];
 
   /// <summary>When set, the next matching operation returns this failure instead of
   ///     its normal outcome; the tool must surface the code verbatim.</summary>

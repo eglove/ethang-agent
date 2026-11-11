@@ -62,7 +62,7 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
     }
 
     string trimmed = stored.Trim();
-    if (!trimmed.StartsWith('{'))
+    if (!trimmed.StartsWith('{', StringComparison.Ordinal))
     {
       // A bare model id. It may carry the suffix the newer picker would have written.
       return Result.Success(Normalize(trimmed));

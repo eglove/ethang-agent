@@ -36,7 +36,7 @@ public sealed class SkillInvokeTool(ISkillInvocationPort invocation, IConversati
 
   private Func<CancellationToken, Task<ToolResult>> CoreAsync(RawToolInput input) => async token =>
   {
-    System.Text.Json.JsonElement args = System.Text.Json.JsonDocument.Parse(input.JsonArguments).RootElement;
+    System.Text.Json.JsonElement args = System.Text.Json.JsonElement.Parse(input.JsonArguments);
     Result<(string Name, string? Args)> parsed = SkillInvokeInput.Parse(args);
     if (!parsed.IsSuccess)
     {

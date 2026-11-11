@@ -155,7 +155,7 @@ internal static class CodeBlockScroller
       }
     };
 
-    Grid frame = new() { RowDefinitions = new RowDefinitions("Auto,Auto") };
+    Grid frame = new() { RowDefinitions = [with("Auto,Auto")] };
     Grid.SetRow(scroller, 0);
     Grid.SetRow(bar, 1);
     frame.Children.Add(scroller);

@@ -556,7 +556,7 @@ public sealed record PdfToolInput(
   ///     in '-'). The grammar is validated first, so a trailing dash is exactly the open
   ///     tail form.</summary>
   private static bool HasOpenTail(string text) =>
-      text.Split(',').Any(part => part.Trim().EndsWith('-'));
+      text.Split(',').Any(part => part.Trim().EndsWith('-', StringComparison.Ordinal));
 
   /// <summary>Reads a required operation string field: the missing-field wording is
   ///     InvalidParameterValue naming the op and the field; a wrong JSON kind is

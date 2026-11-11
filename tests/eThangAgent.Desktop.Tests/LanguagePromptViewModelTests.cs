@@ -19,7 +19,7 @@ public partial class LanguagePromptViewModelTests
   /// <summary>An in-memory preference store: the prompt reads its opt-out through it.</summary>
   private sealed class MemoryPreferences : IAppPreferenceStore
   {
-    public Dictionary<string, string> Values { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> Values { get; } = [with(StringComparer.Ordinal)];
 
     public Task<string?> GetAsync(string key, CancellationToken ct = default) =>
         Task.FromResult(Values.TryGetValue(key, out string? value) ? value : null);

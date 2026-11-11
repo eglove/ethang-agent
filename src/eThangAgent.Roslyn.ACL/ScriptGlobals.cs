@@ -870,11 +870,12 @@ public sealed class ScriptTools
   }
   /// <summary>The argument-shape error codes: knowable from the arguments alone, on a
   ///     class of failure whose remedy the model can read off the error itself.</summary>
-  private static readonly HashSet<string> ContractErrorCodes = new(StringComparer.Ordinal)
-  {
+  private static readonly HashSet<string> ContractErrorCodes =
+  [
+    with(StringComparer.Ordinal),
     "InvalidParameterValue",
     "MissingParameter",
-  };
+  ];
 
   /// <summary>True when the error result carries one of <see cref="ContractErrorCodes"/>.</summary>
   private static bool IsContractError(string resultContent) =>
