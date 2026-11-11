@@ -3,6 +3,7 @@ using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -63,6 +64,11 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
   public async Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(record);
+    if (RefuseUnnormalizedScope(record) is { } refusal)
+    {
+      return Result.Failure<string>(refusal);
+    }
+
     await _writeGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
@@ -88,6 +94,11 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
   public async Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(record);
+    if (RefuseUnnormalizedScope(record) is { } refusal)
+    {
+      return Result.Failure<string>(refusal);
+    }
+
     await _writeGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
@@ -376,6 +387,24 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
     command.CommandText = "SELECT COUNT(*) FROM agents WHERE id=@id;";
     Add(command, "@id", id.ToString());
     return Convert.ToInt64(await command.ExecuteScalarAsync(ct).ConfigureAwait(false), CultureInfo.InvariantCulture) > 0;
+  }
+
+  /// <summary>The named refusal for a row whose workspace id is a second spelling of one
+  ///     directory, or null when the row is writable. A row with no workspace is writable: the
+  ///     stamp is optional, and only a present one has to be an identity.</summary>
+  /// <param name="record">The row about to be written.</param>
+  private static DomainError? RefuseUnnormalizedScope(AgentRecord record)
+  {
+    if (record.WorkspaceId is not { } workspaceId)
+    {
+      return null;
+    }
+
+    string normalized = WorkspaceIdentity.Normalize(workspaceId);
+    return string.Equals(workspaceId, normalized, StringComparison.Ordinal)
+        ? null
+        : new DomainError("WorkspaceNotNormalized",
+            $"the agent row's workspace id '{workspaceId}' is not a normalized workspace identity; the normalized form is '{normalized}'.");
   }
 
   private static void BindRecord(SqliteCommand command, AgentRecord record)

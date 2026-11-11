@@ -24,6 +24,20 @@ public class RootSessionBootstrapperTests
     Assert.Equal("openrouter", record.Provider);
   }
 
+  /// <summary>A directory picker hands over a root WITH its trailing separator, and the row it
+  ///     stamps must still carry the normalized identity: every durable store refuses any other
+  ///     spelling, so a row stamped with the raw path can never be resumed.</summary>
+  [Fact]
+  public async Task PersistRoot_TrailingSeparatorRoot_StampsTheNormalizedIdentity()
+  {
+    FakeAgentStore store = new();
+    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo\", "openrouter", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    AgentRecord record = Assert.Single(store.Saved);
+    Assert.Equal(@"C:\workspaces\demo", record.WorkspaceId);
+  }
+
   [Fact]
   public async Task PersistRoot_EmptyWorkspace_Throws()
   {

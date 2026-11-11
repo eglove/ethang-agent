@@ -148,6 +148,26 @@ public sealed class WorkspaceRespellMigrationTests : IDisposable
     Assert.Equal(1L, Scalar<long>("SELECT COUNT(*) FROM agent_events WHERE json_extract(payload_json, '$.WorkspaceId') = 'C:\\ws\\alpha';"));
   }
 
+  /// <summary>V39 repaired the rows that existed when it ran, and the create path kept minting
+  ///     new ones afterwards - a session opened from a folder picker stamped the raw path, so
+  ///     the fork reopened on every open. The repair therefore runs again, over a database that
+  ///     is already at V40 and holds rows V39 could not have seen.</summary>
+  [Fact]
+  public void Migration_RepairsAForkThatReopenedAfterV39Ran()
+  {
+    _ = new AppDatabase(_dbPath);
+    Execute("PRAGMA user_version = 40;");
+    Execute("""
+        INSERT INTO agents (id, model_used, status, task_prompt, created_at, workspace_id, provider)
+            VALUES ('a2', 'm', 0, 'prompt', '2026-11-10T00:00:00Z', 'C:\ws\alpha\', 'openrouter');
+        """);
+
+    _ = new AppDatabase(_dbPath);
+
+    Assert.Equal(0L, Scalar<long>($"SELECT COUNT(*) FROM agents WHERE workspace_id = '{Respelled}';"));
+    Assert.Equal(1L, Scalar<long>($"SELECT COUNT(*) FROM agents WHERE workspace_id = '{Normalized}' AND id = 'a2';"));
+  }
+
   /// <summary>A database that never forked is left exactly as it was: the step finds no id that
   ///     differs from its normalized form and writes nothing.</summary>
   [Fact]

@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Composition;
 
@@ -29,7 +30,12 @@ public static class RootSessionBootstrapper
     }
 
     AgentId rootId = AgentId.NewId();
-    return PersistAsync(store, rootId, workspaceRoot, providerName, modelUsed, ct);
+    // THE ROW CARRIES AN IDENTITY, NOT A PATH SPELLING. A directory picker hands over the root
+    // with its trailing separator, so stamping the argument verbatim writes a second spelling of
+    // a directory whose container was built on the first - and every durable store refuses that
+    // spelling, so the row can never be resumed. Normalizing here is the one place that covers
+    // every caller: this helper is the only thing that mints a root row.
+    return PersistAsync(store, rootId, WorkspaceIdentity.For(workspaceRoot), providerName, modelUsed, ct);
   }
 
   private static async Task<Result<AgentId>> PersistAsync(

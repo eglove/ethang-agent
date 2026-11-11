@@ -102,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 40;
+  public const int LatestSchemaVersion = 41;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -149,6 +149,7 @@ public sealed class AppDatabase
     (38, ApplyV38),
     (39, ApplyV39),
     (40, ApplyV40),
+    (41, ApplyV41),
   ];
 
   private void Migrate()
@@ -1691,7 +1692,19 @@ public sealed class AppDatabase
   ///     <para>IDEMPOTENT BY CONSTRUCTION: the step looks for ids that differ from their normalized
   ///     form, and after it runs there are none left.</para></summary>
   /// <param name="connection">The connection the migration runs on.</param>
-  private static void ApplyV39(SqliteConnection connection)
+  private static void ApplyV39(SqliteConnection connection) => RepairWorkspaceSpellings(connection);
+
+  /// <summary>V41 runs the SAME repair V39 ran, because V39 repaired only the rows that existed
+  ///     when it ran and the create path kept minting new forks afterwards: a session opened from
+  ///     a folder picker stamped the raw directory path, so one directory forked again on every
+  ///     open. The two versions share one body so the repair cannot drift, and running it over an
+  ///     already-repaired database writes nothing.</summary>
+  private static void ApplyV41(SqliteConnection connection) => RepairWorkspaceSpellings(connection);
+
+  /// <summary>The repair both V39 and V41 apply: every workspace id that is a second spelling of
+  ///     one directory is moved onto the normalized form.</summary>
+  /// <param name="connection">The connection the repair runs on.</param>
+  private static void RepairWorkspaceSpellings(SqliteConnection connection)
   {
     string[] respelled = [.. DistinctWorkspaceIds(connection)
         .Where(id => !string.Equals(id, WorkspaceIdentity.Normalize(id), StringComparison.Ordinal))];

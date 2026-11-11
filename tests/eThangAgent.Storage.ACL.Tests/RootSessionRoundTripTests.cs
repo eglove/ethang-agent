@@ -53,6 +53,21 @@ public sealed class RootSessionRoundTripTests : IDisposable
     Assert.Equal("openrouter", record.Provider);
   }
 
+  /// <summary>THE STORE IS THE BOUNDARY THAT DECIDES THIS, not the caller that mints the row:
+  ///     every other durable store refuses an id that is not a normalized workspace identity, and
+  ///     the agent store accepting one is how a folder picker's trailing separator reached the
+  ///     database as a second workspace.</summary>
+  [Fact]
+  public async Task Save_OfARowWhoseWorkspaceIdIsNotNormalized_Fails_Named()
+  {
+    Result<string> saved = await _store.SaveAsync(
+        AgentRecord.Root(AgentId.NewId(), DateTimeOffset.UtcNow, @"C:\workspaces\demo\", "openrouter"),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.False(saved.IsSuccess);
+    Assert.Equal("WorkspaceNotNormalized", saved.Error.Code);
+  }
+
   [Fact]
   public async Task AppendedExchange_ReturnsInOrderFromTranscript()
   {

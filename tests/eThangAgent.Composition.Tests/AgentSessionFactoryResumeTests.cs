@@ -30,6 +30,29 @@ public class AgentSessionFactoryResumeTests
     return (new AgentSessionFactory(settings ?? Settings(), new AppDatabase(dbPath)), dbPath);
   }
 
+  /// <summary>Writes one root row with the workspace id given, verbatim, the way a build that
+  ///     predates the store's boundary check would have.</summary>
+  /// <param name="dbPath">The database to write into.</param>
+  /// <param name="id">The row id.</param>
+  /// <param name="workspaceId">The workspace id to stamp, exactly as given.</param>
+  private static async Task InsertAgentRowWithWorkspaceAsync(string dbPath, AgentId id, string workspaceId)
+  {
+    // Named decision (CA2007): a test's own seeding connection has no caller to starve.
+#pragma warning disable CA2007
+    await using Microsoft.Data.Sqlite.SqliteConnection connection = new($"Data Source={dbPath}");
+#pragma warning restore CA2007
+    await connection.OpenAsync(TestContext.Current.CancellationToken).ConfigureAwait(false);
+    using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand();
+    command.CommandText = """
+        INSERT INTO agents (id, status, model_used, label, task_prompt, created_at, workspace_id, provider)
+            VALUES (@id, 0, 'unassigned', 'root', 'conversation root', @created, @workspace, 'openrouter');
+        """;
+    _ = command.Parameters.AddWithValue("@id", id.ToString());
+    _ = command.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture));
+    _ = command.Parameters.AddWithValue("@workspace", workspaceId);
+    _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(false);
+  }
+
   private static void DeleteDb(string dbPath)
   {
     try
@@ -263,14 +286,13 @@ public class AgentSessionFactoryResumeTests
     (AgentSessionFactory factory, string db) = CreateFactory();
     try
     {
-      SqliteAgentStore store = new(new AppDatabase(db));
       AgentId rootId = AgentId.NewId();
       string workspace = Directory.CreateDirectory(
           Path.Combine(TestTempRoot.Root, $"ethang-resume-spelling-{Guid.NewGuid():N}")).FullName;
-      // The trailing separator is the second spelling one directory can arrive as.
-      _ = await store.SaveAsync(
-          AgentRecord.Root(rootId, DateTimeOffset.UtcNow, workspace + Path.DirectorySeparatorChar, Providers.OpenRouter),
-          ct: TestContext.Current.CancellationToken);
+      // The trailing separator is the second spelling one directory can arrive as. The row is
+      // written by raw SQL because the store refuses that spelling at its boundary - a legacy row
+      // exists by having been written before the boundary closed, so this seeds it that way.
+      await InsertAgentRowWithWorkspaceAsync(db, rootId, workspace + Path.DirectorySeparatorChar);
 
       Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
 
