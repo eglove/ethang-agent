@@ -2360,20 +2360,26 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    // ANSWER FIRST: the id is the thing the blocked tool is waiting for, and the tab swap
-    // must not delay it.
-    Answer(channel, request, sessionId: created.Value.RootId.ToString());
-
     // A RESUME RETIRES NOTHING (issue #303's exit): the session that would have been replaced is
     // the one that failed, and it may be closed or never have existed. The new session APPENDS,
     // beside whatever else the tab holds, exactly as a hand-started agent does.
     if (request.Resumed)
     {
+      // ANSWER FIRST: the id is the thing the blocked tool is waiting for, and the append
+      // must not delay it. A resume takes no tab slot, so nothing races this answer.
+      Answer(channel, request, sessionId: created.Value.RootId.ToString());
       await AppendResumedAsync(tab, created.Value, request).ConfigureAwait(true);
       return;
     }
 
+    // THE SLOT IS TAKEN BEFORE THE ANSWER IS SENT: the requesting tool resumes as soon as it
+    // receives that answer, so a request sent from the turn that follows would otherwise find
+    // the slot still free, take it, and then wait for the turn it is itself holding open.
     _pendingReplacements[tab] = _pendingReplacements.GetValueOrDefault(tab) + 1;
+
+    // ANSWER FIRST: the id is the thing the blocked tool is waiting for, and the tab swap
+    // must not delay it.
+    Answer(channel, request, sessionId: created.Value.RootId.ToString());
 
     // The swap waits for the CURRENT turn to go idle. A handoff request is emitted BEFORE
     // the host settles its turn, so swapping now would dispose the container the running
