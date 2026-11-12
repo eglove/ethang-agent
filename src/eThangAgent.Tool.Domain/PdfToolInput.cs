@@ -60,10 +60,10 @@ public sealed record PdfToolInput(
     }
 
     string action = actionEl.GetString()!;
-    if (action is not ("read" or "render" or "create" or "manipulate"))
+    if (action is not ("read" or "render" or "create" or "manipulate" or "form"))
     {
       return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'action' must be exactly one of read, render, create, manipulate (case-sensitive), but got '{action}'."));
+          $"'action' must be exactly one of read, render, create, manipulate, form (case-sensitive), but got '{action}'."));
     }
 
     DomainError? unknown = ToolArguments.RejectUnknownParameters(json, Allowed(action));
@@ -81,7 +81,8 @@ public sealed record PdfToolInput(
     "render" => ["action", ToolTimeout.ParameterName, "path", "pages", "dpi"],
     "create" => ["action", ToolTimeout.ParameterName, "path", "markdown"],
     "manipulate" => ["action", ToolTimeout.ParameterName, "path", "expectedVersion", "operations"],
-    _ => throw new InvalidOperationException("unreachable: action is a validated member of the four"),
+    "form" => ["action", ToolTimeout.ParameterName, "path"],
+    _ => throw new InvalidOperationException("unreachable: action is a validated member of the five"),
   };
 
   /// <summary>Dispatches to the per-action parser; every action first passes the
@@ -104,6 +105,7 @@ public sealed record PdfToolInput(
       "read" => ParseRead(json, path.Value),
       "render" => ParseRender(json, path.Value),
       "create" => ParseCreate(json, path.Value),
+      "form" => ParseForm(path.Value),
       _ => ParseManipulate(json, path.Value),
     };
     return parsed;
@@ -186,6 +188,12 @@ public sealed record PdfToolInput(
       ? Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'markdown' must be non-empty."))
       : Result.Success(Base("create", path) with { Markdown = markdown.Value });
   }
+
+  /// <summary>form: path only. The action reads the document's AcroForm; every other
+  ///     key belongs to a different action and is refused by the unknown-key check.
+  ///     </summary>
+  private static Result<PdfToolInput> ParseForm(string path)
+      => Result.Success(Base("form", path));
 
   /// <summary>manipulate: expectedVersion required (decoded strictly), operations
   ///     required as a non-empty array of at most 50 operation objects, each parsed and
@@ -296,20 +304,28 @@ public sealed record PdfToolInput(
     return op;
   }
 
+  /// <summary>The per-op parsers, keyed by op name. A dictionary rather than a switch
+  ///     so the vocabulary has one home and an unknown op is a lookup miss.</summary>
+  private static readonly Dictionary<string, Func<JsonElement, string, Result<PdfOperation>>> OpParsers =
+      new(StringComparer.Ordinal)
+      {
+        ["rotate"] = ParseRotate,
+        ["deletePages"] = ParseDeletePages,
+        ["reorderPages"] = ParseReorderPages,
+        ["extractPages"] = ParseExtractPages,
+        ["merge"] = ParseMerge,
+        ["watermarkText"] = ParseWatermarkText,
+        ["setMetadata"] = (element, _) => ParseSetMetadata(element),
+        ["fillFormField"] = ParseFillFormField,
+        ["flattenForm"] = ParseFlattenForm,
+      };
+
   /// <summary>Dispatches a validated op name to its per-op parser.</summary>
   private static Result<PdfOperation> DispatchOperation(JsonElement element, string op)
-    => op switch
-    {
-      "rotate" => ParseRotate(element, op),
-      "deletePages" => ParseDeletePages(element, op),
-      "reorderPages" => ParseReorderPages(element, op),
-      "extractPages" => ParseExtractPages(element, op),
-      "merge" => ParseMerge(element, op),
-      "watermarkText" => ParseWatermarkText(element, op),
-      "setMetadata" => ParseSetMetadata(element),
-      _ => Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'op' must be exactly one of rotate, deletePages, reorderPages, extractPages, merge, watermarkText, or setMetadata (case-sensitive), but got '{op}'.")),
-    };
+    => OpParsers.TryGetValue(op, out Func<JsonElement, string, Result<PdfOperation>>? parse)
+      ? parse(element, op)
+      : Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'op' must be exactly one of {string.Join(", ", OpParsers.Keys)} (case-sensitive), but got '{op}'."));
 
   private static Result<PdfOperation> ParseRotate(JsonElement op, string opName)
   {
@@ -507,6 +523,58 @@ public sealed record PdfToolInput(
       ? Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "The 'setMetadata' operation requires at least one of title, author, or subject."))
       : Result.Success<PdfOperation>(new SetMetadata(title.Value, author.Value, subject.Value));
+  }
+
+  /// <summary>fillFormField: 'field' (the fully qualified field name) and 'value'
+  ///     required. The value's meaning follows the field's type and is validated against
+  ///     the document when the batch runs, not here.</summary>
+  private static Result<PdfOperation> ParseFillFormField(JsonElement op, string opName)
+  {
+    DomainError? unknownKeys = ToolArguments.RejectUnknownParameters(op, "op", "field", "value");
+    if (unknownKeys is not null)
+    {
+      return Result.Failure<PdfOperation>(unknownKeys);
+    }
+
+    Result<string> field = RequireOpString(op, opName, "field");
+    if (!field.IsSuccess)
+    {
+      return Result.Failure<PdfOperation>(field.Error);
+    }
+
+    if (field.Value.Length == 0)
+    {
+      return Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'field' must be non-empty: it names the form field to fill."));
+    }
+
+    Result<string> value = RequireOpString(op, opName, "value");
+    return value.IsSuccess
+        ? Result.Success<PdfOperation>(new FillFormField(field.Value, value.Value))
+        : Result.Failure<PdfOperation>(value.Error);
+  }
+
+  /// <summary>flattenForm: 'fields' is an optional array of field names. Absent means
+  ///     every field; an empty array is refused rather than read as 'all', so a caller
+  ///     that computed an empty selection is told, not silently given a full flatten.
+  ///     </summary>
+  private static Result<PdfOperation> ParseFlattenForm(JsonElement op, string opName)
+  {
+    DomainError? unknownKeys = ToolArguments.RejectUnknownParameters(op, "op", "fields");
+    if (unknownKeys is not null)
+    {
+      return Result.Failure<PdfOperation>(unknownKeys);
+    }
+
+    if (!op.TryGetProperty("fields", out _))
+    {
+      return Result.Success<PdfOperation>(new FlattenForm(null));
+    }
+
+    Result<IReadOnlyList<string>> fields = RequireStringArray(op, opName, "fields");
+    return fields.IsSuccess
+        ? Result.Success<PdfOperation>(new FlattenForm(fields.Value))
+        : Result.Failure<PdfOperation>(fields.Error);
   }
 
   /// <summary>Reads a required operation pages field: a page-range string parsed

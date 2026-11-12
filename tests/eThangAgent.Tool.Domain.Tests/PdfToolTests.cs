@@ -22,13 +22,14 @@ public sealed class PdfToolTests : IDisposable
   ///     line, exactly as the brief pins it.</summary>
   private static readonly string[] DescriptionLines =
   [
-    "pdf - read, render, create, and manipulate PDF documents.",
+    "pdf - read, render, create, and manipulate PDF documents, including their AcroForm fields.",
     "",
     "Actions (parameter 'action', required):",
     "  read        Paginated per-page text. Params: path, offset (page offset, default 0), maxPages (default 20, max 100).",
     "  render      Pages as PNG images (attached when the model accepts images). Params: path, pages ('1-3,5,8-' 1-based, open tail allowed), dpi (default 150, max 300). Max 10 pages per call.",
     "  create      New PDF from the pinned markdown subset. Params: path, markdown.",
     "  manipulate  Atomic batch of structural operations. Params: path, expectedVersion, operations[].",
+    "  form        The document's AcroForm fields: name, kind, page, current value, options. Params: path.",
     "",
     "read output (verbatim contract):",
     "[pdf <path> v<version> pages <first>-<last> of <total>]",
@@ -45,6 +46,8 @@ public sealed class PdfToolTests : IDisposable
     "  merge {sources[]}                - appends other PDFs into the target",
     "  watermarkText {text, fontSize?, opacity?, degrees?} - diagonal stamp; opacity 0.0-1.0",
     "  setMetadata {title?, author?, subject?}",
+    "  fillFormField {field, value}       - value follows the field's kind (see 'form')",
+    "  flattenForm {fields?}              - merge the form into the page content and remove the fields",
     "The batch is atomic: one invalid operation refuses the whole batch, nothing is saved.",
     "Output: [pdf manipulated <path>] operations=<n> pages=<n> version v<newtoken>.",
     "",
@@ -53,7 +56,17 @@ public sealed class PdfToolTests : IDisposable
     "",
     "render output: one PNG attachment per requested page plus the line [pdf render <path>] pages=<n> dpi=<dpi>; without image input the pages are listed only.",
     "",
-    "Errors: Error [NotAPdf|EncryptedPdf|CorruptPdf|OversizePdf|PageNotFound|InvalidPageRange|OutputExists|StaleDocument|MarkdownInvalid|FileNotFound|InvalidParameterValue|MissingParameter|UnknownParameter|PathOutsideWorkspace].",
+    "form output (verbatim contract):",
+    "[pdf form <path> v<version> fields=<n> pages=<total>]",
+    "  <kind> '<name>' page=<n> value=\"<current>\" options=[\"<export>\", ...]",
+    "version v<length>:<ticks>",
+    "<kind> is one of text, checkbox, radio, choice, button, signature, unsupported. 'options' appears only where the field offers a fixed set (choice, radio). A document with no form prints 'no form fields'.",
+    "Pass the 'version v<...>' line back as expectedVersion to fill or flatten.",
+    "",
+    "fillFormField value by kind: text = the text; checkbox and radio = true or false (radio also accepts an option's export value); choice = one of the field's options. A push button or signature field cannot be filled. An unknown field fails FormFieldNotFound; a value the kind cannot hold fails FormFieldTypeMismatch.",
+    "flattenForm with no 'fields' flattens every field: the values are merged into the page content and the interactive fields are removed, so the result renders identically and can no longer be edited.",
+    "",
+    "Errors: Error [NotAPdf|EncryptedPdf|CorruptPdf|OversizePdf|PageNotFound|InvalidPageRange|OutputExists|StaleDocument|MarkdownInvalid|FileNotFound|FormFieldNotFound|FormFieldTypeMismatch|InvalidParameterValue|MissingParameter|UnknownParameter|PathOutsideWorkspace].",
   ];
 
   private readonly string _root;
@@ -361,15 +374,145 @@ public sealed class PdfToolTests : IDisposable
     public bool AcceptsImages => accepts;
   }
 
+  // ---- form ----
+
+  private static PdfFormSnapshot FormAt(params PdfFormField[] fields)
+      => new(V1, 2, fields);
+
+  [Fact]
+  public async Task Form_renders_the_verbatim_contract()
+  {
+    _fake._onForm = _ => Result.Success(FormAt(
+        new PdfFormField("fullName", PdfFormFieldKind.Text, 1, "Ada", []),
+        new PdfFormField("country", PdfFormFieldKind.Choice, 1, "GB", ["GB", "US"])));
+
+    ToolResult result = await Dispatch(Tool(), "{\"action\":\"form\",\"path\":\"doc.pdf\",\"timeoutSeconds\":30}");
+
+    Assert.False(result.IsError);
+    Assert.Equal(
+        $"[pdf form {Resolved("doc.pdf")} v{V1.Token} fields=2 pages=2]" + Environment.NewLine +
+        "  text 'fullName' page=1 value=\"Ada\"" + Environment.NewLine +
+        "  choice 'country' page=1 value=\"GB\" options=[\"GB\", \"US\"]" + Environment.NewLine +
+        "version " + Token1,
+        result.Content);
+  }
+
+  [Fact]
+  public async Task Form_reports_a_document_without_a_form()
+  {
+    _fake._onForm = _ => Result.Success(FormAt());
+
+    ToolResult result = await Dispatch(Tool(), "{\"action\":\"form\",\"path\":\"doc.pdf\",\"timeoutSeconds\":30}");
+
+    Assert.False(result.IsError);
+    Assert.Contains("fields=0", result.Content, StringComparison.Ordinal);
+    Assert.Contains("no form fields", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Form_surfaces_a_seam_error_verbatim()
+  {
+    _fake._onForm = _ => Result.Failure<PdfFormSnapshot>(new DomainError(PdfErrorCodes.CorruptPdf, "broken xref"));
+
+    ToolResult result = await Dispatch(Tool(), "{\"action\":\"form\",\"path\":\"doc.pdf\",\"timeoutSeconds\":30}");
+
+    Assert.True(result.IsError);
+    Assert.Equal("Error [CorruptPdf]: broken xref", result.Content);
+  }
+
+  [Fact]
+  public async Task Form_records_the_ledger_so_a_later_fill_is_not_stale()
+  {
+    ReadFreshnessLedger ledger = new();
+    _fake._onForm = _ => Result.Success(FormAt(new PdfFormField("a", PdfFormFieldKind.Text, 1, "", [])));
+    PdfTool tool = Assert.IsType<PdfTool>(Tool().WithLedger(ledger));
+
+    _ = await Dispatch(tool, "{\"action\":\"form\",\"path\":\"doc.pdf\",\"timeoutSeconds\":30}");
+
+    Assert.False(ledger.Check(Resolved("doc.pdf"), V1, 1, 2).IsEmpty);
+  }
+
+  [Fact]
+  public async Task Manipulate_parses_fillFormField_into_the_seam_operation()
+  {
+    IReadOnlyList<PdfOperation>? seen = null;
+    _fake._onManipulate = (_, _, ops) =>
+    {
+      seen = ops;
+      return Result.Success(new PdfEditOutcome(V2, 1, ops.Count));
+    };
+
+    ToolResult result = await Dispatch(Tool(),
+        "{\"action\":\"manipulate\",\"path\":\"doc.pdf\",\"expectedVersion\":\"" + Token1 + "\"," +
+        "\"operations\":[{\"op\":\"fillFormField\",\"field\":\"fullName\",\"value\":\"Ada\"}],\"timeoutSeconds\":30}");
+
+    Assert.False(result.IsError);
+    FillFormField fill = Assert.IsType<FillFormField>(Assert.Single(seen!));
+    Assert.Equal("fullName", fill.Field);
+    Assert.Equal("Ada", fill.Value);
+  }
+
+  [Fact]
+  public async Task Manipulate_parses_flattenForm_with_and_without_a_field_list()
+  {
+    IReadOnlyList<PdfOperation>? seen = null;
+    _fake._onManipulate = (_, _, ops) =>
+    {
+      seen = ops;
+      return Result.Success(new PdfEditOutcome(V2, 1, ops.Count));
+    };
+
+    _ = await Dispatch(Tool(),
+        "{\"action\":\"manipulate\",\"path\":\"doc.pdf\",\"expectedVersion\":\"" + Token1 + "\"," +
+        "\"operations\":[{\"op\":\"flattenForm\"}],\"timeoutSeconds\":30}");
+    Assert.Null(Assert.IsType<FlattenForm>(Assert.Single(seen!)).Fields);
+
+    _ = await Dispatch(Tool(),
+        "{\"action\":\"manipulate\",\"path\":\"doc.pdf\",\"expectedVersion\":\"" + Token1 + "\"," +
+        "\"operations\":[{\"op\":\"flattenForm\",\"fields\":[\"a\",\"b\"]}],\"timeoutSeconds\":30}");
+    Assert.Equal(["a", "b"], Assert.IsType<FlattenForm>(Assert.Single(seen!)).Fields);
+  }
+
+  [Theory]
+  [InlineData("{\"op\":\"fillFormField\",\"value\":\"x\"}", "'field'")]
+  [InlineData("{\"op\":\"fillFormField\",\"field\":\"\",\"value\":\"x\"}", "'field' must be non-empty")]
+  [InlineData("{\"op\":\"fillFormField\",\"field\":\"a\"}", "'value'")]
+  [InlineData("{\"op\":\"fillFormField\",\"field\":\"a\",\"value\":\"x\",\"extra\":1}", "Unknown parameter")]
+  [InlineData("{\"op\":\"flattenForm\",\"fields\":[]}", "non-empty")]
+  [InlineData("{\"op\":\"flattenForm\",\"fields\":\"a\"}", "array")]
+  public async Task Manipulate_refuses_a_malformed_form_operation(string operation, string expected)
+  {
+    ToolResult result = await Dispatch(Tool(),
+        "{\"action\":\"manipulate\",\"path\":\"doc.pdf\",\"expectedVersion\":\"" + Token1 + "\"," +
+        "\"operations\":[" + operation + "],\"timeoutSeconds\":30}");
+
+    Assert.True(result.IsError);
+    Assert.Contains(expected, result.Content, StringComparison.OrdinalIgnoreCase);
+  }
+
+  [Fact]
+  public async Task Form_refuses_an_argument_that_belongs_to_another_action()
+  {
+    ToolResult result = await Dispatch(Tool(),
+        "{\"action\":\"form\",\"path\":\"doc.pdf\",\"maxPages\":5,\"timeoutSeconds\":30}");
+
+    Assert.True(result.IsError);
+    Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
+  }
+
   private sealed class FakePdfAccess : IPdfAccess
   {
     public Func<string, int, int, Result<PdfSnapshot>>? _onRead;
+    public Func<string, Result<PdfFormSnapshot>>? _onForm;
     public Func<string, IReadOnlyList<int>, int, Result<PdfRenderOutcome>>? _onRender;
     public Func<string, string, Result<PdfSaveOutcome>>? _onCreate;
     public Func<string, FileVersion, IReadOnlyList<PdfOperation>, Result<PdfEditOutcome>>? _onManipulate;
 
     public Task<Result<PdfSnapshot>> ReadAsync(string path, int offset, int maxPages, CancellationToken ct = default)
         => Task.FromResult(_onRead?.Invoke(path, offset, maxPages) ?? throw NotWired(nameof(_onRead)));
+
+    public Task<Result<PdfFormSnapshot>> ReadFormAsync(string path, CancellationToken ct = default)
+        => Task.FromResult(_onForm?.Invoke(path) ?? throw NotWired(nameof(_onForm)));
 
     public Task<Result<PdfRenderOutcome>> RenderAsync(string path, IReadOnlyList<int> pages, int dpi, CancellationToken ct = default)
         => Task.FromResult(_onRender?.Invoke(path, pages, dpi) ?? throw NotWired(nameof(_onRender)));

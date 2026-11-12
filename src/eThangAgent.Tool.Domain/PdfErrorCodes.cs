@@ -38,4 +38,12 @@ public static class PdfErrorCodes
 
   /// <summary>The path does not name an existing file.</summary>
   public const string FileNotFound = "FileNotFound";
+
+  /// <summary>A form operation names a field the document's form does not declare.</summary>
+  public const string FormFieldNotFound = "FormFieldNotFound";
+
+  /// <summary>A fill supplies a value the named field's type cannot hold - a non-boolean
+  ///     for a checkbox or radio group, an option the choice field does not offer, or any
+  ///     value for a push button or signature field.</summary>
+  public const string FormFieldTypeMismatch = "FormFieldTypeMismatch";
 }

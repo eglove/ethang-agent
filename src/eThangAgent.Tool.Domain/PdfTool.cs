@@ -29,7 +29,7 @@ public sealed class PdfTool(
   // rasterizes to attached PNGs. create and manipulate write, so they keep the strict
   // resolver. Deny by default: an action not named here is treated as mutating.
   private static readonly IReadOnlySet<string> ReadOnlyActions =
-      new HashSet<string>(StringComparer.Ordinal) { "read", "render" };
+      new HashSet<string>(StringComparer.Ordinal) { "read", "render", "form" };
   private readonly IPdfAccess _pdf = pdf ?? throw new ArgumentNullException(nameof(pdf));
   private readonly IImageInputCapability? _vision = vision;
   private readonly ReadFreshnessLedger? _ledger = ledger;
@@ -51,7 +51,7 @@ public sealed class PdfTool(
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("action", ToolParameterType.Text,
-                "Exactly one of read, render, create, manipulate (case-sensitive)."),
+                "Exactly one of read, render, create, manipulate, form (case-sensitive)."),
             new ToolParameter("path", ToolParameterType.Text,
                 "Document path, workspace-relative or absolute-inside-workspace. Required for every action."),
             new ToolParameter("offset", ToolParameterType.WholeNumber,
@@ -74,13 +74,14 @@ public sealed class PdfTool(
   private static string BuildDescription()
   {
     StringBuilder sb = new();
-    _ = sb.AppendLine("pdf - read, render, create, and manipulate PDF documents.");
+    _ = sb.AppendLine("pdf - read, render, create, and manipulate PDF documents, including their AcroForm fields.");
     _ = sb.AppendLine();
     _ = sb.AppendLine("Actions (parameter 'action', required):");
     _ = sb.AppendLine("  read        Paginated per-page text. Params: path, offset (page offset, default 0), maxPages (default 20, max 100).");
     _ = sb.AppendLine("  render      Pages as PNG images (attached when the model accepts images). Params: path, pages ('1-3,5,8-' 1-based, open tail allowed), dpi (default 150, max 300). Max 10 pages per call.");
     _ = sb.AppendLine("  create      New PDF from the pinned markdown subset. Params: path, markdown.");
     _ = sb.AppendLine("  manipulate  Atomic batch of structural operations. Params: path, expectedVersion, operations[].");
+    _ = sb.AppendLine("  form        The document's AcroForm fields: name, kind, page, current value, options. Params: path.");
     _ = sb.AppendLine();
     _ = sb.AppendLine("read output (verbatim contract):");
     _ = sb.AppendLine("[pdf <path> v<version> pages <first>-<last> of <total>]");
@@ -97,6 +98,8 @@ public sealed class PdfTool(
     _ = sb.AppendLine("  merge {sources[]}                - appends other PDFs into the target");
     _ = sb.AppendLine("  watermarkText {text, fontSize?, opacity?, degrees?} - diagonal stamp; opacity 0.0-1.0");
     _ = sb.AppendLine("  setMetadata {title?, author?, subject?}");
+    _ = sb.AppendLine("  fillFormField {field, value}       - value follows the field's kind (see 'form')");
+    _ = sb.AppendLine("  flattenForm {fields?}              - merge the form into the page content and remove the fields");
     _ = sb.AppendLine("The batch is atomic: one invalid operation refuses the whole batch, nothing is saved.");
     _ = sb.AppendLine("Output: [pdf manipulated <path>] operations=<n> pages=<n> version v<newtoken>.");
     _ = sb.AppendLine();
@@ -105,7 +108,17 @@ public sealed class PdfTool(
     _ = sb.AppendLine();
     _ = sb.AppendLine("render output: one PNG attachment per requested page plus the line [pdf render <path>] pages=<n> dpi=<dpi>; without image input the pages are listed only.");
     _ = sb.AppendLine();
-    _ = sb.AppendLine("Errors: Error [NotAPdf|EncryptedPdf|CorruptPdf|OversizePdf|PageNotFound|InvalidPageRange|OutputExists|StaleDocument|MarkdownInvalid|FileNotFound|InvalidParameterValue|MissingParameter|UnknownParameter|PathOutsideWorkspace].");
+    _ = sb.AppendLine("form output (verbatim contract):");
+    _ = sb.AppendLine("[pdf form <path> v<version> fields=<n> pages=<total>]");
+    _ = sb.AppendLine("  <kind> '<name>' page=<n> value=\"<current>\" options=[\"<export>\", ...]");
+    _ = sb.AppendLine("version v<length>:<ticks>");
+    _ = sb.AppendLine("<kind> is one of text, checkbox, radio, choice, button, signature, unsupported. 'options' appears only where the field offers a fixed set (choice, radio). A document with no form prints 'no form fields'.");
+    _ = sb.AppendLine("Pass the 'version v<...>' line back as expectedVersion to fill or flatten.");
+    _ = sb.AppendLine();
+    _ = sb.AppendLine("fillFormField value by kind: text = the text; checkbox and radio = true or false (radio also accepts an option's export value); choice = one of the field's options. A push button or signature field cannot be filled. An unknown field fails FormFieldNotFound; a value the kind cannot hold fails FormFieldTypeMismatch.");
+    _ = sb.AppendLine("flattenForm with no 'fields' flattens every field: the values are merged into the page content and the interactive fields are removed, so the result renders identically and can no longer be edited.");
+    _ = sb.AppendLine();
+    _ = sb.AppendLine("Errors: Error [NotAPdf|EncryptedPdf|CorruptPdf|OversizePdf|PageNotFound|InvalidPageRange|OutputExists|StaleDocument|MarkdownInvalid|FileNotFound|FormFieldNotFound|FormFieldTypeMismatch|InvalidParameterValue|MissingParameter|UnknownParameter|PathOutsideWorkspace].");
     return sb.ToString();
   }
 
@@ -142,6 +155,7 @@ public sealed class PdfTool(
       "render" => await RenderAsync(args, path, ct).ConfigureAwait(false),
       "create" => await CreateAsync(args, path, ct).ConfigureAwait(false),
       "manipulate" => await ManipulateAsync(args, path, ct).ConfigureAwait(false),
+      "form" => await FormAsync(path, ct).ConfigureAwait(false),
       _ => new ToolResult($"Error [InvalidParameterValue]: unknown action '{args.Action}'.", true),
     };
   }
@@ -211,6 +225,67 @@ public sealed class PdfTool(
 
     return new ToolResult(header, false, Images: images.Count > 0 ? images : null);
   }
+
+  private async Task<ToolResult> FormAsync(string path, CancellationToken ct)
+  {
+    Result<PdfFormSnapshot> read = await _pdf.ReadFormAsync(path, ct).ConfigureAwait(false);
+    if (!read.IsSuccess)
+    {
+      return Err(read.Error);
+    }
+
+    PdfFormSnapshot snap = read.Value;
+    _ledger?.Record(path, snap.Version, 1, snap.TotalPages);
+
+    StringBuilder sb = new();
+    _ = sb.AppendLine(CultureInfo.InvariantCulture,
+        $"[pdf form {path} v{snap.Version.Token} fields={snap.Fields.Count} pages={snap.TotalPages}]");
+    if (snap.Fields.Count == 0)
+    {
+      _ = sb.AppendLine("no form fields (the document carries no AcroForm)");
+    }
+
+    foreach (PdfFormField field in snap.Fields)
+    {
+      _ = sb.AppendLine(FieldLine(field));
+    }
+
+    _ = sb.Append(CultureInfo.InvariantCulture, $"version {FileVersionToken.Encode(snap.Version)}");
+    return new ToolResult(sb.ToString(), false);
+  }
+
+  /// <summary>One field's contract line: name, kind, page, current value, and - for a
+  ///     choice field - the export values it accepts.</summary>
+  private static string FieldLine(PdfFormField field)
+  {
+    string page = field.Page is { } number ? number.ToString(CultureInfo.InvariantCulture) : "-";
+    StringBuilder line = new();
+    _ = line.Append(CultureInfo.InvariantCulture,
+        $"  {KindName(field.Kind)} '{field.Name}' page={page} value={Quote(field.Value)}");
+    if (field.Options.Count > 0)
+    {
+      _ = line.Append(CultureInfo.InvariantCulture,
+          $" options=[{string.Join(", ", field.Options.Select(Quote))}]");
+    }
+
+    return line.ToString();
+  }
+
+  /// <summary>The lower-case kind name the contract prints.</summary>
+  private static string KindName(PdfFormFieldKind kind) => kind switch
+  {
+    PdfFormFieldKind.Text => "text",
+    PdfFormFieldKind.Checkbox => "checkbox",
+    PdfFormFieldKind.Radio => "radio",
+    PdfFormFieldKind.Choice => "choice",
+    PdfFormFieldKind.Button => "button",
+    PdfFormFieldKind.Signature => "signature",
+    PdfFormFieldKind.Unsupported => "unsupported",
+    _ => "unsupported",
+  };
+
+  /// <summary>Quotes a value so an empty one is visible in the listing.</summary>
+  private static string Quote(string value) => "\"" + value + "\"";
 
   private async Task<ToolResult> CreateAsync(PdfToolInput args, string path, CancellationToken ct)
   {

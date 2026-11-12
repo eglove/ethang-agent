@@ -31,6 +31,7 @@ public class LedgerBindingTests
   private sealed class FakePdfAccess : IPdfAccess
   {
     public Task<Result<PdfSnapshot>> ReadAsync(string path, int offset, int maxPages, CancellationToken ct = default) => Task.FromResult(Result.Failure<PdfSnapshot>(new DomainError(PdfErrorCodes.FileNotFound, "x")));
+    public Task<Result<PdfFormSnapshot>> ReadFormAsync(string path, CancellationToken ct = default) => Task.FromResult(Result.Failure<PdfFormSnapshot>(new DomainError(PdfErrorCodes.FileNotFound, "x")));
     public Task<Result<PdfRenderOutcome>> RenderAsync(string path, IReadOnlyList<int> pages, int dpi, CancellationToken ct = default) => Task.FromResult(Result.Failure<PdfRenderOutcome>(new DomainError(PdfErrorCodes.FileNotFound, "x")));
     public Task<Result<PdfSaveOutcome>> CreateAsync(string path, string markdown, CancellationToken ct = default) => Task.FromResult(Result.Failure<PdfSaveOutcome>(new DomainError(PdfErrorCodes.FileNotFound, "x")));
     public Task<Result<PdfEditOutcome>> ManipulateAsync(string path, FileVersion expectedVersion, IReadOnlyList<PdfOperation> operations, CancellationToken ct = default) => Task.FromResult(Result.Failure<PdfEditOutcome>(new DomainError(PdfErrorCodes.FileNotFound, "x")));

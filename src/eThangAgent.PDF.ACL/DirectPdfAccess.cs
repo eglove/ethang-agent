@@ -20,6 +20,16 @@ public sealed class DirectPdfAccess : IPdfAccess
       : PdfTextExtractor.Extract(path, offset, maxPages));
   }
 
+  /// <summary>Reads the document's AcroForm: every field in document order with its
+  ///     name, kind, page, current value, and choice options. A document with no form is
+  ///     an empty field list. The version the stat captures is the token a following fill
+  ///     or flatten must pass back.</summary>
+  public Task<Result<PdfFormSnapshot>> ReadFormAsync(string path, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    return Task.FromResult(PdfFormReader.Read(path));
+  }
+
   /// <summary>Renders the listed 1-based pages to PNG images at the given DPI (task 8).
   ///     The page list arrives ALREADY resolved to explicit page numbers (the tool layer
   ///     owns the grammar and the open-tail resolution against the document's page count);

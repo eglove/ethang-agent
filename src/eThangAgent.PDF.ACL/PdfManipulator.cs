@@ -53,7 +53,11 @@ public static class PdfManipulator
 
         for (int i = 0; i < operations.Count; i++)
         {
-          ApplyOperation(doc, operations[i], extracts);
+          Result<bool> applied = ApplyOperation(doc, operations[i], extracts);
+          if (!applied.IsSuccess)
+          {
+            return Result.Failure<PdfManipulatorOutcome>(applied.Error);
+          }
         }
 
         pageCount = doc.PageCount;
@@ -127,6 +131,14 @@ public static class PdfManipulator
 
       case Merge merge:
         return ValidateMerge(index, merge, ref count);
+
+      // A fill and a flatten are validated against the form the working document
+      // carries, which the page-count walk cannot see. They are checked by the code that
+      // applies them, before the batch's document is saved: a refused fill returns from
+      // Apply before the save, so no operation of the batch reaches disk.
+      case FillFormField:
+      case FlattenForm:
+        return null;
 
       case WatermarkText:
       case SetMetadata:
@@ -210,7 +222,7 @@ public static class PdfManipulator
   /// <summary>Applies one validated operation to the working document. Extraction is
   ///     deferred: the new document is built in memory and saved only after the target
   ///     itself has been written, so a later failure leaves no stray output.</summary>
-  private static void ApplyOperation(PdfDocument doc, PdfOperation operation, List<(string, IReadOnlyList<int>)> extracts)
+  private static Result<bool> ApplyOperation(PdfDocument doc, PdfOperation operation, List<(string, IReadOnlyList<int>)> extracts)
   {
     switch (operation)
     {
@@ -254,9 +266,17 @@ public static class PdfManipulator
         ApplyMetadata(doc, metadata);
         break;
 
+      case FillFormField fill:
+        return PdfFormFiller.Fill(doc, fill);
+
+      case FlattenForm:
+        return PdfFormFiller.Flatten(doc);
+
       default:
         break;
     }
+
+    return Result.Success(true);
   }
 
   /// <summary>Builds a new document holding the requested pages of the SOURCE document at

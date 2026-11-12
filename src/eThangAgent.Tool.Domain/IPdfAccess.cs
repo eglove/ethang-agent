@@ -18,6 +18,12 @@ public interface IPdfAccess
   ///     clamp).</summary>
   Task<Result<PdfSnapshot>> ReadAsync(string path, int offset, int maxPages, CancellationToken ct = default);
 
+  /// <summary>Reads the document's AcroForm: its fields in document order with their
+  ///     names, kinds, pages, current values, and choice options. A document with no form
+  ///     is an empty field list, not a failure. The version the stat captures is the token
+  ///     a following fill or flatten must pass back.</summary>
+  Task<Result<PdfFormSnapshot>> ReadFormAsync(string path, CancellationToken ct = default);
+
   /// <summary>Renders the listed 1-based pages to PNG images at the given DPI.</summary>
   Task<Result<PdfRenderOutcome>> RenderAsync(string path, IReadOnlyList<int> pages, int dpi, CancellationToken ct = default);
 

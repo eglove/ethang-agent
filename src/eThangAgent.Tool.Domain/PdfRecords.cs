@@ -64,3 +64,16 @@ public sealed record WatermarkText(string Text, double? FontSize, double? Opacit
 
 /// <summary>Sets document metadata. Null members are left unchanged.</summary>
 public sealed record SetMetadata(string? Title, string? Author, string? Subject) : PdfOperation;
+
+/// <summary>Fills one existing form field, addressing it by its fully qualified name.
+///     The value's meaning follows the field's type: text for a text field, the
+///     option's export value for a choice field, and 'true'/'false' for a checkbox or
+///     radio group. A name that matches no field fails FormFieldNotFound; a value the
+///     field's type cannot hold fails FormFieldTypeMismatch.</summary>
+public sealed record FillFormField(string Field, string Value) : PdfOperation;
+
+/// <summary>Flattens the form: every field's appearance is merged into the page
+///     content and the interactive fields are removed, so the document renders
+///     identically and can no longer be edited. An optional field list narrows the
+///     flatten to those fields; null flattens every field.</summary>
+public sealed record FlattenForm(IReadOnlyList<string>? Fields) : PdfOperation;
