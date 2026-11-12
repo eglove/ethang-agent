@@ -87,6 +87,12 @@ internal sealed record AgentSessionViewModelOptions
   ///     the turn starts. Null = the message travels exactly as typed (headless stubs).</summary>
   public ReferenceInjector? References { get; init; }
 
+  /// <summary>The session's quoted-path grants: the same set the reference injector fills when a
+  ///     message quotes a path, carried on every turn so the conversation host - a different
+  ///     process, resolving tool paths in its own container - honours the grant too. Null = this
+  ///     session has no grant set (headless stubs), and no grant travels.</summary>
+  public SessionPathGrants? PathGrants { get; init; }
+
   /// <summary>Re-enumerates the workspace file cache the popup searches. The view kicks it when
   ///     the input takes focus, so the first <c>@</c> has a cache to read. Null = the popup
   ///     offers no workspace files (headless stubs).</summary>
@@ -393,6 +399,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   /// <summary>Resolves a submitted message's references. Null = nothing to resolve.</summary>
   private readonly ReferenceInjector? _references;
+  private readonly SessionPathGrants? _grants;
 
   /// <summary>Re-enumerates the popup's file cache. Null = the popup lists no workspace files.</summary>
   private readonly Func<Task>? _referenceIndexRefresh;
@@ -464,10 +471,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     this on every input change and on every caret move.</summary>
   public void UpdateReferenceCompletions(string input, int caretIndex) =>
       ReferenceCompletions?.Update(input, caretIndex);
-
-  /// <summary>The message a refused send kept, so the view can restore the input box. Set when
-  ///     a reference does not resolve; cleared by the next send that goes through.</summary>
-  public string? PendingRefusedInput { get; private set; }
 
   /// <summary>The estimate above which the composer's cost readout turns amber.</summary>
   private const int ReferenceCostHighTokens = 30_000;
@@ -566,7 +569,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   private void ApplyReferenceCost(ReferenceInjectionResult resolved)
   {
-    if (!resolved.IsSuccess || resolved.ReferenceCount == 0)
+    if (resolved.ReferenceCount == 0)
     {
       ClearReferenceCost();
       return;
@@ -685,6 +688,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // synchronous executor so the session-request path runs headless.
     _uiMarshal = options.UiMarshal ?? (action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
     _references = options.References;
+    _grants = options.PathGrants;
     _referenceIndexRefresh = options.ReferenceIndexRefresh;
     ReferenceCompletions = options.ReferenceCatalogSource is null
         ? null
@@ -1085,8 +1089,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     await SendMessageAsync(input).ConfigureAwait(true);
   }
 
-  /// <summary>Resolves a message's references and sends it. A reference that does not resolve
-  ///     refuses the send: the notice names the reason and the input is kept, never lost.
+  /// <summary>Resolves a message's references and sends it. A reference that resolves to
+  ///     nothing posts a notice and the message still sends: the user asked for the message,
+  ///     and a path that named nothing is information rather than a reason to withhold it.
   ///     <para>The bubble shows exactly what the user typed; each resolved file's read output
   ///     is appended beneath it as a transcript-only entry and rides the USER message to the
   ///     model, so no assistant turn is fabricated for a read the harness performed.</para></summary>
@@ -1097,19 +1102,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     if (_references is not null)
     {
       ReferenceInjectionResult resolved = await _references.InjectAsync(input, CancellationToken.None).ConfigureAwait(true);
-      if (!resolved.IsSuccess)
+      foreach (string notice in resolved.Notices)
       {
-        Transcript.AddNotice(resolved.FailureNotice
-            ?? "Error [ReferenceRefused]: the message's references did not resolve.");
-        PendingRefusedInput = input;
-        return;
+        Transcript.AddNotice(notice);
       }
 
       messageText = resolved.MessageText;
       blocks = resolved.AppendedBlocks;
     }
 
-    PendingRefusedInput = null;
     foreach (string block in blocks)
     {
       Transcript.AddToolResult("read", ReferenceBlockSummary(block), block, isError: false, title: "reference");
@@ -1205,16 +1206,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 
     // The prompt is a message like any other, so its references resolve first; a reference
-    // that does not resolve refuses the command and keeps the input.
+    // that resolves to nothing posts a notice and the command still runs.
     if (_references is not null)
     {
       ReferenceInjectionResult resolved = await _references.InjectAsync(prompt, CancellationToken.None).ConfigureAwait(true);
-      if (!resolved.IsSuccess)
+      foreach (string notice in resolved.Notices)
       {
-        Transcript.AddNotice(resolved.FailureNotice
-            ?? "Error [ReferenceRefused]: the prompt's references did not resolve.");
-        PendingRefusedInput = "/new " + prompt;
-        return;
+        Transcript.AddNotice(notice);
       }
 
       // The blocks ride the PROMPT, not this session's pre-turn queue: the new session runs
@@ -1225,8 +1223,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
           : string.Join(Environment.NewLine + Environment.NewLine,
               [resolved.MessageText, .. resolved.AppendedBlocks]);
     }
-
-    PendingRefusedInput = null;
 
     Transcript.AddNotice("[new session: starting a fresh session with the prompt you gave.]");
     try
@@ -1716,6 +1712,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // different process with its own conversation, so anything injected only here would
       // never reach the model.
       PreTurn = [.. _pendingPreTurn],
+      // The session's quoted-path grants ride every turn: the grant is made where the message
+      // is parsed (here) and honoured where the tools resolve paths (the host), so a grant
+      // that stayed in this process would leave the host refusing the quoted file.
+      GrantedPaths = _grants is null ? [] : [.. _grants.List.Select(directory => directory.Root)],
       // The model picker lives HERE and the agent lives in the host: a choice that did not
       // travel never reached the serving model (2026-10-22 - every host turn served the
       // fallback while the status bar showed the user's pick). The carrier is opaque JSON;

@@ -299,7 +299,8 @@ public static class AgentComposition
   ///     is never a change for sessions that approve no root.</summary>
   private static TrustedDirectoryPathResolver Resolver(IServiceProvider sp) =>
       new(sp.GetRequiredService<IPathResolver>(),
-          sp.GetRequiredService<ResolvedTrustedDirectories>().WithGeneratedArtifacts().List);
+          sp.GetRequiredService<ResolvedTrustedDirectories>().WithGeneratedArtifacts().List,
+          grants: sp.GetRequiredService<SessionPathGrants>());
 
   /// <summary>The READ view of <see cref="Resolver(IServiceProvider)"/>: the same roots with the write policy
   ///     switched off. Read-only tools pass here so an approved read-only root is
@@ -1370,6 +1371,11 @@ public static class AgentComposition
         // remote resolves nulls, an empty root list, and nothing else changes.
         .AddSingleton<TrustedDirectoriesCarrier>()
         .AddSingleton(_ => new ResolvedTrustedDirectories(ResolveTrustedDirectoriesFromSettings(settings)))
+        // Quoted-path grants: the second source of reach, filled when the app parses a message
+        // that names an external path as @"...". It rides every container because the tools
+        // resolve paths in the HOST, so the host needs the same set the app filled - which is
+        // why the app carries it on the turn rather than leaving it behind.
+        .AddSingleton<SessionPathGrants>()
         // The chain contract (issue #311) rides every container the same way: the launcher
         // fills the carrier when it starts a session FOR a chain step, and the RemoteHost
         // block overlays the value onto the settings JSON - because the HOST runs every

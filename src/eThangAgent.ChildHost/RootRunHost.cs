@@ -237,6 +237,7 @@ public sealed class RootRunHost : IDisposable
     }
 
     ApplyPreTurn(request);
+    ApplyGrantedPaths(request);
 
     // The app's live model preferences arrive on the REQUEST (2026-10-22): the picker
     // lives in the app and this process owns the agent, so a choice that did not travel
@@ -457,6 +458,26 @@ public sealed class RootRunHost : IDisposable
         throw new InvalidOperationException(
             "root turn pre-turn message carries an unknown role '" + message.Role + "'.");
       }
+    }
+  }
+
+  /// <summary>Grants the external paths the app's quoted message paths named, so the tools
+  ///     this turn runs can reach them.
+  ///     <para>THE APP PARSED THE MESSAGE, so the host applies the list instead of re-deriving
+  ///     it: the quoting rule is the app's, and a second implementation here would be a second
+  ///     answer to what the user quoted. A container with no grant set (a test rig, or a host
+  ///     that runs no tools) skips silently.</para></summary>
+  private void ApplyGrantedPaths(RootTurnRequest request)
+  {
+    if (request.GrantedPaths is not { Count: > 0 } paths
+        || Services.GetService(typeof(SessionPathGrants)) is not SessionPathGrants grants)
+    {
+      return;
+    }
+
+    foreach (string path in paths)
+    {
+      grants.Grant(path);
     }
   }
 

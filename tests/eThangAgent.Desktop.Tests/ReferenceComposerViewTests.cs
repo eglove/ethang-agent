@@ -169,8 +169,10 @@ public class ReferenceComposerViewTests
   }
 
   [AvaloniaFact]
-  public async Task ARefusedReferenceRestoresTheInput()
+  public async Task AMissingReferencePostsANoticeAndTheMessageSends()
   {
+    // A reference that resolves to nothing is information, not a refusal: the box clears, the
+    // message goes, and the notice says what was left out.
     Harness h = Show(new FakeFiles { Missing = true });
     _ = h.Input.Focus();
     h.Input.Text = "read @missing.cs please";
@@ -178,11 +180,11 @@ public class ReferenceComposerViewTests
     Dispatcher.UIThread.RunJobs();
 
     h.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-    await SettleAsync(() => h.Input.Text == "read @missing.cs please").ConfigureAwait(true);
+    await SettleAsync(() => h.Input.Text.Length == 0).ConfigureAwait(true);
 
-    Assert.Equal("read @missing.cs please", h.Input.Text);
-    Assert.Equal(h.Input.Text.Length, h.Input.CaretIndex);
-    Assert.DoesNotContain(h.Vm.Transcript.Entries, e => e is UserMessageEntry);
+    Assert.Equal("", h.Input.Text);
+    Assert.Contains(h.Vm.Transcript.Entries,
+        e => e is UserMessageEntry u && u.Text == "read @missing.cs please");
     Assert.Contains(h.Vm.Transcript.Entries,
         e => e is NoticeEntry n && n.Text.Contains("ReferenceNotFound", StringComparison.Ordinal));
   }

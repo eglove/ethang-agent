@@ -3058,8 +3058,10 @@ internal sealed partial class MainViewModel : ObservableObject
           // A container that registered no file access (a bare test stub) resolves no
           // references; every production container registers it.
           References = session.Services.GetService<IFileSystemAccess>() is { } referenceFiles
-              ? new ReferenceInjector(referenceFiles, session.SkillInvocation, session.WorkspaceRoot)
+              ? new ReferenceInjector(referenceFiles, session.SkillInvocation, session.WorkspaceRoot,
+                  session.Services.GetService<SessionPathGrants>())
               : null,
+          PathGrants = session.Services.GetService<SessionPathGrants>(),
           ReferenceIndexRefresh = fileIndex is null ? null : () => fileIndex.RefreshAsync(),
           // Issue #234: the /new slash command and the host's session-request both start a
           // session in THIS tab's workspace, as a new cell. Both refuse while the tab is

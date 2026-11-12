@@ -90,6 +90,9 @@ public class ReferenceSubmitTests
     List<string> turns = [];
     DirectFileSystemAccess fileAccess = new(new EditorConfigTextConventionPolicy(root));
     CountingFiles counter = new(fileAccess);
+    // The grant set is what a quoted path fills and what the tools consult, exactly as the
+    // production container wires it.
+    SessionPathGrants grants = new();
     AgentSessionViewModel vm = new(
         (command, _, _, _) =>
         {
@@ -105,7 +108,9 @@ public class ReferenceSubmitTests
           References = new ReferenceInjector(
               counter,
               skills.Length == 0 ? null : new SkillInvocationService(new FakeCatalog(skills)),
-              root),
+              root,
+              grants),
+          PathGrants = grants,
         });
     return new Harness(vm, turns, root, fileAccess, counter);
   }
@@ -136,18 +141,71 @@ public class ReferenceSubmitTests
   }
 
   [Fact]
-  public async Task MissingReferenceKeepsTheInputAndPostsANotice()
+  public async Task AMissingReferencePostsANoticeAndTheMessageStillSends()
   {
+    // A reference that resolves to nothing must not cost the user the message: the notice
+    // says what was left out and the turn runs with the text exactly as typed.
     using Harness h = Build(new Dictionary<string, string[]>());
 
     await h.Vm.SubmitAsync("read @missing.cs please").ConfigureAwait(true);
     await h.Vm.WaitForTurnAsync().ConfigureAwait(true);
 
-    Assert.DoesNotContain(h.Vm.Transcript.Entries, e => e is UserMessageEntry);
     Assert.Contains(h.Vm.Transcript.Entries,
         e => e is NoticeEntry n && n.Text.Contains("ReferenceNotFound", StringComparison.Ordinal));
-    Assert.Equal("read @missing.cs please", h.Vm.PendingRefusedInput);
-    Assert.Empty(h.Turns);
+    Assert.Contains(h.Vm.Transcript.Entries,
+        e => e is UserMessageEntry u && u.Text == "read @missing.cs please");
+    Assert.Equal(["read @missing.cs please"], h.Turns);
+  }
+
+  [Fact]
+  public async Task AQuotedExternalPathIsReadBeneathTheUserMessage()
+  {
+    // The quoted form is what grants the path, and the grant is what lets the injector read a
+    // file the workspace resolver refuses.
+    string external = TestTempRoot.CreateDirectory("ethang-refexternal").FullName;
+    string file = Path.Combine(external, "View encrypted message.pdf.txt");
+    await File.WriteAllLinesAsync(file, ["secret", "payload"], TestContext.Current.CancellationToken);
+    try
+    {
+      using Harness h = Build(new Dictionary<string, string[]>());
+
+      await h.Vm.SubmitAsync($"@\"{file}\" please").ConfigureAwait(true);
+      await h.Vm.WaitForTurnAsync().ConfigureAwait(true);
+
+      Assert.DoesNotContain(h.Vm.Transcript.Entries,
+          e => e is NoticeEntry n && n.Text.Contains("Reference", StringComparison.Ordinal));
+      Assert.Contains(h.Vm.Transcript.Entries,
+          e => e is ToolResultEntry t && t.FullContent.Contains("1→ secret", StringComparison.Ordinal));
+      _ = Assert.Single(h.Turns);
+    }
+    finally
+    {
+      Directory.Delete(external, recursive: true);
+    }
+  }
+
+  [Fact]
+  public async Task AnUnquotedExternalPathStaysOutOfReach()
+  {
+    // The same path without its quotes grants nothing: naming a file in prose is not a
+    // statement that the session may open it.
+    string external = TestTempRoot.CreateDirectory("ethang-refexternal2").FullName;
+    string file = Path.Combine(external, "notes.txt");
+    await File.WriteAllLinesAsync(file, ["secret"], TestContext.Current.CancellationToken);
+    try
+    {
+      using Harness h = Build(new Dictionary<string, string[]>());
+
+      await h.Vm.SubmitAsync($"{file} please").ConfigureAwait(true);
+      await h.Vm.WaitForTurnAsync().ConfigureAwait(true);
+
+      _ = Assert.Single(h.Turns);
+      Assert.Equal(0, h.Files.ReadCount);
+    }
+    finally
+    {
+      Directory.Delete(external, recursive: true);
+    }
   }
 
   [Fact]
@@ -188,6 +246,5 @@ public class ReferenceSubmitTests
     Assert.Contains(h.Vm.Transcript.Entries,
         e => e is ToolResultEntry t && t.FullContent.Contains("1→ ", StringComparison.Ordinal));
     Assert.Equal(["check @notes.txt"], h.Turns);
-    Assert.Null(h.Vm.PendingRefusedInput);
   }
 }

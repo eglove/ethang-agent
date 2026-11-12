@@ -580,12 +580,12 @@ internal partial class AgentView : UserControl
     }
   }
 
-  /// <summary>Sends the input and clears the box. A send whose references do not resolve is
-  ///     refused by the view-model, which keeps the message: the box is restored with it so the
-  ///     user's text is never lost and stays editable (spec 7).</summary>
+  /// <summary>Sends the input and clears the box. A reference that resolves to nothing is
+  ///     reported as a notice and the message still goes, so the box is cleared either way and
+  ///     only a fault puts the text back.</summary>
   private void SubmitInput() => _ = SubmitAndRestoreAsync();
 
-  /// <summary>Sends the input and restores it when the send was refused. A fault is delivered
+  /// <summary>Sends the input and restores it when the send faulted. A fault is delivered
   ///     to the transcript rather than dropped: the caller fire-and-forgets this task, so an
   ///     unobserved exception would leave the user with no sign the message never went.</summary>
   private async Task SubmitAndRestoreAsync()
@@ -608,17 +608,8 @@ internal partial class AgentView : UserControl
       vm.Transcript.AddNotice($"Error [SubmitFault]: {ex.Message}");
       InputBox.Text = text;
       InputBox.CaretIndex = text.Length;
-      return;
     }
 #pragma warning restore CA1031
-
-    if (vm.PendingRefusedInput is not { } refused)
-    {
-      return;
-    }
-
-    InputBox.Text = refused;
-    InputBox.CaretIndex = refused.Length;
   }
 
   private void OnStopClick(object? sender, RoutedEventArgs e) => Vm?.RequestStop();

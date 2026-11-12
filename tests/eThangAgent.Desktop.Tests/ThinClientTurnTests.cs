@@ -132,6 +132,34 @@ public sealed class ThinClientTurnTests
   }
 
   [Fact]
+  public async Task SubmitAsync_AQuotedExternalPath_CarriesTheGrantToTheHost()
+  {
+    // The grant is made where the message is parsed (here) and honoured where the tools
+    // resolve paths (the host), so a grant that stayed in this process would leave the host
+    // refusing the very file the user quoted.
+    string root = TestTempRoot.CreateDirectory("ethang-thinclient-grant").FullName;
+    try
+    {
+      await File.WriteAllLinesAsync(Path.Combine(root, "notes.txt"), ["alpha"],
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+      using DirectFileSystemAccess files = new(new EditorConfigTextConventionPolicy(root));
+      SessionPathGrants grants = new();
+      FakeHostSession session = await FakeHostSession
+          .StartAsync(["done"], references: new ReferenceInjector(files, null, root, grants), grants: grants)
+          .ConfigureAwait(true);
+
+      string quoted = "@" + (char)34 + Path.Combine(root, "notes.txt") + (char)34;
+      await session.ViewModel.SubmitAsync(quoted).ConfigureAwait(true);
+
+      RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
+      Assert.Equal([Path.Combine(root, "notes.txt")], request.GrantedPaths);
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
+  }
+  [Fact]
   public async Task SubmitAsync_ReferenceBlock_CarriesTheReadOutputAsPreTurn()
   {
     string root = TestTempRoot.CreateDirectory("ethang-thinclient-ref").FullName;
@@ -418,7 +446,7 @@ internal sealed class FakeHostSession
   ///     the turn in flight until it is cancelled (the stop-button shape).</summary>
   public static Task<FakeHostSession> StartAsync(IReadOnlyList<string> deltas, bool holdOpen = false,
       string? skillName = null, bool commandLine = false, SessionModelPreferences? preferences = null,
-      ReferenceInjector? references = null)
+      ReferenceInjector? references = null, SessionPathGrants? grants = null)
   {
     ArgumentNullException.ThrowIfNull(deltas);
     FakeRootTurnChannel host = new(deltas, holdOpen);
@@ -437,6 +465,7 @@ internal sealed class FakeHostSession
           SkillInvocation = skillName is null ? null : new SkillInvocationService(new FakeSkillCatalog(skillName)),
           ReferenceCatalogSource = skillName is null ? null : (_, _) => [],
           References = references,
+          PathGrants = grants,
           CommandRunner = commandLine ? new FakeCommandRunner() : null,
           ModelPreferences = preferences,
         });

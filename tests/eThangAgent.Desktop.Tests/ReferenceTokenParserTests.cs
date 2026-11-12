@@ -38,4 +38,38 @@ public class ReferenceTokenParserTests
   [Fact]
   public void UnescapeCollapsesDoubleAt()
     => Assert.Equal("a@b", ReferenceTokenParser.Unescape("a@@b"));
+
+  [Fact]
+  public void AQuotedPathIsTakenVerbatimIncludingSpaces()
+  {
+    // The whole point of the quotes: a path with spaces is one path, not three words.
+    List<string> paths = ReferenceTokenParser.QuotedPaths(
+        @"@""C:\Users\glove\Downloads\View encrypted message.pdf"" please");
+
+    Assert.Equal([@"C:\Users\glove\Downloads\View encrypted message.pdf"], paths);
+  }
+
+  [Fact]
+  public void SeveralQuotedPathsAreReturnedInOrder()
+  {
+    List<string> paths = ReferenceTokenParser.QuotedPaths(
+        @"@""C:\a\one.png"" and @""C:\b\two.txt""");
+
+    Assert.Equal([@"C:\a\one.png", @"C:\b\two.txt"], paths);
+  }
+
+  [Theory]
+  [InlineData(@"C:\Users\glove\Downloads\graph.png")]
+  [InlineData(@"see ""C:\Users\glove\Downloads\graph.png"" please")]
+  [InlineData(@"@C:\Users\glove\Downloads\graph.png")]
+  public void OnlyTheQuotedFormNamesAPath(string input)
+    => Assert.Empty(ReferenceTokenParser.QuotedPaths(input));
+
+  [Fact]
+  public void AnEscapedAtNeverOpensAQuotedPath()
+    => Assert.Empty(ReferenceTokenParser.QuotedPaths(@"a@@""C:\a\b.txt"""));
+
+  [Fact]
+  public void AnUnterminatedQuoteNamesNothing()
+    => Assert.Empty(ReferenceTokenParser.QuotedPaths(@"@""C:\a\b.txt"));
 }

@@ -267,4 +267,32 @@ public class RootTurnProtocolTests
     Assert.Equal(carrier, parsed.ModelPreferences);
     Assert.Equal(request, parsed);
   }
+
+  [Fact]
+  public void RootTurnRequest_TheGrantedPaths_RoundTrip()
+  {
+    // The grant is made in the app and honoured in the host, so it has to survive the wire
+    // AND participate in equality: a request that lost it would leave the host refusing the
+    // file the user quoted.
+    RootTurnRequest request = new("turn-1", "hello", [])
+    {
+      GrantedPaths = [@"C:\Users\me\Downloads\graph.png"],
+    };
+
+    RootTurnRequest parsed = RootTurnProtocol.ParseRequest(RootTurnProtocol.SerializeRequest(request));
+
+    Assert.Equal([@"C:\Users\me\Downloads\graph.png"], parsed.GrantedPaths);
+    Assert.Equal(request, parsed);
+  }
+
+  [Fact]
+  public void RootTurnRequest_WithoutGrants_ComparesEqualToOneThatOmittedThem()
+  {
+    // Every caller that predates grants produces the same request, so the member"s absence
+    // must compare as empty rather than as a difference.
+    RootTurnRequest plain = new("turn-1", "hello", []);
+    RootTurnRequest explicitEmpty = new("turn-1", "hello", []) { GrantedPaths = [] };
+
+    Assert.Equal(plain, explicitEmpty);
+  }
 }

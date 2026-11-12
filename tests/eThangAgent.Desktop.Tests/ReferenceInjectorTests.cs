@@ -22,10 +22,15 @@ public class ReferenceInjectorTests
 
     public bool Missing { get; init; }
 
+    /// <summary>File names that are absent while every other name resolves, so one message can
+    ///     carry a resolvable reference beside an absent one.</summary>
+    public IReadOnlyList<string> MissingFor { get; init; } = [];
+
     public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine, CancellationToken ct = default)
     {
       Reads.Add(path);
-      return Task.FromResult(Missing
+      bool absent = Missing || MissingFor.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase);
+      return Task.FromResult(absent
           ? Result.Failure<FileRead>(new DomainError("FileNotFound", $"File not found: {path}"))
           : Result.Success(new FileRead(Lines, Lines.Count, Lines.Count, Version)));
     }
@@ -51,20 +56,35 @@ public class ReferenceInjectorTests
     => new(files, skills, Root);
 
   [Fact]
-  public async Task MissingFileRefusesAndNamesThePath()
+  public async Task AMissingFilePostsANoticeAndDeliversNothing()
   {
+    // A reference that resolves to nothing is information about the message, not a reason to
+    // withhold it: the notice names the path and the message travels without it.
     ReferenceInjectionResult r = await Injector(new FakeFiles { Missing = true })
         .InjectAsync("look at @nope/Missing.cs", Ct);
-    Assert.False(r.IsSuccess);
-    Assert.Contains("ReferenceNotFound", r.FailureNotice, StringComparison.Ordinal);
-    Assert.Contains("nope/Missing.cs", r.FailureNotice, StringComparison.Ordinal);
+    Assert.Equal("look at @nope/Missing.cs", r.MessageText);
+    Assert.Empty(r.AppendedBlocks);
+    Assert.Contains("ReferenceNotFound", Assert.Single(r.Notices), StringComparison.Ordinal);
+    Assert.Contains("nope/Missing.cs", r.Notices[0], StringComparison.Ordinal);
+    Assert.Equal(0, r.ReferenceCount);
+  }
+
+  [Fact]
+  public async Task AResolvedReferenceBesideAMissingOneStillArrives()
+  {
+    // One bad reference must not cost the user the good one.
+    FakeFiles files = new() { MissingFor = ["gone.txt"] };
+    ReferenceInjectionResult r = await Injector(files).InjectAsync("@notes.txt and @gone.txt", Ct);
+    Assert.Contains("1→ alpha", Assert.Single(r.AppendedBlocks), StringComparison.Ordinal);
+    _ = Assert.Single(r.Notices);
+    Assert.Equal(1, r.ReferenceCount);
   }
 
   [Fact]
   public async Task FileReferenceAppendsReadToolOutputVerbatim()
   {
     ReferenceInjectionResult r = await Injector(new FakeFiles()).InjectAsync("check @notes.txt", Ct);
-    Assert.True(r.IsSuccess);
+    Assert.Empty(r.Notices);
     Assert.Equal("check @notes.txt", r.MessageText);
     Assert.StartsWith("[read ", r.AppendedBlocks[0], StringComparison.Ordinal);
     Assert.Contains("1→ alpha", r.AppendedBlocks[0], StringComparison.Ordinal);
@@ -88,8 +108,7 @@ public class ReferenceInjectorTests
   {
     FakeFiles files = new();
     ReferenceInjectionResult r = await Injector(files).InjectAsync("@../outside.txt", Ct);
-    Assert.False(r.IsSuccess);
-    Assert.Contains("ReferenceOutsideWorkspace", r.FailureNotice, StringComparison.Ordinal);
+    Assert.Contains("ReferenceOutsideWorkspace", Assert.Single(r.Notices), StringComparison.Ordinal);
     Assert.Empty(files.Reads);
   }
 
@@ -97,7 +116,7 @@ public class ReferenceInjectorTests
   public async Task EveryReferenceInTheMessageAppendsInOrder()
   {
     ReferenceInjectionResult r = await Injector(new FakeFiles()).InjectAsync("@a.txt and @b.txt", Ct);
-    Assert.True(r.IsSuccess);
+    Assert.Empty(r.Notices);
     Assert.Equal(2, r.AppendedBlocks.Count);
     Assert.Contains("a.txt", r.AppendedBlocks[0], StringComparison.Ordinal);
     Assert.Contains("b.txt", r.AppendedBlocks[1], StringComparison.Ordinal);
@@ -118,7 +137,7 @@ public class ReferenceInjectorTests
   {
     SkillInvocationService skills = new(new FakeCatalog(Skill("grill")));
     ReferenceInjectionResult r = await Injector(new FakeFiles(), skills: skills).InjectAsync("@grill", Ct);
-    Assert.True(r.IsSuccess);
+    Assert.Empty(r.Notices);
     Assert.Contains("[skill invoked: grill]", r.AppendedBlocks[0], StringComparison.Ordinal);
     Assert.Contains("Body of grill", r.AppendedBlocks[0], StringComparison.Ordinal);
   }
@@ -129,7 +148,7 @@ public class ReferenceInjectorTests
     FakeFiles files = new();
     SkillInvocationService skills = new(new FakeCatalog(Skill("notes.txt")));
     ReferenceInjectionResult r = await Injector(files, skills: skills).InjectAsync("@notes.txt", Ct);
-    Assert.True(r.IsSuccess);
+    Assert.Empty(r.Notices);
     Assert.Contains("[skill invoked: notes.txt]", r.AppendedBlocks[0], StringComparison.Ordinal);
     Assert.Empty(files.Reads);
   }
@@ -140,9 +159,8 @@ public class ReferenceInjectorTests
     SkillInvocationService skills = new(new FakeCatalog(Skill("grill")));
     ReferenceInjectionResult r = await Injector(new FakeFiles { Missing = true }, skills: skills)
         .InjectAsync("@alpha", Ct);
-    Assert.False(r.IsSuccess);
-    Assert.Contains("ReferenceNotFound", r.FailureNotice, StringComparison.Ordinal);
-    Assert.Contains("alpha", r.FailureNotice, StringComparison.Ordinal);
+    Assert.Contains("ReferenceNotFound", Assert.Single(r.Notices), StringComparison.Ordinal);
+    Assert.Contains("alpha", r.Notices[0], StringComparison.Ordinal);
   }
 
   [Fact]
@@ -150,7 +168,7 @@ public class ReferenceInjectorTests
   {
     FakeFiles files = new();
     ReferenceInjectionResult r = await Injector(files).InjectAsync("mail a@@b.txt please", Ct);
-    Assert.True(r.IsSuccess);
+    Assert.Empty(r.Notices);
     Assert.Empty(r.AppendedBlocks);
     Assert.Equal("mail a@b.txt please", r.MessageText);
     Assert.Empty(files.Reads);
@@ -160,10 +178,9 @@ public class ReferenceInjectorTests
   public async Task NoReferencesLeavesTheMessageUnchanged()
   {
     ReferenceInjectionResult r = await Injector(new FakeFiles()).InjectAsync("plain text", Ct);
-    Assert.True(r.IsSuccess);
     Assert.Equal("plain text", r.MessageText);
     Assert.Empty(r.AppendedBlocks);
-    Assert.Null(r.FailureNotice);
+    Assert.Empty(r.Notices);
     Assert.Equal(0, r.ReferenceCount);
     Assert.Equal(0, r.EstimatedTokens);
   }

@@ -125,6 +125,18 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
   ///     input (slash invocation lines, ! command lines). Empty for an ordinary turn.</summary>
   public IReadOnlyList<RootTurnPreTurnMessage> PreTurn { get; init; } = [];
 
+  /// <summary>The external paths this session has been granted by a quoted message path, as
+  ///     absolute paths. They ride the request because the GRANT is made where the message is
+  ///     parsed - in the app - while the tools that must honour it resolve paths in the host,
+  ///     which is a different process with its own container. A grant that did not travel would
+  ///     leave the host refusing the very file the user quoted.
+  ///     <para>THE APP IS THE AUTHORITY, so the host applies the list rather than deriving one:
+  ///     re-parsing the input host-side would be a second implementation of the quoting rule,
+  ///     and the two would drift. Empty for an ordinary turn, and omitted from the wire when
+  ///     empty, so a turn carrying no grant serializes exactly as it did before this existed.
+  ///     </para></summary>
+  public IReadOnlyList<string> GrantedPaths { get; init; } = [];
+
   /// <summary>The app's LIVE model preferences, as opaque JSON (the
   ///     <c>SessionModelPreferencesJson</c> wire form), or null for an ordinary turn.
   ///     <para>WHY THE TURN CARRIES IT (2026-10-22): the model picker lives in the app and
@@ -160,9 +172,21 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
           && CollectionsEqual(other);
 
   private bool CollectionsEqual(RootTurnRequest other)
-      => (Seed ?? []).SequenceEqual(other.Seed ?? [], StringComparer.Ordinal)
-          && (Images ?? []).SequenceEqual(other.Images ?? [])
-          && (PreTurn ?? []).SequenceEqual(other.PreTurn ?? []);
+      => CollectionsEqual(this, other);
+
+  /// <summary>The collection half, static so each family of members is compared in one place
+  ///     and neither the equality nor the hash grows a branch per collection.</summary>
+  private static bool CollectionsEqual(RootTurnRequest left, RootTurnRequest right)
+      => SequenceEqual(left.Seed, right.Seed, StringComparer.Ordinal)
+          && SequenceEqual(left.Images, right.Images, null)
+          && SequenceEqual(left.PreTurn, right.PreTurn, null)
+          && SequenceEqual(left.GrantedPaths, right.GrantedPaths, StringComparer.Ordinal);
+
+  /// <summary>Element-wise comparison treating a null member as empty, which is how a peer
+  ///     that omitted the field compares against one that sent it.</summary>
+  private static bool SequenceEqual<T>(IReadOnlyList<T>? left, IReadOnlyList<T>? right,
+      IEqualityComparer<T>? comparer)
+      => (left ?? []).SequenceEqual(right ?? [], comparer);
 
   public override int GetHashCode()
   {
@@ -185,6 +209,11 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
     foreach (RootTurnPreTurnMessage message in PreTurn ?? [])
     {
       hash.Add(message);
+    }
+
+    foreach (string path in GrantedPaths ?? [])
+    {
+      hash.Add(path, StringComparer.Ordinal);
     }
 
     return hash.ToHashCode();

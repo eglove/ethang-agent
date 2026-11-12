@@ -32,6 +32,11 @@ public sealed record TrustedDirectory(string Root, bool Editable = false);
 /// separators stripped) and compared case-insensitively, exactly as the workspace
 /// resolver compares the workspace: a picked folder that arrives with a trailing
 /// separator must not flip every containment check.</para>
+/// <para>SESSION GRANTS widen the same set: a path the user quoted in a message is
+/// granted for the session, read-only, so the two sources are one reach list with one
+/// place to consult. The grant set is LIVE rather than snapshotted - a grant made
+/// between two resolutions must apply to the second - so it is read on every
+/// resolution instead of being copied at construction.</para>
 /// <para>NAMED DECISION - anchoring drops the trusted set. The anchoring seam (a scoped
 /// tool's RootedAt) builds a bare resolver at the anchor, so an anchored child never
 /// inherits its parent's external approvals: an anchor is a narrower confinement
@@ -41,19 +46,28 @@ public sealed class TrustedDirectoryPathResolver : IPathResolver
 {
   private readonly IPathResolver _inner;
   private readonly bool _enforceWritePolicy;
+  private readonly SessionPathGrants? _grants;
 
   /// <param name="inner">The resolver this one widens. Consulted FIRST, always.</param>
   /// <param name="trusted">User-approved external roots, already parsed.</param>
   /// <param name="enforceWritePolicy">True for MUTATING tools: a trusted root that is
   ///     not editable refuses writes. False for read-only tools, which never write, so
   ///     the permission cannot matter to them.</param>
+  /// <param name="grants">The session's quoted-path grants, or null for none. Read on every
+  ///     resolution, so a grant made after construction still applies.</param>
   public TrustedDirectoryPathResolver(IPathResolver inner, IReadOnlyList<TrustedDirectory>? trusted = null,
-      bool enforceWritePolicy = true)
+      bool enforceWritePolicy = true, SessionPathGrants? grants = null)
   {
     _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     _enforceWritePolicy = enforceWritePolicy;
-    TrustedRoots = [.. (trusted ?? []).Select(t => t with { Root = NormalizeRoot(t.Root) })];
+    _grants = grants;
+    TrustedRoots = [.. (trusted ?? []).Select(t => t with { Root = TrustedRootPath.Normalize(t.Root) })];
   }
+
+  /// <summary>Every root this resolver accepts: the approved list first, then the session's
+  ///     quoted-path grants. Empty when nothing is approved and nothing was quoted.</summary>
+  public IReadOnlyList<TrustedDirectory> ReachableRoots =>
+      _grants is null ? TrustedRoots : [.. TrustedRoots, .. _grants.List];
 
   /// <summary>The normalized trusted roots, in configured order.</summary>
   public IReadOnlyList<TrustedDirectory> TrustedRoots { get; }
@@ -65,21 +79,22 @@ public sealed class TrustedDirectoryPathResolver : IPathResolver
   ///     <see cref="ActionScopedPathResolver"/> for the container tools, whose actions
   ///     flip between reading and writing).</summary>
   public TrustedDirectoryPathResolver AsReadOnlyResolver() =>
-      _enforceWritePolicy ? new(_inner, TrustedRoots, enforceWritePolicy: false) : this;
+      _enforceWritePolicy ? new(_inner, TrustedRoots, enforceWritePolicy: false, _grants) : this;
 
   public Result<string> Resolve(string path)
   {
     Result<string> resolved = _inner.Resolve(path);
     // The wrapped resolver owns every path it accepts, and its refusal is the only
     // case the trusted roots may answer - never a reinterpretation of a success.
-    return resolved.IsSuccess || TrustedRoots.Count == 0 ? resolved : ResolveTrusted(path, resolved);
+    IReadOnlyList<TrustedDirectory> roots = ReachableRoots;
+    return resolved.IsSuccess || roots.Count == 0 ? resolved : ResolveTrusted(path, resolved, roots);
   }
 
   /// <summary>Reconsiders a REFUSED path against the approved roots. A RELATIVE path
   ///     cannot be rescued (relative paths belong to the workspace, and one that escaped
   ///     it stays refused), and neither can a malformed one - both keep the wrapped
   ///     refusal verbatim, because a bad path is bad everywhere.</summary>
-  private Result<string> ResolveTrusted(string path, Result<string> refused)
+  private Result<string> ResolveTrusted(string path, Result<string> refused, IReadOnlyList<TrustedDirectory> roots)
   {
     if (!Path.IsPathRooted(path))
     {
@@ -97,8 +112,8 @@ public sealed class TrustedDirectoryPathResolver : IPathResolver
       return refused;
     }
 
-    TrustedDirectory? match = TrustedRoots.FirstOrDefault(d => IsInside(d.Root, full));
-    return match is null ? EnrichRefusal(refused, full) : Accept(path, full, match);
+    TrustedDirectory? match = roots.FirstOrDefault(d => TrustedRootPath.Contains(d.Root, full));
+    return match is null ? EnrichRefusal(refused, full, roots) : Accept(path, full, match);
   }
 
   /// <summary>Accepts a path inside an approved root, or refuses it when the root is
@@ -116,34 +131,20 @@ public sealed class TrustedDirectoryPathResolver : IPathResolver
   ///     list from the failure instead of guessing at it. Refusals that are not
   ///     PathOutsideWorkspace - InvalidPath, a binary-file refusal, anything else - pass
   ///     through untouched: they were never about containment.</summary>
-  private Result<string> EnrichRefusal(Result<string> refused, string full)
+  private static Result<string> EnrichRefusal(Result<string> refused, string full,
+      IReadOnlyList<TrustedDirectory> roots)
   {
     if (refused.Error is not { Code: "PathOutsideWorkspace" } error)
     {
       return refused;
     }
 
-    string approved = string.Join("; ", TrustedRoots.Select(t =>
+    string approved = string.Join("; ", roots.Select(t =>
         $"'{t.Root}' " + (t.Editable ? "read/write" : "read-only")));
     return Result.Failure<string>(error with
     {
       Message = error.Message + $" Trusted directories approved for this workspace ({approved})"
           + $": a path inside one of those is accepted, and '{full}' is in none.",
     });
-  }
-
-  /// <summary>Segment-aware, case-insensitive containment: a sibling directory whose name
-  ///     merely shares a prefix with the root is correctly excluded.</summary>
-  private static bool IsInside(string root, string candidate) =>
-      string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase)
-      || candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-
-  /// <summary>Canonical form of a root: fully qualified with any trailing separators
-  ///     removed, so comparisons never differ by separator or case. A drive root ('C:\\')
-  ///     keeps its separator, or it would stop naming the drive root.</summary>
-  private static string NormalizeRoot(string root)
-  {
-    string full = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-    return full.Length == 2 && full[1] == ':' ? full + Path.DirectorySeparatorChar : full;
   }
 }
