@@ -248,8 +248,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     the container wired no watcher (headless stubs).</summary>
   private IDisposable? _languageWatch;
 
-  /// <summary>The detection pass in flight, so each pass waits for the one before it.</summary>
-  private Task _languagePass = Task.CompletedTask;
+  /// <summary>The detection pass in flight, so each pass waits for the one before it. It
+  ///     completes once the prompt has applied that pass's answer, which is what a caller
+  ///     waits on to observe the prompt without polling a property written on a pool
+  ///     thread.</summary>
+  internal Task LanguagePass { get; private set; } = Task.CompletedTask;
 
   /// <summary>The workspace's language detection, or null when the container wired none.
   ///     Read on the pool: the walk touches every file in the workspace.</summary>
@@ -764,7 +767,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>Queues one detection pass behind the one already running.</summary>
-  private void RefreshLanguagePrompt() => _languagePass = LanguagePassAsync(_languagePass);
+  private void RefreshLanguagePrompt() => LanguagePass = LanguagePassAsync(LanguagePass);
 
   /// <summary>One detection pass: the languages the workspace holds and the ones this
   ///     machine serves, applied to the prompt on the UI thread.</summary>
@@ -783,6 +786,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     try
     {
       detected = detector.Detect(root);
+      // The installer's installed list is an in-memory copy of the preference store,
+      // filled by a refresh and empty until one runs. A container's installer starts
+      // empty, so the read below is only an answer about this machine after the
+      // refresh that fills it.
+      await installer.RefreshAsync(CancellationToken.None).ConfigureAwait(false);
       installed = installer.InstalledLanguageIds();
     }
     catch (Exception ex) when (ex is not OperationCanceledException)

@@ -292,6 +292,26 @@ public partial class LanguagePromptViewModelTests
     Assert.Equal("Rust and Go support available", vm.LanguagePrompt.Message);
   }
 
+  /// <summary>A language the stored preference already names is not offered, over an
+  ///     installer that has not been refreshed: detection names TypeScript, the store says it
+  ///     is installed, and the prompt stays hidden.</summary>
+  [Fact]
+  public async Task ALanguageTheStoredPreferenceNames_IsNotPromptedFor()
+  {
+    MemoryPreferences preferences = new();
+    preferences.Values[LanguageServerPreferences.InstalledKey] = LanguageServerPreferences.Serialize(
+        [new InstalledLanguageServer("typescript", LspServerCatalog.ForLanguage("typescript")!.Version)]);
+    LanguageServerInstaller installer = new(LanguageServerCatalog.Default, preferences, TestInstallRoot());
+    ScriptedDetector detector = new("typescript");
+    AgentSessionViewModel vm = Session(detector, installer, new ScriptedWatcher());
+
+    await vm.LanguagePass.ConfigureAwait(true);
+
+    Assert.Equal(1, detector.Passes);
+    Assert.False(vm.LanguagePrompt!.IsVisible);
+    Assert.Equal(string.Empty, vm.LanguagePrompt.Message);
+  }
+
   [Fact]
   public void ASessionWithoutLanguageSeams_HasNoPrompt()
   {
@@ -325,6 +345,11 @@ public partial class LanguagePromptViewModelTests
 
     return dir!.FullName;
   }
+
+  /// <summary>An install root inside the test's own temp tree: nothing in these tests
+  ///     installs, so no directory is created, and nothing outside it is ever touched.</summary>
+  private static string TestInstallRoot() =>
+      Path.Combine(TestTempRoot.Root, "ethang-lsp-prompt-tests");
 
   /// <summary>Waits for a condition the session reaches on a pool thread, bounded by the
   ///     suite's own ceiling so a broken prompt fails instead of hanging.</summary>
