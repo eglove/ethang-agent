@@ -160,6 +160,153 @@ public class DirectWorkspaceSnapshotAccessTests
     }
   }
 
+  /// <summary>A pass over an unchanged tree reuses the evidence it already holds instead of
+  ///     re-reading every file, and the answer is identical to a cold walk: same files, same
+  ///     fingerprints, same digest.</summary>
+  [Fact]
+  public async Task Capture_WithUnchangedPrevious_ProducesTheSameSnapshot()
+  {
+    string root = NewTree();
+    try
+    {
+      Write(root, "a.cs", "one");
+      Write(root, "src/b.cs", "two");
+      DirectWorkspaceSnapshotAccess access = new();
+      WorkspaceSnapshot cold = await access.CaptureAsync(root, TestContext.Current.CancellationToken);
+
+      WorkspaceSnapshot warm = await access.CaptureAsync(root, cold, TestContext.Current.CancellationToken);
+
+      Assert.Equal(cold.Digest, warm.Digest);
+      Assert.Equal(cold.Files.Count, warm.Files.Count);
+      foreach ((string path, WorkspaceFileFingerprint fingerprint) in cold.Files)
+      {
+        Assert.Equal(fingerprint, warm.Files[path]);
+      }
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  /// <summary>A file whose metadata moved is read again, so a same-length in-place edit is
+  ///     still reported against a warm previous.
+  ///     <para>The last-write time is set explicitly because both versions would otherwise land
+  ///     inside one filesystem timestamp tick, making 'unchanged metadata' and 'changed content'
+  ///     the same observation.</para></summary>
+  [Fact]
+  public async Task Capture_WithPrevious_StillSeesASameLengthEdit()
+  {
+    string root = NewTree();
+    try
+    {
+      Write(root, "a.cs", "abc");
+      string path = Path.Combine(root, "a.cs");
+      File.SetLastWriteTimeUtc(path, new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+      DirectWorkspaceSnapshotAccess access = new();
+      WorkspaceSnapshot before = await access.CaptureAsync(root, TestContext.Current.CancellationToken);
+
+      Write(root, "a.cs", "xyz");
+      File.SetLastWriteTimeUtc(path, new DateTime(2024, 1, 1, 0, 0, 1, DateTimeKind.Utc));
+
+      WorkspaceSnapshot after = await access.CaptureAsync(root, before, TestContext.Current.CancellationToken);
+
+      Assert.Equal(["a.cs"], before.DiffTo(after).Modified);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  /// <summary>A no-op rewrite moves the timestamp but not the bytes, so the file is re-read and
+  ///     the report stays empty.</summary>
+  [Fact]
+  public async Task Capture_WithPrevious_StillIgnoresANoOpRewrite()
+  {
+    string root = NewTree();
+    try
+    {
+      Write(root, "a.cs", "abc");
+      string path = Path.Combine(root, "a.cs");
+      File.SetLastWriteTimeUtc(path, new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+      DirectWorkspaceSnapshotAccess access = new();
+      WorkspaceSnapshot before = await access.CaptureAsync(root, TestContext.Current.CancellationToken);
+
+      Write(root, "a.cs", "abc");
+      File.SetLastWriteTimeUtc(path, new DateTime(2024, 1, 1, 0, 0, 2, DateTimeKind.Utc));
+
+      WorkspaceSnapshot after = await access.CaptureAsync(root, before, TestContext.Current.CancellationToken);
+
+      Assert.True(before.DiffTo(after).IsEmpty, "a byte-identical rewrite is not a change");
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  /// <summary>When a file's length and last-write time are unchanged, the recorded hash is
+  ///     reused rather than the file being read again.
+  ///     <para>The content is written behind the metadata's back here, which no real writer can
+  ///     do, so the assertion is about the reuse rather than about what a user would see.
+  ///     </para></summary>
+  [Fact]
+  public async Task Capture_WithUnchangedMetadata_ReusesTheRecordedHash()
+  {
+    string root = NewTree();
+    try
+    {
+      Write(root, "a.cs", "abc");
+      string path = Path.Combine(root, "a.cs");
+      DateTime stamp = new(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+      File.SetLastWriteTimeUtc(path, stamp);
+      DirectWorkspaceSnapshotAccess access = new();
+      WorkspaceSnapshot before = await access.CaptureAsync(root, TestContext.Current.CancellationToken);
+      ulong recorded = Assert.NotNull(before.Files["a.cs"].ContentHash);
+
+      // Same length, same last-write time: the metadata says nothing has been written since.
+      await File.WriteAllTextAsync(path, "xyz", TestContext.Current.CancellationToken);
+      File.SetLastWriteTimeUtc(path, stamp);
+
+      WorkspaceSnapshot after = await access.CaptureAsync(root, before, TestContext.Current.CancellationToken);
+
+      Assert.Equal(recorded, after.Files["a.cs"].ContentHash);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  /// <summary>A previous snapshot of a DIFFERENT tree is not evidence about this one.</summary>
+  [Fact]
+  public async Task Capture_WithPreviousFromAnotherRoot_IgnoresIt()
+  {
+    string one = NewTree();
+    string two = NewTree();
+    try
+    {
+      Write(one, "a.cs", "one");
+      Write(two, "a.cs", "two");
+      DirectWorkspaceSnapshotAccess access = new();
+      WorkspaceSnapshot other = await access.CaptureAsync(one, TestContext.Current.CancellationToken);
+
+      WorkspaceSnapshot here = await access.CaptureAsync(two, other, TestContext.Current.CancellationToken);
+
+      // The other tree's evidence was not applied: this tree's own content is what the
+      // snapshot describes, so a cold walk of it agrees exactly.
+      Assert.Equal(here.Digest, (await access.CaptureAsync(two, TestContext.Current.CancellationToken)).Digest);
+      Assert.Equal("two", await File.ReadAllTextAsync(Path.Combine(two, "a.cs"),
+          TestContext.Current.CancellationToken));
+    }
+    finally
+    {
+      Directory.Delete(one, true);
+      Directory.Delete(two, true);
+    }
+  }
+
   [Fact]
   public async Task Capture_MissingRoot_IsIncompleteNotThrowing()
   {

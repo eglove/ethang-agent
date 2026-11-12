@@ -46,6 +46,7 @@ public sealed class WorkspaceFileWatcher(
   private int _checking;
   private bool _started;
   private Task? _sweepLoop;
+  private int _disposed;
 
   /// <summary>True once <see cref="Start"/> has run; exposed for wiring tests.</summary>
   public bool IsStarted { get; private set; }
@@ -261,7 +262,9 @@ public sealed class WorkspaceFileWatcher(
     await _checkGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
-      WorkspaceSnapshot after = await _snapshots.CaptureAsync(_root, ct).ConfigureAwait(false);
+      // The baseline is handed back as the earlier evidence, so a pass over an unchanged
+      // tree costs stat calls instead of re-reading and re-hashing every file.
+      WorkspaceSnapshot after = await _snapshots.CaptureAsync(_root, _baseline, ct).ConfigureAwait(false);
       if (_baseline is null)
       {
         _baseline = after;
@@ -282,38 +285,45 @@ public sealed class WorkspaceFileWatcher(
     }
   }
 
-  /// <summary>Stops the watcher. Safe to call from any thread.</summary>
+  /// <summary>Stops the watcher. Safe to call from any thread, and idempotent.
+  ///     <para>Cancellation comes before the gate is disposed: a pass already inside
+  ///     <see cref="CheckOnceAsync"/> releases the gate on its way out, so the gate is disposed
+  ///     only once the loops have settled.</para></summary>
   public async ValueTask DisposeAsync()
   {
+    if (Interlocked.Exchange(ref _disposed, 1) != 0)
+    {
+      return;
+    }
+
     _watcher?.EnableRaisingEvents = false;
     _watcher?.Dispose();
+    _watcher = null;
+
+    await _cts.CancelAsync().ConfigureAwait(false);
+    await AwaitLoopAsync(_sweepLoop).ConfigureAwait(false);
+    await AwaitLoopAsync(_resyncLoop).ConfigureAwait(false);
 
     _checkGate.Dispose();
-    await _cts.CancelAsync().ConfigureAwait(false);
-    if (_sweepLoop is { } loop)
-    {
-      try
-      {
-        await loop.ConfigureAwait(false);
-      }
-      catch (OperationCanceledException)
-      {
-        // Expected on dispose.
-      }
-    }
-
-    if (_resyncLoop is { } resync)
-    {
-      try
-      {
-        await resync.ConfigureAwait(false);
-      }
-      catch (OperationCanceledException)
-      {
-        // Expected on dispose.
-      }
-    }
-
     _cts.Dispose();
+  }
+
+  /// <summary>Awaits a loop this watcher started, treating its cancellation as the expected
+  ///     end of the loop rather than a fault.</summary>
+  private static async Task AwaitLoopAsync(Task? loop)
+  {
+    if (loop is null)
+    {
+      return;
+    }
+
+    try
+    {
+      await loop.ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+      // Expected on dispose.
+    }
   }
 }

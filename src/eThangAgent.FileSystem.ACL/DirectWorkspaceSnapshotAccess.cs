@@ -35,7 +35,19 @@ public sealed class DirectWorkspaceSnapshotAccess : IWorkspaceSnapshotAccess
   ];
 
   /// <inheritdoc />
-  public Task<WorkspaceSnapshot> CaptureAsync(string workspaceRoot, CancellationToken ct = default)
+  public Task<WorkspaceSnapshot> CaptureAsync(string workspaceRoot, CancellationToken ct = default) =>
+      CaptureAsync(workspaceRoot, previous: null, ct);
+
+  /// <inheritdoc />
+  /// <remarks>A file whose length and last-write time are unchanged since
+  ///     <paramref name="previous"/> cannot have different content, so its recorded hash is
+  ///     reused instead of the file being read again; only a file whose metadata moved is
+  ///     hashed.
+  ///     <para>The comparison stays content-true: a rewrite that left the bytes alone still
+  ///     moves the last-write time, so the file is re-hashed and the report sees identical
+  ///     content.</para></remarks>
+  public Task<WorkspaceSnapshot> CaptureAsync(string workspaceRoot, WorkspaceSnapshot? previous,
+      CancellationToken ct = default)
   {
     if (string.IsNullOrWhiteSpace(workspaceRoot) || !Directory.Exists(workspaceRoot))
     {
@@ -43,16 +55,22 @@ public sealed class DirectWorkspaceSnapshotAccess : IWorkspaceSnapshotAccess
       return Task.FromResult(WorkspaceSnapshot.Unavailable(workspaceRoot ?? string.Empty));
     }
 
+    IReadOnlyDictionary<string, WorkspaceFileFingerprint>? known =
+        previous is not null && string.Equals(previous.Root, workspaceRoot, StringComparison.OrdinalIgnoreCase)
+            ? previous.Files
+            : null;
     Dictionary<string, WorkspaceFileFingerprint> files = [with(StringComparer.OrdinalIgnoreCase)];
-    bool complete = Walk(workspaceRoot, workspaceRoot, files, ct);
+    bool complete = Walk(workspaceRoot, workspaceRoot, files, known, ct);
     return Task.FromResult(WorkspaceSnapshot.Create(workspaceRoot, files, complete));
   }
 
   /// <summary>Depth-first walk with segment-aware pruning. Returns false when the walk
   ///     stopped early - the file cap was reached or a subtree could not be read - so the
-  ///     snapshot never claims to be complete when it is not.</summary>
+  ///     snapshot never claims to be complete when it is not. <paramref name="known"/> is the
+  ///     earlier walk's evidence, reused for a file whose metadata has not moved.</summary>
   private static bool Walk(string root, string directory,
-      Dictionary<string, WorkspaceFileFingerprint> files, CancellationToken ct)
+      Dictionary<string, WorkspaceFileFingerprint> files,
+      IReadOnlyDictionary<string, WorkspaceFileFingerprint>? known, CancellationToken ct)
   {
     ct.ThrowIfCancellationRequested();
     bool complete = true;
@@ -74,9 +92,10 @@ public sealed class DirectWorkspaceSnapshotAccess : IWorkspaceSnapshotAccess
         return false;
       }
 
-      if (Fingerprint(file) is { } fingerprint)
+      string relative = Relative(root, file);
+      if (Fingerprint(file, known, relative) is { } fingerprint)
       {
-        files[Relative(root, file)] = fingerprint;
+        files[relative] = fingerprint;
       }
     }
 
@@ -97,7 +116,7 @@ public sealed class DirectWorkspaceSnapshotAccess : IWorkspaceSnapshotAccess
         continue;
       }
 
-      complete &= Walk(root, child, files, ct);
+      complete &= Walk(root, child, files, known, ct);
     }
 
     return complete;
@@ -105,8 +124,13 @@ public sealed class DirectWorkspaceSnapshotAccess : IWorkspaceSnapshotAccess
 
   /// <summary>One file's fingerprint, or null when it vanished mid-walk or could not be
   ///     read. A file that disappears between enumeration and stat is an ordinary race
-  ///     (a build cleaning up after itself), not a failure.</summary>
-  private static WorkspaceFileFingerprint? Fingerprint(string path)
+  ///     (a build cleaning up after itself), not a failure.
+  ///     <para>The hash is reused when <paramref name="known"/> holds this path at the same
+  ///     length and last-write time, since identical metadata means the file has not been
+  ///     written since. Anything else is hashed, so the fingerprint is always true of the bytes
+  ///     on disk.</para></summary>
+  private static WorkspaceFileFingerprint? Fingerprint(string path,
+      IReadOnlyDictionary<string, WorkspaceFileFingerprint>? known, string relative)
   {
     try
     {
@@ -118,6 +142,12 @@ public sealed class DirectWorkspaceSnapshotAccess : IWorkspaceSnapshotAccess
 
       long length = info.Length;
       DateTime lastWrite = info.LastWriteTimeUtc;
+      if (known is not null && known.TryGetValue(relative, out WorkspaceFileFingerprint earlier)
+          && earlier.Length == length && earlier.LastWriteUtc == lastWrite)
+      {
+        return new WorkspaceFileFingerprint(length, lastWrite, earlier.ContentHash);
+      }
+
       ulong? hash = length <= WorkspaceSnapshotLimits.MaxHashedBytes ? Hash(path) : null;
       return new WorkspaceFileFingerprint(length, lastWrite, hash);
     }

@@ -273,22 +273,20 @@ public static class AgentComposition
         root => sp.GetRequiredService<IWorkspaceLanguageDetector>().Detect(root));
   }
 
-  /// <summary>Starts the workspace watcher on first demand and hands it to the daemon host,
-  ///     so watcher announcements reach the language server. A workspace whose daemon is
-  ///     never reached never starts a watcher.</summary>
+  /// <summary>Hands the daemon host the workspace's shared watcher on first demand, so watcher
+  ///     announcements reach the language server. A workspace whose daemon is never reached
+  ///     never starts a watcher.
+  ///     <para>The watcher belongs to the workspace root and is shared by every session over it;
+  ///     what this container owns is its hold, which it gives back when it is disposed.</para>
+  ///     </summary>
   private static Func<string, IFileWatcher?> WatchWorkspace(IServiceProvider sp)
   {
-    WorkspaceFileWatcher? watcher = null;
+    WorkspaceWatcherLease? lease = null;
     return root =>
     {
-      if (watcher is not null)
-      {
-        return watcher;
-      }
-
-      watcher = new WorkspaceFileWatcher(root, sp.GetRequiredService<IWorkspaceSnapshotAccess>(), _ => Task.CompletedTask);
-      watcher.Start();
-      return watcher;
+      lease ??= sp.GetRequiredService<WorkspaceWatcherLease>();
+      lease.EnsureStarted();
+      return lease.Watcher;
     };
   }
 
@@ -1335,6 +1333,14 @@ public static class AgentComposition
         .AddSingleton<IVerificationLedger, SessionVerificationLedger>()
         .AddSingleton<SessionAdvisoryDiagnosticsLedger>()
         .AddSingleton<LspDaemonExePathOverride>()
+        // The workspace watcher belongs to the workspace root, shared by every session over it.
+        // This container owns a HOLD on it, so container disposal gives the hold back and the
+        // watcher stops once no session over that root is left.
+        .AddSingleton(sp => WorkspaceWatcherRegistry.Acquire(
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
+            sp.GetRequiredService<IWorkspaceSnapshotAccess>()))
+        // The daemon host resolves the SAME lease: its forwarding subscription is one
+        // subscriber among the workspace's, never the watcher's owner.
         .AddSingleton(DaemonHost)
         // The two pipe accessors over that one host: the symbol tool's navigation and the
         // advisory diagnostics an edit consults. Singletons, so every tool in the container
