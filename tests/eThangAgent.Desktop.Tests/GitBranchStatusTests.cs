@@ -127,7 +127,14 @@ public sealed class GitBranchStatusTests : IDisposable
       DirectGitAccess git = new();
 
       using GitBranchWatcher watcher = new(plain, git, status);
-      await Task.Delay(300, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      // THE SETTLE IS THE WAIT, not a fixed delay. The watcher's initial resolve shells out to
+      // git, and that child holds the workspace directory open. A 300 ms guess was a guess about
+      // how long git takes: on a loaded machine it was wrong, so the cleanup below deleted a
+      // directory a live git child still had open and failed with 'being used by another
+      // process' - a red that named neither the watcher nor the wait (issue #380). Awaiting the
+      // refresh orders the assertion AND the delete after the child has exited.
+      await watcher.Settled.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
 
       Assert.Equal("", status.Branch);
     }

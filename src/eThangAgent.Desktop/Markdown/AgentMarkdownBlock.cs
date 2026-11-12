@@ -126,12 +126,20 @@ internal class AgentMarkdownBlock : ContentControl
     }
   }
 
-  /// <summary>Drains a coalesced pending render immediately; the throttle timer's
-  ///     tick calls this, and tests call it to collapse the clock.</summary>
+  /// <summary>Drains a coalesced pending render immediately; the throttle timer's tick calls
+  ///     this, and tests call it to collapse the clock.
+  ///     <para>THE WINDOW STAYS OPEN ACROSS A FLUSH. Closing it here left the next delta to
+  ///     re-open it by rendering IMMEDIATELY, so a delta arriving just after a tick - the
+  ///     ordinary shape of a stream, and the certain shape of a slow machine whose tick lands
+  ///     between two deltas - rebuilt the whole document on that delta instead of coalescing it
+  ///     into the next window. The block then reported the newest text where the contract says
+  ///     the window's text is still showing, which is how a test that defers a render and
+  ///     asserts the old text saw the new one (issue #380). Only a close, a variant change, or
+  ///     a drag deferral ends the window: those are terminal, a flush is not.</para></summary>
   public void FlushPendingRender()
   {
-    _throttle?.Stop();
-    _throttle = null;
+    // A tick that finds nothing pending keeps its window running: the timer is the window, and
+    // stopping it here is what made the NEXT delta re-open the window with a render.
     if (!_pending)
     {
       return;

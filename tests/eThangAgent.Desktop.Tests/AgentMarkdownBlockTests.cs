@@ -290,6 +290,48 @@ public class AgentMarkdownBlockTests
     Assert.Equal("delta 199 **x**", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
   }
 
+  /// <summary>A flush does not close the window it drained (issue #380).
+  ///     <para>THE BUG THIS PINS: the tick stopped and dropped the timer, so the NEXT delta
+  ///     found no window and re-opened one by rendering IMMEDIATELY. A delta that lands just
+  ///     after a tick - the ordinary shape of a stream, and the certain shape of a machine slow
+  ///     enough for the tick to fall between two deltas - therefore rebuilt the whole document
+  ///     on that delta, and the block reported the newest text where the contract says the
+  ///     window's text is still showing. That is not a coalescing detail: it is the difference
+  ///     between one rebuild per window and one rebuild per delta, and it surfaced as a red in
+  ///     an unrelated test that deferred a render and asserted the OLD text.</para>
+  ///     <para>Driven through the public seam rather than the clock, so it holds at any speed:
+  ///     flush an empty window, then deliver a delta and assert it was coalesced.</para></summary>
+  [AvaloniaFact]
+  public void Flush_Leaves_The_Throttle_Window_Open_So_The_Next_Delta_Still_Coalesces()
+  {
+    Window window = new() { Width = 400, Height = 300 };
+    AgentMarkdownBlock block = new()
+    {
+      MarkdownText = "start",
+      IsOpen = true,
+      ThrottleInterval = TimeSpan.FromSeconds(60),
+    };
+    window.Content = block;
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    Assert.Equal(1, block.RenderCount);
+
+    // A tick that finds nothing pending: the window must survive it.
+    block.FlushPendingRender();
+    Assert.Equal(1, block.RenderCount);
+
+    // The delta after that tick is INSIDE the window, so it coalesces instead of rendering.
+    block.MarkdownText = "after the tick";
+    Dispatcher.UIThread.RunJobs();
+    Assert.Equal(1, block.RenderCount);
+    Assert.Equal("start", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
+
+    // And the window still drains on demand, which is what makes it a window and not a stall.
+    block.FlushPendingRender();
+    Assert.Equal(2, block.RenderCount);
+    Assert.Equal("after the tick", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
+  }
+
   /// <summary>The other side of the counter: a CLOSED block rebuilds on every change
   ///     (the throttle is open-block only), so the counter must actually move - otherwise
   ///     the bounded-count assertions above could pass against a dead counter that never

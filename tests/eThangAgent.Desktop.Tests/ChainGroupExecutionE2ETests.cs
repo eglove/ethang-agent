@@ -182,7 +182,7 @@ public class ChainGroupExecutionE2ETests
       Assert.Equal("worktree/chain-1-step-1", branchOne, StringComparer.Ordinal);
       Assert.Equal("worktree/chain-1-step-2", branchTwo, StringComparer.Ordinal);
       AgentId reconcilerId = new(Guid.Parse(reconciled.StepAt(3)!.SessionId!));
-      string reconcilerBrief = BriefOf(shell, reconcilerId);
+      string reconcilerBrief = await BriefOfAsync(shell, reconcilerId, StepLimit).ConfigureAwait(true);
       Assert.Contains("## You are the RECONCILER", reconcilerBrief, StringComparison.Ordinal);
       Assert.Contains(branchOne, reconcilerBrief, StringComparison.Ordinal);
       Assert.Contains(branchTwo, reconcilerBrief, StringComparison.Ordinal);
@@ -206,8 +206,12 @@ public class ChainGroupExecutionE2ETests
       Assert.False(Directory.Exists(memberOne), memberOne + " outlived the landing.");
       Assert.False(Directory.Exists(memberTwo), memberTwo + " outlived the landing.");
       AgentId reviewId = new(Guid.Parse(reviewed.StepAt(4)!.SessionId!));
-      Assert.NotNull(shell.Tabs[0].FindCell(reviewId));
-      Assert.Equal("step 4 of 4 \u00b7 Group E2E", shell.Tabs[0].FindCell(reviewId)!.PlacementLine);
+      // THE CELL IS A SECOND OBSERVABLE, and the record is the first. The advance writes the
+      // step's session id, and only then does the desktop's subscriber turn that fact into a
+      // cell; reading the cell the instant the record names the session raced the very event
+      // this test exists to prove lands (issue #380). Waiting for it is the assertion.
+      AgentCellViewModel reviewCell = await WaitForCellAsync(shell, reviewId, StepLimit).ConfigureAwait(true);
+      Assert.Equal("step 4 of 4 \u00b7 Group E2E", reviewCell.PlacementLine);
     }
     finally
     {
@@ -280,16 +284,55 @@ public class ChainGroupExecutionE2ETests
 
   /// <summary>The brief a session was seeded with: the first system entry carrying the chain
   ///     brief's prefix. This is what the model would read, so asserting on it is asserting on
-  ///     the instruction rather than on the record that produced it.</summary>
-  private static string BriefOf(MainViewModel shell, AgentId sessionId)
+  ///     the instruction rather than on the record that produced it.
+  ///     <para>BOUNDED, because a cell and its brief arrive on the desktop's own path: the
+  ///     advance writes the step's session id first, and the subscriber that turns that fact
+  ///     into a cell and seeds it runs after. Reading it the instant the record named the
+  ///     session asked for something the record does not promise yet (issue #380).</para></summary>
+  private static async Task<string> BriefOfAsync(MainViewModel shell, AgentId sessionId, TimeSpan limit)
   {
-    AgentCellViewModel cell = shell.Tabs[0].FindCell(sessionId)
-        ?? throw new InvalidOperationException($"no cell for session {sessionId}.");
-    SystemMessageEntry brief = cell.ViewModel.Transcript.Entries
-        .OfType<SystemMessageEntry>()
-        .FirstOrDefault(entry => entry.Text.StartsWith(ChainBriefRenderer.Prefix, StringComparison.Ordinal))
-        ?? throw new InvalidOperationException($"session {sessionId} was seeded with no chain brief.");
-    return brief.Text;
+    AgentCellViewModel cell = await WaitForCellAsync(shell, sessionId, limit).ConfigureAwait(true);
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + limit;
+    while (DateTimeOffset.UtcNow < deadline)
+    {
+      SystemMessageEntry? brief = cell.ViewModel.Transcript.Entries
+          .OfType<SystemMessageEntry>()
+          .FirstOrDefault(entry => entry.Text.StartsWith(ChainBriefRenderer.Prefix, StringComparison.Ordinal));
+      if (brief is not null)
+      {
+        return brief.Text;
+      }
+
+      await Task.Delay(50, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Dispatcher.UIThread.RunJobs();
+    }
+
+    throw new TimeoutException($"session {sessionId} was seeded with no chain brief within {limit}.");
+  }
+
+  /// <summary>The cell showing <paramref name="sessionId" />, waited for because the record and
+  ///     the cell are two separate observables. The advance writes the step's session id; the
+  ///     desktop's subscriber then reads the record, marshals to the UI thread, and appends the
+  ///     cell. A test that read the cell as soon as the RECORD named the session was asserting
+  ///     on the subscriber's progress rather than on the fact it was proving (issue #380).
+  ///     </summary>
+  private static async Task<AgentCellViewModel> WaitForCellAsync(MainViewModel shell, AgentId sessionId,
+      TimeSpan limit)
+  {
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + limit;
+    while (DateTimeOffset.UtcNow < deadline)
+    {
+      if (shell.Tabs[0].FindCell(sessionId) is { } cell)
+      {
+        return cell;
+      }
+
+      await Task.Delay(50, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Dispatcher.UIThread.RunJobs();
+    }
+
+    throw new TimeoutException($"no cell for session {sessionId} within {limit}; the tab holds "
+        + $"{shell.Tabs[0].Cells.Count} cell(s).");
   }
 
   /// <summary>Runs one turn and waits for it, bounded so a wedged turn fails the test instead of

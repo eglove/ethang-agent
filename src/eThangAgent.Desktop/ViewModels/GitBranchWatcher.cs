@@ -77,6 +77,24 @@ internal sealed class GitBranchWatcher : IDisposable
 
   private void OnGitRenamed(object sender, RenamedEventArgs e) => RefreshSoon();
 
+  /// <summary>The debounced refresh the watcher last scheduled, so a caller can wait for the
+  ///     branch to SETTLE instead of sleeping and hoping.
+  ///     <para>A test that read the branch after a fixed delay and then deleted its workspace
+  ///     raced the git child that was still resolving it: the child holds the directory open, so
+  ///     the delete failed with 'being used by another process' - a red that named neither the
+  ///     watcher nor the wait (issue #380). Awaiting this orders the read AND the cleanup after
+  ///     the child has exited.</para></summary>
+  internal Task Settled
+  {
+    get
+    {
+      lock (_gate)
+      {
+        return _refresh;
+      }
+    }
+  }
+
   /// <summary>Schedules one debounced refresh; overlapping schedules coalesce.</summary>
   private void RefreshSoon()
   {
