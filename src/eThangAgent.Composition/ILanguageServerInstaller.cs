@@ -20,19 +20,53 @@ public interface ILanguageServerInstaller
   ///     installed entry. Nothing outside that directory is touched.</summary>
   Task RemoveAsync(string languageId, CancellationToken ct);
 
-  /// <summary>The language ids the stored preference names, in stored order.</summary>
-  IReadOnlyList<string> InstalledLanguageIds();
-
-  /// <summary>The version the stored preference records for a language, or null when the
-  ///     language has no stored entry.</summary>
-  string? InstalledVersion(string languageId);
-
-  /// <summary>Re-reads the stored preference into <see cref="InstalledLanguageIds"/>.</summary>
-  Task RefreshAsync(CancellationToken ct);
+  /// <summary>Reads the languages this machine has installed. The answer is a value the
+  ///     caller holds, so a read can never report a machine that has not been read yet.
+  ///     <para>THERE IS NO PARAMETERLESS READ. The store is the only install state, and a
+  ///     container's installer starts out knowing none of it, so a read that did not go to
+  ///     the store would answer for a machine with nothing installed.</para></summary>
+  Task<InstalledLanguageServers> ReadAsync(CancellationToken ct);
 
   /// <summary>The prerequisite executable a language needs and this machine lacks, or null
   ///     when the language needs none or the machine has it.</summary>
   string? MissingPrerequisiteExecutable(string languageId);
+}
+
+/// <summary>The languages this machine has installed, as one read of the preference store.
+///     <para>A CALLER HOLDS THIS VALUE rather than asking for state on demand: there is no
+///     way to obtain one without having read the store, so a container that has read nothing
+///     cannot report an empty machine that is not empty.</para></summary>
+public sealed class InstalledLanguageServers
+{
+  /// <summary>Nothing installed.</summary>
+  public static InstalledLanguageServers None { get; } = new InstalledLanguageServers([]);
+
+  private readonly IReadOnlyList<InstalledLanguageServer> _entries;
+
+  private InstalledLanguageServers(IReadOnlyList<InstalledLanguageServer> entries)
+  {
+    _entries = entries;
+    LanguageIds = [.. entries.Select(entry => entry.LanguageId)];
+  }
+
+  /// <summary>The installed language ids, in stored order.</summary>
+  public IReadOnlyList<string> LanguageIds { get; }
+
+  /// <summary>Builds a snapshot from stored entries.</summary>
+  public static InstalledLanguageServers From(IReadOnlyList<InstalledLanguageServer> entries)
+  {
+    ArgumentNullException.ThrowIfNull(entries);
+    return entries.Count == 0 ? None : new InstalledLanguageServers(entries);
+  }
+
+  /// <summary>The version recorded for a language, or null when it has no stored entry.
+  ///     A blank language id names no entry.</summary>
+  public string? Version(string languageId) =>
+      string.IsNullOrWhiteSpace(languageId)
+          ? null
+          : _entries
+              .FirstOrDefault(entry => string.Equals(entry.LanguageId, languageId, StringComparison.OrdinalIgnoreCase))
+              ?.Version;
 }
 
 /// <summary>The installer over the app's own language-server strategies and preference
@@ -46,8 +80,6 @@ public sealed class LanguageServerInstaller : ILanguageServerInstaller
   private readonly LspPrerequisiteProbe _probe;
   private readonly Lock _gate = new();
   private readonly Dictionary<string, Task<LspInstallResult>> _inflight = [with(StringComparer.OrdinalIgnoreCase)];
-  private IReadOnlyList<string> _installed = [];
-  private IReadOnlyList<InstalledLanguageServer> _entries = [];
 
   public LanguageServerInstaller(
       ILanguageServerCatalog catalog,
@@ -66,40 +98,15 @@ public sealed class LanguageServerInstaller : ILanguageServerInstaller
 
   public string InstallRoot { get; }
 
-  public IReadOnlyList<string> InstalledLanguageIds()
-  {
-    lock (_gate)
-    {
-      return _installed;
-    }
-  }
-
-  public string? InstalledVersion(string languageId)
-  {
-    if (string.IsNullOrWhiteSpace(languageId))
-    {
-      return null;
-    }
-
-    lock (_gate)
-    {
-      return _entries
-          .FirstOrDefault(entry => string.Equals(entry.LanguageId, languageId, StringComparison.OrdinalIgnoreCase))
-          ?.Version;
-    }
-  }
-
-  public async Task RefreshAsync(CancellationToken ct)
+  /// <summary>Reads the stored preference and answers what it names. Every call goes to the
+  ///     store, so the answer is this machine's state at the moment of the call rather than a
+  ///     copy some earlier caller happened to leave behind.</summary>
+  public async Task<InstalledLanguageServers> ReadAsync(CancellationToken ct)
   {
     string? stored = await _preferences.GetAsync(LanguageServerPreferences.InstalledKey, ct).ConfigureAwait(false);
-    IReadOnlyList<InstalledLanguageServer> entries = LanguageServerPreferences.Parse(stored) is { IsSuccess: true } parsed
-        ? parsed.Value
-        : [];
-    lock (_gate)
-    {
-      _entries = entries;
-      _installed = [.. entries.Select(entry => entry.LanguageId)];
-    }
+    return LanguageServerPreferences.Parse(stored) is { IsSuccess: true } parsed
+        ? InstalledLanguageServers.From(parsed.Value)
+        : InstalledLanguageServers.None;
   }
 
   public string? MissingPrerequisiteExecutable(string languageId)
@@ -199,7 +206,6 @@ public sealed class LanguageServerInstaller : ILanguageServerInstaller
     ];
     _ = await _preferences.SetAsync(LanguageServerPreferences.InstalledKey,
         LanguageServerPreferences.Serialize(updated), ct).ConfigureAwait(false);
-    await RefreshAsync(ct).ConfigureAwait(false);
   }
 
   private async Task RemoveFromPreferenceAsync(string languageId, CancellationToken ct)
@@ -216,6 +222,5 @@ public sealed class LanguageServerInstaller : ILanguageServerInstaller
         ? await _preferences.DeleteAsync(LanguageServerPreferences.InstalledKey, ct).ConfigureAwait(false)
         : await _preferences.SetAsync(LanguageServerPreferences.InstalledKey,
             LanguageServerPreferences.Serialize(updated), ct).ConfigureAwait(false);
-    await RefreshAsync(ct).ConfigureAwait(false);
   }
 }

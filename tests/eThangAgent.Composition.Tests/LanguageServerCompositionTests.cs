@@ -57,7 +57,7 @@ public class LanguageServerCompositionTests
   }
 
   [Fact]
-  public void TheSeamsAndTheDaemonAccessors_ResolveWithNothingInstalled()
+  public async Task TheSeamsAndTheDaemonAccessors_ResolveWithNothingInstalled()
   {
     using TestAppDatabase db = TestAppDatabase.Create();
     DirectoryInfo root = Workspace("ethang-lsp-compose", "README.md");
@@ -70,7 +70,8 @@ public class LanguageServerCompositionTests
       IWorkspaceLanguageDetector detector = services.GetRequiredService<IWorkspaceLanguageDetector>();
 
       Assert.Equal(10, catalog.All.Count);
-      Assert.Empty(installer.InstalledLanguageIds());
+      Assert.Empty((await installer.ReadAsync(TestContext.Current.CancellationToken)
+          .ConfigureAwait(true)).LanguageIds);
       Assert.Empty(detector.Detect(root.FullName));
       Assert.NotNull(services.GetRequiredService<LspDaemonHost>());
       Assert.NotNull(services.GetRequiredService<LspDaemonSymbolAccess>());
@@ -173,7 +174,8 @@ public class LanguageServerCompositionTests
     {
       using ServiceProvider services = Compose(db, root.FullName);
       ILanguageServerInstaller installer = services.GetRequiredService<ILanguageServerInstaller>();
-      Assert.Empty(installer.InstalledLanguageIds());
+      Assert.Empty((await installer.ReadAsync(TestContext.Current.CancellationToken)
+          .ConfigureAwait(true)).LanguageIds);
 
       // The same preference row a page install writes, written through the container's own
       // store: the composed installer reads it back with no container rebuild.
@@ -183,10 +185,11 @@ public class LanguageServerCompositionTests
               TestContext.Current.CancellationToken)
           .ConfigureAwait(true);
 
-      await installer.RefreshAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+      InstalledLanguageServers installed = await installer
+          .ReadAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-      Assert.Equal(["lua"], installer.InstalledLanguageIds());
-      Assert.Equal("3.19.2", installer.InstalledVersion("lua"));
+      Assert.Equal(["lua"], installed.LanguageIds);
+      Assert.Equal("3.19.2", installed.Version("lua"));
     }
     finally
     {

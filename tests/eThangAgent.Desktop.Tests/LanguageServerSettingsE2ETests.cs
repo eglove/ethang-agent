@@ -57,8 +57,8 @@ public class LanguageServerSettingsE2ETests
       Assert.Equal(LspServerCatalog.ForLanguage("lua")!.Version, luaAgain.Data.InstalledVersion);
 
       ILanguageServerInstaller installer = restarted.Services.GetRequiredService<ILanguageServerInstaller>();
-      await installer.RefreshAsync(Ct).ConfigureAwait(true);
-      Assert.Contains("lua", installer.InstalledLanguageIds(), StringComparer.Ordinal);
+      InstalledLanguageServers installed = await installer.ReadAsync(Ct).ConfigureAwait(true);
+      Assert.Contains("lua", installed.LanguageIds, StringComparer.Ordinal);
     }
     finally
     {
@@ -97,9 +97,9 @@ public class LanguageServerSettingsE2ETests
       Assert.Equal(LanguageServerStatus.Installed, Row(page, "rust").Status);
 
       ILanguageServerInstaller installer = host.Services.GetRequiredService<ILanguageServerInstaller>();
-      await installer.RefreshAsync(Ct).ConfigureAwait(true);
-      Assert.DoesNotContain("lua", installer.InstalledLanguageIds(), StringComparer.Ordinal);
-      Assert.Contains("rust", installer.InstalledLanguageIds(), StringComparer.Ordinal);
+      InstalledLanguageServers installed = await installer.ReadAsync(Ct).ConfigureAwait(true);
+      Assert.DoesNotContain("lua", installed.LanguageIds, StringComparer.Ordinal);
+      Assert.Contains("rust", installed.LanguageIds, StringComparer.Ordinal);
 
       // The language that stayed installed still has a server on disk, and the one that was
       // removed does not: the removal touched only its own install directory.

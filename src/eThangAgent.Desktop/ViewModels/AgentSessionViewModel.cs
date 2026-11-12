@@ -786,12 +786,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     try
     {
       detected = detector.Detect(root);
-      // The installer's installed list is an in-memory copy of the preference store,
-      // filled by a refresh and empty until one runs. A container's installer starts
-      // empty, so the read below is only an answer about this machine after the
-      // refresh that fills it.
-      await installer.RefreshAsync(CancellationToken.None).ConfigureAwait(false);
-      installed = installer.InstalledLanguageIds();
+      installed = (await installer.ReadAsync(CancellationToken.None).ConfigureAwait(false)).LanguageIds;
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {

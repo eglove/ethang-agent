@@ -143,6 +143,12 @@ internal sealed partial class LanguageServersViewModel : ObservableObject
   private readonly string? _workspaceRoot;
   private readonly List<LanguageServerRowViewModel> _rows = [];
 
+  /// <summary>The installed state this page is showing: one read of the store, replaced
+  ///     by every refresh and every install or removal. Every row status and the
+  ///     workspace's missing-language answer read THIS, so they cannot disagree with each
+  ///     other about what this machine has.</summary>
+  private InstalledLanguageServers _installed = InstalledLanguageServers.None;
+
   public LanguageServersViewModel(
       ILanguageServerCatalog catalog,
       ILanguageServerInstaller installer,
@@ -180,12 +186,16 @@ internal sealed partial class LanguageServersViewModel : ObservableObject
   ///     fills each row's status.</summary>
   public async Task RefreshAsync()
   {
-    await _installer.RefreshAsync(CancellationToken.None);
+    await ReadInstalledAsync().ConfigureAwait(true);
     foreach (LanguageServerRowViewModel row in _rows)
     {
       row.Data = Resolve(row.Data);
     }
   }
+
+  /// <summary>Replaces the snapshot every status on this page is resolved against.</summary>
+  private async Task ReadInstalledAsync() =>
+      _installed = await _installer.ReadAsync(CancellationToken.None).ConfigureAwait(true);
 
   /// <summary>Runs the row's install strategy, showing Installing for the duration. A
   ///     success persists the language and its version; a failure shows the reason and
@@ -221,6 +231,7 @@ internal sealed partial class LanguageServersViewModel : ObservableObject
     if (result.Outcome == LspInstallOutcome.Installed)
     {
       PageError = null;
+      await ReadInstalledAsync().ConfigureAwait(true);
       row.Data = Resolve(row.Data);
       return;
     }
@@ -250,24 +261,28 @@ internal sealed partial class LanguageServersViewModel : ObservableObject
       PageError = ex.Message;
     }
 
+    await ReadInstalledAsync().ConfigureAwait(true);
     row.Data = Resolve(row.Data);
   }
 
   /// <summary>The language ids this workspace holds but this machine cannot serve, in
   ///     detection order. A workspace with no root, or a language with no catalog row, is
-  ///     never reported.</summary>
-  public IReadOnlyList<string> MissingForWorkspace()
+  ///     never reported.
+  ///     <para>IT READS THE STORE rather than answering from the page's last refresh, so a
+  ///     caller that has not refreshed cannot be told every language is missing.</para></summary>
+  public async Task<IReadOnlyList<string>> MissingForWorkspaceAsync(CancellationToken ct)
   {
     if (string.IsNullOrWhiteSpace(_workspaceRoot))
     {
       return [];
     }
 
-    HashSet<string> installed = new(_installer.InstalledLanguageIds(), StringComparer.OrdinalIgnoreCase);
+    InstalledLanguageServers installed = await _installer.ReadAsync(ct).ConfigureAwait(true);
+    HashSet<string> served = new(installed.LanguageIds, StringComparer.OrdinalIgnoreCase);
     return
     [
         .. _detector.Detect(_workspaceRoot)
-            .Where(detected => !installed.Contains(detected.LanguageId))
+            .Where(detected => !served.Contains(detected.LanguageId))
             .Select(detected => detected.LanguageId),
     ];
   }
@@ -286,7 +301,7 @@ internal sealed partial class LanguageServersViewModel : ObservableObject
       };
     }
 
-    string? installedVersion = _installer.InstalledVersion(row.LanguageId);
+    string? installedVersion = _installed.Version(row.LanguageId);
     return installedVersion is not null
         ? ResolveInstalled(row, installedVersion)
         : ResolveAbsent(row);

@@ -223,7 +223,7 @@ public class LanguageServersViewModelTests
     Assert.Equal(LanguageServerStatus.UpdateAvailable, lua.Status);
     await lua.UpdateCommand.ExecuteAsync(null);
     Assert.Equal(LanguageServerStatus.Installed, lua.Status);
-    Assert.Equal(pinned, installer.InstalledVersion("lua"));
+    Assert.Equal(pinned, (await installer.ReadAsync(TestContext.Current.CancellationToken)).Version("lua"));
   }
 
   [Fact]
@@ -240,10 +240,12 @@ public class LanguageServersViewModelTests
     LanguageServerInstaller installer = Installer(preferences, root, LspInstallOutcome.Installed, out _);
     LanguageServersViewModel page = new(LanguageServerCatalog.Default, installer,
         WorkspaceLanguageDetector.Default, workspace);
-    await page.RefreshAsync();
     await page.Rows.Single(row => row.LanguageId == "rust").InstallCommand.ExecuteAsync(null);
 
-    IReadOnlyList<string> missing = page.MissingForWorkspace();
+    // NO REFRESH FIRST: the page has rendered nothing, which is the state a caller that
+    // never opened the page is in. The answer must still come from the store.
+    IReadOnlyList<string> missing = await page
+        .MissingForWorkspaceAsync(TestContext.Current.CancellationToken);
 
     Assert.Contains("python", missing);
     Assert.DoesNotContain("rust", missing);

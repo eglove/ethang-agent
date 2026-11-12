@@ -63,14 +63,12 @@ public partial class LanguagePromptViewModelTests
 
     public Task RemoveAsync(string languageId, CancellationToken ct) => Task.CompletedTask;
 
-    public IReadOnlyList<string> InstalledLanguageIds() => _installed;
-
-    public string? InstalledVersion(string languageId) =>
-        _installed.Contains(languageId)
-            ? LanguageServerCatalog.Default.ForLanguage(languageId)?.Version
-            : null;
-
-    public Task RefreshAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task<InstalledLanguageServers> ReadAsync(CancellationToken ct) =>
+        Task.FromResult(InstalledLanguageServers.From(
+        [
+            .. _installed.Select(languageId => new InstalledLanguageServer(languageId,
+                LanguageServerCatalog.Default.ForLanguage(languageId)?.Version ?? string.Empty)),
+        ]));
 
     public string? MissingPrerequisiteExecutable(string languageId) => null;
   }

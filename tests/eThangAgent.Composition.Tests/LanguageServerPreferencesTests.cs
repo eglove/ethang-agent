@@ -160,9 +160,9 @@ public class LanguageServerPreferencesTests
     Assert.Contains("\"languageId\":\"rust\"", stored, StringComparison.Ordinal);
 
     LanguageServerInstaller second = Installer(preferences, root.FullName, LspInstallOutcome.Installed, out _);
-    await second.RefreshAsync(ct);
-    Assert.Equal(["rust"], second.InstalledLanguageIds());
-    Assert.Equal("2026-11-09", second.InstalledVersion("rust"));
+    InstalledLanguageServers installed = await second.ReadAsync(ct);
+    Assert.Equal(["rust"], installed.LanguageIds);
+    Assert.Equal("2026-11-09", installed.Version("rust"));
   }
 
   [Fact]
@@ -177,7 +177,7 @@ public class LanguageServerPreferencesTests
 
     Assert.Equal(LspInstallOutcome.DownloadFailed, result.Outcome);
     Assert.Null(await preferences.GetAsync(LanguageServerPreferences.InstalledKey, ct));
-    Assert.Empty(installer.InstalledLanguageIds());
+    Assert.Empty((await installer.ReadAsync(ct)).LanguageIds);
   }
 
   [Fact]
@@ -219,7 +219,7 @@ public class LanguageServerPreferencesTests
     Assert.False(Directory.Exists(rustDirectory));
     Assert.True(Directory.Exists(luaDirectory),
         "removing one language must leave a sibling's install intact.");
-    Assert.Equal(["lua"], installer.InstalledLanguageIds());
+    Assert.Equal(["lua"], (await installer.ReadAsync(ct)).LanguageIds);
   }
 
   [Fact]

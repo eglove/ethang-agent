@@ -79,7 +79,8 @@ public class LanguageServerE2ETests
 
       // The prompt is a statement about what this machine cannot serve, so nothing was
       // installed and no server process exists to serve it.
-      Assert.Empty(host.Services.GetRequiredService<ILanguageServerInstaller>().InstalledLanguageIds());
+      Assert.Empty((await host.Services.GetRequiredService<ILanguageServerInstaller>()
+          .ReadAsync(Ct).ConfigureAwait(true)).LanguageIds);
       Assert.Empty(StubServerProcesses());
     }
     finally
@@ -110,8 +111,8 @@ public class LanguageServerE2ETests
       Assert.Equal(string.Empty, prompt.Message);
 
       ILanguageServerInstaller installer = host.Services.GetRequiredService<ILanguageServerInstaller>();
-      await installer.RefreshAsync(Ct).ConfigureAwait(true);
-      Assert.Contains("rust", installer.InstalledLanguageIds(), StringComparer.Ordinal);
+      InstalledLanguageServers installed = await installer.ReadAsync(Ct).ConfigureAwait(true);
+      Assert.Contains("rust", installed.LanguageIds, StringComparer.Ordinal);
 
       // The language the prompt installed is served, from a real server process, over the
       // workspace's own pipe.
