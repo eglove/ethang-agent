@@ -61,6 +61,19 @@ public class OperatingGuidancePromptTests
   }
 
   [Fact]
+  public void Retrospective_SeparatesUnfinishedWorkFromAMechanismFinding()
+  {
+    // A gap the model could still close is unfinished work, not a retrospective finding:
+    // without that boundary the section becomes a place to defer work while implying it is
+    // done. The three phrases are the boundary itself, so they are pinned.
+    string guidance = RetrospectivePromptProvider.Guidance;
+
+    Assert.Contains("You own the implementation", guidance, StringComparison.Ordinal);
+    Assert.Contains("unfinished work", guidance, StringComparison.Ordinal);
+    Assert.Contains("A task is anything you could have done", guidance, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void Retrospective_ReachesTheSessionPrompt() =>
       Assert.Contains(RetrospectivePromptProvider.Guidance, SessionPrompt(), StringComparison.Ordinal);
 
