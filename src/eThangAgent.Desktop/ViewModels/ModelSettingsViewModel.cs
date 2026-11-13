@@ -489,13 +489,13 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     uncommitted variant travels as null (UNSET, resolved to Standard) rather than being
   ///     guessed - the same rule the model choice follows.</para></summary>
   internal sealed record ModelChoice(ModelChoiceKind Kind, string? ModelId, ModelVariant? Variant = null,
-      bool ZeroDataRetention = true)
+      RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
   {
     public static readonly ModelChoice Unchanged = new(ModelChoiceKind.Unchanged, null);
 
     public static ModelChoice Pinned(string modelId, ModelVariant? variant = null,
-        bool zeroDataRetention = true)
-        => new(ModelChoiceKind.Pinned, modelId, variant, zeroDataRetention);
+        RetentionPolicy retention = RetentionPolicy.ZeroDataRetention)
+        => new(ModelChoiceKind.Pinned, modelId, variant, retention);
   }
   // Knob name constants — the single vocabulary shared by tests, the AXAML keys,
   // and the snapshot's knob-text map.
@@ -780,7 +780,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       => seams is null
           ? null
           : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelId, seams.CurrentVariant,
-              seams.CurrentZeroDataRetention);
+              seams.CurrentRetention);
 
   /// <summary>Prefills the summary picker from the persisted level: the matching
   ///     row when the level is known, the provider-default row otherwise. Kept out
@@ -866,7 +866,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   {
     _preselectedModelId = ModelSection?.SelectedRow?.ModelId;
     _preselectedVariant = ModelSection?.SelectedVariantOption?.Variant;
-    _preselectedZeroDataRetention = ModelSection?.ZeroDataRetention ?? true;
+    _preselectedRetention = RetentionFromSection();
   }
 
   /// <summary>The MODEL ID the section pre-selected when it loaded: the session's live
@@ -892,7 +892,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   /// <summary>The retention policy the section showed when it loaded, for the same reason as
   ///     the variant: the choice is a set of independent facts, and 'nothing changed' has to
   ///     mean every one of them is unchanged.</summary>
-  private bool _preselectedZeroDataRetention = true;
+  private RetentionPolicy _preselectedRetention = RetentionPolicy.ZeroDataRetention;
 
   /// <summary>The model choice the save carries, derived from the section: no section, or no row
   ///     picked, means Unchanged; any other selected row means Pinned with its pair. Derived at
@@ -905,17 +905,22 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     }
 
     ModelVariant? variant = ModelSection.SelectedVariantOption?.Variant;
-    bool zeroDataRetention = ModelSection.ZeroDataRetention;
+    RetentionPolicy retention = RetentionFromSection();
     bool sameModel = string.Equals(row.ModelId, _preselectedModelId, StringComparison.Ordinal);
     bool sameVariant = variant == _preselectedVariant;
     // THE RETENTION POLICY IS PART OF THE CHOICE, not a side effect of touching the model
-    // list: a user who opens the window and only unchecks the box has made a real decision,
-    // and reporting it as Unchanged would discard it silently.
-    bool sameRetention = zeroDataRetention == _preselectedZeroDataRetention;
+    // list: a user who opens the window and only moves the retention control has made a real
+    // decision, and reporting it as Unchanged would discard it silently.
+    bool sameRetention = retention == _preselectedRetention;
     return sameModel && sameVariant && sameRetention
         ? ModelChoice.Unchanged // opened on this choice, still on it
-        : ModelChoice.Pinned(row.ModelId!, variant, zeroDataRetention);
+        : ModelChoice.Pinned(row.ModelId!, variant, retention);
   }
+
+  /// <summary>The retention tier the section is showing, or the session's own tier when the
+  ///     host supplied no section at all.</summary>
+  private RetentionPolicy RetentionFromSection()
+      => ModelSection?.Retention ?? _live.Retention ?? RetentionPolicy.ZeroDataRetention;
   /// <summary>The all-or-nothing save: validate every knob, then apply to the
   ///     live preferences, serialize the OpenRouter section (null when hidden or
   ///     all-default), and hand the snapshot to the persistence seam. Returns
@@ -942,10 +947,10 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       _live.ModelVariant = modelChoice.Variant;
     }
 
-    // The retention policy is a KNOB, not a tri-state choice: the dialog always shows the
-    // session's current value, so a save always states it. Null (never stated) resolves to the
-    // restrictive default here rather than being stored as an absence.
-    _live.ZeroDataRetention = ModelSection?.ZeroDataRetention ?? _live.ZeroDataRetention ?? true;
+    // The retention tier is a KNOB, not a tri-state choice: the dialog always shows the
+    // session's current tier, so a save always states it. Null (never stated) resolves to the
+    // strict default here rather than being stored as an absence.
+    _live.Retention = RetentionFromSection();
     string? serialized = ShowOpenRouterSection ? SerializeSectionOrNull() : null;
     _live.ProviderSettings = serialized;
     ModelSettingsSnapshot snapshot = new(_live, KnobTexts(), serialized, modelChoice);

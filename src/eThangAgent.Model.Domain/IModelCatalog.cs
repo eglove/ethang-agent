@@ -24,13 +24,16 @@ public interface IModelCatalog
       => Task.FromResult<IReadOnlyDictionary<string, PublishedProviderStats>>(
           new Dictionary<string, PublishedProviderStats>(StringComparer.Ordinal));
 
-  /// <summary>The endpoints the provider states are eligible when zero data retention is
-  ///     required, or NULL when that was never established.
-  ///     <para>NULL AND EMPTY ARE DIFFERENT FACTS, and a caller enforcing the restriction must
-  ///     not confuse them. Null means the question was not answered - the source was never
-  ///     consulted or the read failed - so nothing is known and a turn is sent with the
-  ///     restriction on for the provider to judge. Empty means the source answered and named
-  ///     nothing, which is proof that no eligible endpoint serves any model.</para></summary>
-  Task<ZeroDataRetentionList?> GetZeroDataRetentionAsync(CancellationToken ct = default)
-      => Task.FromResult<ZeroDataRetentionList?>(null);
+  /// <summary>The endpoints the provider states are eligible under a retention tier, or NULL
+  ///     when that was never established.
+  ///     <para>NULL AND EMPTY ARE DIFFERENT FACTS, and a caller enforcing a tier must not confuse
+  ///     them. Null means the question was not answered - the source was never consulted or the
+  ///     read failed - so nothing is known and a turn is sent with the restriction on for the
+  ///     provider to judge. Empty means the source answered and named nothing, which is proof
+  ///     that no eligible endpoint serves any model.</para>
+  ///     <para>ONE READ SERVES EVERY TIER: the list carries each endpoint's own retention fact,
+  ///     so a caller asks which of them its tier admits rather than fetching a second list per
+  ///     tier.</para></summary>
+  Task<RetentionEligibleList?> GetRetentionEligibleAsync(CancellationToken ct = default)
+      => Task.FromResult<RetentionEligibleList?>(null);
 }

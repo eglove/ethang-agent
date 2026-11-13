@@ -108,7 +108,7 @@ public class ChainStepCellBindingTests
              new ChainBriefPlanStep(2, "second step", null),
              new ChainBriefPlanStep(3, "third step", null)])));
 
-    public Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default)
+    public Task<Result<bool>> GetRefineRubricAvailableAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success(false));
 
   }

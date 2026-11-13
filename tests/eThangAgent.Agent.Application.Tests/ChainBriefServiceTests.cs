@@ -145,31 +145,33 @@ public sealed class ChainBriefServiceTests
   }
 
   [Fact]
-  public async Task BuildSeed_ForAReviewAssignment_TellsTheSessionToJudge()
+  public async Task BuildSeed_ForARefineAssignment_MakesThePlanTheWork()
   {
     // The role reaches the brief from the ASSIGNMENT when the launcher read it (issue #306).
     ChainBriefService service = new(new FakeSource());
-    ChainStepAssignment review = Assignment.WithRole(ChainStepRole.Review);
+    ChainStepAssignment refine = Assignment.WithRole(ChainStepRole.Refine);
 
     Message message = Assert.Single(
-        (await service.BuildSeedAsync(review, TestContext.Current.CancellationToken)).Value!);
+        (await service.BuildSeedAsync(refine, TestContext.Current.CancellationToken)).Value!);
 
-    Assert.Contains("You are the REVIEWER for this step", message.Content, StringComparison.Ordinal);
+    Assert.Contains("You are the REFINER for this step", message.Content, StringComparison.Ordinal);
     Assert.DoesNotContain("## How to finish\n\nMark step 2 of plan #104 done:",
         message.Content, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task BuildSeed_ForAReviewStep_AsksTheCatalogForTheRubric()
+  public async Task BuildSeed_ForARefineStep_NeverAsksTheCatalogForARubric()
   {
-    FakeSource source = new(rubricAvailable: true);
+    // THE RUBRIC WAS THE REVIEWER'S, and the reviewer is gone. A refiner applies the plan's own
+    // goal, so the skill catalog is not read at all - which also means a refine step costs
+    // exactly what an implement step does.
+    FakeSource source = new();
     ChainBriefService service = new(source);
 
-    Message message = Assert.Single((await service
-        .BuildSeedAsync(Assignment.WithRole(ChainStepRole.Review), TestContext.Current.CancellationToken)).Value!);
+    _ = await service.BuildSeedAsync(Assignment.WithRole(ChainStepRole.Refine),
+        TestContext.Current.CancellationToken);
 
-    Assert.Equal(1, source.RubricReads);
-    Assert.Contains("Load the `reviewing-plans` skill", message.Content, StringComparison.Ordinal);
+    Assert.Equal(0, source.RubricReads);
   }
 
   [Fact]
@@ -190,13 +192,13 @@ public sealed class ChainBriefServiceTests
     // A launcher that has not read the chain still gets the record's answer rather than a
     // silent 'implement' - the fallback that keeps a review step from degrading to a work step.
     FakeSource source = new(chain: Result.Success(new ChainBriefChain(
-        7, "2026-08-24-dashboard-truth", 104, [], ChainStepRole.Review)));
+        7, "2026-08-24-dashboard-truth", 104, [], ChainStepRole.Refine)));
     ChainBriefService service = new(source);
 
     Message message = Assert.Single(
         (await service.BuildSeedAsync(Assignment, TestContext.Current.CancellationToken)).Value!);
 
-    Assert.Contains("You are the REVIEWER for this step", message.Content, StringComparison.Ordinal);
+    Assert.Contains("You are the REFINER for this step", message.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -293,7 +295,7 @@ public sealed class ChainBriefServiceTests
           7, "2026-08-24-dashboard-truth", 104, [])));
     }
 
-    public Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default)
+    public Task<Result<bool>> GetRefineRubricAvailableAsync(CancellationToken ct = default)
     {
       RubricReads++;
       return Task.FromResult(Result.Success(rubricAvailable));

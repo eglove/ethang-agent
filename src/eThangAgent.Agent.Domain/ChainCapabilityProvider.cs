@@ -43,14 +43,14 @@ public sealed record ChainWorkspaceGit(IGitWorktreeAccess Worktrees, string Root
 /// <param name="clock">The clock the claim window is measured against.</param>
 /// <param name="workspaceGit">The git seam and the workspace directory it is asked of,
 ///     or null when the host wired no git machinery.</param>
-/// <param name="resume">Un-parks a parked chain and starts what is now available, or null when
-///     the host wired no resume path - a container with no shell cannot start a session, and an
-///     action that reported 'resumed' while starting nothing would be the silent no-op this
-///     action exists to remove.</param>
+/// <param name="recovery">The two actions that move a chain nothing else can move, or null when
+///     the host wired neither - a container with no shell cannot start a session, and an action
+///     that reported success while starting nothing would be the silent no-op these actions
+///     exist to remove.</param>
 public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSource plans,
     IChainStartPort start, Func<string?> sessionId, TimeProvider clock,
     ChainWorkspaceGit? workspaceGit = null,
-    Func<int, Task<CapabilityInvocationResult>>? resume = null)
+    ChainRecoveryActions? recovery = null)
     : ICapabilityProvider
 {
   public const string ProviderId = "chain";
@@ -63,7 +63,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   ///     owns <c>create</c>, and the collision is a startup failure rather than a shadowing.
   ///     <c>start</c> is also the truer name: the action does not merely write a record, it
   ///     converts a plan into a chain AND starts step 1.</para></summary>
-  public static readonly string[] ActionNames = ["start", "resume-parked", "abandon"];
+  public static readonly string[] ActionNames = ["start", "resume-parked", "repair", "abandon"];
 
   private const string IdParam = "id";
   private const string PlanIdParam = "planId";
@@ -73,7 +73,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private const string RoleParam = "role";
   private const string GroupParam = "group";
   private const string ImplementRole = "implement";
-  private const string ReviewRole = "review";
+  private const string RefineRole = "refine";
 
   private static readonly HashSet<string> StepAllowed =
       [with(StringComparer.Ordinal), PositionParam, RoleParam, GroupParam];
@@ -84,7 +84,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
   private readonly ChainWorkspaceGit? _workspaceGit = workspaceGit;
-  private readonly Func<int, Task<CapabilityInvocationResult>>? _resume = resume;
+  private readonly ChainRecoveryActions? _recovery = recovery;
 
   public string Id => ProviderId;
 
@@ -94,16 +94,16 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             """
             Converts an existing plan into a chain the HARNESS executes: it claims step 1, starts a session for it seeded with the rendered brief, and returns. No session decides when the next step begins - completing a step is what advances the chain.
             A plan does NOT become a chain on its own. This action is the explicit statement 'execute this', so a plan can stay a design artifact indefinitely.
-            'steps' names which plan steps execute and in what role. Only steps you name become chain steps, so design and informational steps are simply left out. Roles are exactly implement | review; a step that names none is an implementer step. A role decides what a step's session is asked to do, never which model it runs on: every step's session runs on the model the workspace has selected.
-            'group' marks a step as a member of a parallel group: every member of one group starts at the same moment and runs in its own git worktree, and nothing after the group starts until every member has settled. A group needs at least two members, may not contain a review step, and must be followed immediately by a step with no group - that next step is the RECONCILER, which merges the members' branches into the workspace checkout. The workspace must be a git repository to declare a group (ChainGroupNeedsRepository). Refusals: ChainGroupTooSmall, ChainGroupReviewMember, ChainGroupReconcilerMissing, ChainReconcilerNotAdjacent, ChainGroupNeedsRepository.
-            Validation is total and refuses before anything is created: a plan with no executable step (ChainNoExecutableSteps), a position the plan does not have (ChainStepMissing), one position declared with two roles (ChainStepRoleConflict), an unreadable plan (ChainPlanUnreadable). A session that is itself executing a chain step may not create a chain (ChainStepCannotCreateChain).
+            'steps' names which plan steps execute and in what role. Only steps you name become chain steps, so design and informational steps are simply left out. Roles are exactly implement | refine; a step that names none is an implementer step. A role decides what a step's session is asked to do, never which model it runs on: every step's session runs on the model the workspace has selected.
+            'group' marks a step as a member of a parallel group: every member of one group starts at the same moment and runs in its own git worktree, and nothing after the group starts until every member has settled. A group needs at least two members, may not contain a refine step, and must be followed immediately by a step with no group - that next step is the RECONCILER, which merges the members' branches into the workspace checkout. The workspace must be a git repository to declare a group (ChainGroupNeedsRepository). Refusals: ChainGroupTooSmall, ChainGroupRefineMember, ChainGroupReconcilerMissing, ChainReconcilerNotAdjacent, ChainGroupNeedsRepository.
+            Validation is total and refuses before anything is created: a plan with no executable step (ChainNoExecutableSteps), a position the plan does not have (ChainStepMissing), a position the plan already records Done or Skipped (ChainStepAlreadyDone), nothing left to execute (ChainNothingToExecute), one position declared with two roles (ChainStepRoleConflict), an unreadable plan (ChainPlanUnreadable). A session that is itself executing a chain step may not create a chain (ChainStepCannotCreateChain).
             Output contract:
             [chain] created #<id> from plan #<planId> v<version>: <n> step(s), step 1 started as session <sessionId>
             The creating session may close immediately; the chain is unaffected.
             """,
             [
                 new ActionParameter(PlanIdParam, ActionParameterTypes.IntegerType, "Required. The plan to execute, >= 1."),
-                new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|review, default implement), 'group' (optional parallel group id, >= 1) }]. Omit to execute EVERY plan step as an implementer step."),
+                new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|refine, default implement), 'group' (optional parallel group id, >= 1) }]. Omit to execute every plan step that is NOT already Done or Skipped, as an implementer step. A settled position is never re-executed: naming one is refused with ChainStepAlreadyDone, and omitting 'steps' on a plan with nothing left is refused with ChainNothingToExecute."),
             ],
             [PlanIdParam]),
       // THE ACTION IS 'resume-parked', NOT 'resume'. Capability action names are GLOBALLY
@@ -112,7 +112,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
       // one: this resumes a CHAIN that is parked, not a session.
       new("resume-parked", "Resume a parked chain: un-park it, re-arm the step that stopped it, and start what it can.",
             """
-            A PARKED CHAIN DOES NOT MOVE ON ITS OWN. It is waiting for a human, and until this action existed the only thing a human could do was open the stopped session and steer it - which does nothing for a chain parked because a step's attempt budget was spent, because a review round-trip cap was reached, or because an act on the universal floor was refused. Those chains stayed parked forever.
+            A PARKED CHAIN DOES NOT MOVE ON ITS OWN. It is waiting for a human, and until this action existed the only thing a human could do was open the stopped session and steer it - which does nothing for a chain parked because a step's attempt budget was spent, or because an act on the universal floor was refused. Those chains stayed parked forever.
             This action is the exit. It un-parks the chain, puts the step the park named back to Pending with a fresh attempt budget, clears any invalidation markers, and starts a new session for the first available step. The new session gets the same brief a chain step always gets, and the chain then advances exactly as it always does - completing that step moves the cursor.
             A resumed step gets a FRESH session rather than a resumed one: the step's previous session failed, or never started, or its transcript is not what the work should continue from. Everything the chain learned is still on the record and in the plan.
             Output contract:
@@ -126,6 +126,26 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
        // domain, and until this action existed nothing could reach it: resume-parked refuses a
        // chain that is Running, and no session can complete a step it does not hold - so a chain
        // whose claim was stranded was unrecoverable by any surface.
+       // THE EXIT FOR A CHAIN THAT IS RUNNING AND GOING NOWHERE. resume-parked refuses it (it is
+       // not parked) and no session can complete a step it does not hold, so without this the only
+       // move was abandon - which throws the work away. Reading the record and working out what
+       // happened is exactly the investigation a chain should not require.
+       new("repair", "Repair a chain that cannot move on its own: start what is available, complete a finished chain, or park a blocked one.",
+             """
+             A RUNNING CHAIN IS SUPPOSED TO MOVE BY ITSELF: a session completes a step and the harness starts the next one. When no session holds the step the cursor would start, nothing will ever complete it, and the chain sits Running forever - indistinguishable from one that is working.
+             This action reads the chain record and does the one thing it needs:
+             - a step is available to start: claim it and start a session, exactly as the advance would
+             - every step is Done or Skipped but the chain still says Running: mark it Completed, because the work finished and the last write did not land
+             - the chain is blocked on a step that is Failed or Parked: park the chain, naming every step that cannot settle by itself. A parked chain is something chain.resume-parked and chain.abandon can both act on.
+             It REFUSES a chain that does not need repairing, by name: ChainNotRunning when the chain is Parked, Completed or Abandoned, and ChainAlreadyMoving when a live session holds a step (its completion is what advances the chain, and a second session would duplicate the work).
+             Output contract:
+             [chain] repaired #<id>: started step <position> as session <sessionId>
+             [chain] repaired #<id>: marked it Completed (every step had settled)
+             [chain] repaired #<id>: parked at step <position> - <reason>
+             Errors: InvalidActionInput (bad params), ChainNotFound, ChainNotRunning, ChainAlreadyMoving, RepairUnsupported (this host cannot start a session), and whatever the launch refused.
+             """,
+             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. The chain to repair, >= 1.")],
+             [IdParam]),
        new("abandon", "Drop a chain: mark it Abandoned with the reason, and stop executing it.",
              """
              Drops the chain. Abandoned is terminal and FREEZES the record: no step can be claimed, settled, or reopened afterwards, and the chain no longer advances.
@@ -152,6 +172,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
       {
         "start" => await CreateAsync(jsonArguments, ct).ConfigureAwait(false),
         "resume-parked" => await ResumeAsync(jsonArguments).ConfigureAwait(false),
+        "repair" => await RepairAsync(jsonArguments).ConfigureAwait(false),
         "abandon" => await AbandonAsync(jsonArguments).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
@@ -172,10 +193,25 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   {
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam));
     int id = ReqChainId(args);
-    return _resume is null
+    return _recovery?.Resume is null
         ? Gutter(new DomainError("ResumeUnsupported",
             "this host cannot start a chain step's session, so the chain was NOT resumed."))
-        : await _resume(id).ConfigureAwait(false);
+        : await _recovery.Resume(id).ConfigureAwait(false);
+  }
+
+  /// <summary>Repairs a chain that cannot move on its own, through the host's own path.
+  ///     <para>A PROVIDER WITH NO REPAIR PATH REFUSES BY NAME, exactly as the resume does:
+  ///     reporting 'repaired' while starting nothing would leave the chain in the state the
+  ///     action exists to remove.</para></summary>
+  /// <param name="json">The action's arguments.</param>
+  private async Task<CapabilityInvocationResult> RepairAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(IdParam));
+    int id = ReqChainId(args);
+    return _recovery?.Repair is null
+        ? Gutter(new DomainError("RepairUnsupported",
+            "this host cannot start a chain step's session, so the chain was NOT repaired."))
+        : await _recovery.Repair(id).ConfigureAwait(false);
   }
 
   /// <summary>Drops the chain (see the action's own contract).</summary>
@@ -520,19 +556,21 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
     return id >= 1 ? id : throw new ChainInputException($"'{PlanIdParam}' must be >= 1.");
   }
 
-  /// <summary>The declared steps, or EVERY plan step as an implementer step when none were
-  ///     named.
-  ///     <para>OMITTING 'steps' MEANS 'EXECUTE THE WHOLE PLAN', which is the common case: a
-  ///     model that planned and now wants it run should not have to restate every position.
-  ///     D3's 'not every step becomes a chain step' is served by NAMING the ones that do -
-  ///     the omission is the shortcut, the declaration is the control.</para></summary>
+  /// <summary>The declared steps, or every UNFINISHED plan step as an implementer step when
+  ///     none were named.
+  ///     <para>OMITTING 'steps' MEANS 'EXECUTE WHAT IS LEFT OF THE PLAN', which is the common
+  ///     case: a model that planned and now wants it run should not have to restate every
+  ///     position. D3's 'not every step becomes a chain step' is served by NAMING the ones that
+  ///     do - the omission is the shortcut, the declaration is the control.</para>
+  ///     <para>A SETTLED POSITION IS NOT PART OF WHAT IS LEFT. A plan whose first two steps are
+  ///     already Done is a plan whose remaining work starts at step 3, and a chain that claimed
+  ///     step 1 would start a fresh session over work that already landed.</para></summary>
   private static Result<IReadOnlyList<ChainStepSeed>> OptSteps(Dictionary<string, JsonElement> args,
       ChainPlanFacts plan, bool workspaceIsRepository)
   {
     if (!args.TryGetValue(StepsParam, out JsonElement element))
     {
-      return Result.Success<IReadOnlyList<ChainStepSeed>>(
-          [.. plan.StepPositions.Select(ChainStepSeed.Implementing)]);
+      return DefaultSteps(plan);
     }
 
     if (element.ValueKind != JsonValueKind.Array)
@@ -564,10 +602,30 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
     // The plan-level rules (D4/D10) run here rather than only in the aggregate, because
     // the aggregate sees the seeds and this sees the PLAN they must fit.
     DomainError? refusal = ChainCreationPolicy.RefusalFor(seeds, plan.StepPositions,
-        workspaceIsRepository);
+        workspaceIsRepository, plan.Settled);
     return refusal is null
         ? Result.Success<IReadOnlyList<ChainStepSeed>>(seeds)
         : Result.Failure<IReadOnlyList<ChainStepSeed>>(refusal);
+  }
+
+  /// <summary>The declaration a call that named no steps gets: every position the plan has not
+  ///     already settled, as an implementer step.
+  ///     <para>REFUSED WHEN NOTHING IS LEFT, by name. A chain over a fully finished plan would
+  ///     either report Completed immediately - a lie about work that did not happen - or, worse,
+  ///     redo work that already landed. Naming the refusal is what tells the caller the plan is
+  ///     finished rather than the declaration being wrong.</para></summary>
+  /// <param name="plan">The plan the chain would execute.</param>
+  private static Result<IReadOnlyList<ChainStepSeed>> DefaultSteps(ChainPlanFacts plan)
+  {
+    IReadOnlyList<int> remaining = plan.ExecutablePositions;
+    return remaining.Count > 0
+        ? Result.Success<IReadOnlyList<ChainStepSeed>>(
+            [.. remaining.Select(ChainStepSeed.Implementing)])
+        : Result.Failure<IReadOnlyList<ChainStepSeed>>(new DomainError(
+            ChainCreationCode.NothingToExecute,
+            $"plan #{plan.PlanId} records every one of its {plan.StepPositions.Count} step(s) as Done "
+            + "or Skipped, so there is nothing left for a chain to execute. Name the positions "
+            + "explicitly if you meant to redo one."));
   }
 
   private static Result<ChainStepSeed> ParseStep(JsonElement item, int index)
@@ -624,7 +682,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
         : Result.Failure<int?>(new DomainError("InvalidActionInput",
             $"'{StepsParam}[{index}].{GroupParam}' must be an integer >= 1 when present."));
 
-  /// <summary>The step's role: exactly implement | review, defaulting to implement.
+  /// <summary>The step's role: exactly implement | refine, defaulting to implement.
   ///     <para>THE VOCABULARY IS CLOSED (D7). An unknown token is refused by name rather
   ///     than defaulted, because a role a reader cannot name is a step nobody can start
   ///     correctly - the same rule the persisted actor and status columns follow.</para></summary>
@@ -640,9 +698,9 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
       {
         null => Result.Success(ChainStepRole.Implement),
         ImplementRole => Result.Success(ChainStepRole.Implement),
-        ReviewRole => Result.Success(ChainStepRole.Review),
+        RefineRole => Result.Success(ChainStepRole.Refine),
         _ => Result.Failure<ChainStepRole>(new DomainError("InvalidActionInput",
-            $"'{StepsParam}[{index}].{RoleParam}' must be exactly {ImplementRole}|{ReviewRole}.")),
+            $"'{StepsParam}[{index}].{RoleParam}' must be exactly {ImplementRole}|{RefineRole}.")),
       };
 
   /// <summary>An optional non-empty string on a step object. A present-but-empty value is
@@ -666,3 +724,18 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private static CapabilityInvocationResult Gutter(DomainError error)
       => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
 }
+
+/// <summary>The two actions that move a chain nothing else can move: resume a PARKED one and
+///     repair a STUCK one.
+///     <para>THEY TRAVEL TOGETHER because they are the same kind of act - the harness starting a
+///     session for a chain that has stopped - and because a host that can do one can always do
+///     the other. Grouping them is also what keeps the provider's constructor inside the
+///     parameter bound an analyzer enforces, without either action becoming optional in a way
+///     a caller could forget.</para>
+///     <para>NULL MEANS 'THIS HOST CANNOT START A SESSION', and each action refuses by name
+///     rather than reporting success over nothing.</para></summary>
+/// <param name="Resume">Un-parks a parked chain and starts what is now available.</param>
+/// <param name="Repair">Repairs a chain that cannot move on its own.</param>
+public sealed record ChainRecoveryActions(
+    Func<int, Task<CapabilityInvocationResult>> Resume,
+    Func<int, Task<CapabilityInvocationResult>> Repair);

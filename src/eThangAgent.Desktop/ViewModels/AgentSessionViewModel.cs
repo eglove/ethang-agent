@@ -674,7 +674,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _sessionDefaultModelId = modelId;
     // The session's model is ALWAYS NAMED (2026-10-22) - see ResolveServingModel.
     string servingModel = ResolveServingModel(_modelPreferences, modelId);
-    Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
+    Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort))
+    {
+      // The bar names the retention tier in force from the first render, so a session that never
+      // opens the dialog still states what the provider may keep of its prompts.
+      ServingRetention = RetentionBadge(EffectiveRetention(_modelPreferences)),
+    };
     // The per-workspace prompt: the languages this repository holds and this machine
     // cannot serve, named once and installable from here. A workspace that needs nothing
     // renders nothing, and the session starts either way.
@@ -1350,13 +1355,18 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     return defaultModelId;
   }
 
-  /// <summary>The badge the status bar shows while the retention restriction is in effect:
-  ///     the promise, not the acronym.
-  ///     <para>THE BADGE IS THE ONLY WAY TO SEE THE RESTRICTION WITHOUT REOPENING THE DIALOG,
-  ///     and it names the state that is ON rather than the one that is off. A session routing
-  ///     without it is visible by the badge's absence, which is the same convention the routing
-  ///     variant already follows.</para></summary>
-  public const string ZeroDataRetentionBadge = "no data retention";
+  /// <summary>The badge the status bar shows for the retention tier in force: the promise,
+  ///     not the acronym.
+  ///     <para>THE BADGE IS THE ONLY WAY TO SEE THE TIER WITHOUT REOPENING THE DIALOG, and every
+  ///     tier is named. A session that has loosened its policy says so instead of showing
+  ///     silence, because the loosened tier is the one that changes what the provider may keep
+  ///     of the user's prompts.</para></summary>
+  public static string RetentionBadge(RetentionPolicy retention) => RetentionPolicies.StatusBadge(retention);
+
+  /// <summary>The tier a session routes under: the one its preferences state, or the strict tier
+  ///     when they state none.</summary>
+  private static RetentionPolicy EffectiveRetention(SessionModelPreferences? preferences)
+      => preferences?.Retention ?? RetentionPolicy.ZeroDataRetention;
 
   /// <summary>
   /// Applies the user's picker choice: pins the session's MODEL, ROUTING VARIANT, and retention
@@ -1373,10 +1383,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// </summary>
   /// <param name="modelId">The model to serve, or null for the session's default model.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
-  /// <param name="zeroDataRetention">Whether to restrict routing to endpoints that do not retain
-  ///     prompts, or null to keep the session's current policy.</param>
+  /// <param name="retention">The retention tier to enforce, or null to keep the session's
+  ///     current tier.</param>
   public void ApplyModelChoice(string? modelId, ModelVariant? variant = null,
-      bool? zeroDataRetention = null)
+      RetentionPolicy? retention = null)
   {
     if (_modelPreferences is null)
     {
@@ -1391,10 +1401,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     string chosen = string.IsNullOrWhiteSpace(modelId) ? _sessionDefaultModelId : modelId;
     _modelPreferences.ModelId = chosen;
     _modelPreferences.ModelVariant = variant;
-    // Null means the caller stated no policy (a picker that only names a model), and the
+    // Null means the caller stated no tier (a picker that only names a model), and the
     // session keeps whatever it had - which, for a session that never stated one, is the
-    // restrictive default the overlay applies.
-    _modelPreferences.ZeroDataRetention = zeroDataRetention ?? _modelPreferences.ZeroDataRetention;
+    // strict default the overlay applies.
+    _modelPreferences.Retention = retention ?? _modelPreferences.Retention;
     Status.ModelId = chosen;
     // The status line names the routing the request will actually carry, by its bare name
     // ('Nitro', 'Floor') - the caption beneath the Routing dropdown explains what each one
@@ -1403,10 +1413,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Status.ServingVariant = variant is { } committed && committed != ModelVariant.Standard
         ? ModelVariants.Describe(committed)
         : string.Empty;
-    // The bar names the restriction only while it is in effect: it is the default, so a badge
-    // on every session would be noise, but a session quietly routing WITHOUT it is the one
-    // thing the user must be able to see at a glance.
-    Status.ServingRetention = _modelPreferences.ZeroDataRetention is false ? string.Empty : ZeroDataRetentionBadge;
+    // The bar names the tier in force for all three, so a session that has loosened its policy
+    // says so instead of showing silence.
+    Status.ServingRetention = RetentionBadge(EffectiveRetention(_modelPreferences));
     Transcript.AddNotice(variant is { } served && served != ModelVariant.Standard
         ? $"Model set to {chosen} with {ModelVariants.Describe(served)}; applies from the next turn."
         : $"Model set to {chosen}; applies from the next turn.");

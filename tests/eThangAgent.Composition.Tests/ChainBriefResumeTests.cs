@@ -105,7 +105,7 @@ public sealed class ChainBriefResumeTests
         Task.FromResult(Result.Success(new ChainBriefChain(
             7, "2026-08-24-dashboard-truth", 104, [])));
 
-    public Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default) =>
+    public Task<Result<bool>> GetRefineRubricAvailableAsync(CancellationToken ct = default) =>
         Task.FromResult(Result.Success(false));
 
     public Task<Result<ChainBriefPlan>> GetPlanAsync(int planId, CancellationToken ct = default) =>

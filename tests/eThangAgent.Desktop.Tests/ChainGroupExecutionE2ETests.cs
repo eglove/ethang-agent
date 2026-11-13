@@ -90,7 +90,7 @@ public class ChainGroupExecutionE2ETests
       """;
 
   [AvaloniaFact]
-  public async Task Group_RunsTogether_Merges_AndIsReviewed()
+  public async Task Group_RunsTogether_Merges_AndIsRefineed()
   {
 #pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
     await using E2E.HostHarness host = new();

@@ -40,10 +40,10 @@ public sealed class OpenRouterCatalogClient(
   private readonly Lock _refreshLock = new();
   private IReadOnlyList<ModelProviderEntry>? _cached;
 
-  /// <summary>The provider's zero-retention list, or null when it was never established. Null and
-  ///     empty are different facts: null is 'not consulted', empty is 'consulted, nothing
+  /// <summary>The provider's eligible-endpoint list, or null when it was never established. Null
+  ///     and empty are different facts: null is 'not consulted', empty is 'consulted, nothing
   ///     eligible', and only the second refuses a restricted turn.</summary>
-  private ZeroDataRetentionList? _zeroDataRetention;
+  private RetentionEligibleList? _retentionEligible;
   private Dictionary<string, PublishedProviderStats> _published = [with(StringComparer.Ordinal)];
   private DateTimeOffset _fetchedAt;
   private Task<Result<IReadOnlyList<ModelProviderEntry>>>? _refresh;
@@ -154,13 +154,17 @@ public sealed class OpenRouterCatalogClient(
       return Result.Failure<IReadOnlyList<ModelProviderEntry>>(phase1.Error);
     }
 
-    List<ModelProviderEntry> entries = await ExpandEndpointsAsync(phase1.Value, ct).ConfigureAwait(false);
+    List<ModelProviderEntry> expanded = await ExpandEndpointsAsync(phase1.Value, ct).ConfigureAwait(false);
     // The published rates are fetched AFTER the endpoints, because binding a rate to a row
     // needs that row's key. They are best effort by construction: a model that publishes
     // nothing simply contributes nothing.
     Dictionary<string, PublishedProviderStats> published =
         await FetchPublishedStatsAsync(phase1.Value, ct).ConfigureAwait(false);
-    _zeroDataRetention = await FetchZeroDataRetentionAsync(entries, ct).ConfigureAwait(false);
+    // THE ELIGIBLE LIST IS FETCHED BEFORE THE ROWS ARE STAMPED, because the endpoints payload
+    // carries no retention field of its own: an entry can only learn it requires safety
+    // retention from this list, so the list has to exist first.
+    _retentionEligible = await FetchRetentionEligibleAsync(expanded, ct).ConfigureAwait(false);
+    List<ModelProviderEntry> entries = StampRetentionFacts(expanded, _retentionEligible);
     _cached = entries;
     _published = published;
     _fetchedAt = DateTimeOffset.UtcNow;
@@ -187,7 +191,7 @@ public sealed class OpenRouterCatalogClient(
       if (stored.IsSuccess)
       {
         _cached = stored.Value.Entries;
-        _zeroDataRetention = stored.Value.ZeroDataRetention;
+        _retentionEligible = stored.Value.RetentionEligible;
         _fetchedAt = stored.Value.FetchedAt;
       }
     }
@@ -214,7 +218,7 @@ public sealed class OpenRouterCatalogClient(
     {
       _ = await _cache.WriteAsync(_cacheKey,
           new ModelCatalogSnapshot(_cached, _fetchedAt, ModelCatalogSnapshot.CurrentShapeVersion,
-              _zeroDataRetention), ct).ConfigureAwait(false);
+              _retentionEligible), ct).ConfigureAwait(false);
     }
     catch (Exception ex)
     {
@@ -300,16 +304,16 @@ public sealed class OpenRouterCatalogClient(
     }
   }
 
-  /// <summary>The provider's zero-retention list, or null when it was never established.
+  /// <summary>The provider's eligible-endpoint list, or null when it was never established.
   ///     <para>READ FROM THE SAME REFRESH AS THE ENTRIES, so the keys it holds are the keys the
   ///     catalog serves. A cold cache fetches first; a warm one answers from what the last
   ///     refresh established, which is the same age as the entries beside it.</para></summary>
-  public async Task<ZeroDataRetentionList?> GetZeroDataRetentionAsync(CancellationToken ct = default)
+  public async Task<RetentionEligibleList?> GetRetentionEligibleAsync(CancellationToken ct = default)
   {
     _ = await GetAsync(ct).ConfigureAwait(false);
     lock (_refreshLock)
     {
-      return _zeroDataRetention;
+      return _retentionEligible;
     }
   }
 
@@ -457,17 +461,21 @@ public sealed class OpenRouterCatalogClient(
     return stats;
   }
 
-  /// <summary>The endpoints the provider states are eligible when zero data retention is
-  ///     required, or NULL when the list could not be read.
+  /// <summary>The endpoints the provider states are eligible under a retention tier, or NULL
+  ///     when the list could not be read.
   ///     <para>NULL, NOT EMPTY, ON FAILURE. An empty list is proof that nothing is eligible and
   ///     refuses a restricted turn; a read fault proves nothing and must not. The caller enforces
-  ///     the restriction on the difference, so collapsing the two here would turn a network blip
-  ///     into a refusal to run the model at all.</para>
-  ///     <para>THE KEYS ARE THE CATALOG'S OWN. The list is fetched against the entries just
+  ///     the tier on the difference, so collapsing the two here would turn a network blip into a
+  ///     refusal to run the model at all.</para>
+  ///     <para>THE ROWS ARE THE CATALOG'S OWN. The list is fetched against the entries just
   ///     expanded, so an eligible endpoint is matched by exactly the identity the picker shows
   ///     and a pin sends - not by a second, independently derived spelling of it.</para>
+  ///     <para>EACH ROW STATES ITS OWN TIER. The payload names per endpoint whether it is
+  ///     eligible only under safety retention, and that fact is carried onto the record rather
+  ///     than collapsed into membership: the endpoints payload has no retention field, so this
+  ///     is the only place the distinction exists.</para>
   ///     </summary>
-  private async Task<ZeroDataRetentionList?> FetchZeroDataRetentionAsync(
+  private async Task<RetentionEligibleList?> FetchRetentionEligibleAsync(
       IReadOnlyList<ModelProviderEntry> entries, CancellationToken ct)
   {
     // Named decision (CA1031): the list is a routing fact, not the catalog itself. A fault here
@@ -490,8 +498,9 @@ public sealed class OpenRouterCatalogClient(
         return doc.RootElement.ValueKind == JsonValueKind.Object
             && doc.RootElement.TryGetProperty("data", out JsonElement data)
             && data.ValueKind == JsonValueKind.Array
-                ? ZeroDataRetentionList.Of(
-                    [.. data.EnumerateArray().Select(row => CatalogKeyOf(row, entries)).OfType<string>()])
+                ? RetentionEligibleList.Of(
+                    [.. data.EnumerateArray().Select(row => EligibleEndpointOf(row, entries))
+                        .OfType<RetentionEligibleEndpoint>()])
                 : null;
       }
     }
@@ -501,14 +510,15 @@ public sealed class OpenRouterCatalogClient(
     }
   }
 
-  /// <summary>The catalog key a zero-retention row names, or null when the row does not describe
+  /// <summary>The eligible endpoint a retention row names, or null when the row does not describe
   ///     an endpoint this catalog holds.
   ///     <para>A ROW IS JOINED, NOT TRUSTED. The list names endpoints by model, provider name,
   ///     and tag - the same three parts the catalog keys on - so a row whose tag the catalog
-  ///     never saw (a stale list, a provider added since) contributes no key rather than
+  ///     never saw (a stale list, a provider added since) contributes nothing rather than
   ///     inventing an identity nothing can route to.</para>
   ///     </summary>
-  private static string? CatalogKeyOf(JsonElement row, IReadOnlyList<ModelProviderEntry> entries)
+  private static RetentionEligibleEndpoint? EligibleEndpointOf(JsonElement row,
+      IReadOnlyList<ModelProviderEntry> entries)
   {
     if (row.ValueKind != JsonValueKind.Object
         || GetStringOrNull(row, "model_id") is not { } modelId
@@ -521,8 +531,37 @@ public sealed class OpenRouterCatalogClient(
         GetStringOrNull(row, "service_tier"), GetStringOrNull(row, "quantization")).Slug;
     string key = ModelProviderEntry.KeyOf(modelId, providerName, slug);
     return entries.Any(entry => string.Equals(entry.Key, key, StringComparison.Ordinal))
-        ? key
+        ? new RetentionEligibleEndpoint(modelId, providerName, slug,
+            GetBoolOrFalse(row, "safety_retention"))
         : null;
+  }
+
+  /// <summary>The entries with the retention fact the eligible list states applied to them: an
+  ///     endpoint the list marks as safety-retention-only is stamped so its annotation states the
+  ///     difference instead of presenting it as plainly zero-retention.
+  ///     <para>STAMPING HAPPENS AFTER THE LIST IS FETCHED, and only for endpoints the list names.
+  ///     The endpoints payload carries no retention field of its own, so an entry the list does
+  ///     not mention keeps the variant its tag described - nothing is inferred from the tag, and
+  ///     nothing is inferred from an absence.</para>
+  ///     <para>A NULL LIST STAMPS NOTHING: an unconsulted list is not evidence that any endpoint
+  ///     lacks the caveat.</para>
+  ///     </summary>
+  private static List<ModelProviderEntry> StampRetentionFacts(List<ModelProviderEntry> entries,
+      RetentionEligibleList? eligible)
+  {
+    if (eligible is null)
+    {
+      return entries;
+    }
+
+    HashSet<string> safetyOnly = new(eligible.Endpoints
+        .Where(endpoint => endpoint.RequiresSafetyRetention)
+        .Select(endpoint => endpoint.Key), StringComparer.Ordinal);
+    return safetyOnly.Count == 0
+        ? entries
+        : [.. entries.Select(entry => safetyOnly.Contains(entry.Key)
+            ? entry with { Variant = entry.Variant with { RequiresSafetyRetention = true } }
+            : entry)];
   }
 
   /// <summary>One model's published per-endpoint rates, keyed by the same composite the
@@ -890,6 +929,12 @@ public sealed class OpenRouterCatalogClient(
         ? el.GetInt32()
         : fallback;
   }
+
+  /// <summary>Reads an optional boolean property, false when absent or not a boolean. An
+  ///     absent flag states nothing about the stricter tier, so it is not read as a caveat.</summary>
+  private static bool GetBoolOrFalse(JsonElement parent, string name)
+      => parent.TryGetProperty(name, out JsonElement el)
+          && el.ValueKind == JsonValueKind.True;
 
   /// <summary>Reads an optional string property, null when absent or not a string.</summary>
   private static string? GetStringOrNull(JsonElement parent, string name)

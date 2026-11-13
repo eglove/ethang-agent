@@ -75,7 +75,7 @@ public sealed record ChainBriefReconciliation(
 /// <param name="Role">The role assigned to this step's session (issue #306): implement or
 ///     review. The brief branches on it, because a reviewer told to mark its step done is a
 ///     reviewer that will finish the work instead of judging it. Null means implement.</param>
-/// <param name="ReviewRubricAvailable">Whether the <c>reviewing-plans</c> skill (#217) is
+/// <param name="RefineRubricAvailable">Whether the <c>writing-plans</c> skill (#217) is
 ///     installed in this session's catalog. A reviewer must be told which rubric to apply, and
 ///     the honest answer when there is none is to say so rather than to invent one.</param>
 /// <param name="IsFinal">Whether this brief is for the FINAL agent: the chain is complete, so
@@ -92,7 +92,7 @@ public sealed record ChainBriefFacts(
     IReadOnlyList<ChainBriefPredecessor> Predecessors,
     string LedgerKey,
     ChainStepRole? Role = null,
-    bool ReviewRubricAvailable = false,
+    bool RefineRubricAvailable = false,
     bool IsFinal = false)
 {
   /// <summary>The plan step this session was assigned, or null when the plan no longer has
@@ -112,7 +112,7 @@ public sealed record ChainBriefFacts(
   ///     position, its title, its detail, the plan's goal, the predecessors, the gate — is the
   ///     same fact whether a session is implementing or reviewing. What differs is what
   ///     "finished" means, and that is the whole of the difference.</para></summary>
-  public bool IsReview => EffectiveRole.IsReview;
+  public bool IsRefine => EffectiveRole.IsRefine;
 
   /// <summary>The other members of this step's group, in position order, so a member knows
   ///     which work is happening beside it and must neither change nor wait on it. Empty for a

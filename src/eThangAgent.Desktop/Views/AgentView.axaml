@@ -95,11 +95,11 @@
                      ToolTip.Tip="The routing variant committed for this session"
                      IsVisible="{Binding Status.ServingVariant, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                      DockPanel.Dock="Left" Margin="0,0,12,0"/>
-          <!-- The retention restriction, named while it holds (it is the default, so a session
-               is only unusual when this is ABSENT). Stated as the promise rather than as the
-               acronym: the bar is read at a glance, not decoded. -->
+          <!-- The retention tier in force, named for all three so a session that has loosened
+               its policy says so instead of showing silence. Stated as the promise rather than
+               as the acronym: the bar is read at a glance, not decoded. -->
           <TextBlock x:Name="ServingRetentionText" Text="{Binding Status.ServingRetention}"
-                     ToolTip.Tip="Prompts are only routed to providers that do not retain them"
+                     ToolTip.Tip="What the providers serving this session may keep of your prompts"
                      IsVisible="{Binding Status.ServingRetention, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                      DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <!-- The LAST child fills the remaining width, so the effort readout absorbs whatever

@@ -111,7 +111,7 @@ public sealed class ChainGroupMigrationTests : IDisposable
     AppDatabase database = new(_dbPath);
     SqliteChainStore store = new(database, Ws);
     Chain chain = Chain.NewFromSeeds(Ws, 7, 1, "Ship it", "session-root",
-        [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review)],
+        [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Refine)],
         T0);
     Result<Chain> created = store.CreateAsync(chain, TestContext.Current.CancellationToken)
         .GetAwaiter().GetResult();
@@ -205,7 +205,8 @@ public sealed class ChainGroupMigrationTests : IDisposable
     // NO BACKFILL VALUE: no step that predates this migration ran in a group or in a worktree.
     Assert.Equal(0L, grouped);
     Assert.Equal(0L, worktreed);
-    Assert.Equal("Review", role);
+    // THE ROLE IS REWRITTEN BY V42: the row said 'Review' in V34 and the vocabulary moved on.
+    Assert.Equal("Refine", role);
     Assert.Equal("Done", status);
   }
 

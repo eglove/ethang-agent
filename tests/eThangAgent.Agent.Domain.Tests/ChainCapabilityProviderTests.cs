@@ -59,9 +59,12 @@ public class ChainCapabilityProviderTests
   {
     public Result<ChainPlanFacts>? Override { get; set; }
 
+    /// <summary>The positions the plan already records as Done or Skipped.</summary>
+    public int[] Settled { get; set; } = [];
+
     public Task<Result<ChainPlanFacts>> GetPlanAsync(int planId, CancellationToken ct = default)
         => Task.FromResult(Override ?? Result.Success(new ChainPlanFacts(planId, 4,
-            "Ship the dashboard", "C:\\ws", positions)));
+            "Ship the dashboard", "C:\\ws", positions, Settled)));
   }
 
   private sealed class FakeStart : IChainStartPort
@@ -216,6 +219,66 @@ public class ChainCapabilityProviderTests
   }
 
   [Fact]
+  public async Task Create_NamingAnAlreadyDoneStep_IsRefusedBeforeAnythingIsCreated()
+  {
+    // THE DEFECT THIS CLOSES: a chain that claimed a step the plan already records Done starts
+    // a fresh session over work that has landed, and redoes it. Steps 1 and 2 were committed;
+    // a replacement chain that named them again would have rewritten them.
+    (_, FakeStore store, FakePlans plans, FakeStart start) = New(1, 2, 3, 4);
+    plans.Settled = [1, 2];
+    ChainCapabilityProvider provider = new(new ChainService(store), plans, start,
+        () => "session-creator", new FixedClock(T0));
+
+    CapabilityInvocationResult result = await InvokeAsync(provider,
+        Plan(7, Step(1) + ", " + Step(2) + ", " + Step(3) + ", " + Step(4))).ConfigureAwait(true);
+
+    Assert.True(result.IsError);
+    Assert.Contains(ChainCreationCode.StepAlreadyDone, result.Content, StringComparison.Ordinal);
+    // BOTH DONE POSITIONS ARE NAMED, so the caller sees the whole problem rather than the first.
+    Assert.Contains("step(s) 1, 2", result.Content, StringComparison.Ordinal);
+    Assert.Empty(start.Started);
+    ChainCatalog listed = Must(await store.ListAsync(null, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true));
+    Assert.Empty(listed.Chains);
+  }
+
+  [Fact]
+  public async Task Create_NamingNoSteps_ExecutesOnlyWhatThePlanHasNotSettled()
+  {
+    // OMITTING 'steps' MEANS 'EXECUTE WHAT IS LEFT', not 'execute every position'. The first
+    // replacement chain for plan #189 claimed step 1, which the plan already recorded Done.
+    (_, FakeStore store, FakePlans plans, FakeStart start) = New(1, 2, 3, 4);
+    plans.Settled = [1, 2];
+    ChainCapabilityProvider provider = new(new ChainService(store), plans, start,
+        () => "session-creator", new FixedClock(T0));
+
+    CapabilityInvocationResult result = await InvokeAsync(provider, Plan(7)).ConfigureAwait(true);
+
+    Assert.False(result.IsError, result.Content);
+    // STEP 3 IS THE FIRST STEP STARTED, because steps 1 and 2 are already done.
+    Assert.Equal(3, Assert.Single(start.Started).Position);
+    ChainCatalog listed = Must(await store.ListAsync(null, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true));
+    Chain created = Assert.Single(listed.Chains);
+    Assert.Equal([3, 4], created.Steps.Select(step => step.Position));
+  }
+
+  [Fact]
+  public async Task Create_OnAFullySettledPlan_IsRefusedNamingNothingToExecute()
+  {
+    (_, FakeStore store, FakePlans plans, FakeStart start) = New(1, 2);
+    plans.Settled = [1, 2];
+    ChainCapabilityProvider provider = new(new ChainService(store), plans, start,
+        () => "session-creator", new FixedClock(T0));
+
+    CapabilityInvocationResult result = await InvokeAsync(provider, Plan(7)).ConfigureAwait(true);
+
+    Assert.True(result.IsError);
+    Assert.Contains(ChainCreationCode.NothingToExecute, result.Content, StringComparison.Ordinal);
+    Assert.Empty(start.Started);
+  }
+
+  [Fact]
   public async Task Create_WithoutAGroupInANonRepository_IsCreated()
   {
     // Only a group needs worktrees, so a chain that runs one step at a time is unaffected by
@@ -361,13 +424,13 @@ public class ChainCapabilityProviderTests
     (ChainCapabilityProvider provider, FakeStore store, _, _) = New(1, 2);
 
     CapabilityInvocationResult result = await InvokeAsync(provider,
-        Plan(7, Step(1) + ", " + Step(2, "review"))).ConfigureAwait(true);
+        Plan(7, Step(1) + ", " + Step(2, "refine"))).ConfigureAwait(true);
 
     Assert.False(result.IsError);
     Chain stored = Must(await store.GetAsync(1, TestContext.Current.CancellationToken)
         .ConfigureAwait(true));
     Assert.Equal(ChainStepRoleKind.Implement, stored.Steps[0].Role.Kind);
-    Assert.Equal(ChainStepRoleKind.Review, stored.Steps[1].Role.Kind);
+    Assert.Equal(ChainStepRoleKind.Refine, stored.Steps[1].Role.Kind);
   }
 
   [Fact]
@@ -379,7 +442,7 @@ public class ChainCapabilityProviderTests
         Plan(7, Step(1, "integrate"))).ConfigureAwait(true);
 
     Assert.True(result.IsError);
-    Assert.Contains("implement|review", result.Content, StringComparison.Ordinal);
+    Assert.Contains("implement|refine", result.Content, StringComparison.Ordinal);
     Assert.Empty(start.Started);
   }
 
@@ -392,7 +455,7 @@ public class ChainCapabilityProviderTests
     (ChainCapabilityProvider provider, _, _, FakeStart start) = New(1);
 
     CapabilityInvocationResult result = await InvokeAsync(provider,
-        Plan(7, Step(1, "review", extraMember: "\"model\": \"vendor/x\""))).ConfigureAwait(true);
+        Plan(7, Step(1, "refine", extraMember: "\"model\": \"vendor/x\""))).ConfigureAwait(true);
 
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
@@ -508,11 +571,11 @@ public class ChainCapabilityProviderTests
   {
     int? resumed = null;
     ChainCapabilityProvider provider = new(new ChainService(new FakeStore()), new FakePlans(1, 2),
-        new FakeStart(), () => "session-root", new FixedClock(T0), resume: id =>
+        new FakeStart(), () => "session-root", new FixedClock(T0), recovery: new ChainRecoveryActions(id =>
         {
           resumed = id;
           return Task.FromResult(CapabilityInvocationResult.Ok("[chain] resumed #4"));
-        });
+        }, _ => throw new NotSupportedException("this test does not repair")));
 
     CapabilityInvocationResult r = await provider.InvokeAsync("resume-parked",
         /*lang=json,strict*/"{ \"id\": 4 }", TestContext.Current.CancellationToken);

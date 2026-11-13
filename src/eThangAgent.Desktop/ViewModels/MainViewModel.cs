@@ -784,10 +784,10 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     </summary>
   /// <param name="modelId">The model to serve, or null for the session's default model.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
-  /// <param name="zeroDataRetention">Whether to restrict routing to endpoints that do not retain
-  ///     prompts, or null to keep the session's current policy.</param>
+  /// <param name="retention">The retention tier to enforce, or null to keep the session's
+  ///     current tier.</param>
   public async Task ApplyModelChoiceAsync(string? modelId, ModelVariant? variant = null,
-      bool? zeroDataRetention = null)
+      RetentionPolicy? retention = null)
   {
     AgentTabViewModel? tab = SelectedTab;
     if (tab is null)
@@ -795,9 +795,9 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    tab.ViewModel.ApplyModelChoice(modelId, variant, zeroDataRetention);
+    tab.ViewModel.ApplyModelChoice(modelId, variant, retention);
     await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot,
-        modelId, variant, zeroDataRetention);
+        modelId, variant, retention);
   }
 
   /// <summary>Applies an effort-picker choice to the selected tab and persists it per
@@ -848,9 +848,9 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       string? modelId = model.Kind == ModelChoiceKind.Pinned ? model.ModelId : null;
       ModelVariant? variant = model.Kind == ModelChoiceKind.Pinned ? model.Variant : null;
-      bool? zeroDataRetention = model.Kind == ModelChoiceKind.Pinned ? model.ZeroDataRetention : null;
-      tab.ViewModel.ApplyModelChoice(modelId, variant, zeroDataRetention);
-      await PersistModelChoiceAsync(providerName, workspaceRoot, modelId, variant, zeroDataRetention);
+      RetentionPolicy? retention = model.Kind == ModelChoiceKind.Pinned ? model.Retention : null;
+      tab.ViewModel.ApplyModelChoice(modelId, variant, retention);
+      await PersistModelChoiceAsync(providerName, workspaceRoot, modelId, variant, retention);
     }
 
     await PersistEffortChoiceAsync(providerName, workspaceRoot, snapshot.Preferences.ReasoningEffort);
@@ -3188,14 +3188,12 @@ internal sealed partial class MainViewModel : ObservableObject
       preferences.ModelVariant = restoredChoice.Variant == ModelVariant.Standard
           ? null
           : restoredChoice.Variant;
-      preferences.ZeroDataRetention = restoredChoice.ZeroDataRetention;
+      preferences.Retention = restoredChoice.Retention;
       sessionVm.Status.ModelId = restoredChoice.ModelId;
       sessionVm.Status.ServingVariant = restoredChoice.Variant == ModelVariant.Standard
           ? string.Empty
           : ModelVariants.Describe(restoredChoice.Variant);
-      sessionVm.Status.ServingRetention = restoredChoice.ZeroDataRetention
-          ? AgentSessionViewModel.ZeroDataRetentionBadge
-          : string.Empty;
+      sessionVm.Status.ServingRetention = AgentSessionViewModel.RetentionBadge(restoredChoice.Retention);
     }
 
     ReasoningEffort? restoredEffort = await ReadEffortChoiceAsync(session.ProviderName, session.WorkspaceRoot);
@@ -3632,7 +3630,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     cleared choice come back from the legacy value on the next open, which is the silent
   ///     resurrection the null-deletes contract exists to prevent.</para></summary>
   private async Task PersistModelChoiceAsync(string providerName, string workspaceRoot,
-      string? modelId, ModelVariant? variant, bool? zeroDataRetention = null)
+      string? modelId, ModelVariant? variant, RetentionPolicy? retention = null)
   {
     if (_preferences is null)
     {
@@ -3648,7 +3646,7 @@ internal sealed partial class MainViewModel : ObservableObject
           ? await _preferences.DeleteAsync(key)
           : await _preferences.SetAsync(key,
               new ModelVariantChoice(modelId, variant ?? ModelVariant.Standard,
-                  zeroDataRetention ?? true).Serialize());
+                  retention ?? RetentionPolicy.ZeroDataRetention).Serialize());
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"model choice preference write failed for '{key}'");

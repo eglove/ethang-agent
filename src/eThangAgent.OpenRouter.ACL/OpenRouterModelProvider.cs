@@ -15,7 +15,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 {
   private const string ProviderError = "ProviderError";
   private const string ContextWindowExceeded = "ContextWindowExceeded";
-  private const string ZeroDataRetentionUnavailable = "ZeroDataRetentionUnavailable";
+  private const string RetentionUnavailable = "RetentionUnavailable";
 
   /// <summary>Substrings that identify a context-window overflow in an HTTP 400 body.
   ///     OpenRouter forwards the upstream provider's error JSON verbatim, so the markers
@@ -272,8 +272,8 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
         : Result.Success(bodyDict);
   }
 
-  /// <summary>Writes the body's <c>provider</c> object: the zero-data-retention restriction
-  ///     when the session carries it, and the Cache Floor order when that variant was chosen.
+  /// <summary>Writes the body's <c>provider</c> object: the retention restriction the session's
+  ///     tier states, and the Cache Floor order when that variant was chosen.
   ///     <para>ONE OBJECT, TWO FACTS: the provider block is a single member of the body, so the
   ///     restriction and the order are assembled here rather than each writing the key and
   ///     overwriting the other.</para></summary>
@@ -281,15 +281,14 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       ModelConfig config, CancellationToken ct)
   {
     Dictionary<string, object?>? provider = await CacheFloorProviderAsync(config, ct).ConfigureAwait(false);
-    if (config.ZeroDataRetention)
+    if (RetentionPolicies.IsEnforced(config.Retention))
     {
-      if (await ZeroDataRetentionFaultAsync(config, ct).ConfigureAwait(false) is { } fault)
+      provider ??= [];
+      provider["zdr"] = true;
+      if (await RestrictRetentionAsync(config, provider, ct).ConfigureAwait(false) is { } fault)
       {
         return fault;
       }
-
-      provider ??= [];
-      provider["zdr"] = true;
     }
 
     if (provider is not null)
@@ -300,15 +299,22 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     return null;
   }
 
-  /// <summary>The named failure when the provider's own zero-retention list proves nothing
-  ///     eligible serves the model, or null when something does - or when that cannot be known.
-  ///     <para>THE RESTRICTION IS HARD, WHICH IS WHY THIS EXISTS. Every other routing preference
-  ///     in this harness is soft: an unavailable endpoint falls through, because a preference
-  ///     that cannot be met should not fail a turn. Retention is not a preference about which
-  ///     provider is nicer - it is a statement about where the user's prompts may go, and a
-  ///     silent fallback to a retaining provider would break that statement without ever saying
-  ///     so. So the eligible set is consulted, and a model with no eligible endpoint fails with a
-  ///     message that names the restriction instead.</para>
+  /// <summary>Applies an enforced tier's restriction to <paramref name="provider"/> and returns
+  ///     the named failure when the catalog proves the tier cannot be met.
+  ///     <para>WHAT EACH TIER DOES HERE. <see cref="RetentionPolicy.ZeroDataRetention"/> writes
+  ///     <c>only</c> naming the endpoints the eligible list admits under that tier, which is what
+  ///     keeps a safety-retention endpoint from serving a strict request: the provider decides
+  ///     such an endpoint's admission from the account or guardrail setting rather than from the
+  ///     request, so naming the admitted slugs is the only per-endpoint exclusion available.
+  ///     <see cref="RetentionPolicy.SafetyRetention"/> consults the same list and writes no
+  ///     <c>only</c>, because every endpoint the list names is one that tier admits.</para>
+  ///     <para>THE RESTRICTION IS HARD. Every other routing preference in this harness is soft: an
+  ///     unavailable endpoint falls through, because a preference that cannot be met should not
+  ///     fail a turn. Retention is not a preference about which provider is nicer - it is a
+  ///     statement about where the user's prompts may go, and a silent fallback to a retaining
+  ///     provider would break that statement without ever saying so. So the eligible set is
+  ///     consulted, and a model with no endpoint the tier admits fails with a message naming the
+  ///     tier.</para>
   ///     <para>THE PROVIDER'S LIST IS THE AUTHORITY, NEVER THE SLUG. The <c>zdr</c> segment in an
   ///     endpoint's tag is one way an endpoint becomes eligible, not the mark of membership:
   ///     measured live 2026-11-01, <c>deepseek/deepseek-v4.1-flash-1017</c> has 42 eligible
@@ -317,11 +323,15 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   ///     for a reason that was not true.</para>
   ///     <para>AN UNCONSULTED LIST IS NOT PROOF. When the catalog is unwired, the list was never
   ///     fetched, or the read failed, nothing is known about the model's endpoints, so the turn
-  ///     is sent with the restriction on and the provider decides - refusing there would fail
-  ///     turns over an absence of evidence that says nothing about the model. Only a list that
-  ///     WAS consulted and does not name the model is proof.</para>
+  ///     is sent with the restriction on and no <c>only</c> list, and the provider decides -
+  ///     refusing there would fail turns over an absence of evidence that says nothing about the
+  ///     model. Only a list that WAS consulted and does not name the model is proof.</para>
+  ///     <para>A SLUG LIST IS SENT ONLY FROM THE LIST. A stale slug in <c>only</c> fails the
+  ///     entire request, so an endpoint the provider gave no tag for contributes nothing rather
+  ///     than an invented one, and an empty list is omitted rather than sent naming nothing.</para>
   ///     </summary>
-  private async Task<DomainError?> ZeroDataRetentionFaultAsync(ModelConfig config, CancellationToken ct)
+  private async Task<DomainError?> RestrictRetentionAsync(ModelConfig config,
+      Dictionary<string, object?> provider, CancellationToken ct)
   {
     if (_catalog is null)
     {
@@ -349,14 +359,38 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       return null;
     }
 
-    ZeroDataRetentionList? eligible = await _catalog.GetZeroDataRetentionAsync(ct).ConfigureAwait(false);
-    return eligible is null || eligible.ServesModel(baseModel)
-        ? null
-        : new DomainError(ZeroDataRetentionUnavailable,
-            $"No zero-data-retention endpoint serves {baseModel}, and this session only routes to "
-            + "endpoints that do not retain prompts. Pick a model that offers one in Model "
-            + "Settings, or turn the restriction off there.");
+    RetentionEligibleList? eligible = await _catalog.GetRetentionEligibleAsync(ct).ConfigureAwait(false);
+    if (eligible is null)
+    {
+      return null;
+    }
+
+    if (!eligible.ServesModel(baseModel, config.Retention))
+    {
+      return new DomainError(RetentionUnavailable, UnavailableMessage(config.Retention, baseModel));
+    }
+
+    if (config.Retention != RetentionPolicy.ZeroDataRetention)
+    {
+      return null;
+    }
+
+    IReadOnlyList<string> slugs = eligible.SlugsFor(baseModel, RetentionPolicy.ZeroDataRetention);
+    if (slugs.Count > 0)
+    {
+      provider["only"] = slugs;
+    }
+
+    return null;
   }
+
+  /// <summary>The refusal for a model the stated tier has no endpoint for: it names the tier in
+  ///     force and both ways out, so the user is never left guessing which setting refused the
+  ///     turn.</summary>
+  private static string UnavailableMessage(RetentionPolicy policy, string modelId)
+      => $"No endpoint serves {modelId} under the {RetentionPolicies.DisplayName(policy)} "
+          + "retention tier, and this session enforces that tier. Pick a model that offers one "
+          + "in Model Settings, or loosen the retention setting there.";
 
   /// <summary>The Cache Floor order as a provider block: the model's endpoints sorted by
   ///     advertised cache-read price, cheapest first, with fallbacks allowed so an unavailable
@@ -413,8 +447,8 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   ///     malformed stop condition surfaces as the returned DomainError — never silently
   ///     dropped.
   ///     <para>Provider settings do not write a routing block. Standard, Nitro and Floor use
-  ///     the model id; Cache Floor's preference order is attached separately after settings
-  ///     validation, without the retired restrictive <c>only</c> pin.</para></summary>
+  ///     the model id; the Cache Floor order and the retention restriction are attached
+  ///     separately, after settings validation.</para></summary>
   private static DomainError? ParseAndApplySettings(Dictionary<string, object?> bodyDict,
       ModelConfig config, ModelRequest request)
   {
@@ -476,10 +510,9 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   ///     tools follow; enabled plugins ride the "plugins" array. Default sections
   ///     contribute zero keys, so a default ProviderSettings leaves the body unchanged.
   ///     Returns the fault when the stop conditions are malformed.
-  ///     <para>THE PROVIDER PIN IS THE ONLY THING THAT WRITES body["provider"] (issue #297,
-  ///     D2): routing is deleted, so nothing competes with the pin for that key. The user
-  ///     chooses one model/provider pair in Model Settings and that pair either serves or
-  ///     the call fails - there is no routing object left to silently replace it.</para></summary>
+  ///     <para>THIS METHOD WRITES NO ROUTING BLOCK. The <c>provider</c> object is assembled
+  ///     once, after settings are validated, from the retention restriction the session's tier
+  ///     states and the Cache Floor order when that variant was chosen.</para></summary>
   private static DomainError? ApplyProviderSettings(Dictionary<string, object?> bodyDict,
       OpenRouterRequestSettings? settings, ModelRequest request, ModelConfig config)
   {

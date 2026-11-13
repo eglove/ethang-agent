@@ -27,7 +27,13 @@ internal sealed class CompositionChainPlanSource(PlanService plans, IWorkspaceCo
     Result<Plan> plan = await _plans.GetAsync(planId, ct).ConfigureAwait(false);
     return plan.IsSuccess
         ? Result.Success(new ChainPlanFacts(plan.Value.Id, plan.Value.Version, plan.Value.Title,
-            _workspace.WorkspaceId, [.. plan.Value.Steps.Select(step => step.Position)]))
+            _workspace.WorkspaceId, [.. plan.Value.Steps.Select(step => step.Position)],
+            // A SETTLED STEP IS NOT WORK A CHAIN CAN DO. Reading it here is what lets a
+            // declaration that names nothing mean 'the part that is not already finished'
+            // rather than 'every position, including the ones that already landed'.
+            [.. plan.Value.Steps
+                .Where(step => step.Status is PlanStepStatus.Done or PlanStepStatus.Skipped)
+                .Select(step => step.Position)]))
         : Result.Failure<ChainPlanFacts>(plan.Error);
   }
 }

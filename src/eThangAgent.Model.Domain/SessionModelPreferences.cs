@@ -77,13 +77,14 @@ public sealed class SessionModelPreferences
   ///     string; it never parses it.</summary>
   public string? ProviderSettings { get; set; }
 
-  /// <summary>Whether the session restricts routing to zero-data-retention endpoints, or
-  ///     null to keep the resolved config's value.
-  ///     <para>NULL MEANS ON, and the overlay is where that is decided: a session that has
-  ///     never stated a preference gets the restrictive routing, so silence can never be the
-  ///     thing that sends a prompt to a retaining provider. Only an explicit false loosens
-  ///     it.</para></summary>
-  public bool? ZeroDataRetention { get; set; }
+  /// <summary>The retention tier the session routes under, or null to keep the resolved
+  ///     config's value.
+  ///     <para>NULL MEANS KEEP THE CONFIG'S TIER, and the overlay is where that is decided: a
+  ///     session that has never stated a preference keeps the tier resolution produced, which
+  ///     is the restrictive default. The default is supplied by the config's own parameter
+  ///     default rather than here, so a resolved tier is never overwritten by silence.</para>
+  ///     </summary>
+  public RetentionPolicy? Retention { get; set; }
 
   /// <summary>Replaces every knob with <paramref name="source"/>'s values. Used where a
   ///     live preferences instance must ADOPT a set that travelled from another process
@@ -108,6 +109,6 @@ public sealed class SessionModelPreferences
     Verbosity = source.Verbosity;
     ParallelToolCalls = source.ParallelToolCalls;
     ProviderSettings = source.ProviderSettings;
-    ZeroDataRetention = source.ZeroDataRetention;
+    Retention = source.Retention;
   }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ModelDomain;
@@ -17,11 +18,11 @@ namespace eThangAgent.ModelDomain;
 ///     suffix.</param>
 /// <param name="Variant">The routing variant, or <see cref="ModelVariant.Standard"/> for the
 ///     provider's own routing.</param>
-/// <param name="ZeroDataRetention">Whether routing is restricted to endpoints that do not
-///     retain prompts. True unless the user explicitly turned the restriction off, so a stored
-///     value that never mentioned it restores as restricted.</param>
+/// <param name="Retention">The retention tier the session routes under. ZDR unless the user
+///     explicitly loosened it, so a stored value that never mentioned a tier restores as the
+///     strict one.</param>
 public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = ModelVariant.Standard,
-    bool ZeroDataRetention = true)
+    RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
 {
   /// <summary>The id to send to the provider: the base model with the variant appended.
   ///     This is the whole routing decision.</summary>
@@ -37,7 +38,7 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
   ///     catalog chooses, so a delimiter that an id happens to contain would split the choice
   ///     into a model that does not exist and a variant nobody chose.</para></summary>
   public string Serialize()
-      => JsonSerializer.Serialize(new ChoiceDocument(ModelId, Variant.ToString(), ZeroDataRetention));
+      => JsonSerializer.Serialize(new ChoiceDocument(ModelId, Variant.ToString(), Retention.ToString()));
 
   /// <summary>Reads a stored value back, accepting every shape this harness has ever
   ///     written.
@@ -77,13 +78,19 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
             "the stored model choice names no model."));
       }
 
+      Result<RetentionPolicy> tier = ResolveRetention(document);
+      if (!tier.IsSuccess)
+      {
+        return Result.Failure<ModelVariantChoice>(tier.Error);
+      }
+
       // A blank variant is UNSET, not unknown: the retired provider-pair payload has no
       // variant member at all, and a hand-written blank means the same thing.
       if (string.IsNullOrWhiteSpace(document.Variant))
       {
         return Result.Success(Normalize(document.ModelId) with
         {
-          ZeroDataRetention = document.ZeroDataRetention ?? true,
+          Retention = tier.Value,
         });
       }
 
@@ -100,7 +107,7 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
       // The variant is stated; the model still must be normalized in case the id carries its
       // own suffix (a hand-written value can carry both).
       return Result.Success(new ModelVariantChoice(
-          ModelVariants.BaseOf(document.ModelId), variant, document.ZeroDataRetention ?? true));
+          ModelVariants.BaseOf(document.ModelId), variant, tier.Value));
     }
 #pragma warning disable CA1031 // A malformed preference is an EXPECTED condition: it becomes a named error.
     catch (JsonException ex)
@@ -116,12 +123,45 @@ public sealed record ModelVariantChoice(string ModelId, ModelVariant Variant = M
   private static ModelVariantChoice Normalize(string modelId)
       => new(ModelVariants.BaseOf(modelId), ModelVariants.FromModelId(modelId));
 
+  /// <summary>The tier a stored document states, resolving the legacy boolean when that is what
+  ///     it carries.
+  ///     <para>AN EXPLICIT TIER WINS, and an unknown one is a FAILURE rather than a silent ZDR:
+  ///     it may name a tier a later build added, and substituting the strict tier would tighten a
+  ///     session the user had loosened. The caller falls back to its own default, which the user
+  ///     can see.</para>
+  ///     <para>THE LEGACY BOOLEAN MAPS TO THE TIERS IT COULD EXPRESS: <c>false</c> meant 'no
+  ///     restriction', which is <see cref="RetentionPolicy.RetentionAndTraining"/>; <c>true</c>
+  ///     and an absent member both meant 'restricted', which is the strict tier.</para></summary>
+  private static Result<RetentionPolicy> ResolveRetention(ChoiceDocument document)
+  {
+    if (string.IsNullOrWhiteSpace(document.Retention))
+    {
+      return Result.Success(document.ZeroDataRetention is false
+          ? RetentionPolicy.RetentionAndTraining
+          : RetentionPolicy.ZeroDataRetention);
+    }
+
+    // A DEFINED member only. Enum.TryParse alone would accept "5" and hand back an
+    // out-of-range value the domain never defined.
+    return Enum.TryParse(document.Retention, ignoreCase: true, out RetentionPolicy policy)
+        && Enum.IsDefined(policy)
+            ? Result.Success(policy)
+            : Result.Failure<RetentionPolicy>(new DomainError("InvalidModelChoice",
+                $"the stored model choice names an unknown retention tier '{document.Retention}'; "
+                + "pick the model again in Model Settings."));
+  }
+
   /// <summary>The wire shape. The retired <c>ProviderName</c> member is deliberately absent:
   ///     an unknown member deserializes away, which is exactly the handling a value written by
   ///     the deleted surface needs.
-  ///     <para><c>ZeroDataRetention</c> IS NULLABLE ON THE WIRE AND DEFAULTS TO ON. A document
-  ///     written before the restriction existed has no such member, and reading that absence as
-  ///     'off' would loosen a promise the user never made; only a stored false loosens it.
+  ///     <para><c>Retention</c> IS NULLABLE ON THE WIRE AND DEFAULTS TO THE STRICT TIER. A
+  ///     document written before the tiers existed has no such member and is read through
+  ///     <c>ZeroDataRetention</c> instead.</para>
+  ///     <para><c>ZeroDataRetention</c> IS READ-ONLY ON THE WIRE. It exists so a document written
+  ///     by an earlier build still restores its tier; <see cref="Serialize"/> never writes it,
+  ///     because a build that wrote both could later read the stale one over the live one.
   ///     </para></summary>
-  private sealed record ChoiceDocument(string ModelId, string? Variant, bool? ZeroDataRetention = null);
+  private sealed record ChoiceDocument(string ModelId, string? Variant, string? Retention = null,
+      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+      bool? ZeroDataRetention = null);
 }

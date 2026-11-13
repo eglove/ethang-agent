@@ -113,28 +113,38 @@ public sealed class ChainContractRendererTests
     ChainContract contract = new(1, 2, 3, "sci.x/ledger");
 
     Assert.Equal(ChainStepRoleKind.Implement, contract.EffectiveRole.Kind);
-    Assert.False(contract.IsReview);
+    Assert.False(contract.IsRefine);
   }
 
   [Fact]
-  public void Render_ForAReviewStep_TellsItToJudgeRatherThanToFinishTheWork()
+  public void Render_ForARefineStep_MakesThePlanItsWorkRatherThanTheFeature()
   {
-    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Review));
+    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Refine));
 
     // The standing rule, which is what survives a compaction that evicts the brief.
-    Assert.Contains("assigned the review role", text, StringComparison.Ordinal);
-    Assert.Contains("JUDGE this", text, StringComparison.Ordinal);
-    Assert.Contains("Do not change the workspace", text, StringComparison.Ordinal);
+    Assert.Contains("assigned the refine role", text, StringComparison.Ordinal);
+    Assert.Contains("EXECUTABLE, not to implement it", text, StringComparison.Ordinal);
     Assert.DoesNotContain("Mark step 2 of plan #104 done when — and only when — the work", text, StringComparison.Ordinal);
   }
 
   [Fact]
-  public void Render_ForAReviewStep_StillSaysTheHarnessAdvancesTheChain()
+  public void Render_ForARefineStep_SaysThePlanBacksTheDoneClaim()
   {
-    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Review));
+    // The gate does not apply to a refine step, and the session must be told so: a refiner
+    // looking for a command to run would run one that proves nothing about the plan.
+    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Refine));
 
-    // A reviewer is still a chain step: it finishes by marking the step done, and the harness
-    // - not the reviewer - decides what follows.
+    Assert.Contains("backed by the PLAN, not by a command", text, StringComparison.Ordinal);
+    Assert.Contains("completion gate does not apply to this step", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForARefineStep_StillSaysTheHarnessAdvancesTheChain()
+  {
+    string text = ChainContractRenderer.Render(Contract(role: ChainStepRole.Refine));
+
+    // A refine step is still a chain step: it finishes by marking the step done, and the
+    // harness - not the refiner - decides what follows.
     Assert.Contains("will start the next session when you mark", text, StringComparison.Ordinal);
     Assert.Contains("step of this plan you may mark done", text, StringComparison.Ordinal);
   }

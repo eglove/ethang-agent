@@ -67,7 +67,8 @@ public class OpenRouterModelProviderRequestTests
 
   private static ModelConfig WithSettings(OpenRouterRequestSettings? settings)
     => ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096,
-        providerSettings: OpenRouterRequestSettings.Serialize(settings)).Value!;
+        providerSettings: OpenRouterRequestSettings.Serialize(settings),
+        retention: RetentionPolicy.RetentionAndTraining).Value!;
 
   [Fact]
   public async Task Body_OmitsEveryNullKnob()
@@ -289,7 +290,8 @@ public class OpenRouterModelProviderRequestTests
   {
     string withDefaults = await CaptureBodyAsync(WithSettings(new OpenRouterRequestSettings())).ConfigureAwait(true);
     string withoutSettings = await CaptureBodyAsync(
-        ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096).Value!).ConfigureAwait(true);
+        ModelConfig.Create("openai/gpt-5", 64, 0.7f, 4096,
+            retention: RetentionPolicy.RetentionAndTraining).Value!).ConfigureAwait(true);
 
     Assert.Equal(withoutSettings, withDefaults);
   }

@@ -131,7 +131,7 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
 
     string stepsSql = Scalar<string>(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='chain_steps';");
-    Assert.Contains("CHECK (role IN ('Implement', 'Review'))", stepsSql, StringComparison.Ordinal);
+    Assert.Contains("CHECK (role IN ('Implement', 'Refine'))", stepsSql, StringComparison.Ordinal);
     // The V23 status CHECK is carried forward verbatim, so that door stays closed.
     Assert.Contains("'Skipped'", stepsSql, StringComparison.Ordinal);
   }
@@ -153,7 +153,7 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
     SqliteChainStore store = new(new AppDatabase(_dbPath), Ws);
     Result<Chain> created = await store.CreateAsync(
         Chain.NewFromSeeds(Ws, 5, 1, "reviewed", null,
-            [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review)],
+            [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Refine)],
             DateTimeOffset.UtcNow),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(created.IsSuccess, created.Error?.Message ?? "create must succeed");
@@ -162,6 +162,6 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(reloaded.IsSuccess, reloaded.Error?.Message ?? "get must succeed");
     Assert.Equal(ChainStepRoleKind.Implement, reloaded.Value.Steps[0].Role.Kind);
-    Assert.Equal(ChainStepRoleKind.Review, reloaded.Value.Steps[1].Role.Kind);
+    Assert.Equal(ChainStepRoleKind.Refine, reloaded.Value.Steps[1].Role.Kind);
   }
 }

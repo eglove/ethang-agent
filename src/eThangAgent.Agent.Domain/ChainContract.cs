@@ -34,7 +34,7 @@ public sealed record ChainContract(int ChainId, int PlanId, int Position, string
 
   /// <summary>True when this session judges work rather than doing it (issue #306).</summary>
   [System.Text.Json.Serialization.JsonIgnore]
-  public bool IsReview => EffectiveRole.IsReview;
+  public bool IsRefine => EffectiveRole.IsRefine;
 
   /// <summary>The contract for a chain step's gathered brief facts.
   ///     <para>THE ONE DERIVATION SITE: the brief (#302) and the contract (#311) both come from

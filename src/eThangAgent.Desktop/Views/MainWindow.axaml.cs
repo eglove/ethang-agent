@@ -5,6 +5,7 @@ using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain.Mcp;
 using Microsoft.Extensions.DependencyInjection;
@@ -225,7 +226,7 @@ internal partial class MainWindow : Window
     ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
         ? new ModelSectionSeams(loadCatalog, preferences.ModelId,
             _vm.SelectedTabCatalogRefresher, preferences.ModelVariant,
-            preferences.ZeroDataRetention ?? true)
+            preferences.Retention ?? RetentionPolicy.ZeroDataRetention)
         : null;
     ModelSettingsViewModel vm = new(
         preferences,

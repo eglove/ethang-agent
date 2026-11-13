@@ -39,9 +39,10 @@ public static class ChainCreationCode
   ///     CONCURRENTLY, and one member has nothing to run beside.</summary>
   public const string GroupTooSmall = "ChainGroupTooSmall";
 
-  /// <summary>A group contains a review step. A reviewer judges a step that has
-  ///     already settled, and a member settles only when the whole group does.</summary>
-  public const string GroupReviewMember = "ChainGroupReviewMember";
+  /// <summary>A group contains a refine step. A refine step rewrites the plan the whole
+  ///     group is about to execute, and a member settles only when the whole group does,
+  ///     so a refine step cannot be one of them.</summary>
+  public const string GroupRefineMember = "ChainGroupRefineMember";
 
   /// <summary>The position after a group's last member is not a declared step. A
   ///     group's members work in separate worktrees and something must merge them
@@ -51,6 +52,18 @@ public static class ChainCreationCode
   /// <summary>The position after a group's last member is itself a group member, so
   ///     the step that would merge the group is still inside it.</summary>
   public const string GroupReconcilerNotAdjacent = "ChainReconcilerNotAdjacent";
+
+  /// <summary>The plan already records one of the declared positions as Done or Skipped.
+  ///     <para>A CHAIN EXECUTES WORK THAT IS NOT DONE. Claiming a settled position starts a
+  ///     fresh session over work that already landed, which redoes it: the chain has no way to
+  ///     know the step was finished, so it implements it again from the plan's text.</para>
+  ///     <para>THE REMEDY IS THE DECLARATION, not a different plan: name only the positions
+  ///     that remain, and the chain starts where the work actually stopped.</para></summary>
+  public const string StepAlreadyDone = "ChainStepAlreadyDone";
+
+  /// <summary>A declaration that names nothing has nothing left to execute, because every
+  ///     position the plan has is already settled.</summary>
+  public const string NothingToExecute = "ChainNothingToExecute";
 
   /// <summary>A group needs a git repository. Every member runs in its own worktree, and a
   ///     worktree is git machinery: a workspace that is not a repository cannot start the
@@ -81,17 +94,22 @@ public static class ChainCreationPolicy
   /// <param name="workspaceIsRepository">Whether the workspace is a git repository, which
   ///     a group requires. Defaults to true so a caller that does not know the fact is not
   ///     refused for it.</param>
+  /// <param name="settledPositions">The positions the plan already records as Done or
+  ///     Skipped, or null when the caller did not say. A declared position among them is
+  ///     refused: a chain over settled work redoes it.</param>
   public static DomainError? RefusalFor(IReadOnlyList<ChainStepSeed> steps,
-      IReadOnlyList<int> planStepPositions, bool workspaceIsRepository = true)
+      IReadOnlyList<int> planStepPositions, bool workspaceIsRepository = true,
+      IReadOnlyList<int>? settledPositions = null)
   {
     ArgumentNullException.ThrowIfNull(steps);
     ArgumentNullException.ThrowIfNull(planStepPositions);
     return NoExecutableSteps(steps)
         ?? StepMissing(steps, planStepPositions)
+        ?? AlreadySettled(steps, settledPositions)
         ?? ConflictingRole(steps)
         ?? GroupNeedsRepository(steps, workspaceIsRepository)
         ?? GroupTooSmall(steps)
-        ?? GroupReviewMember(steps)
+        ?? GroupRefineMember(steps)
         ?? GroupWithoutReconciler(steps)
         ?? GroupReconcilerNotAdjacent(steps);
   }
@@ -139,23 +157,24 @@ public static class ChainCreationPolicy
     return null;
   }
 
-  /// <summary>A group may not contain a review step. A reviewer judges work that has
-  ///     already settled, and a member settles only when its whole group does.
-  ///     <para>A REVIEW STEP AFTER THE GROUP IS LEGAL and is the ordinary shape: it
-  ///     judges the merged result of the reconciler.</para></summary>
-  private static DomainError? GroupReviewMember(IReadOnlyList<ChainStepSeed> steps)
+  /// <summary>A group may not contain a refine step. A refine step rewrites the plan its
+  ///     own group is about to execute, and a member settles only when its whole group does,
+  ///     so the refine would land after the work it was meant to shape.
+  ///     <para>A REFINE STEP AFTER THE GROUP IS LEGAL and is the ordinary shape: it refines
+  ///     what the merged result revealed.</para></summary>
+  private static DomainError? GroupRefineMember(IReadOnlyList<ChainStepSeed> steps)
   {
-    ChainStepSeed? review = steps
-        .Where(step => step.Group is not null && step.Role.IsReview)
+    ChainStepSeed? refine = steps
+        .Where(step => step.Group is not null && step.Role.IsRefine)
         .OrderBy(step => step.Position)
         .FirstOrDefault();
-    return review is null
+    return refine is null
         ? null
-        : new DomainError(ChainCreationCode.GroupReviewMember,
-            $"step {review.Position} is a review step in group {review.Group}, and a group "
-            + "may not contain one: a reviewer judges work that has already settled, and a "
-            + "member settles only when its whole group does. "
-            + "Put the review step after the group's reconciler.");
+        : new DomainError(ChainCreationCode.GroupRefineMember,
+            $"step {refine.Position} is a refine step in group {refine.Group}, and a group "
+            + "may not contain one: a refine step rewrites the plan its own members are about "
+            + "to execute, and a member settles only when its whole group does. "
+            + "Put the refine step after the group's reconciler.");
   }
 
   /// <summary>The position immediately after a group's last member must be a declared
@@ -201,6 +220,37 @@ public static class ChainCreationPolicy
     }
 
     return null;
+  }
+
+  /// <summary>No declared position may be one the plan already settled.
+  ///     <para>THE DECLARATION IS THE ONLY THING THAT CAN BE WRONG HERE, so the message states
+  ///     both halves: which positions are already done, and what to declare instead. A caller
+  ///     that named every position out of habit is told the answer rather than left to work out
+  ///     why the chain redid step 1.</para>
+  ///     <para>A NULL <paramref name="settledPositions"/> MEANS 'NOT SAID', never 'none are':
+  ///     a caller that did not read the plan's statuses is not refused for a fact it never
+  ///     supplied.</para></summary>
+  /// <param name="steps">The declared steps.</param>
+  /// <param name="settledPositions">The positions the plan already settled, or null.</param>
+  private static DomainError? AlreadySettled(IReadOnlyList<ChainStepSeed> steps,
+      IReadOnlyList<int>? settledPositions)
+  {
+    if (settledPositions is not { Count: > 0 } settled)
+    {
+      return null;
+    }
+
+    List<int> already = [.. steps
+        .Select(step => step.Position)
+        .Distinct()
+        .Where(settled.Contains)
+        .Order()];
+    return already.Count == 0
+        ? null
+        : new DomainError(ChainCreationCode.StepAlreadyDone,
+            $"the plan already records step(s) {string.Join(", ", already)} as Done or Skipped, "
+            + "so a chain over them would redo work that has already landed. Declare only the "
+            + "positions that remain, and the chain starts where the work actually stopped.");
   }
 
   /// <summary>D10: a chain with no executable step is refused. This is the check that stops

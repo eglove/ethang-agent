@@ -40,10 +40,28 @@ public sealed class ChainStepOwnershipGate(IChainStore chains) : IPlanStepOwners
 
     ChainStep? assigned = chain.Steps.FirstOrDefault(step =>
         string.Equals(step.SessionId, sessionId, StringComparison.Ordinal));
-    return assigned is null
-      ? PlanStepOwnership.Permit
-      : WrongStep(chain, assigned, planId, position) ?? PlanStepOwnership.Permit;
+    // NOT EXECUTING A CHAIN STEP: the ordinary case, and it passes with the workspace gate
+    // applying as it always has.
+    return assigned is null ? PlanStepOwnership.Permit : Assigned(chain, assigned, planId, position);
   }
+
+  /// <summary>The answer for a session that IS executing a chain step: the wrong-step refusal,
+  ///     or a permit whose evidence is the plan when the step is a refine step.
+  ///     <para>A REFINE STEP'S EVIDENCE IS THE PLAN. It changes the plan rather than the
+  ///     workspace, so no command can show that a step became checkable, and the workspace gate
+  ///     would refuse the one claim this role can make. The flag is only ever set for a step the
+  ///     session actually holds, which is what keeps it from widening any other completion.
+  ///     </para></summary>
+  /// <param name="chain">The chain the session holds.</param>
+  /// <param name="assigned">The step it holds.</param>
+  /// <param name="planId">The plan being updated.</param>
+  /// <param name="position">The 1-based step position being completed.</param>
+  private static PlanStepOwnership Assigned(Chain chain, ChainStep assigned, int planId,
+      int position) =>
+      WrongStep(chain, assigned, planId, position) ?? PlanStepOwnership.Permit with
+      {
+        BackedByThePlan = assigned.Role.IsRefine,
+      };
 
   /// <summary>The assignment must be THIS plan's step at THIS position: the position alone is
   ///     not the assignment, or a session on chain #4's step 2 could complete step 2 of an

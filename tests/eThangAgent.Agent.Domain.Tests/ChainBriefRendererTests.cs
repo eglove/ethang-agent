@@ -30,7 +30,7 @@ public sealed class ChainBriefRendererTests
           Predecessors: predecessors ?? [],
           LedgerKey: "sci.dashboard-truth/ledger",
           Role: role,
-          ReviewRubricAvailable: rubric)
+          RefineRubricAvailable: rubric)
       {
         Siblings = siblings ?? [],
       };
@@ -161,71 +161,55 @@ public sealed class ChainBriefRendererTests
   }
 
   [Fact]
-  public void Render_ForAReviewStep_TellsItToJudgeRatherThanToFinishTheWork()
+  public void Render_ForARefineStep_MakesThePlanItsWorkRatherThanTheFeature()
   {
-    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review)).Value!;
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Refine)).Value!;
 
-    // The defect this issue exists for: an implementer's contract handed to a reviewer.
-    Assert.Contains("You are the REVIEWER for this step", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("JUDGE the", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("Do not change the workspace", brief.Content, StringComparison.Ordinal);
-    Assert.DoesNotContain("## How to finish\n\nMark step 2 of plan #104 done:", brief.Content, StringComparison.Ordinal);
+    // The defect this replaced: an implementer's contract handed to a refine step, which would
+    // build the first step's code instead of making the plan say what building it means.
+    Assert.Contains("You are the REFINER for this step", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("make this", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("plan EXECUTABLE, not to implement it", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("## How to finish\n\nMark step 2 of plan #104 done:", brief.Content,
+        StringComparison.Ordinal);
   }
 
   [Fact]
-  public void Render_ForAReviewStep_StillNamesTheOneStepItMayMarkDone()
+  public void Render_ForARefineStep_StillNamesTheOneStepItMayMarkDone()
   {
-    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review)).Value!;
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Refine)).Value!;
 
-    // A reviewer still has to COMPLETE its step - the ownership gate and the harness's advance
-    // both read that write. What changes is what the step is for, not whether it finishes.
-    Assert.Contains("plan.update-step id=104 position=2 status=Done", brief.Content, StringComparison.Ordinal);
+    // A refine step still has to COMPLETE its step - the ownership gate and the harness's
+    // advance both read that write. What changes is what the step is for.
+    Assert.Contains("plan.update-step id=104 position=2 status=Done", brief.Content,
+        StringComparison.Ordinal);
     Assert.Contains("ONLY step you may mark done", brief.Content, StringComparison.Ordinal);
   }
 
   [Fact]
-  public void Render_ForAReviewStep_StatesTheVerdictShapeAndTheCitationRule()
+  public void Render_ForARefineStep_AsksForCheckableStepsAndForbidsMarkingOthersDone()
   {
-    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review)).Value!;
+    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Refine)).Value!;
 
-    Assert.Contains("verdict: approve | deny | approve-with-conditions", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("citing a requirement id or a step position", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("A finding that cites nothing is not a finding", brief.Content, StringComparison.Ordinal);
+    // WHAT 'EXECUTABLE' MEANS, stated as the fact a refiner must apply: a step is ready when
+    // someone can check it, and the refiner does not get to report progress it did not make.
+    Assert.Contains("OBSERVABLY TRUE", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("Do not change a step's STATUS", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("Leave the plan's goal alone", brief.Content, StringComparison.Ordinal);
   }
 
   [Fact]
-  public void Render_ForAReviewStep_NamesAllFourRubricDimensions_SoNoneIsSilentlyOmitted()
+  public void Render_ForARefineStep_ReturnsNoVerdictAndAppliesNoRubric()
   {
-    // The brief is where a reviewer reads the scores it must supply, and plan.review refuses a
-    // review missing any of them. A brief naming three would have the reviewer refused by the
-    // record for following the brief.
-    ChainBrief brief = ChainBriefRenderer.Render(Facts(role: ChainStepRole.Review)).Value!;
-
-    Assert.Contains(
-        "scores: requirement-coverage, testability, blast-radius, step-design (each 1-5, with a reason)",
-        brief.Content, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void Render_ForAReviewStep_WithTheRubricSkill_NamesIt()
-  {
+    // THE ROLE THAT WEDGED CHAINS IS GONE. A refiner that returned a verdict would need the
+    // back-edge a denial required, and a rubric would be a second thing to satisfy before the
+    // plan could be made ready.
     ChainBrief brief = ChainBriefRenderer.Render(
-        Facts(role: ChainStepRole.Review, rubric: true)).Value!;
+        Facts(role: ChainStepRole.Refine, rubric: true)).Value!;
 
-    Assert.Contains("Load the `reviewing-plans` skill", brief.Content, StringComparison.Ordinal);
-    Assert.DoesNotContain("no rubric to apply", brief.Content, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void Render_ForAReviewStep_WithoutTheRubricSkill_SaysSoRatherThanInventingOne()
-  {
-    ChainBrief brief = ChainBriefRenderer.Render(
-        Facts(role: ChainStepRole.Review, rubric: false)).Value!;
-
-    // An invented rubric is a verdict nobody can compare; an absent one is visibly absent.
-    Assert.Contains("No `reviewing-plans` skill is installed", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("rubric was available", brief.Content, StringComparison.Ordinal);
-    Assert.DoesNotContain("Load the `reviewing-plans` skill", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("plan.review", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("verdict:", brief.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("rubric", brief.Content, StringComparison.OrdinalIgnoreCase);
   }
 
   [Fact]

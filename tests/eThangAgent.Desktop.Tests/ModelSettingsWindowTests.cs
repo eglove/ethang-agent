@@ -49,6 +49,38 @@ public class ModelSettingsWindowTests
     _ = Assert.Single(vm.ModelSection.FilteredRows); // the loaded entry
   }
 
+  /// <summary>The retention dropdown opens ON the session's tier, for every tier. The view-model's
+  ///     own state is not the claim: the selection travels through a two-way ComboBox binding, and a
+  ///     break there would show the user one tier while the save carried another.</summary>
+  [AvaloniaTheory]
+  [InlineData(RetentionPolicy.ZeroDataRetention)]
+  [InlineData(RetentionPolicy.SafetyRetention)]
+  [InlineData(RetentionPolicy.RetentionAndTraining)]
+  public async Task TheRetentionDropdown_OpensOnTheSessionsTier(RetentionPolicy tier)
+  {
+    ModelSettingsViewModel vm = new(
+        new SessionModelPreferences(), "openrouter",
+        persist: _ => { },
+        modelSection: new ModelSectionSeams(
+            _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry("alpha/model")])),
+            CurrentRetention: tier));
+    Views.ModelSettingsWindow window = new(vm);
+
+    window.Show();
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
+    while (DateTimeOffset.UtcNow < deadline && vm.ModelSection!.IsLoading)
+    {
+      await Dispatcher.UIThread.InvokeAsync(() => { });
+    }
+    ComboBox box = window.FindControl<ComboBox>("RetentionBox")!;
+    RetentionOption shown = Assert.IsType<RetentionOption>(box.SelectedItem);
+    int rows = box.ItemCount;
+    window.Close();
+
+    Assert.Equal(tier, shown.Policy);
+    Assert.Equal(3, rows); // the three tiers, in RetentionPolicies.All order
+  }
+
   /// <summary>The window opens ON the choice the session is serving, and a re-render must not drop it.</summary>
   [AvaloniaFact]
   public async Task TheWindow_OpensOnTheServedChoice_EvenAfterTheListRerenders()

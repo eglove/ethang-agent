@@ -32,7 +32,7 @@ public sealed class SqliteChainTelemetrySource(AppDatabase database, string work
   ///     inner join would silently drop it.</para></summary>
   private const string Sql =
       @"SELECT c.id, c.title, c.status, c.park_reason, c.created_at, c.updated_at,
-               s.position, s.status, s.session_id, s.attempts, s.review_attempts, s.role,
+               s.position, s.status, s.session_id, s.attempts, s.role,
                s.claimed_at, s.completed_at
         FROM chains c
         LEFT JOIN chain_steps s ON s.chain_id = c.id
@@ -148,8 +148,8 @@ public sealed class SqliteChainTelemetrySource(AppDatabase database, string work
       }
 
       _steps.Add(new ChainTelemetryStep(reader.GetInt32(6), StepStatus(reader),
-          reader.IsDBNull(8) ? null : reader.GetString(8), reader.GetInt32(9), reader.GetInt32(10),
-          StepRole(reader), Clock(reader, 12), Clock(reader, 13)));
+          reader.IsDBNull(8) ? null : reader.GetString(8), reader.GetInt32(9),
+          StepRole(reader), Clock(reader, 11), Clock(reader, 12)));
     }
 
     /// <summary>The finished chain. Named <c>ToChain</c> rather than <c>Build</c> so it does
@@ -172,7 +172,7 @@ public sealed class SqliteChainTelemetrySource(AppDatabase database, string work
     ///     answer the domain would have given rather than inventing a third state.</para>
     ///     </summary>
     private static ChainStepRole StepRole(SqliteDataReader reader) =>
-        ChainStepRole.TryDecode(reader.GetString(11), out ChainStepRole? role)
+        ChainStepRole.TryDecode(reader.GetString(10), out ChainStepRole? role)
             ? role
             : ChainStepRole.Implement;
 

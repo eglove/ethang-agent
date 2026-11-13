@@ -25,7 +25,7 @@ public interface IChainBriefSource
   /// <param name="ct">Cancellation.</param>
   Task<Result<ChainBriefPlan>> GetPlanAsync(int planId, CancellationToken ct = default);
 
-  /// <summary>Whether the <c>reviewing-plans</c> skill (#217) is installed in this session's
+  /// <summary>Whether the <c>writing-plans</c> skill (#217) is installed in this session's
   ///     catalog, so a review brief can name its rubric instead of inventing one.
   ///     <para>A SEPARATE READ FROM THE CHAIN FACTS because it answers a question about the
   ///     SESSION's catalog, not about the record: the same chain step reviewed in a workspace
@@ -33,7 +33,7 @@ public interface IChainBriefSource
   ///     composition root knows what this session can load.</para>
   ///     <para>AN IMPLEMENT STEP NEVER ASKS, so a chain with no review step is unaffected.</para></summary>
   /// <param name="ct">Cancellation.</param>
-  Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default);
+  Task<Result<bool>> GetRefineRubricAvailableAsync(CancellationToken ct = default);
 }
 
 /// <summary>The chain facts a brief needs.</summary>
