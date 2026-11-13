@@ -4,6 +4,7 @@ using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.Transport.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -576,6 +577,96 @@ public class ShellViewModelTests
     Assert.Equal(["test/model"], tab.Container.Preferences!.ModelIds);
     Assert.Equal("test/model", tab.ViewModel.Status.ModelId);
   }
+
+  [Fact]
+  public async Task ASiblingLaunchedFromAnOrderedList_InheritsTheWholeListInOrder()
+  {
+    // Behaviour 10: a sibling inherits the workspace's ordered list, not the head it was launched
+    // with. The launch names no model, so the ordinary inheritance applies - and that inheritance
+    // is the restore path, which lands every entry in the stored order. A launch that carried only
+    // one model would leave the sibling with no failover while the session it started from had
+    // one, and the two would send different `models` arrays from the same workspace.
+    FakePreferenceStore preferences = new();
+    string root = Path.GetFullPath(@"C:\work\alpha");
+    preferences.Stored[$"model_provider_choice:openrouter:{root}"] = ModelSelection.Create(
+        ["alpha/model", "beta/other"], ModelVariant.Nitro).Value!.Serialize();
+    SessionModelPreferences live = new();
+    MainViewModel vm = CreateSiblingShell(preferences, live);
+    AgentTabViewModel tab = (await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter").ConfigureAwait(true)).Value!;
+    Assert.Equal(["alpha/model", "beta/other"], live.ModelIds);
+
+    await vm.HandleSessionRequestAsync(tab,
+        new SessionRequestPayload("req-sibling", "audit the retry path", HandoffSummary: null)
+        {
+          SiblingOfWorkspaceId = tab.WorkspaceId,
+          Label = "auditor",
+        }).ConfigureAwait(true);
+
+    // The sibling's cell carries the same ordered list, under the same one variant.
+    AgentCellViewModel sibling = tab.Cells[^1];
+    Assert.NotEqual(tab.Cells[0].RootId, sibling.RootId);
+    Assert.Equal(["alpha/model", "beta/other"], sibling.Container!.Preferences!.ModelIds);
+    Assert.Equal(ModelVariant.Nitro, sibling.Container.Preferences.ModelVariant);
+    // Its own bar names the head and counts the backup, so nothing about the launch degraded it.
+    Assert.Equal("alpha/model", sibling.ViewModel.Status.ModelId);
+    Assert.Equal("· 1 backup", sibling.ViewModel.Status.BackupCountText);
+  }
+
+  [Fact]
+  public async Task ASiblingLaunchedFromAnOrderedList_CarriesTheSameModelsArray()
+  {
+    // The sibling's turn is assembled from the inherited preference, so the request it sends
+    // states the whole list in order - the same array the launching session sends.
+    FakePreferenceStore preferences = new();
+    string root = Path.GetFullPath(@"C:\work\alpha");
+    preferences.Stored[$"model_provider_choice:openrouter:{root}"] = ModelSelection.Create(
+        ["alpha/model", "beta/other"], ModelVariant.Nitro).Value!.Serialize();
+    SessionModelPreferences live = new();
+    MainViewModel vm = CreateSiblingShell(preferences, live);
+    AgentTabViewModel tab = (await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter").ConfigureAwait(true)).Value!;
+
+    await vm.HandleSessionRequestAsync(tab,
+        new SessionRequestPayload("req-sibling", "audit the retry path", HandoffSummary: null)
+        {
+          SiblingOfWorkspaceId = tab.WorkspaceId,
+        }).ConfigureAwait(true);
+
+    // The carrier the sibling will hand its host, read through the production codec, is the whole
+    // list with the session's variant applied once per entry - the same `models` array the
+    // launching session's turns carry.
+    SessionModelPreferences siblingPreferences = tab.Cells[^1].Container!.Preferences!;
+    SessionModelPreferences carried =
+        SessionModelPreferencesJson.Deserialize(SessionModelPreferencesJson.Serialize(siblingPreferences)).Value!;
+    Assert.Equal(["alpha/model", "beta/other"], carried.ModelIds);
+    Assert.Equal(["alpha/model:nitro", "beta/other:nitro"],
+        ModelSelection.Create(carried.ModelIds!, carried.ModelVariant ?? ModelVariant.Standard).Value!.WireModelIds);
+  }
+
+  /// <summary>A shell whose sessions carry a host channel and a workspace identity, which are
+  ///     what the sibling path needs: a launch is ANSWERED on the asking session's channel, and it
+  ///     is placed by the workspace the request names.</summary>
+  private static MainViewModel CreateSiblingShell(IAppPreferenceStore preferences,
+      SessionModelPreferences modelPreferences)
+      => new((root, provider) =>
+      {
+        ServiceProvider services = new ServiceCollection()
+            .AddSingleton<AgentDomain.IAgentStore>(new TestFixtures.StubStore())
+            .AddSingleton<StateDomain.IWorkspaceContext>(new FixedWorkspaceContext("ws-alpha", root))
+            .AddSingleton<IRootTurnChannel>(new FakeRootTurnChannel([], holdOpen: false))
+            .BuildServiceProvider();
+        return Task.FromResult(Result.Success(new AgentSession(
+            services,
+            AgentDomain.AgentId.NewId(),
+            new ConversationDomain.Conversation(),
+            Handler: null!,
+            Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
+            Model: ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
+            WorkspaceRoot: root,
+            ProviderName: provider,
+            Inbox: new AgentDomain.BoundedAgentMailbox(),
+            ChildRuntime: new TestFixtures.StubAgentRuntime(),
+            Preferences: modelPreferences)));
+      }, new MainViewModelOptions { Preferences = preferences });
 
   // ── Effort choice (item 117: the picker folded into Model Settings) ──────
 

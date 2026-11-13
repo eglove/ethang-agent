@@ -680,6 +680,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // The bar names the retention tier in force from the first render, so a session that never
       // opens the dialog still states what the provider may keep of its prompts.
       ServingRetention = RetentionBadge(EffectiveRetention(_modelPreferences)),
+      // A session that opens on an already-chosen list states its failover at once: the count
+      // is part of the selection, so it renders from the first frame rather than waiting for a
+      // save that may never happen.
+      BackupCountText = BackupCountText(ModelCountOf(_modelPreferences)),
     };
     // The per-workspace prompt: the languages this repository holds and this machine
     // cannot serve, named once and installable from here. A workspace that needs nothing
@@ -1428,6 +1432,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Status.ServingRetention = RetentionBadge(EffectiveRetention(_modelPreferences));
     Transcript.AddNotice(ChoiceNotice(chosen, modelIds.Count, variant));
   }
+
+  /// <summary>The number of entries a preference names, or zero when it names no list. Extracted
+  ///     so the constructor states the count without a null-conditional chain of its own.</summary>
+  private static int ModelCountOf(SessionModelPreferences? preferences)
+      => preferences?.ModelIds?.Count ?? 0;
 
   /// <summary>The status bar's backup count: '· 2 backups' for a three-entry list, '· 1 backup'
   ///     for two, and EMPTY for one - a single-model session says nothing extra, because it has

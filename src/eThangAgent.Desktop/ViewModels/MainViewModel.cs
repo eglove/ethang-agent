@@ -777,10 +777,11 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Applies a picker choice to the selected tab and persists it per
   ///     workspace + provider (best effort — the same named decision as the other
-  ///     preferences). Null means the session default and clears the persisted
-  ///     preference, so future opens of the same directory start on it.
-  ///     <para>THE CHOICE PERSISTS TOGETHER: a model without its routing variant is half a
-  ///     decision, so the stored value carries both and a later open restores both.</para>
+  ///     preferences). There is no 'no model' value: the picker cannot empty the list and
+  ///     <c>ModelSelection.Create</c> refuses an empty one, so every call states a selection.
+  ///     <para>THE CHOICE PERSISTS TOGETHER: a list without its routing variant and retention
+  ///     tier is half a decision, so the stored value carries all three and a later open
+  ///     restores all three.</para>
   ///     </summary>
   /// <param name="modelIds">The ordered model list to serve: entry 1 runs, the rest are the
   ///     ordered backups. Never empty - a session with no model has nothing to serve.</param>
@@ -1620,14 +1621,15 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     they continue. One nullable value, so the two routes cannot disagree about which one
   ///     they are.</para></summary>
   /// <param name="Label">The caption the new cell shows, or null for the workspace name.</param>
-  /// <param name="Model">The model to serve the new agent, or null to inherit the workspace's
-  ///     choice.</param>
+  /// <param name="Model">The model the launch named, or null to inherit the workspace's own
+  ///     ordered selection.</param>
   private sealed record AgentLaunchPresentation(string? Label, string? Model);
 
   /// <summary>Applies the model a launch named to the session it started (issue #338). A
-  ///     launch that named none keeps the workspace's choice, which is the ordinary
-  ///     inheritance; one that named a model the session cannot apply (no preference carrier)
-  ///     says so in its own transcript rather than reporting a model it never set.</summary>
+  ///     launch that named none inherits the workspace's own ordered model list, because the
+  ///     restore that runs before this one already landed it; one that named a model the
+  ///     session cannot apply (no preference carrier) says so in its own transcript rather
+  ///     than reporting a model it never set.</summary>
   /// <param name="session">The session just started.</param>
   /// <param name="sessionVm">Its view-model, whose live preferences carry the choice.</param>
   /// <param name="launch">The launch, or null when this was not one.</param>
@@ -3654,8 +3656,16 @@ internal sealed partial class MainViewModel : ObservableObject
       string key = ModelChoiceKey(providerName, workspaceRoot);
       Result<ModelSelection> created = ModelSelection.Create(modelIds,
           variant ?? ModelVariant.Standard, retention ?? RetentionPolicy.ZeroDataRetention);
-      bool landed = !created.IsSuccess || await _preferences.SetAsync(key, created.Value.Serialize());
-      if (!landed)
+      if (!created.IsSuccess)
+      {
+        // A refused list is NEVER written and NEVER reported as written: the save still
+        // succeeds (best effort), and the refusal is named where a failed write goes.
+        await Console.Error.WriteLineAsync(
+            $"model choice preference write refused for '{key}': {created.Error.Message}");
+        return;
+      }
+
+      if (!await _preferences.SetAsync(key, created.Value.Serialize()))
       {
         await Console.Error.WriteLineAsync($"model choice preference write failed for '{key}'");
       }

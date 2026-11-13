@@ -37,6 +37,11 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
 
   private int _frame;
 
+  /// <summary>The wire name of an ordinary agent-loop provider call. Repeated here so the bar
+  ///     can tell the session's own call from a compaction summarizer call without the wire
+  ///     vocabulary travelling any further than this reader.</summary>
+  private const string MainLoopCallClass = "main_loop";
+
   /// <summary>The AI provider this session is wired for; fixed for the session's lifetime.</summary>
   public string Provider { get; } = provider;
 
@@ -239,12 +244,22 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
 
   /// <summary>Adds one recorded provider call (a `usage` event, or an in-process
   ///     callback). Event-driven by design: the ledger row is written in the host process,
-  ///     so polling for it would be the only alternative.</summary>
+  ///     so polling for it would be the only alternative.
+  ///     <para>A main-loop row whose provider named a serving model ALSO sets
+  ///     <see cref="ModelId"/>: on an ordered model list the provider may answer on a backup, so
+  ///     the row is the only statement of which entry ran. A row that names no serving model, and
+  ///     a compaction row (which belongs to the summarizer's own model), leave the name alone.
+  ///     </para></summary>
   public void AddUsage(UsageRow row)
   {
     ArgumentNullException.ThrowIfNull(row);
     _usage.Add(row);
     RenderUsage();
+    if (row.ServedModelId is { Length: > 0 } served
+        && string.Equals(row.CallClass, MainLoopCallClass, StringComparison.Ordinal))
+    {
+      ModelId = served;
+    }
   }
 
   /// <summary>Re-renders both cost strings from the accumulator.</summary>
