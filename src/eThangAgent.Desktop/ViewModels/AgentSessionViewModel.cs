@@ -1346,12 +1346,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return defaultModelId;
     }
 
-    if (preferences.ModelId is { Length: > 0 } named)
+    if (preferences.ModelIds is { Count: > 0 } named)
     {
-      return named;
+      return named[0];
     }
 
-    preferences.ModelId = defaultModelId;
+    preferences.ModelIds = [defaultModelId];
     return defaultModelId;
   }
 
@@ -1399,7 +1399,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // the status bar would name a model that never serves. The default model id is
     // therefore what the session states - the same id the status bar shows.
     string chosen = string.IsNullOrWhiteSpace(modelId) ? _sessionDefaultModelId : modelId;
-    _modelPreferences.ModelId = chosen;
+    _modelPreferences.ModelIds = [chosen];
     _modelPreferences.ModelVariant = variant;
     // Null means the caller stated no tier (a picker that only names a model), and the
     // session keeps whatever it had - which, for a session that never stated one, is the

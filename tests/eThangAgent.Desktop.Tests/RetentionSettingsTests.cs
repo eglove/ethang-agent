@@ -36,7 +36,7 @@ public class RetentionSettingsTests
   private static ModelSettingsViewModel Settings(SessionModelPreferences live,
       Action<ModelSettingsSnapshot> persist, RetentionPolicy? currentRetention = null)
       => new(live, ProvidersOpenRouter, persist,
-          modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), "alpha/model",
+          modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), ["alpha/model"],
               CurrentRetention: currentRetention ?? RetentionPolicy.ZeroDataRetention));
 
   // ── the dropdown: three rows, and the tier it opens on ─────────────────────
@@ -91,7 +91,7 @@ public class RetentionSettingsTests
   {
     // The seams default is the strict tier, which is what an unstated policy means.
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, _ => { },
-        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), "alpha/model"));
+        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), ["alpha/model"]));
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
@@ -256,7 +256,7 @@ public class RetentionSettingsTests
 
     await shell.ApplySamplingSettingsAsync(captured!).ConfigureAwait(true);
 
-    ModelVariantChoice stored = ModelVariantChoice.Parse(store.Stored[ModelChoiceKey]).Value!;
+    ModelSelection stored = ModelSelection.Parse(store.Stored[ModelChoiceKey]).Value!;
     Assert.Equal(RetentionPolicy.SafetyRetention, stored.Retention);
     Assert.Equal(RetentionPolicy.SafetyRetention, live.Retention);
     Assert.Equal("safety retention only", shell.SelectedTab!.ViewModel.Status.ServingRetention);
@@ -284,8 +284,8 @@ public class RetentionSettingsTests
   public async Task AReopenedWorkspace_RestoresTheStoredTier_AndTheStatusLineNamesIt()
   {
     FakePreferenceStore store = new();
-    store.Stored[ModelChoiceKey] = new ModelVariantChoice(
-        "anthropic/claude", ModelVariant.Standard, RetentionPolicy.RetentionAndTraining).Serialize();
+    store.Stored[ModelChoiceKey] = ModelSelection.Create(
+        ["anthropic/claude"], ModelVariant.Standard, RetentionPolicy.RetentionAndTraining).Value!.Serialize();
     SessionModelPreferences restored = new();
     MainViewModel shell = CreateShell(store, restored);
 

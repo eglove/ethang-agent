@@ -34,7 +34,7 @@ public class ModelSettingsModelSectionTests
         new SessionModelPreferences(), ProvidersOpenRouter,
         persist: _ => { },
         modelSection: new ModelSectionSeams(Loader(Entry("alpha/model"), Entry("zeta/model")),
-            "zeta/model"));
+            ["zeta/model"]));
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
@@ -67,7 +67,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
-        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), "alpha/model"));
+        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), ["alpha/model"]));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     bool saved = vm.TrySave(out string? error);
@@ -87,7 +87,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(Loader(Entry("alpha/model"), Entry("beta/model")),
-            "alpha/model"));
+            ["alpha/model"]));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     vm.ModelSection!.SelectedRow = vm.ModelSection.FilteredRows.First(r => r.ModelId == "beta/model");
 
@@ -97,7 +97,7 @@ public class ModelSettingsModelSectionTests
     Assert.NotNull(received!.Model);
     Assert.Equal(ModelChoiceKind.Pinned, received.Model.Kind);
     Assert.Equal("beta/model", received.Model.ModelId);
-    Assert.Equal("beta/model", live.ModelId); // applied to the live preferences
+    Assert.Equal(["beta/model"], live.ModelIds); // applied to the live preferences
   }
 
   [Fact]
@@ -112,7 +112,7 @@ public class ModelSettingsModelSectionTests
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
             Loader(Entry("alpha/model", "ProviderA"), Entry("alpha/model", "ProviderB")),
-            "alpha/model"));
+            ["alpha/model"]));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     // The model pre-selects from the session's live choice; the user then states the tradeoff.
     vm.ModelSection!.SelectedVariantOption = vm.ModelSection.VariantOptions
@@ -140,7 +140,7 @@ public class ModelSettingsModelSectionTests
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
             Loader(Entry("alpha/model")),
-            CurrentModelId: "alpha/model", CurrentVariant: ModelVariant.Standard));
+            CurrentModelIds: ["alpha/model"], CurrentVariant: ModelVariant.Standard));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     vm.ModelSection!.SelectedVariantOption = vm.ModelSection.VariantOptions
@@ -165,7 +165,7 @@ public class ModelSettingsModelSectionTests
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
             Loader(Entry("alpha/model")),
-            CurrentModelId: "alpha/model", CurrentVariant: ModelVariant.Nitro));
+            CurrentModelIds: ["alpha/model"], CurrentVariant: ModelVariant.Nitro));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     Assert.True(vm.TrySave(out string? error), error);
@@ -184,7 +184,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
-            Loader(Entry("alpha/model"), Entry("beta/model")), CurrentModelId: "alpha/model"));
+            Loader(Entry("alpha/model"), Entry("beta/model")), CurrentModelIds: ["alpha/model"]));
 
     Assert.True(vm.TrySave(out string? error), error);
     Assert.Equal(ModelChoiceKind.Unchanged, received!.Model!.Kind);
@@ -200,7 +200,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsSnapshot? saved = null;
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, s => saved = s,
         modelSection: new ModelSectionSeams(
-            Loader(Entry("alpha/model"), Entry("beta/model")), "alpha/model", ct =>
+            Loader(Entry("alpha/model"), Entry("beta/model")), ["alpha/model"], ct =>
             {
               _ = ready.TrySetResult();
               return refresh.Task.WaitAsync(ct);

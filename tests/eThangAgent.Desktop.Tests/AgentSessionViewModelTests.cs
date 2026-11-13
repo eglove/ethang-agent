@@ -213,7 +213,7 @@ public class AgentSessionViewModelTests
 
     vm.ApplyModelChoice("anthropic/claude");
 
-    Assert.Equal("anthropic/claude", preferences.ModelId);
+    Assert.Equal(["anthropic/claude"], preferences.ModelIds);
     Assert.Equal("anthropic/claude", vm.Status.ModelId);
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("anthropic/claude", notice.Text, StringComparison.Ordinal);
@@ -227,7 +227,7 @@ public class AgentSessionViewModelTests
     // substitutes a model the session did not name - an unnamed session fails every turn
     // with "no model is selected" - and the status bar would name a model that never
     // serves. So the default lands in the live preferences like any other pick.
-    SessionModelPreferences preferences = new() { ModelId = "anthropic/claude" };
+    SessionModelPreferences preferences = new() { ModelIds = ["anthropic/claude"] };
     AgentSessionViewModel vm = new(
         (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
@@ -235,7 +235,7 @@ public class AgentSessionViewModelTests
 
     vm.ApplyModelChoice(null);
 
-    Assert.Equal("openrouter/auto", preferences.ModelId); // the session's bootstrap model, named
+    Assert.Equal(["openrouter/auto"], preferences.ModelIds); // the session's bootstrap model, named
     Assert.Equal("openrouter/auto", vm.Status.ModelId);
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("openrouter/auto", notice.Text, StringComparison.Ordinal);
@@ -253,7 +253,7 @@ public class AgentSessionViewModelTests
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
-    Assert.Equal("openrouter/auto", preferences.ModelId);
+    Assert.Equal(["openrouter/auto"], preferences.ModelIds);
     Assert.Equal("openrouter/auto", vm.Status.ModelId);
   }
 
@@ -261,13 +261,13 @@ public class AgentSessionViewModelTests
   public void A_Session_With_A_Pick_Keeps_It()
   {
     // The restored per-workspace pick is the user's choice and is never overwritten.
-    SessionModelPreferences preferences = new() { ModelId = "minimax/minimax-m3.1-flash:free" };
+    SessionModelPreferences preferences = new() { ModelIds = ["minimax/minimax-m3.1-flash:free"] };
     AgentSessionViewModel vm = new(
         (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
-    Assert.Equal("minimax/minimax-m3.1-flash:free", preferences.ModelId);
+    Assert.Equal(["minimax/minimax-m3.1-flash:free"], preferences.ModelIds);
     Assert.Equal("minimax/minimax-m3.1-flash:free", vm.Status.ModelId);
   }
 

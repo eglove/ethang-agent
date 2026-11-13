@@ -53,7 +53,7 @@ internal sealed record RetentionOption(string DisplayName, RetentionPolicy Polic
 ///     only costs a database query.</para></summary>
 /// <param name="LoadCatalog">Loads the provider catalog. Required: without it there is no
 ///     section at all.</param>
-/// <param name="CurrentModelId">The session's live model, to pre-select.</param>
+/// <param name="CurrentModelIds">The session's live model list, to pre-select in order.</param>
 /// <param name="RefreshCatalog">Joins the catalog's source revalidation, or null to skip
 ///     it.</param>
 /// <param name="CurrentVariant">The session's committed variant, to pre-select in the
@@ -62,7 +62,7 @@ internal sealed record RetentionOption(string DisplayName, RetentionPolicy Polic
 ///     dropdown. Defaults to the strict tier, which is what an unstated policy means.</param>
 internal sealed record ModelSectionSeams(
     Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> LoadCatalog,
-    string? CurrentModelId = null,
+    IReadOnlyList<string>? CurrentModelIds = null,
     Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? RefreshCatalog = null,
     ModelVariant? CurrentVariant = null,
     RetentionPolicy CurrentRetention = RetentionPolicy.ZeroDataRetention);
@@ -83,7 +83,7 @@ internal sealed record ModelSectionSeams(
 internal sealed partial class ModelPickerViewModel : ObservableObject
 {
   private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> _loadCatalog;
-  private readonly string? _currentModelId;
+  private readonly IReadOnlyList<string>? _currentModelIds;
   private IReadOnlyList<ModelPickerRow> ModelRows { get; set; } = [];
   private IReadOnlyList<ModelPickerRow> FilteredRowsList { get; set; } = [];
   private IReadOnlyList<ModelProviderEntry> CatalogEntries { get; set; } = [];
@@ -186,20 +186,20 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 
   /// <param name="loadCatalog">Loads the open session's provider catalog (UI thread escape
   ///     handled here - the delegate itself may block on HTTP).</param>
-  /// <param name="currentModelId">The session's live model choice to pre-select (null
-  ///     pre-selects nothing).</param>
+  /// <param name="currentModelIds">The session's live model list to pre-select in order
+  ///     (null pre-selects nothing).</param>
   /// <param name="currentVariant">The session's live routing variant to pre-select (null
   ///     pre-selects Standard).</param>
   /// <param name="currentRetention">The session's live retention tier to pre-select.
   ///     Defaults to the strict tier, which is what an unstated policy means.</param>
   public ModelPickerViewModel(
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> loadCatalog,
-      string? currentModelId,
+      IReadOnlyList<string>? currentModelIds,
       ModelVariant? currentVariant = null,
       RetentionPolicy currentRetention = RetentionPolicy.ZeroDataRetention)
   {
     _loadCatalog = loadCatalog ?? throw new ArgumentNullException(nameof(loadCatalog));
-    _currentModelId = currentModelId;
+    _currentModelIds = currentModelIds;
 
     // The commands exist before the observable properties: setting those raises the changed
     // hooks, which requery command availability. The guard in the action is load-bearing:
@@ -249,7 +249,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       ModelRows = BuildRows(CatalogEntries);
       RebuildFilteredRows();
       // Pre-select the session's live choice, when it is in the list.
-      SelectedRow = FilteredRows.FirstOrDefault(r => r.ModelId == _currentModelId);
+      SelectedRow = FilteredRows.FirstOrDefault(r => r.ModelId == _currentModelIds?[0]);
     }
     catch (Exception ex)
     {

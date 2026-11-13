@@ -15,7 +15,7 @@ public class SessionModelPreferencesTests
   [Fact]
   public async Task RootResolver_NoEffortPreference_LeavesEffortUnset()
   {
-    SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
+    SessionModelPreferences preferences = new() { ModelIds = ["glm-5.3"] };
     RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"), preferences: preferences);
 
     Result<(ModelConfig Config, string? Notice)> resolution = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
@@ -27,7 +27,7 @@ public class SessionModelPreferencesTests
   [Fact]
   public async Task RootResolver_PreferenceChange_BetweenTurns_IsPickedUp()
   {
-    SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
+    SessionModelPreferences preferences = new() { ModelIds = ["glm-5.3"] };
     RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"), preferences: preferences);
 
     Result<(ModelConfig Config, string? Notice)> first = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
@@ -43,7 +43,7 @@ public class SessionModelPreferencesTests
   [Fact]
   public async Task RootResolver_PreferredModel_CarriesPreferredEffort()
   {
-    SessionModelPreferences preferences = new() { ModelId = "glm-5.3", ReasoningEffort = ReasoningEffort.High };
+    SessionModelPreferences preferences = new() { ModelIds = ["glm-5.3"], ReasoningEffort = ReasoningEffort.High };
     RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"), preferences: preferences);
 
     Result<(ModelConfig Config, string? Notice)> resolution = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
@@ -63,7 +63,7 @@ public class SessionModelPreferencesTests
     RootAgentResolver resolver = new(Ctx(store, rootId, "openrouter/auto"), preferences: preferences);
 
     Result<(ModelConfig Config, string? Notice)> first = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
-    preferences.ModelId = "glm-5.3";
+    preferences.ModelIds = ["glm-5.3"];
     Result<(ModelConfig Config, string? Notice)> second = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
     Result<(ModelConfig Config, string? Notice)> third = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
@@ -83,11 +83,11 @@ public class SessionModelPreferencesTests
   [Fact]
   public async Task RootResolver_ModelChoiceMutated_BetweenTurns_IsPickedUp()
   {
-    SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
+    SessionModelPreferences preferences = new() { ModelIds = ["glm-5.3-flash"] };
     RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"), preferences: preferences);
 
     Result<(ModelConfig Config, string? Notice)> first = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
-    preferences.ModelId = "glm-5.3";
+    preferences.ModelIds = ["glm-5.3"];
     Result<(ModelConfig Config, string? Notice)> second = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.True(first.IsSuccess, first.Error?.Message);
@@ -114,7 +114,7 @@ public class SessionModelPreferencesTests
 #pragma warning restore JSON002 // Probable JSON string detected
     SessionModelPreferences source = new()
     {
-      ModelId = "minimax/minimax-m3.1-flash:free",
+      ModelIds = ["minimax/minimax-m3.1-flash:free"],
       ReasoningEffort = ReasoningEffort.Max,
       Temperature = 0.3f,
       MaxTokens = 8192,
@@ -133,7 +133,7 @@ public class SessionModelPreferencesTests
 
     target.CopyFrom(source);
 
-    Assert.Equal("minimax/minimax-m3.1-flash:free", target.ModelId);
+    Assert.Equal(["minimax/minimax-m3.1-flash:free"], target.ModelIds);
     Assert.Equal(ReasoningEffort.Max, target.ReasoningEffort);
     Assert.Equal(0.3f, target.Temperature);
     Assert.Equal(8192, target.MaxTokens);

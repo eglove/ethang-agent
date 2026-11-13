@@ -224,7 +224,7 @@ internal partial class MainWindow : Window
     // nothing renders per-endpoint comparison now, so wiring it would be a database query with
     // no consumer.
     ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
-        ? new ModelSectionSeams(loadCatalog, preferences.ModelId,
+        ? new ModelSectionSeams(loadCatalog, preferences.ModelIds,
             _vm.SelectedTabCatalogRefresher, preferences.ModelVariant,
             preferences.Retention ?? RetentionPolicy.ZeroDataRetention)
         : null;

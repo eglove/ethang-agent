@@ -50,7 +50,7 @@ public class SessionResumeE2ETests
 
       // Pin the model the way the desktop's per-workspace preference does, so no
       // selection run consumes the mock's scripted responses.
-      session.Preferences!.ModelId = E2E.SessionModel;
+      session.Preferences!.ModelIds = [E2E.SessionModel];
 
       // Open through the shell surface: the transcript replays into the view-model.
       AgentSessionViewModel? sessionVmRef = null;

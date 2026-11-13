@@ -61,7 +61,7 @@ public sealed class ThinClientTurnTests
     // 2026-10-22: the picker lives in the app and the agent lives in the host. A choice
     // that did not travel never reached the serving model, so every host turn ran the
     // fallback while the status bar showed the user's pick.
-    SessionModelPreferences preferences = new() { ModelId = "minimax/minimax-m3.1-flash:free" };
+    SessionModelPreferences preferences = new() { ModelIds = ["minimax/minimax-m3.1-flash:free"] };
     FakeHostSession session = await FakeHostSession.StartAsync(["answer"], preferences: preferences).ConfigureAwait(true);
 
     await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
@@ -70,13 +70,13 @@ public sealed class ThinClientTurnTests
     string carrier = Assert.IsType<string>(sent.ModelPreferences);
     Result<SessionModelPreferences> decoded = SessionModelPreferencesJson.Deserialize(carrier);
     Assert.True(decoded.IsSuccess, decoded.Error?.Message);
-    Assert.Equal("minimax/minimax-m3.1-flash:free", decoded.Value.ModelId);
+    Assert.Equal(["minimax/minimax-m3.1-flash:free"], decoded.Value.ModelIds);
   }
 
   [Fact]
   public async Task SendAsync_CarriesTheEffortKnob_Too()
   {
-    SessionModelPreferences preferences = new() { ModelId = "m/x", ReasoningEffort = ReasoningEffort.Max };
+    SessionModelPreferences preferences = new() { ModelIds = ["m/x"], ReasoningEffort = ReasoningEffort.Max };
     FakeHostSession session = await FakeHostSession.StartAsync(["answer"], preferences: preferences).ConfigureAwait(true);
 
     await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);

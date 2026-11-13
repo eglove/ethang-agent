@@ -95,7 +95,7 @@ public class ModelSettingsWindowTests
               Entry("zeta/model", "ProviderA"),
               Entry("zeta/model", "ProviderB"),
             ])),
-            CurrentModelId: "zeta/model",
+            CurrentModelIds: ["zeta/model"],
             CurrentVariant: ModelVariant.Nitro));
     Views.ModelSettingsWindow window = new(vm);
 

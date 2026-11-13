@@ -13,14 +13,15 @@ public sealed class SessionModelPreferences
   ///     by the resolvers directly (its own path), never by <see cref="ModelPreferencesOverlay"/>.</summary>
   public ReasoningEffort? ReasoningEffort { get; set; }
 
-  /// <summary>The user's live model choice, or null to follow the session's normal
-  ///     resolution. Stored as the BASE catalog id; the routing variant is carried separately
-  ///     in <see cref="ModelVariant"/> and combined onto the wire by the overlay. Set
-  ///     exclusively through the host's model picker, which validates the id against the
-  ///     provider's catalog at pick time, so consumers trust it without re-validating.
+  /// <summary>The user's live ordered model list, or null to follow the session's normal
+  ///     resolution. Entry 1 is the model that runs and the remaining entries are its ordered
+  ///     fallbacks. Stored as BASE catalog ids; the routing variant is carried separately in
+  ///     <see cref="ModelVariant"/> and combined onto the wire by the overlay. Set exclusively
+  ///     through the host's model picker, which validates the ids against the provider's catalog
+  ///     at pick time, so consumers trust it without re-validating.
   ///     (Choices restored from a persisted per-workspace preference are NOT re-validated — a
   ///     stale id surfaces as a provider error the user re-picks away.)</summary>
-  public string? ModelId { get; set; }
+  public IReadOnlyList<string>? ModelIds { get; set; }
 
   /// <summary>The routing variant the session's model should be served under, or null when no
   ///     variant was committed (which resolves to <see cref="ModelVariant.Standard"/>).
@@ -94,7 +95,7 @@ public sealed class SessionModelPreferences
   {
     ArgumentNullException.ThrowIfNull(source);
     ReasoningEffort = source.ReasoningEffort;
-    ModelId = source.ModelId;
+    ModelIds = source.ModelIds;
     ModelVariant = source.ModelVariant;
     Temperature = source.Temperature;
     MaxTokens = source.MaxTokens;

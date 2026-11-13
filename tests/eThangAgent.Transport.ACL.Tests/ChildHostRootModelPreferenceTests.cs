@@ -65,7 +65,7 @@ public sealed class ChildHostRootModelPreferenceTests
     (RootRunHost runner, RecordingProvider provider, _) = await StartHostAsync(pinnedModel: FallbackModel).ConfigureAwait(true);
     RootTurnRequest request = new("turn-1", "hello", [])
     {
-      ModelPreferences = SessionModelPreferencesJson.Serialize(new SessionModelPreferences { ModelId = PickedModel }),
+      ModelPreferences = SessionModelPreferencesJson.Serialize(new SessionModelPreferences { ModelIds = [PickedModel] }),
     };
 
     Result<string> result = await runner.RunTurnAsync(request, _ => { },
@@ -85,14 +85,14 @@ public sealed class ChildHostRootModelPreferenceTests
     {
       ModelPreferences = SessionModelPreferencesJson.Serialize(new SessionModelPreferences
       {
-        ModelId = PickedModel,
+        ModelIds = [PickedModel],
         ReasoningEffort = ReasoningEffort.Max,
       }),
     };
 
     _ = await runner.RunTurnAsync(request, _ => { }, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-    Assert.Equal(PickedModel, live.ModelId);
+    Assert.Equal([PickedModel], live.ModelIds);
     Assert.Equal(ReasoningEffort.Max, live.ReasoningEffort);
   }
 

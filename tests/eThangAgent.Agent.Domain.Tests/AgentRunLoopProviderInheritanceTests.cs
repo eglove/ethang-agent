@@ -41,7 +41,7 @@ public class AgentRunLoopProviderInheritanceTests
     FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
     AgentRunLoop spawner = Spawner(factory, new SessionModelPreferences
     {
-      ModelId = "alpha/model",
+      ModelIds = ["alpha/model"],
       ModelVariant = ModelVariant.Nitro,
     });
 
@@ -56,7 +56,7 @@ public class AgentRunLoopProviderInheritanceTests
     // Null means UNSET, never 'standard was chosen': a session that committed no variant keeps
     // the provider's own routing, exactly as every pre-existing session does.
     FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
-    AgentRunLoop spawner = Spawner(factory, new SessionModelPreferences { ModelId = "alpha/model" });
+    AgentRunLoop spawner = Spawner(factory, new SessionModelPreferences { ModelIds = ["alpha/model"] });
 
     _ = await spawner.RunAsync(Child(), CancellationToken.None);
 
@@ -72,7 +72,7 @@ public class AgentRunLoopProviderInheritanceTests
     FakeModelProviderFactory factory = new(new FakeProvider(Result.Success(new ModelResponse("report", []))));
     AgentRunLoop spawner = Spawner(factory, new SessionModelPreferences
     {
-      ModelId = "alpha/model",
+      ModelIds = ["alpha/model"],
       ModelVariant = ModelVariant.Floor,
     });
 

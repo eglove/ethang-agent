@@ -55,7 +55,7 @@ public class DesktopPipelineSmokeTests
     // Pin the session's model through the same live-preference surface the desktop
     // model picker uses — selection must not run here, or it would consume the
     // mock's scripted chat responses before the turn under test.
-    services.GetRequiredService<SessionModelPreferences>().ModelId = "mock/model";
+    services.GetRequiredService<SessionModelPreferences>().ModelIds = ["mock/model"];
 
     SendMessageCommandHandler handler = services.GetRequiredService<SendMessageCommandHandler>();
     RootSessionLifecycle lifecycle = services.GetRequiredService<RootSessionLifecycle>();

@@ -119,7 +119,7 @@ public class RootAgentResolverTests
   {
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelId = "user-pick" };
+    SessionModelPreferences preferences = new() { ModelIds = ["user-pick"] };
     RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
     Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(root.IsSuccess);
@@ -141,7 +141,7 @@ public class RootAgentResolverTests
   {
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelId = "user-pick" };
+    SessionModelPreferences preferences = new() { ModelIds = ["user-pick"] };
     RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
     Result<AgentRecord> seeded = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(seeded.IsSuccess);
@@ -165,7 +165,7 @@ public class RootAgentResolverTests
     // instead - so the app displayed minimax while the turns ran on the router.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelId = "minimax/minimax-m3.1-flash:free" };
+    SessionModelPreferences preferences = new() { ModelIds = ["minimax/minimax-m3.1-flash:free"] };
     RootAgentResolver resolver = new(
         new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new UnknownWindowSource()),
         preferences);
@@ -190,7 +190,7 @@ public class RootAgentResolverTests
     AgentId rootId = await SeedRootAsync(store);
     SessionModelPreferences preferences = new()
     {
-      ModelId = "deepseek/deepseek-v4.1-flash-1017",
+      ModelIds = ["deepseek/deepseek-v4.1-flash-1017"],
       ModelVariant = ModelVariant.Nitro,
     };
     RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
@@ -209,7 +209,7 @@ public class RootAgentResolverTests
     // the provider's own routing, exactly as every pre-existing session does.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelId = "alpha/model" };
+    SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"] };
     RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
 
     Result<(ModelConfig Config, string? Notice)> resolution =
@@ -253,7 +253,7 @@ public class RootAgentResolverTests
     {
       FakeAgentStore store = new();
       AgentId rootId = await SeedRootAsync(store);
-      SessionModelPreferences preferences = new() { ModelId = "alpha/model", ModelVariant = variant };
+      SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"], ModelVariant = variant };
       RootAgentResolver resolver = new(
           new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
               new ListingCatalog(("alpha/model", "DeepInfra"))),
@@ -274,7 +274,7 @@ public class RootAgentResolverTests
     // capability, which resolves false rather than failing anything.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelId = "alpha/model", ModelVariant = ModelVariant.Nitro };
+    SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"], ModelVariant = ModelVariant.Nitro };
     RootAgentResolver resolver = new(
         new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
             ListingCatalog.Unavailable()),

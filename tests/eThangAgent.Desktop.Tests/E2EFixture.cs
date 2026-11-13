@@ -160,7 +160,7 @@ internal static class E2E
       // Pin the session's model through the same live-preference surface the desktop
       // model picker uses — selection must not run here, or it would consume the
       // mock's scripted chat responses before the turn under test.
-      _services.GetRequiredService<SessionModelPreferences>().ModelId = SessionModel;
+      _services.GetRequiredService<SessionModelPreferences>().ModelIds = [SessionModel];
 
       // Root-session bootstrap via the shared composition helper — the SAME code
       // path as the desktop host, so the persisted id and the id the view-model

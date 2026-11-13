@@ -119,7 +119,7 @@ public class SkillSlashE2ETests
           ws.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(opened.IsSuccess, opened.Error?.Message);
       session = opened.Value;
-      session.Preferences!.ModelId = E2E.SessionModel;
+      session.Preferences!.ModelIds = [E2E.SessionModel];
 
       AgentSessionViewModel? vmRef = null;
       async Task Sink(UiStreamEvent evt) =>

@@ -24,7 +24,7 @@ public class SessionModelPreferencesVariantTests
   {
     SessionModelPreferences prefs = new()
     {
-      ModelId = "alpha/model",
+      ModelIds = ["alpha/model"],
       ModelVariant = ModelVariant.Nitro,
     };
 
@@ -38,7 +38,7 @@ public class SessionModelPreferencesVariantTests
   {
     SessionModelPreferences prefs = new()
     {
-      ModelId = "alpha/model",
+      ModelIds = ["alpha/model"],
       ModelVariant = ModelVariant.Floor,
     };
 
@@ -53,7 +53,7 @@ public class SessionModelPreferencesVariantTests
     // a user who chose the default.
     SessionModelPreferences prefs = new()
     {
-      ModelId = "alpha/model:nitro",
+      ModelIds = ["alpha/model:nitro"],
       ModelVariant = ModelVariant.Standard,
     };
 
@@ -68,7 +68,7 @@ public class SessionModelPreferencesVariantTests
     // rather than to the root's.
     SessionModelPreferences prefs = new()
     {
-      ModelId = "root/model",
+      ModelIds = ["root/model"],
       ModelVariant = ModelVariant.Nitro,
     };
 
@@ -94,7 +94,7 @@ public class SessionModelPreferencesVariantTests
   {
     SessionModelPreferences prefs = new()
     {
-      ModelId = "alpha/model:floor",
+      ModelIds = ["alpha/model:floor"],
       ModelVariant = ModelVariant.Nitro,
     };
 
@@ -106,7 +106,7 @@ public class SessionModelPreferencesVariantTests
   {
     SessionModelPreferences prefs = new()
     {
-      ModelId = "alpha/model",
+      ModelIds = ["alpha/model"],
       ModelVariant = ModelVariant.CacheFloor,
     };
 
@@ -123,7 +123,7 @@ public class SessionModelPreferencesVariantTests
     // routing on throughput while the dropdown reported a cache-read preference.
     SessionModelPreferences prefs = new()
     {
-      ModelId = "alpha/model",
+      ModelIds = ["alpha/model"],
       ModelVariant = ModelVariant.CacheFloor,
     };
 
@@ -135,7 +135,7 @@ public class SessionModelPreferencesVariantTests
   {
     SessionModelPreferences prefs = new()
     {
-      ModelId = "alpha/model",
+      ModelIds = ["alpha/model"],
       ModelVariant = ModelVariant.Nitro,
     };
 
@@ -150,7 +150,7 @@ public class SessionModelPreferencesVariantTests
   {
     SessionModelPreferences prefs = new()
     {
-      ModelId = "alpha/model",
+      ModelIds = ["alpha/model"],
       ModelVariant = ModelVariant.Standard,
     };
 

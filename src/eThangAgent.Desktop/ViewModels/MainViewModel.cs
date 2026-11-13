@@ -3153,7 +3153,7 @@ internal sealed partial class MainViewModel : ObservableObject
         // this and still wins.
         if (session.Preferences is { } preferences)
         {
-          preferences.ModelId = used;
+          preferences.ModelIds = [used];
         }
 
         sessionVm.Status.ModelId = used;
@@ -3179,17 +3179,17 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    ModelVariantChoice? restoredChoice = await ReadModelChoiceAsync(session.ProviderName, session.WorkspaceRoot);
+    ModelSelection? restoredChoice = await ReadModelChoiceAsync(session.ProviderName, session.WorkspaceRoot);
     if (restoredChoice is not null)
     {
-      // The pair restores together (issue #296, D7/B1): a reopened workspace serves the same
-      // model ON the same provider, and the status line names both.
-      preferences.ModelId = restoredChoice.ModelId;
+      // The selection restores whole: a reopened workspace serves the same models in the same
+      // order, under the same variant and the same retention tier.
+      preferences.ModelIds = restoredChoice.ModelIds;
       preferences.ModelVariant = restoredChoice.Variant == ModelVariant.Standard
           ? null
           : restoredChoice.Variant;
       preferences.Retention = restoredChoice.Retention;
-      sessionVm.Status.ModelId = restoredChoice.ModelId;
+      sessionVm.Status.ModelId = restoredChoice.Head;
       sessionVm.Status.ServingVariant = restoredChoice.Variant == ModelVariant.Standard
           ? string.Empty
           : ModelVariants.Describe(restoredChoice.Variant);
@@ -3594,7 +3594,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     codec drops the retired provider member and reads a variant suffix on the id, so an old
   ///     row comes back as a model on Standard - never a resurrected pin, and never a silently
   ///     dropped model.</para></summary>
-  private async Task<ModelVariantChoice?> ReadModelChoiceAsync(string providerName, string workspaceRoot)
+  private async Task<ModelSelection?> ReadModelChoiceAsync(string providerName, string workspaceRoot)
   {
     if (_preferences is null)
     {
@@ -3612,7 +3612,7 @@ internal sealed partial class MainViewModel : ObservableObject
         return null;
       }
 
-      Result<ModelVariantChoice> parsed = ModelVariantChoice.Parse(stored);
+      Result<ModelSelection> parsed = ModelSelection.Parse(stored);
       return parsed.IsSuccess ? parsed.Value : null;
     }
     catch (Exception ex)
@@ -3645,8 +3645,8 @@ internal sealed partial class MainViewModel : ObservableObject
       bool landed = modelId is null
           ? await _preferences.DeleteAsync(key)
           : await _preferences.SetAsync(key,
-              new ModelVariantChoice(modelId, variant ?? ModelVariant.Standard,
-                  retention ?? RetentionPolicy.ZeroDataRetention).Serialize());
+              ModelSelection.Create([modelId], variant ?? ModelVariant.Standard,
+                  retention ?? RetentionPolicy.ZeroDataRetention).ValueOrNull!.Serialize());
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"model choice preference write failed for '{key}'");

@@ -44,15 +44,15 @@ public sealed class RootAgentResolver(
   {
     // 0. The user's live model choice wins over everything static. Runtime preferences
     //    (reasoning effort, sampling knobs, and the routing variant) still apply.
-    if (_preferences?.ModelId is { } preferred)
+    if (_preferences?.ModelIds is { Count: > 0 } preferred)
     {
-      Result<ModelConfig> resolved = await MakeAsync(preferred, ct).ConfigureAwait(false);
+      Result<ModelConfig> resolved = await MakeAsync(preferred[0], ct).ConfigureAwait(false);
       if (!resolved.IsSuccess)
       {
         return Result.Failure<(ModelConfig, string?)>(resolved.Error);
       }
 
-      string? preferredNotice = await TryPersistModelAsync(preferred, ct).ConfigureAwait(false);
+      string? preferredNotice = await TryPersistModelAsync(preferred[0], ct).ConfigureAwait(false);
       return Result.Success<(ModelConfig, string?)>(
           (resolved.Value, preferredNotice is null ? null : $"Model selected: {preferredNotice}"));
     }

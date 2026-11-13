@@ -31,7 +31,10 @@ public class ModelPickerViewModelTests
       IReadOnlyList<ModelProviderEntry> entries,
       string? currentModelId = null,
       ModelVariant? currentVariant = null)
-      => new(_ => Task.FromResult(Result.Success(entries)), currentModelId, currentVariant);
+      => new(_ => Task.FromResult(Result.Success(entries)), Selection(currentModelId), currentVariant);
+
+  private static IReadOnlyList<string>? Selection(string? currentModelId)
+      => currentModelId is null ? null : [currentModelId];
 
   private static async Task<ModelPickerViewModel> LoadAsync(
       IReadOnlyList<ModelProviderEntry> entries,

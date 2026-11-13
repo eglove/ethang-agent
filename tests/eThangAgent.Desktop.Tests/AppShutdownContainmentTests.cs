@@ -64,7 +64,7 @@ public class AppShutdownContainmentTests
           ws, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
       Assert.True(opened.IsSuccess, opened.Error?.Message);
       session = opened.Value;
-      session.Services.GetRequiredService<SessionModelPreferences>().ModelId = E2E.SessionModel;
+      session.Services.GetRequiredService<SessionModelPreferences>().ModelIds = [E2E.SessionModel];
 
       int pid = HostPidOf(session)
           ?? throw new InvalidOperationException("the session must run in its own host process");

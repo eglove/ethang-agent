@@ -57,7 +57,7 @@ public class SendMessageCommandHandlerTests
     RootAgentHolder holder = new(provider, conversation, new ToolRegistry([]));
     RootModelContext context = new(
         store, identity, FallbackModel, 2048, 0.7f, new FixedWindowSource());
-    SessionModelPreferences preferences = new() { ModelId = "m/x" };
+    SessionModelPreferences preferences = new() { ModelIds = ["m/x"] };
     RootAgentResolver resolver = new(context, preferences);
     SendMessageCommandHandler handler = new(
         conversation: conversation,

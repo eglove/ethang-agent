@@ -779,7 +779,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   private static ModelPickerViewModel? BuildModelSection(ModelSectionSeams? seams)
       => seams is null
           ? null
-          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelId, seams.CurrentVariant,
+          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelIds, seams.CurrentVariant,
               seams.CurrentRetention);
 
   /// <summary>Prefills the summary picker from the persisted level: the matching
@@ -943,7 +943,9 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       // reported a tradeoff the user chose. A null variant CLEARS it - the user moved to a model
       // with no variant selected, and keeping the old one would silently keep routing under a
       // tradeoff they just moved away from.
-      _live.ModelId = modelChoice.ModelId;
+      _live.ModelIds = modelChoice.ModelId is { Length: > 0 } chosen
+          ? [chosen]
+          : _live.ModelIds;
       _live.ModelVariant = modelChoice.Variant;
     }
 

@@ -403,8 +403,8 @@ public class ShellViewModelTests
     (string key, string value) = Assert.Single(preferences.Writes,
         w => w.Key.StartsWith("model_provider_choice:", StringComparison.Ordinal));
     Assert.Equal($"model_provider_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}", key);
-    ModelVariantChoice stored = ModelVariantChoice.Parse(value).Value!;
-    Assert.Equal("anthropic/claude", stored.ModelId);
+    ModelSelection stored = ModelSelection.Parse(value).Value!;
+    Assert.Equal(["anthropic/claude"], stored.ModelIds);
     Assert.Equal(ModelVariant.Nitro, stored.Variant);
   }
 
@@ -423,7 +423,7 @@ public class ShellViewModelTests
     Assert.Equal(string.Empty, vm.SelectedTab!.ViewModel.Status.ServingVariant);
     (string _, string value) = Assert.Single(preferences.Writes,
         w => w.Key.StartsWith("model_provider_choice:", StringComparison.Ordinal));
-    Assert.Equal(ModelVariant.Standard, ModelVariantChoice.Parse(value).Value!.Variant);
+    Assert.Equal(ModelVariant.Standard, ModelSelection.Parse(value).Value!.Variant);
   }
 
   [Fact]
@@ -433,13 +433,13 @@ public class ShellViewModelTests
     FakePreferenceStore preferences = new();
     string root = Path.GetFullPath(@"C:\work\alpha");
     preferences.Stored[$"model_provider_choice:openrouter:{root}"] =
-        new ModelVariantChoice("anthropic/claude", ModelVariant.Floor).Serialize();
+        ModelSelection.Create(["anthropic/claude"], ModelVariant.Floor).Value!.Serialize();
     SessionModelPreferences live = new();
     MainViewModel vm = CreateShell((r, provider) => FakeSession(r, provider, live), preferences);
 
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    Assert.Equal("anthropic/claude", live.ModelId);
+    Assert.Equal(["anthropic/claude"], live.ModelIds);
     Assert.Equal(ModelVariant.Floor, live.ModelVariant);
     Assert.Equal(ModelVariants.Describe(ModelVariant.Floor), vm.SelectedTab!.ViewModel.Status.ServingVariant);
   }
@@ -463,7 +463,7 @@ public class ShellViewModelTests
 
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    Assert.Equal("anthropic/claude", live.ModelId);
+    Assert.Equal(["anthropic/claude"], live.ModelIds);
     Assert.Null(live.ModelVariant);
     Assert.Equal(string.Empty, vm.SelectedTab!.ViewModel.Status.ServingVariant);
   }
@@ -477,13 +477,13 @@ public class ShellViewModelTests
     // open starts on the default again.
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(
-        root, provider, new SessionModelPreferences { ModelId = "anthropic/claude" }), preferences);
+        root, provider, new SessionModelPreferences { ModelIds = ["anthropic/claude"] }), preferences);
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
     await vm.ApplyModelChoiceAsync(null);
 
     AgentTabViewModel tab = vm.SelectedTab!;
-    Assert.Equal("test/model", tab.Container.Preferences!.ModelId); // the session's bootstrap model, named
+    Assert.Equal(["test/model"], tab.Container.Preferences!.ModelIds); // the session's bootstrap model, named
     Assert.Equal("test/model", tab.ViewModel.Status.ModelId); // the session's bootstrap model
     Assert.Equal(string.Empty, tab.ViewModel.Status.ServingVariant); // no variant committed
     string expectedKey = $"model_provider_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}";
@@ -515,7 +515,7 @@ public class ShellViewModelTests
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
     AgentTabViewModel tab = vm.SelectedTab!;
-    Assert.Equal("anthropic/claude", tab.Container.Preferences!.ModelId);
+    Assert.Equal(["anthropic/claude"], tab.Container.Preferences!.ModelIds);
     Assert.Equal("anthropic/claude", tab.ViewModel.Status.ModelId);
     // The restore is silent — no notice before any turn has run.
     Assert.DoesNotContain(tab.ViewModel.Transcript.Entries, e => e is NoticeEntry);
@@ -536,7 +536,7 @@ public class ShellViewModelTests
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
     AgentTabViewModel tab = vm.SelectedTab!;
-    Assert.Equal("anthropic/claude", live.ModelId);
+    Assert.Equal(["anthropic/claude"], live.ModelIds);
     Assert.Equal("anthropic/claude", tab.ViewModel.Status.ModelId);
   }
 
@@ -552,7 +552,7 @@ public class ShellViewModelTests
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
     AgentTabViewModel tab = vm.SelectedTab!;
-    Assert.Equal("test/model", tab.Container.Preferences!.ModelId);
+    Assert.Equal(["test/model"], tab.Container.Preferences!.ModelIds);
     Assert.Equal("test/model", tab.ViewModel.Status.ModelId);
   }
 
