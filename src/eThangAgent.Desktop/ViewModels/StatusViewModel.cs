@@ -98,6 +98,25 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     }
   } = "";
 
+  /// <summary>How many ordered backups the session's model list carries, as '· 2 backups'.
+  ///     <para>EMPTY FOR A ONE-ENTRY LIST: a session with no failover says nothing extra, and the
+  ///     bar stays as it reads today. The head is already named by
+  ///     <see cref="ModelId"/>.</para></summary>
+  public string BackupCountText
+  {
+    get;
+    set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(BackupCountText));
+    }
+  } = "";
+
   /// <summary>The session's current reasoning effort as a display string — "Model default"
   ///     when no level is set. Updated by the effort picker and the shell's restore-on-open
   ///     (callers own the display-name vocabulary, <see cref="EffortLevels"/>).</summary>

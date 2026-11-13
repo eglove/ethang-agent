@@ -21,15 +21,46 @@
     <ScrollViewer>
       <!-- 8 DIP right inset reserves the overlay-scrollbar strip: inputs never sit under the thumb. -->
       <StackPanel Spacing="12" Margin="0,0,8,0">
-        <!-- Model + provider choice (issue #296, D1): TWO levels, not one flat list.
-             The model level summarises each model by its best provider under the current
-             preset; the provider level shows every endpoint of the selected model with its
-             own evidence. The old surface deduped 35 provider rows into one model row and
-             priced it by whichever endpoint sorted first — for deepseek-v4.1-flash that was
-             the single worst cache ratio on the model. -->
+        <!-- The ordered model selection: numbered rows the user adds, moves, and removes, plus
+             the catalog search those additions come from. Each row is summarised by its CHEAPEST
+             endpoint, so the price quoted is one the model can actually be served at. -->
         <StackPanel Spacing="4">
+          <!-- The selection IS an ordered list: entry 1 is the model that runs and the rest are
+               ordered backups the provider falls through to. It is deliberately NOT multi-select -
+               tick order is a priority the user cannot see - so the order is stated by the numbers
+               and changed by the three buttons beside the list. -->
           <TextBlock Text="Model" FontWeight="SemiBold"/>
-          <TextBox PlaceholderText="Search models…" Text="{Binding ModelSection.SearchText}"/>
+          <ListBox x:Name="SelectedModelList" ItemsSource="{Binding ModelSection.SelectedModels}"
+                   SelectedItem="{Binding ModelSection.SelectedModel}" MaxHeight="160">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:SelectedModelRow">
+                <StackPanel Margin="2,4">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{Binding Position}" FontWeight="SemiBold" MinWidth="16"/>
+                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                  </StackPanel>
+                  <TextBlock Text="{Binding Detail}" Opacity="0.6" FontSize="12"/>
+                  <TextBlock Text="{Binding Warning}" Foreground="OrangeRed" FontSize="12"
+                             TextWrapping="Wrap"
+                             IsVisible="{Binding Warning, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button x:Name="MoveUpButton" Content="Move up" Command="{Binding ModelSection.MoveUpCommand}"/>
+            <Button x:Name="MoveDownButton" Content="Move down" Command="{Binding ModelSection.MoveDownCommand}"/>
+            <Button x:Name="RemoveModelButton" Content="Remove" Command="{Binding ModelSection.RemoveModelCommand}"/>
+          </StackPanel>
+          <TextBlock Text="{Binding ModelSection.SelectionError}" Foreground="OrangeRed"
+                     TextWrapping="Wrap" FontSize="12"
+                     IsVisible="{Binding ModelSection.SelectionError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+          <!-- The catalog is the SOURCE of additions, never itself the decision: adding a model
+               leaves this list's own selection alone, so several can be added in a row. -->
+          <TextBlock Text="Add a model" FontWeight="SemiBold" Margin="0,8,0,0"/>
+          <TextBox x:Name="ModelSearchBox" PlaceholderText="Search models…"
+                   Text="{Binding ModelSection.SearchText}"/>
           <Panel MinHeight="120">
             <ListBox x:Name="ModelList" ItemsSource="{Binding ModelSection.FilteredRows}"
                      SelectedItem="{Binding ModelSection.SelectedRow}" MaxHeight="180">
@@ -45,7 +76,10 @@
             <TextBlock Text="Loading model catalog…" HorizontalAlignment="Center" VerticalAlignment="Center"
                        Opacity="0.7" IsVisible="{Binding ModelSection.IsLoading}"/>
           </Panel>
-          <TextBlock Text="{Binding ModelSection.LoadError}" Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12"
+          <Button x:Name="AddModelButton" Content="Add to list" HorizontalAlignment="Left"
+                  Command="{Binding ModelSection.AddModelCommand}"/>
+          <TextBlock x:Name="LoadErrorLine" Text="{Binding ModelSection.LoadError}" Foreground="OrangeRed"
+                     TextWrapping="Wrap" FontSize="12"
                      IsVisible="{Binding ModelSection.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
         </StackPanel>
 
@@ -59,7 +93,7 @@
           <ComboBox x:Name="VariantBox" ItemsSource="{Binding ModelSection.VariantOptions}"
                     SelectedItem="{Binding ModelSection.SelectedVariantOption}"
                     DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
-          <TextBlock Text="{Binding ModelSection.VariantCaption}" FontSize="11" Opacity="0.6"
+          <TextBlock x:Name="VariantCaptionLine" Text="{Binding ModelSection.VariantCaption}" FontSize="11" Opacity="0.6"
                      TextWrapping="Wrap"/>
           <!-- The retention tier: the second, INDEPENDENT axis of the model decision. The
                dropdown above says which tradeoff to prefer; this says which endpoints are
@@ -70,7 +104,7 @@
           <ComboBox x:Name="RetentionBox" ItemsSource="{Binding ModelSection.RetentionOptions}"
                     SelectedItem="{Binding ModelSection.SelectedRetentionOption}"
                     DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
-          <TextBlock Text="{x:Static vm:ModelPickerViewModel.RetentionCaption}"
+          <TextBlock x:Name="RetentionCaptionLine" Text="{x:Static vm:ModelPickerViewModel.RetentionCaption}"
                      FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
         </StackPanel>
 

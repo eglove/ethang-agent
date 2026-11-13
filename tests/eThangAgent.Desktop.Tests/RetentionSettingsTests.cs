@@ -132,7 +132,7 @@ public class RetentionSettingsTests
 
     Assert.True(saved, error ?? "no error");
     Assert.Equal(ModelChoiceKind.Pinned, received!.Model!.Kind);
-    Assert.Equal("alpha/model", received.Model.ModelId);
+    Assert.Equal(["alpha/model"], received.Model.ModelIds);
     Assert.Equal(RetentionPolicy.SafetyRetention, received.Model.Retention);
     Assert.Equal(RetentionPolicy.SafetyRetention, live.Retention);
   }
@@ -196,7 +196,7 @@ public class RetentionSettingsTests
     SessionModelPreferences preferences = new();
     AgentSessionViewModel vm = Session(preferences);
 
-    vm.ApplyModelChoice("anthropic/claude", ModelVariant.Standard, tier);
+    vm.ApplyModelChoice(["anthropic/claude"], ModelVariant.Standard, tier);
 
     Assert.Equal(badge, vm.Status.ServingRetention);
     Assert.Equal(tier, preferences.Retention);
@@ -230,7 +230,7 @@ public class RetentionSettingsTests
     SessionModelPreferences preferences = new() { Retention = RetentionPolicy.RetentionAndTraining };
     AgentSessionViewModel vm = Session(preferences);
 
-    vm.ApplyModelChoice("anthropic/claude");
+    vm.ApplyModelChoice(["anthropic/claude"]);
 
     Assert.Equal(RetentionPolicy.RetentionAndTraining, preferences.Retention);
     Assert.Equal("retention and training allowed", vm.Status.ServingRetention);

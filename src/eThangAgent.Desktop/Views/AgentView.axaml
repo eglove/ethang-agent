@@ -87,6 +87,12 @@
           <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock Text="{Binding Status.Provider}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock x:Name="ModelIdText" Text="{Binding Status.ModelId}" DockPanel.Dock="Left" Margin="0,0,12,0" TextTrimming="CharacterEllipsis"/>
+          <!-- How many ordered backups the workspace's model list carries. Hidden for a
+               one-entry list, so a session with no failover reads exactly as it did before. -->
+          <TextBlock x:Name="BackupCountText" Text="{Binding Status.BackupCountText}"
+                     ToolTip.Tip="Ordered backups the provider falls through to when the first model is unavailable"
+                     IsVisible="{Binding Status.BackupCountText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                     DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <!-- The committed routing variant (issue #296, D7/B6): the pair is the decision, so
                the bar names both halves. The name is BARE ('Nitro', 'Floor') - the tradeoff it
                stands for is stated once beneath the Routing dropdown. Hidden for Standard and

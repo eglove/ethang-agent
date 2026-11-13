@@ -24,7 +24,7 @@ public class CacheFloorRoutingE2ETests
     // list, so nothing is known about these endpoints and the restriction rides the request
     // without an only list. That is what makes the provider block carry BOTH facts here - the
     // retention member and the cache-floor order - rather than one overwriting the other.
-    await host.Shell.ApplyModelChoiceAsync(E2E.SessionModel, ModelVariant.CacheFloor,
+    await host.Shell.ApplyModelChoiceAsync([E2E.SessionModel], ModelVariant.CacheFloor,
         RetentionPolicy.ZeroDataRetention);
     _ = host.Mock.Returns(/*lang=json,strict*/ "{\"status\":\"completed\",\"service_tier\":\"default\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10,\"cost\":0.125},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}");
     await host.Vm.RunTurnAsync("test routing");
@@ -81,7 +81,7 @@ public class CacheFloorRoutingE2ETests
 #pragma warning restore CA2007
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync();
-    await host.Shell.ApplyModelChoiceAsync(E2E.SessionModel, ModelVariant.Standard,
+    await host.Shell.ApplyModelChoiceAsync([E2E.SessionModel], ModelVariant.Standard,
         RetentionPolicy.ZeroDataRetention);
     _ = host.Mock.Returns(E2E.RawCompletion("ok"));
     await host.Vm.RunTurnAsync("test standard");

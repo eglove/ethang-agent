@@ -211,7 +211,7 @@ public class AgentSessionViewModelTests
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
-    vm.ApplyModelChoice("anthropic/claude");
+    vm.ApplyModelChoice(["anthropic/claude"]);
 
     Assert.Equal(["anthropic/claude"], preferences.ModelIds);
     Assert.Equal("anthropic/claude", vm.Status.ModelId);
@@ -233,7 +233,7 @@ public class AgentSessionViewModelTests
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
-    vm.ApplyModelChoice(null);
+    vm.ApplyModelChoice(["openrouter/auto"]);
 
     Assert.Equal(["openrouter/auto"], preferences.ModelIds); // the session's bootstrap model, named
     Assert.Equal("openrouter/auto", vm.Status.ModelId);
@@ -255,6 +255,50 @@ public class AgentSessionViewModelTests
 
     Assert.Equal(["openrouter/auto"], preferences.ModelIds);
     Assert.Equal("openrouter/auto", vm.Status.ModelId);
+  }
+
+  [Theory]
+  [InlineData(1, "")]
+  [InlineData(2, "· 1 backup")]
+  [InlineData(3, "· 2 backups")]
+  public void TheStatusBarsBackupCount_NamesTheFailoverOnlyWhenThereIsOne(
+      int modelCount, string expected)
+      => Assert.Equal(expected, AgentSessionViewModel.BackupCountText(modelCount));
+
+  [Fact]
+  public void ApplyingAnOrderedList_NamesTheHeadAndCountsTheBackups()
+  {
+    SessionModelPreferences preferences = new();
+    AgentSessionViewModel vm = new(
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
+
+    vm.ApplyModelChoice(["alpha/model", "beta/other"]);
+
+    Assert.Equal(["alpha/model", "beta/other"], preferences.ModelIds);
+    Assert.Equal("alpha/model", vm.Status.ModelId); // entry 1 is the model that runs
+    Assert.Equal("· 1 backup", vm.Status.BackupCountText);
+  }
+
+  [Fact]
+  public void AnEmptyList_IsRefused_AndLeavesTheSelectionAlone()
+  {
+    // There is no 'no model' state to return to: the picker cannot empty the list and the domain
+    // refuses an empty selection, so an empty list arriving here is a caller fault the session
+    // reports rather than a state it adopts.
+    SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"] };
+    AgentSessionViewModel vm = new(
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
+
+    vm.ApplyModelChoice([]);
+
+    Assert.Equal(["alpha/model"], preferences.ModelIds);
+    Assert.Equal("alpha/model", vm.Status.ModelId);
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("at least one model", notice.Text, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -279,7 +323,7 @@ public class AgentSessionViewModelTests
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
 
-    vm.ApplyModelChoice("anthropic/claude");
+    vm.ApplyModelChoice(["anthropic/claude"]);
 
     Assert.Equal("test/model", vm.Status.ModelId); // untouched
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);

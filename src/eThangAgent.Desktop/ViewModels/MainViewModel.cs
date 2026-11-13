@@ -782,22 +782,24 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     <para>THE CHOICE PERSISTS TOGETHER: a model without its routing variant is half a
   ///     decision, so the stored value carries both and a later open restores both.</para>
   ///     </summary>
-  /// <param name="modelId">The model to serve, or null for the session's default model.</param>
+  /// <param name="modelIds">The ordered model list to serve: entry 1 runs, the rest are the
+  ///     ordered backups. Never empty - a session with no model has nothing to serve.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
   /// <param name="retention">The retention tier to enforce, or null to keep the session's
   ///     current tier.</param>
-  public async Task ApplyModelChoiceAsync(string? modelId, ModelVariant? variant = null,
+  public async Task ApplyModelChoiceAsync(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
       RetentionPolicy? retention = null)
   {
+    ArgumentNullException.ThrowIfNull(modelIds);
     AgentTabViewModel? tab = SelectedTab;
     if (tab is null)
     {
       return;
     }
 
-    tab.ViewModel.ApplyModelChoice(modelId, variant, retention);
+    tab.ViewModel.ApplyModelChoice(modelIds, variant, retention);
     await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot,
-        modelId, variant, retention);
+        modelIds, variant, retention);
   }
 
   /// <summary>Applies an effort-picker choice to the selected tab and persists it per
@@ -844,13 +846,11 @@ internal sealed partial class MainViewModel : ObservableObject
     // session's model choice (and its persisted preference) untouched; Auto
     // clears it (automatic resolution applies from the next turn); Pinned pins
     // the chosen id. Same apply + per-workspace persistence the old picker used.
-    if (snapshot.Model is { } model && model.Kind != ModelChoiceKind.Unchanged)
+    if (snapshot.Model is { Kind: ModelChoiceKind.Pinned } model)
     {
-      string? modelId = model.Kind == ModelChoiceKind.Pinned ? model.ModelId : null;
-      ModelVariant? variant = model.Kind == ModelChoiceKind.Pinned ? model.Variant : null;
-      RetentionPolicy? retention = model.Kind == ModelChoiceKind.Pinned ? model.Retention : null;
-      tab.ViewModel.ApplyModelChoice(modelId, variant, retention);
-      await PersistModelChoiceAsync(providerName, workspaceRoot, modelId, variant, retention);
+      tab.ViewModel.ApplyModelChoice(model.ModelIds, model.Variant, model.Retention);
+      await PersistModelChoiceAsync(providerName, workspaceRoot, model.ModelIds, model.Variant,
+          model.Retention);
     }
 
     await PersistEffortChoiceAsync(providerName, workspaceRoot, snapshot.Preferences.ReasoningEffort);
@@ -1639,7 +1639,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    sessionVm.ApplyModelChoice(model, variant: null);
+    sessionVm.ApplyModelChoice([model], variant: null);
   }
 
   /// <summary>Everything one append needs beyond the session (issue #338): the role and chain
@@ -3146,12 +3146,13 @@ internal sealed partial class MainViewModel : ObservableObject
           && used != AgentRecord.UnassignedModel
           && used != Providers.FallbackModelId(session.ProviderName))
       {
-        // The pin is what ACTUALLY served, so the session continues with it - and the
-        // live PREFERENCE must name it, or the resolver would serve the session default
-        // while the status bar showed the pin (2026-10-22: the display must never claim
-        // a model the turn does not run on). A persisted live choice is restored after
-        // this and still wins.
-        if (session.Preferences is { } preferences)
+        // The pin is what ACTUALLY served, so the status bar names it - and when the live
+        // preference names no model at all, it is filled from the pin, or the resolver would
+        // serve the session default while the bar showed the pin (2026-10-22: the display must
+        // never claim a model the turn does not run on). A preference that already names a
+        // model or a LIST keeps it: a backup that answered one turn is never promoted into the
+        // head of the user's selection. A persisted live choice is restored after this and wins.
+        if (session.Preferences is { } preferences && !NamesAChoice(preferences, sessionVm))
         {
           preferences.ModelIds = [used];
         }
@@ -3165,6 +3166,14 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }
+
+  /// <summary>Whether the live preference names a selection the user made, as opposed to the
+  ///     one-entry list a session states for itself when nothing was chosen yet.
+  ///     <para>A MULTI-ENTRY LIST IS ALWAYS A CHOICE, and so is any single entry that is not the
+  ///     session's own bootstrap model.</para></summary>
+  private static bool NamesAChoice(SessionModelPreferences preferences, AgentSessionViewModel sessionVm)
+    => preferences.ModelIds is { Count: > 0 } ids
+        && !(ids.Count == 1 && string.Equals(ids[0], sessionVm.SessionDefaultModelId, StringComparison.Ordinal));
 
   /// <summary>Restores the per-workspace model, effort, sampling, and OpenRouter
   ///     settings BEFORE the tab can take a turn: they all ride the session
@@ -3185,6 +3194,7 @@ internal sealed partial class MainViewModel : ObservableObject
       // The selection restores whole: a reopened workspace serves the same models in the same
       // order, under the same variant and the same retention tier.
       preferences.ModelIds = restoredChoice.ModelIds;
+      sessionVm.Status.BackupCountText = AgentSessionViewModel.BackupCountText(restoredChoice.ModelIds.Count);
       preferences.ModelVariant = restoredChoice.Variant == ModelVariant.Standard
           ? null
           : restoredChoice.Variant;
@@ -3630,7 +3640,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     cleared choice come back from the legacy value on the next open, which is the silent
   ///     resurrection the null-deletes contract exists to prevent.</para></summary>
   private async Task PersistModelChoiceAsync(string providerName, string workspaceRoot,
-      string? modelId, ModelVariant? variant, RetentionPolicy? retention = null)
+      IReadOnlyList<string> modelIds, ModelVariant? variant, RetentionPolicy? retention = null)
   {
     if (_preferences is null)
     {
@@ -3642,11 +3652,9 @@ internal sealed partial class MainViewModel : ObservableObject
     try
     {
       string key = ModelChoiceKey(providerName, workspaceRoot);
-      bool landed = modelId is null
-          ? await _preferences.DeleteAsync(key)
-          : await _preferences.SetAsync(key,
-              ModelSelection.Create([modelId], variant ?? ModelVariant.Standard,
-                  retention ?? RetentionPolicy.ZeroDataRetention).ValueOrNull!.Serialize());
+      Result<ModelSelection> created = ModelSelection.Create(modelIds,
+          variant ?? ModelVariant.Standard, retention ?? RetentionPolicy.ZeroDataRetention);
+      bool landed = !created.IsSuccess || await _preferences.SetAsync(key, created.Value.Serialize());
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"model choice preference write failed for '{key}'");

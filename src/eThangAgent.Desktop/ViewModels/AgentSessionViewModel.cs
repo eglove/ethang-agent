@@ -267,9 +267,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>The installer the prompt reads installed state from.</summary>
   private readonly ILanguageServerInstaller? _languageInstaller;
 
-  /// <summary>The session's bootstrap model (the provider default). Serves as the
-  ///     status-bar display when the user returns the session to automatic choice.</summary>
-  private readonly string _sessionDefaultModelId;
+  /// <summary>The session's bootstrap model (the provider default). Named so a caller can tell
+  ///     a LIVE LIST THE USER CHOSE from the one-entry list a session states when nothing was
+  ///     chosen yet.</summary>
+  public string SessionDefaultModelId { get; }
 
   private Task? _runningTurn;
 
@@ -671,7 +672,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     });
     _modelPreferences = options.ModelPreferences;
     _usageQueries = options.UsageQueries;
-    _sessionDefaultModelId = modelId;
+    SessionDefaultModelId = modelId;
     // The session's model is ALWAYS NAMED (2026-10-22) - see ResolveServingModel.
     string servingModel = ResolveServingModel(_modelPreferences, modelId);
     Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort))
@@ -1381,31 +1382,40 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// caller that names only a model states nothing about retention, so the session keeps the
   /// policy it had rather than having one invented for it.</para>
   /// </summary>
-  /// <param name="modelId">The model to serve, or null for the session's default model.</param>
+  /// <param name="modelIds">The ordered model list to serve: entry 1 runs and the rest are
+  ///     the ordered backups. An empty list is refused, because a session with no model has
+  ///     nothing to serve and no empty state to fall back to.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
   /// <param name="retention">The retention tier to enforce, or null to keep the session's
   ///     current tier.</param>
-  public void ApplyModelChoice(string? modelId, ModelVariant? variant = null,
+  public void ApplyModelChoice(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
       RetentionPolicy? retention = null)
   {
+    ArgumentNullException.ThrowIfNull(modelIds);
     if (_modelPreferences is null)
     {
       Transcript.AddNotice("Model choice is unavailable in this session (no model preferences wired).");
       return;
     }
 
-    // Null means the session's DEFAULT model, and the default is an EXPLICIT choice
-    // (2026-10-22): an unnamed session fails every turn with "no model is selected", and
-    // the status bar would name a model that never serves. The default model id is
-    // therefore what the session states - the same id the status bar shows.
-    string chosen = string.IsNullOrWhiteSpace(modelId) ? _sessionDefaultModelId : modelId;
-    _modelPreferences.ModelIds = [chosen];
+    if (modelIds.Count == 0)
+    {
+      Transcript.AddNotice("A session needs at least one model; the model list was left unchanged.");
+      return;
+    }
+
+    // The list lands whole: a reopened or relaunched session serves the same models in the
+    // same order. The status bar names the HEAD, because entry 1 is the model that runs - a
+    // backup that answered one turn never becomes the head.
+    string chosen = modelIds[0];
+    _modelPreferences.ModelIds = [.. modelIds];
     _modelPreferences.ModelVariant = variant;
     // Null means the caller stated no tier (a picker that only names a model), and the
     // session keeps whatever it had - which, for a session that never stated one, is the
     // strict default the overlay applies.
     _modelPreferences.Retention = retention ?? _modelPreferences.Retention;
     Status.ModelId = chosen;
+    Status.BackupCountText = BackupCountText(modelIds.Count);
     // The status line names the routing the request will actually carry, by its bare name
     // ('Nitro', 'Floor') - the caption beneath the Routing dropdown explains what each one
     // trades. Standard renders as nothing: the default is not a decision the user made, and a
@@ -1416,9 +1426,27 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // The bar names the tier in force for all three, so a session that has loosened its policy
     // says so instead of showing silence.
     Status.ServingRetention = RetentionBadge(EffectiveRetention(_modelPreferences));
-    Transcript.AddNotice(variant is { } served && served != ModelVariant.Standard
-        ? $"Model set to {chosen} with {ModelVariants.Describe(served)}; applies from the next turn."
-        : $"Model set to {chosen}; applies from the next turn.");
+    Transcript.AddNotice(ChoiceNotice(chosen, modelIds.Count, variant));
+  }
+
+  /// <summary>The status bar's backup count: '· 2 backups' for a three-entry list, '· 1 backup'
+  ///     for two, and EMPTY for one - a single-model session says nothing extra, because it has
+  ///     no failover to report.</summary>
+  public static string BackupCountText(int modelCount) => modelCount switch
+  {
+    <= 1 => string.Empty,
+    2 => "· 1 backup",
+    _ => $"· {modelCount - 1} backups",
+  };
+
+  /// <summary>The transcript notice a model change writes, naming the head, the backup count
+  ///     when there is one, and the routing variant when one was committed.</summary>
+  private static string ChoiceNotice(string head, int modelCount, ModelVariant? variant)
+  {
+    string backups = modelCount > 1 ? $" and {modelCount - 1} backup(s)" : string.Empty;
+    return variant is { } served && served != ModelVariant.Standard
+        ? $"Model set to {head}{backups} with {ModelVariants.Describe(served)}; applies from the next turn."
+        : $"Model set to {head}{backups}; applies from the next turn.";
   }
 
   /// <summary>Awaits the in-flight turn task. Returns a completed task if no turn is running.</summary>

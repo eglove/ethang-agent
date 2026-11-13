@@ -488,14 +488,15 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     decision, because the variant is what states the tradeoff the user chose it for. An
   ///     uncommitted variant travels as null (UNSET, resolved to Standard) rather than being
   ///     guessed - the same rule the model choice follows.</para></summary>
-  internal sealed record ModelChoice(ModelChoiceKind Kind, string? ModelId, ModelVariant? Variant = null,
+  internal sealed record ModelChoice(ModelChoiceKind Kind, IReadOnlyList<string> ModelIds,
+      ModelVariant? Variant = null,
       RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
   {
-    public static readonly ModelChoice Unchanged = new(ModelChoiceKind.Unchanged, null);
+    public static readonly ModelChoice Unchanged = new(ModelChoiceKind.Unchanged, []);
 
-    public static ModelChoice Pinned(string modelId, ModelVariant? variant = null,
+    public static ModelChoice Pinned(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
         RetentionPolicy retention = RetentionPolicy.ZeroDataRetention)
-        => new(ModelChoiceKind.Pinned, modelId, variant, retention);
+        => new(ModelChoiceKind.Pinned, modelIds, variant, retention);
   }
   // Knob name constants — the single vocabulary shared by tests, the AXAML keys,
   // and the snapshot's knob-text map.
@@ -779,7 +780,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   private static ModelPickerViewModel? BuildModelSection(ModelSectionSeams? seams)
       => seams is null
           ? null
-          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelIds, seams.CurrentVariant,
+          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelIds ?? [], seams.CurrentVariant,
               seams.CurrentRetention);
 
   /// <summary>Prefills the summary picker from the persisted level: the matching
@@ -850,8 +851,8 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     </summary>
   private void ApplyCatalogRefresh(Result<IReadOnlyList<ModelProviderEntry>> refreshed)
   {
-    string? before = ModelSection?.SelectedRow?.ModelId;
-    bool unchanged = string.Equals(before, _preselectedModelId, StringComparison.Ordinal);
+    IReadOnlyList<string> before = ModelSection?.CurrentSelection().ModelIds ?? [];
+    bool unchanged = before.SequenceEqual(_preselectedModelIds, StringComparer.Ordinal);
     ModelSection?.ApplyRefresh(refreshed);
     if (unchanged)
     {
@@ -864,20 +865,19 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     after a catalog refresh that did not move the selection.</summary>
   private void CapturePreselection()
   {
-    _preselectedModelId = ModelSection?.SelectedRow?.ModelId;
+    _preselectedModelIds = ModelSection?.CurrentSelection().ModelIds ?? [];
     _preselectedVariant = ModelSection?.SelectedVariantOption?.Variant;
     _preselectedRetention = RetentionFromSection();
   }
 
-  /// <summary>The MODEL ID the section pre-selected when it loaded: the session's live
-  ///     choice. A save that still has this model selected carries Unchanged — the user
-  ///     opened the window and changed nothing.
-  ///     <para>IDENTITY IS THE MODEL ID, NOT THE ROW OBJECT. The rows are rebuilt whenever
-  ///     the rates are re-resolved (the catalog landing, then the ledger landing, then a
-  ///     refresh), so reference equality reported "changed" for a window nobody touched and
-  ///     turned an untouched open-and-save into a Pinned write. The id is what the choice
-  ///     actually is.</para></summary>
-  private string? _preselectedModelId;
+  /// <summary>The ordered model list the section pre-selected when it loaded: the session's live
+  ///     selection. A save that still shows this list carries Unchanged — the user opened the
+  ///     window and changed nothing.
+  ///     <para>IDENTITY IS THE ORDERED IDS, NOT THE ROW OBJECTS OR THE COLLECTION. The rows are
+  ///     rebuilt whenever the catalog or its rates are re-resolved, so reference equality
+  ///     reported "changed" for a window nobody touched; the ids in order are what the choice
+  ///     actually is, and a REORDER is therefore a real edit.</para></summary>
+  private IReadOnlyList<string> _preselectedModelIds = [];
 
   /// <summary>The routing VARIANT the section pre-selected when it loaded.
   ///     <para>THE PAIR IS THE DECISION, so "nothing changed" must mean BOTH halves are
@@ -899,22 +899,23 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     save time - the picker view-model keeps no separate dirty flag.</summary>
   private ModelChoice ModelChoiceFromSection()
   {
-    if (ModelSection?.SelectedRow is not { } row)
+    if (ModelSection is not { } section || section.CurrentSelection().ModelIds.Count == 0)
     {
-      return ModelChoice.Unchanged; // nothing picked - the shell's model state is untouched
+      return ModelChoice.Unchanged; // no section, or no model - the shell's state is untouched
     }
 
-    ModelVariant? variant = ModelSection.SelectedVariantOption?.Variant;
+    IReadOnlyList<string> modelIds = section.CurrentSelection().ModelIds;
+    ModelVariant? variant = section.SelectedVariantOption?.Variant;
     RetentionPolicy retention = RetentionFromSection();
-    bool sameModel = string.Equals(row.ModelId, _preselectedModelId, StringComparison.Ordinal);
+    bool sameModels = modelIds.SequenceEqual(_preselectedModelIds, StringComparer.Ordinal);
     bool sameVariant = variant == _preselectedVariant;
     // THE RETENTION POLICY IS PART OF THE CHOICE, not a side effect of touching the model
     // list: a user who opens the window and only moves the retention control has made a real
     // decision, and reporting it as Unchanged would discard it silently.
     bool sameRetention = retention == _preselectedRetention;
-    return sameModel && sameVariant && sameRetention
+    return sameModels && sameVariant && sameRetention
         ? ModelChoice.Unchanged // opened on this choice, still on it
-        : ModelChoice.Pinned(row.ModelId!, variant, retention);
+        : ModelChoice.Pinned(modelIds, variant, retention);
   }
 
   /// <summary>The retention tier the section is showing, or the session's own tier when the
@@ -943,9 +944,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       // reported a tradeoff the user chose. A null variant CLEARS it - the user moved to a model
       // with no variant selected, and keeping the old one would silently keep routing under a
       // tradeoff they just moved away from.
-      _live.ModelIds = modelChoice.ModelId is { Length: > 0 } chosen
-          ? [chosen]
-          : _live.ModelIds;
+      _live.ModelIds = modelChoice.ModelIds;
       _live.ModelVariant = modelChoice.Variant;
     }
 

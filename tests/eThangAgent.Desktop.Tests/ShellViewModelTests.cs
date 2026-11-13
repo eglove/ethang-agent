@@ -393,7 +393,7 @@ public class ShellViewModelTests
         root, provider, new SessionModelPreferences()), preferences);
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    await vm.ApplyModelChoiceAsync("anthropic/claude", ModelVariant.Nitro);
+    await vm.ApplyModelChoiceAsync(["anthropic/claude"], ModelVariant.Nitro);
 
     AgentSessionViewModel tab = vm.SelectedTab!.ViewModel;
     Assert.Equal("anthropic/claude", tab.Status.ModelId);
@@ -418,7 +418,7 @@ public class ShellViewModelTests
         root, provider, new SessionModelPreferences()), preferences);
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    await vm.ApplyModelChoiceAsync("anthropic/claude");
+    await vm.ApplyModelChoiceAsync(["anthropic/claude"]);
 
     Assert.Equal(string.Empty, vm.SelectedTab!.ViewModel.Status.ServingVariant);
     (string _, string value) = Assert.Single(preferences.Writes,
@@ -469,28 +469,49 @@ public class ShellViewModelTests
   }
 
   [Fact]
-  public async Task ApplyModelChoice_Auto_Names_The_Session_Default_And_Deletes_Persisted_Choice()
+  public async Task ApplyModelChoice_WithASingleModel_PersistsItAndNamesItOnTheBar()
   {
-    // 2026-10-22: "auto" is an EXPLICIT choice of the session's default model, not "no
-    // model". The resolver never substitutes a model the session did not name, so the
-    // session states the default - and the persisted PIN is still dropped, so a later
-    // open starts on the default again.
+    // A one-entry list is what every workspace saved before the ordered list existed, so it has to
+    // round-trip through the same path a longer one does.
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(
         root, provider, new SessionModelPreferences { ModelIds = ["anthropic/claude"] }), preferences);
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    await vm.ApplyModelChoiceAsync(null);
+    await vm.ApplyModelChoiceAsync(["test/model"]);
 
     AgentTabViewModel tab = vm.SelectedTab!;
-    Assert.Equal(["test/model"], tab.Container.Preferences!.ModelIds); // the session's bootstrap model, named
-    Assert.Equal("test/model", tab.ViewModel.Status.ModelId); // the session's bootstrap model
+    Assert.Equal(["test/model"], tab.Container.Preferences!.ModelIds);
+    Assert.Equal("test/model", tab.ViewModel.Status.ModelId);
     Assert.Equal(string.Empty, tab.ViewModel.Status.ServingVariant); // no variant committed
-    string expectedKey = $"model_provider_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}";
-    Assert.Contains(expectedKey, preferences.Deletions);
-    // The open persisted the provider preference; the auto choice added NO model write.
-    Assert.DoesNotContain(preferences.Writes,
+    Assert.Equal(string.Empty, tab.ViewModel.Status.BackupCountText); // no failover to report
+    (string key, string value) = Assert.Single(preferences.Writes,
         w => w.Key.StartsWith("model_provider_choice:", StringComparison.Ordinal));
+    Assert.Equal($"model_provider_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}", key);
+    Assert.Equal(["test/model"], ModelSelection.Parse(value).Value!.ModelIds);
+  }
+
+  [Fact]
+  public async Task ApplyModelChoice_WithAnOrderedList_PersistsTheOrderAndCountsTheBackups()
+  {
+    // THE ORDER IS THE DECISION: the stored value carries the list as entered, entry 1 first, and the
+    // status bar names the head with the number of backups beside it.
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateShell((root, provider) => FakeSession(
+        root, provider, new SessionModelPreferences()), preferences);
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    await vm.ApplyModelChoiceAsync(["alpha/model", "beta/other", "gamma/third"], ModelVariant.Nitro);
+
+    AgentTabViewModel tab = vm.SelectedTab!;
+    Assert.Equal(["alpha/model", "beta/other", "gamma/third"], tab.Container.Preferences!.ModelIds);
+    Assert.Equal("alpha/model", tab.ViewModel.Status.ModelId); // entry 1 runs
+    Assert.Equal("· 2 backups", tab.ViewModel.Status.BackupCountText);
+    (string _, string value) = Assert.Single(preferences.Writes,
+        w => w.Key.StartsWith("model_provider_choice:", StringComparison.Ordinal));
+    ModelSelection stored = ModelSelection.Parse(value).Value!;
+    Assert.Equal(["alpha/model", "beta/other", "gamma/third"], stored.ModelIds);
+    Assert.Equal(ModelVariant.Nitro, stored.Variant);
   }
 
   [Fact]
@@ -498,7 +519,7 @@ public class ShellViewModelTests
   {
     MainViewModel vm = CreateShell();
 
-    await vm.ApplyModelChoiceAsync("anthropic/claude");
+    await vm.ApplyModelChoiceAsync(["anthropic/claude"]);
 
     Assert.Null(vm.SelectedTab); // nothing to reach — must not throw
   }

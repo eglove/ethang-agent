@@ -76,7 +76,7 @@ public class ModelSettingsModelSectionTests
     Assert.NotNull(received!.Model);
     Assert.Equal(ModelChoiceKind.Unchanged, received.Model.Kind);
     // Unchanged carries no value; the shell's existing model persistence is untouched.
-    Assert.Null(received.Model.ModelId);
+    Assert.Empty(received.Model.ModelIds);
   }
 
   [Fact]
@@ -89,15 +89,18 @@ public class ModelSettingsModelSectionTests
         modelSection: new ModelSectionSeams(Loader(Entry("alpha/model"), Entry("beta/model")),
             ["alpha/model"]));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+    // The save is over the ORDERED LIST, so the edit is an addition to it - selecting a catalog row
+    // is how a model is offered, not how the decision is stated.
     vm.ModelSection!.SelectedRow = vm.ModelSection.FilteredRows.First(r => r.ModelId == "beta/model");
+    vm.ModelSection.AddModelCommand.Execute(null);
 
     bool saved = vm.TrySave(out string? error);
 
     Assert.True(saved, error ?? "no error");
     Assert.NotNull(received!.Model);
     Assert.Equal(ModelChoiceKind.Pinned, received.Model.Kind);
-    Assert.Equal("beta/model", received.Model.ModelId);
-    Assert.Equal(["beta/model"], live.ModelIds); // applied to the live preferences
+    Assert.Equal(["alpha/model", "beta/model"], received.Model.ModelIds);
+    Assert.Equal(["alpha/model", "beta/model"], live.ModelIds); // applied to the live preferences
   }
 
   [Fact]
@@ -123,7 +126,7 @@ public class ModelSettingsModelSectionTests
     Assert.True(saved, error ?? "no error");
     Assert.NotNull(received);
     Assert.Equal(ModelChoiceKind.Pinned, received.Model!.Kind);
-    Assert.Equal("alpha/model", received.Model.ModelId);
+    Assert.Equal(["alpha/model"], received.Model.ModelIds);
     Assert.Equal(ModelVariant.Floor, received.Model.Variant);
     Assert.Equal(ModelVariant.Floor, live.ModelVariant); // applied to the live preferences
   }
@@ -148,7 +151,7 @@ public class ModelSettingsModelSectionTests
     Assert.True(vm.TrySave(out string? error), error);
 
     Assert.Equal(ModelChoiceKind.Pinned, received!.Model!.Kind);
-    Assert.Equal("alpha/model", received.Model.ModelId);
+    Assert.Equal(["alpha/model"], received.Model.ModelIds);
     Assert.Equal(ModelVariant.Nitro, received.Model.Variant);
     Assert.Equal(ModelVariant.Nitro, live.ModelVariant);
   }
@@ -175,16 +178,18 @@ public class ModelSettingsModelSectionTests
   }
 
   [Fact]
-  public void Save_WithAnUntouchedChoice_StaysUnchanged_WhenTheListRerenders()
+  public async Task Save_WithAnUntouchedChoice_StaysUnchanged_WhenTheListRerenders()
   {
-    // The rows are REBUILT whenever the rates are re-resolved - the catalog landing, then the
-    // model id and the variant, which survive a re-render.
+    // The rows are REBUILT whenever the rates are re-resolved - the catalog landing, then a
+    // refresh - and the ORDERED IDS survive both, which is what makes an untouched window an
+    // unchanged one.
     SessionModelPreferences live = new();
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
             Loader(Entry("alpha/model"), Entry("beta/model")), CurrentModelIds: ["alpha/model"]));
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     Assert.True(vm.TrySave(out string? error), error);
     Assert.Equal(ModelChoiceKind.Unchanged, received!.Model!.Kind);
@@ -210,10 +215,13 @@ public class ModelSettingsModelSectionTests
     if (changeSelection)
     {
       vm.ModelSection!.SelectedRow = vm.ModelSection.FilteredRows.First(row => row.ModelId == "beta/model");
+      vm.ModelSection.AddModelCommand.Execute(null);
     }
+
     refresh.SetResult(Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry("alpha/model"), Entry("beta/model"), Entry("gamma/model")]));
     await load.ConfigureAwait(true);
-    Assert.Equal(changeSelection ? "beta/model" : "alpha/model", vm.ModelSection!.SelectedRow!.ModelId);
+    Assert.Equal(changeSelection ? ["alpha/model", "beta/model"] : ["alpha/model"],
+        vm.ModelSection!.SelectedModels.Select(row => row.ModelId));
     Assert.True(vm.TrySave(out string? error), error);
     Assert.Equal(changeSelection ? ModelChoiceKind.Pinned : ModelChoiceKind.Unchanged, saved!.Model!.Kind);
   }
