@@ -34,6 +34,92 @@ public sealed record ModelConfig(
   ///     request built from it is the one that session always sent.</para></summary>
   public IReadOnlyList<string> FallbackModelIds { get; init; } = FallbackModelIds ?? [];
 
+  /// <summary>Equality over the scalars AND the ordered fallback list.
+  ///     <para>THE RECORD'S OWN EQUALITY COMPARES THE LIST BY REFERENCE, so a config rebuilt from
+  ///     the same preferences would never equal the one already serving. Two comparisons depend on
+  ///     this: <c>RootAgentHolder.Build</c> decides from it whether the serving agent must be
+  ///     rebuilt at all, and a rebuild replaces the context accountant that carried the turn's
+  ///     usage report.</para>
+  ///     <para>A NULL MEMBER COMPARES AS EMPTY, so a config built without a list equals one whose
+  ///     list is empty - both state that nothing follows the head.</para></summary>
+  public bool Equals(ModelConfig? other)
+      => other is not null
+          && string.Equals(ModelId, other.ModelId, StringComparison.Ordinal)
+          && IdentityFactsEqual(other)
+          && SamplingFactsEqual(other)
+          && RoutingFactsEqual(other)
+          && (FallbackModelIds ?? []).SequenceEqual(other.FallbackModelIds ?? [], StringComparer.Ordinal);
+
+  /// <summary>The budget and capability facts.</summary>
+  private bool IdentityFactsEqual(ModelConfig other)
+      => MaxTokens == other.MaxTokens
+          && ContextWindow == other.ContextWindow
+          && Effort == other.Effort
+          && Seed == other.Seed
+          && Verbosity == other.Verbosity
+          && ParallelToolCalls == other.ParallelToolCalls
+          && AcceptsImageInput == other.AcceptsImageInput;
+
+  /// <summary>The sampling knobs. Bit equality is the comparison: these are the values the request
+  ///     is built from, so a config whose knob differs by any bit is a different request.</summary>
+  private bool SamplingFactsEqual(ModelConfig other)
+      => SameBit(Temperature, other.Temperature)
+          && SameBit(TopP, other.TopP)
+          && SameBit(FrequencyPenalty, other.FrequencyPenalty)
+          && SameBit(PresencePenalty, other.PresencePenalty)
+          && SameBit(RepetitionPenalty, other.RepetitionPenalty)
+          && SameBit(MinP, other.MinP)
+          && SameBit(TopA, other.TopA)
+          && TopK == other.TopK;
+
+  /// <summary>The routing and provider facts, including the opaque settings string compared
+  ///     verbatim.</summary>
+  private bool RoutingFactsEqual(ModelConfig other)
+      => string.Equals(ProviderSettings, other.ProviderSettings, StringComparison.Ordinal)
+          && string.Equals(PricingProvider, other.PricingProvider, StringComparison.Ordinal)
+          && Variant == other.Variant
+          && Retention == other.Retention;
+
+  /// <summary>True when both nullable floats hold the same value bit for bit, with null equal only
+  ///     to null.</summary>
+  private static bool SameBit(float? left, float? right)
+      => left.HasValue == right.HasValue
+          && (!left.HasValue || BitConverter.SingleToInt32Bits(left.Value)
+                  == BitConverter.SingleToInt32Bits(right!.Value));
+
+  /// <summary>The hash matching <see cref="Equals(ModelConfig)"/>: the scalars, then each fallback
+  ///     in order, so equal configs hash equally.</summary>
+  public override int GetHashCode()
+  {
+    HashCode hash = default;
+    hash.Add(ModelId, StringComparer.Ordinal);
+    hash.Add(MaxTokens);
+    hash.Add(ContextWindow);
+    hash.Add(Effort);
+    hash.Add(Seed);
+    hash.Add(Verbosity);
+    hash.Add(ParallelToolCalls);
+    hash.Add(AcceptsImageInput);
+    hash.Add(BitConverter.SingleToInt32Bits(Temperature));
+    hash.Add(TopP is { } topP ? BitConverter.SingleToInt32Bits(topP) : 0);
+    hash.Add(FrequencyPenalty is { } frequency ? BitConverter.SingleToInt32Bits(frequency) : 0);
+    hash.Add(PresencePenalty is { } presence ? BitConverter.SingleToInt32Bits(presence) : 0);
+    hash.Add(RepetitionPenalty is { } repetition ? BitConverter.SingleToInt32Bits(repetition) : 0);
+    hash.Add(MinP is { } minP ? BitConverter.SingleToInt32Bits(minP) : 0);
+    hash.Add(TopA is { } topA ? BitConverter.SingleToInt32Bits(topA) : 0);
+    hash.Add(TopK);
+    hash.Add(ProviderSettings, StringComparer.Ordinal);
+    hash.Add(PricingProvider, StringComparer.Ordinal);
+    hash.Add(Variant);
+    hash.Add(Retention);
+    foreach (string fallback in FallbackModelIds ?? [])
+    {
+      hash.Add(fallback, StringComparer.Ordinal);
+    }
+
+    return hash.ToHashCode();
+  }
+
   public static Result<ModelConfig> Create(
       string modelId,
       int maxTokens,

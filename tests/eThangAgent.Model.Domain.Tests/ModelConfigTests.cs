@@ -297,4 +297,59 @@ public class ModelConfigTests
     Assert.False(config.ParallelToolCalls!.Value);
     Assert.Equal(settings, config.ProviderSettings);
   }
+
+  // ---- Value equality. The record's own equality compares a collection member BY REFERENCE,
+  // ---- so a config rebuilt from the same preferences would never equal the one already serving.
+  // ---- RootAgentHolder.Build decides from that comparison whether the serving agent must be
+  // ---- rebuilt, and a rebuild replaces the context accountant that carried the turn's usage.
+
+  [Fact]
+  public void Equality_SameFactsInAFreshList_ComparesEqual()
+  {
+    string[] ids = ["beta/other", "gamma/third"];
+    ModelConfig first = ModelConfig.Create("m", 100, 0.5f, 2048,
+        fallbackModelIds: ["beta/other", "gamma/third"]).Value!;
+    ModelConfig rebuilt = ModelConfig.Create("m", 100, 0.5f, 2048, fallbackModelIds: ids).Value!;
+
+    Assert.Equal(first, rebuilt);
+    Assert.Equal(first.GetHashCode(), rebuilt.GetHashCode());
+  }
+
+  [Fact]
+  public void Equality_TheFallbackOrderIsPartOfTheValue()
+  {
+    ModelConfig ranked = ModelConfig.Create("m", 100, 0.5f, 2048,
+        fallbackModelIds: ["beta/other", "gamma/third"]).Value!;
+    ModelConfig swapped = ModelConfig.Create("m", 100, 0.5f, 2048,
+        fallbackModelIds: ["gamma/third", "beta/other"]).Value!;
+
+    Assert.NotEqual(ranked, swapped);
+  }
+
+  [Fact]
+  public void Equality_EveryScalarFactDistinguishesTheConfig()
+  {
+    ModelConfig baseline = ModelConfig.Create("m", 100, 0.5f, 2048, fallbackModelIds: ["beta/other"]).Value!;
+
+    Assert.NotEqual(baseline, baseline with { ModelId = "m2" });
+    Assert.NotEqual(baseline, baseline with { MaxTokens = 101 });
+    Assert.NotEqual(baseline, baseline with { Temperature = 0.6f });
+    Assert.NotEqual(baseline, baseline with { ContextWindow = 4096 });
+    Assert.NotEqual(baseline, baseline with { TopK = 40 });
+    Assert.NotEqual(baseline, baseline with { MinP = 0.05f });
+    Assert.NotEqual(baseline, baseline with { Variant = ModelVariant.Nitro });
+    Assert.NotEqual(baseline, baseline with { Retention = RetentionPolicy.SafetyRetention });
+    Assert.NotEqual(baseline, baseline with { FallbackModelIds = ["beta/other", "gamma/third"] });
+  }
+
+  [Fact]
+  public void Equality_AFloatKnobDifferingByOneBit_StillDistinguishes()
+  {
+    // Bit equality rather than an epsilon: these values BUILD the request, so a config whose knob
+    // differs by any bit is a different request and must not be mistaken for the one serving.
+    ModelConfig baseline = ModelConfig.Create("m", 100, 0.5f, 2048, topP: 0.3f).Value!;
+    ModelConfig nudged = ModelConfig.Create("m", 100, 0.5f, 2048, topP: MathF.BitIncrement(0.3f)).Value!;
+
+    Assert.NotEqual(baseline, nudged);
+  }
 }
