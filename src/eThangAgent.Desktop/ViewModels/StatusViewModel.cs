@@ -77,12 +77,12 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     }
   } = "";
 
-  /// <summary>The retention restriction in effect, or empty when the session routes without
-  ///     it.
-  ///     <para>EMPTY IS THE LOOSENED STATE, not the unset one: the restriction is the default
-  ///     for every session, so the badge names the promise while it holds and disappears when
-  ///     the user turns it off. That is the readable direction - a bar that badged the absence
-  ///     would put a warning on the normal case and say nothing about the exception.</para></summary>
+  /// <summary>The retention tier in force, named for all three: what the provider may keep of
+  ///     this session's prompts.
+  ///     <para>EVERY TIER IS NAMED, never left silent. The strict tier is the default, so a bar
+  ///     that only badged the exceptions would say nothing about the normal case; and the
+  ///     loosened tier is exactly the one a user must be able to see at a glance, because it is
+  ///     the one that lets a provider keep their prompts.</para></summary>
   public string ServingRetention
   {
     get;

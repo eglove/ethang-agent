@@ -780,7 +780,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       => seams is null
           ? null
           : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelId, seams.CurrentVariant,
-              seams.CurrentZeroDataRetention);
+              seams.CurrentRetention);
 
   /// <summary>Prefills the summary picker from the persisted level: the matching
   ///     row when the level is known, the provider-default row otherwise. Kept out
@@ -917,13 +917,10 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
         : ModelChoice.Pinned(row.ModelId!, variant, retention);
   }
 
-  /// <summary>The retention tier the section is showing, converted from the control's own
-  ///     boolean at this one boundary: checked is the strict tier, unchecked is no
-  ///     restriction.</summary>
+  /// <summary>The retention tier the section is showing, or the session's own tier when the
+  ///     host supplied no section at all.</summary>
   private RetentionPolicy RetentionFromSection()
-      => ModelSection?.ZeroDataRetention is false
-          ? RetentionPolicy.RetentionAndTraining
-          : RetentionPolicy.ZeroDataRetention;
+      => ModelSection?.Retention ?? _live.Retention ?? RetentionPolicy.ZeroDataRetention;
   /// <summary>The all-or-nothing save: validate every knob, then apply to the
   ///     live preferences, serialize the OpenRouter section (null when hidden or
   ///     all-default), and hand the snapshot to the persistence seam. Returns
@@ -950,12 +947,10 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       _live.ModelVariant = modelChoice.Variant;
     }
 
-    // The retention policy is a KNOB, not a tri-state choice: the dialog always shows the
-    // session's current value, so a save always states it. Null (never stated) resolves to the
-    // restrictive default here rather than being stored as an absence.
-    _live.Retention = ModelSection is null
-        ? _live.Retention ?? RetentionPolicy.ZeroDataRetention
-        : RetentionFromSection();
+    // The retention tier is a KNOB, not a tri-state choice: the dialog always shows the
+    // session's current tier, so a save always states it. Null (never stated) resolves to the
+    // strict default here rather than being stored as an absence.
+    _live.Retention = RetentionFromSection();
     string? serialized = ShowOpenRouterSection ? SerializeSectionOrNull() : null;
     _live.ProviderSettings = serialized;
     ModelSettingsSnapshot snapshot = new(_live, KnobTexts(), serialized, modelChoice);

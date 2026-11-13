@@ -40,6 +40,16 @@ public class ChatNeverScrollsSidewaysTests
     session.Status.Phase = TurnPhase.Streaming;
     Dispatcher.UIThread.RunJobs();
     Dispatcher.UIThread.RunJobs();
+    // The status content above is written AFTER the window was shown, so the row is still holding
+    // the width it was arranged at for the short values it opened with. A resize is what makes the
+    // shell re-run the layout pass; restore the width afterwards so the measurement below is the
+    // one this test is about.
+    double width = window.Width;
+    window.Width = width + 1;
+    Dispatcher.UIThread.RunJobs();
+    window.Width = width;
+    Dispatcher.UIThread.RunJobs();
+    Dispatcher.UIThread.RunJobs();
 
     // The status row is the widest unbreakable thing in the chat, so it is what used to push the
     // column past its own width. It must now fit the width it is given.

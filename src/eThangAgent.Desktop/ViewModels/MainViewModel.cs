@@ -784,10 +784,10 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     </summary>
   /// <param name="modelId">The model to serve, or null for the session's default model.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
-  /// <param name="zeroDataRetention">Whether to restrict routing to endpoints that do not retain
-  ///     prompts, or null to keep the session's current policy.</param>
+  /// <param name="retention">The retention tier to enforce, or null to keep the session's
+  ///     current tier.</param>
   public async Task ApplyModelChoiceAsync(string? modelId, ModelVariant? variant = null,
-      bool? zeroDataRetention = null)
+      RetentionPolicy? retention = null)
   {
     AgentTabViewModel? tab = SelectedTab;
     if (tab is null)
@@ -795,17 +795,10 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    tab.ViewModel.ApplyModelChoice(modelId, variant, zeroDataRetention);
+    tab.ViewModel.ApplyModelChoice(modelId, variant, retention);
     await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot,
-        modelId, variant, zeroDataRetention is { } restricted
-            ? ToRetention(restricted)
-            : null);
+        modelId, variant, retention);
   }
-
-  /// <summary>The tier a surface's own boolean states, converted at this one boundary:
-  ///     restricted is the strict tier, unrestricted is no restriction.</summary>
-  private static RetentionPolicy ToRetention(bool restricted)
-      => restricted ? RetentionPolicy.ZeroDataRetention : RetentionPolicy.RetentionAndTraining;
 
   /// <summary>Applies an effort-picker choice to the selected tab and persists it per
   ///     workspace + provider (best effort — the same named decision as the other
@@ -856,10 +849,7 @@ internal sealed partial class MainViewModel : ObservableObject
       string? modelId = model.Kind == ModelChoiceKind.Pinned ? model.ModelId : null;
       ModelVariant? variant = model.Kind == ModelChoiceKind.Pinned ? model.Variant : null;
       RetentionPolicy? retention = model.Kind == ModelChoiceKind.Pinned ? model.Retention : null;
-      // The session surface still takes a boolean in this step, so the tier is converted here:
-      // every enforced tier restricts, and only Retention and Training does not.
-      tab.ViewModel.ApplyModelChoice(modelId, variant,
-          retention is { } tier ? tier != RetentionPolicy.RetentionAndTraining : null);
+      tab.ViewModel.ApplyModelChoice(modelId, variant, retention);
       await PersistModelChoiceAsync(providerName, workspaceRoot, modelId, variant, retention);
     }
 
@@ -3203,10 +3193,7 @@ internal sealed partial class MainViewModel : ObservableObject
       sessionVm.Status.ServingVariant = restoredChoice.Variant == ModelVariant.Standard
           ? string.Empty
           : ModelVariants.Describe(restoredChoice.Variant);
-      sessionVm.Status.ServingRetention = restoredChoice.Retention
-          != RetentionPolicy.RetentionAndTraining
-              ? AgentSessionViewModel.ZeroDataRetentionBadge
-              : string.Empty;
+      sessionVm.Status.ServingRetention = AgentSessionViewModel.RetentionBadge(restoredChoice.Retention);
     }
 
     ReasoningEffort? restoredEffort = await ReadEffortChoiceAsync(session.ProviderName, session.WorkspaceRoot);

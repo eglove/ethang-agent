@@ -37,6 +37,12 @@ internal sealed record ModelPickerRow(
 ///     </summary>
 internal sealed record VariantOption(string DisplayName, ModelVariant Variant);
 
+/// <summary>One row of the retention dropdown: the tier and its short name. What the tier
+///     actually promises is stated ONCE in the caption beneath the dropdown
+///     (<see cref="ModelPickerViewModel.RetentionCaption"/>), not repeated in every row.
+///     </summary>
+internal sealed record RetentionOption(string DisplayName, RetentionPolicy Policy);
+
 /// <summary>Everything the embedded model section needs from its host, bundled so the settings
 ///     view-model's constructor stays a readable list of concerns rather than a wall of
 ///     delegates.
@@ -52,14 +58,14 @@ internal sealed record VariantOption(string DisplayName, ModelVariant Variant);
 ///     it.</param>
 /// <param name="CurrentVariant">The session's committed variant, to pre-select in the
 ///     dropdown.</param>
-/// <param name="CurrentZeroDataRetention">The session's live retention policy, to pre-select in
-///     the checkbox. Defaults to on, which is what an unstated policy means.</param>
+/// <param name="CurrentRetention">The session's live retention tier, to pre-select in the
+///     dropdown. Defaults to the strict tier, which is what an unstated policy means.</param>
 internal sealed record ModelSectionSeams(
     Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> LoadCatalog,
     string? CurrentModelId = null,
     Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? RefreshCatalog = null,
     ModelVariant? CurrentVariant = null,
-    bool CurrentZeroDataRetention = true);
+    RetentionPolicy CurrentRetention = RetentionPolicy.ZeroDataRetention);
 
 /// <summary>View-model behind the model picker: a searchable model list and the routing-variant
 ///     dropdown. That is the whole decision.
@@ -127,28 +133,46 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   [ObservableProperty]
   public partial VariantOption SelectedVariantOption { get; set; }
 
-  /// <summary>Whether routing is restricted to endpoints that do not retain prompts.
+  /// <summary>What this session allows the provider to keep of its prompts.
   ///     <para>THE SECOND AXIS OF THE SAME DECISION, and independent of the variant: the
   ///     dropdown states which tradeoff to prefer, this states which endpoints are admissible
-  ///     at all. It starts ON and only an explicit unchecking turns it off, so a session that
-  ///     never visits this window cannot silently send its prompts to a retaining provider.
-  ///     </para>
-  ///     <para>THE RESTRICTION IS HARD: when the catalog shows no eligible endpoint for the
-  ///     chosen model, the turn fails and names the restriction rather than falling back to a
+  ///     at all. It opens on the strict tier and only an explicit loosening moves it, so a
+  ///     session that never visits this window cannot silently send its prompts to a retaining
+  ///     provider.</para>
+  ///     <para>THE FIRST TWO TIERS ARE HARD: when the catalog shows no eligible endpoint for
+  ///     the chosen model, the turn fails and names the tier rather than falling back to a
   ///     provider that keeps the prompts. That is the one routing preference in this harness
   ///     that must not degrade silently.</para></summary>
   [ObservableProperty]
-  public partial bool ZeroDataRetention { get; set; }
+  public partial RetentionPolicy Retention { get; set; }
 
-  /// <summary>The label the checkbox renders. Stated as the promise rather than as the
-  ///     acronym: a user should not have to know what the letters stand for to know what they
-  ///     are agreeing to.</summary>
-  public static string ZeroDataRetentionLabel => "Only use providers that do not retain your prompts";
+  /// <summary>The row the dropdown highlights, derived from <see cref="Retention"/>. The rows are
+  ///     rebuilt on every catalog refresh, so the selection is carried as a VALUE and never as a
+  ///     row identity - a stale row reference would show a tier the session is not on.</summary>
+  public RetentionOption SelectedRetentionOption
+  {
+    get => RetentionOptions.First(option => option.Policy == Retention);
+    set => Retention = value.Policy;
+  }
 
-  /// <summary>The caption beneath the checkbox: what the promise covers, and the one thing it
-  ///     deliberately does not.</summary>
-  public static string ZeroDataRetentionCaption => "Applies to the model request only. Server "
-      + "tools and plugins run on third-party services with their own retention policies.";
+  partial void OnRetentionChanged(RetentionPolicy value)
+      => OnPropertyChanged(nameof(SelectedRetentionOption));
+
+  /// <summary>The retention rows in the order the tiers are offered (the dropdown's
+  ///     ItemsSource).</summary>
+  public IReadOnlyList<RetentionOption> RetentionOptions { get; } =
+  [
+    .. RetentionPolicies.All.Select(policy => new RetentionOption(RetentionPolicies.DisplayName(policy), policy)),
+  ];
+
+  /// <summary>The caption beneath the dropdown: what each tier promises, and which of them the
+  ///     harness enforces.</summary>
+  public static string RetentionCaption => "ZDR keeps nothing after processing. Safety Retention "
+      + "may keep prompts only to detect and prevent abuse, never for training. Retention and "
+      + "Training places no restriction, so the provider's own policy applies and may include "
+      + "training. The first two are enforced: a model with no eligible endpoint fails the turn "
+      + "rather than routing to a provider that keeps your prompts. Whether Safety Retention "
+      + "endpoints are admitted also depends on your OpenRouter account setting.";
 
   /// <summary>The explanation rendered UNDERNEATH the dropdown, and the reason the rows
   ///     themselves are bare names: it states what each variant actually trades and costs, so the
@@ -166,13 +190,13 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     pre-selects nothing).</param>
   /// <param name="currentVariant">The session's live routing variant to pre-select (null
   ///     pre-selects Standard).</param>
-  /// <param name="currentZeroDataRetention">The session's live retention policy to pre-select.
-  ///     Defaults to on, which is what an unstated policy means.</param>
+  /// <param name="currentRetention">The session's live retention tier to pre-select.
+  ///     Defaults to the strict tier, which is what an unstated policy means.</param>
   public ModelPickerViewModel(
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> loadCatalog,
       string? currentModelId,
       ModelVariant? currentVariant = null,
-      bool currentZeroDataRetention = true)
+      RetentionPolicy currentRetention = RetentionPolicy.ZeroDataRetention)
   {
     _loadCatalog = loadCatalog ?? throw new ArgumentNullException(nameof(loadCatalog));
     _currentModelId = currentModelId;
@@ -184,7 +208,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     ConfirmCommand = new RelayCommand(Confirm, () => SelectedRow is not null);
     SelectedVariantOption = VariantOptions.FirstOrDefault(o => o.Variant == currentVariant)
         ?? VariantOptions[0];
-    ZeroDataRetention = currentZeroDataRetention;
+    Retention = currentRetention;
     SearchText = string.Empty; // raises OnSearchTextChanged → initial list
   }
 
