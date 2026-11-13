@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -9,7 +7,7 @@ using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
-// Best-effort temp cleanup and listener teardown are deliberate (CA1031).
+// Best-effort temp cleanup is deliberate (CA1031).
 #pragma warning disable CA1031 // Do not catch general exception types
 
 namespace eThangAgent.Composition.Tests;
@@ -31,92 +29,6 @@ namespace eThangAgent.Composition.Tests;
 public class SpawnedAgentEventForwardingTests
 {
   private const string ChildModel = "mock/child-model";
-
-  /// <summary>A local OpenAI-compatible provider: a catalog naming the child model, a
-  ///     404 for the per-model endpoint crawl (the model-level row is then used), and a
-  ///     plain text completion for every responses request.</summary>
-  private sealed class MockProviderServer : IDisposable
-  {
-    private readonly HttpListener _listener = new();
-    private readonly CancellationTokenSource _cts = new();
-
-    public Uri BaseUrl { get; private set; } = null!;
-
-    public void Start()
-    {
-      using TcpListener probe = new(IPAddress.Loopback, 0);
-      probe.Start();
-      int port = ((IPEndPoint)probe.LocalEndpoint).Port;
-      probe.Stop();
-      BaseUrl = new Uri($"http://127.0.0.1:{port}/");
-      _listener.Prefixes.Add(BaseUrl.AbsoluteUri);
-      _listener.Start();
-      _ = Task.Run(LoopAsync, _cts.Token);
-    }
-
-    private async Task LoopAsync()
-    {
-      while (!_cts.IsCancellationRequested)
-      {
-        HttpListenerContext ctx;
-        try
-        {
-          ctx = await _listener.GetContextAsync().ConfigureAwait(false);
-        }
-        catch (Exception)
-        {
-          break;
-        }
-
-        string path = ctx.Request.Url!.AbsolutePath;
-        if (path.EndsWith("/endpoints", StringComparison.Ordinal))
-        {
-          ctx.Response.StatusCode = 404;
-          ctx.Response.Close();
-          continue;
-        }
-
-        if (path.EndsWith("/models", StringComparison.Ordinal))
-        {
-          await WriteAsync(ctx, CatalogJson).ConfigureAwait(false);
-          continue;
-        }
-
-        if (path.EndsWith("/responses", StringComparison.Ordinal))
-        {
-          await WriteAsync(ctx, CompletionJson).ConfigureAwait(false);
-          continue;
-        }
-
-        ctx.Response.StatusCode = 404;
-        ctx.Response.Close();
-      }
-    }
-
-    private async Task WriteAsync(HttpListenerContext ctx, string json)
-    {
-      byte[] body = System.Text.Encoding.UTF8.GetBytes(json);
-      ctx.Response.StatusCode = 200;
-      ctx.Response.ContentType = "application/json";
-      ctx.Response.ContentLength64 = body.Length;
-      await ctx.Response.OutputStream.WriteAsync(body, _cts.Token).ConfigureAwait(false);
-      ctx.Response.Close();
-    }
-
-    private static string CatalogJson =>
-        /*lang=json,strict*/ """{"data":[{"id":"mock/child-model","context_length":32768,"pricing":{"prompt":"0.000001","completion":"0.000002"},"architecture":{"input_modalities":["text"],"output_modalities":["text"]},"supported_parameters":["tools"]}]}""";
-
-    private static string CompletionJson =>
-        /*lang=json,strict*/ """{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"child finished"}]}],"status":"completed"}""";
-
-    public void Dispose()
-    {
-      _cts.Cancel();
-      _cts.Dispose();
-      _listener.Stop();
-      _listener.Close();
-    }
-  }
 
   /// <summary>Collects every event a container's stream publishes. Thread-safe: the pump
   ///     publishes from a background task while the test awaits the settle.</summary>
@@ -176,7 +88,10 @@ public class SpawnedAgentEventForwardingTests
       string root = TestTempRoot.CreateDirectory("ethang-agent-events").FullName;
       string workspace = Directory.CreateDirectory(Path.Combine(root, "ws")).FullName;
       string database = Path.Combine(root, "app.db");
-      MockProviderServer mock = new();
+      MockProviderServer mock = new(MockModel.Of(ChildModel))
+      {
+        CompletionText = "child finished",
+      };
       mock.Start();
 
       AgentSettings settings = new AgentSettings(

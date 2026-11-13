@@ -162,6 +162,68 @@ public class ModelListWireTests
     Assert.Null(result.Value.ServedModelId);
   }
 
+  [Fact]
+  public async Task Send_ARefusedList_SurfacesTheProvidersErrorVerbatim_AndSendsNothingElse()
+  {
+    // The provider refused EVERY entry. The turn fails with the provider's own words - the
+    // harness has no model left that the user listed, and inventing one is the substitution the
+    // resolver exists to refuse.
+    const string Refusal = "no endpoints available for any listed model";
+    int sends = 0;
+    FakeHttpMessageHandler handler = new(_ =>
+    {
+      sends++;
+      return Task.FromResult(Wire.Json(System.Net.HttpStatusCode.BadRequest,
+          /*lang=json,strict*/ """{"error":{"message":"no endpoints available for any listed model"}}"""));
+    });
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(Model([Second, Third]), Request(),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("ProviderError", result.Error.Code);
+    Assert.Contains(Refusal, result.Error.Message, StringComparison.Ordinal);
+    // ONE REQUEST, UNAMBIGUOUSLY: a 400 is not retried (the identical request would fail
+    // identically), so nothing else reached the provider on this turn.
+    Assert.Equal(1, sends);
+  }
+
+  [Fact]
+  public async Task Send_ARefusedOverLongList_IsTheProvidersOwnError_AndTheConfigIsUnchanged()
+  {
+    // A list the provider will not accept is refused BY THE PROVIDER, at request time:
+    // the harness does not trim, reorder, or shorten it to fit, because a shorter list is a
+    // different selection from the one the user stated.
+    const int Limit = 20;
+    IReadOnlyList<string> fallbacks = [.. Enumerable.Range(0, Limit).Select(i => $"many/model{i}")];
+    ModelConfig config = Model(fallbacks);
+    string? captured = null;
+    FakeHttpMessageHandler handler = new(async req =>
+    {
+      captured = req.Content is { } content
+          ? await content.ReadAsStringAsync().ConfigureAwait(false)
+          : null;
+      return Wire.Json(System.Net.HttpStatusCode.BadRequest,
+          /*lang=json,strict*/ """{"error":{"message":"models accepts at most 20 entries"}}""");
+    });
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(config, Request(),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("ProviderError", result.Error.Code);
+    Assert.Contains("at most 20", result.Error.Message, StringComparison.Ordinal);
+    // THE REQUEST NAMED EVERY ENTRY THE USER STATED: the refusal came from what was sent, not
+    // from a request the harness had already reduced.
+    using JsonDocument sent = JsonDocument.Parse(captured!);
+    Assert.Equal(Limit + 1, ModelsOf(sent.RootElement).Count);
+    Assert.Equal(fallbacks, config.FallbackModelIds);
+  }
+
   private static string ServedBy(string modelId)
       => /*lang=json,strict*/ $$"""
           {"model":"{{modelId}}","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}
