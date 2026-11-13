@@ -66,7 +66,7 @@ public class ZeroDataRetentionSettingsTests
 
     Assert.True(saved, error ?? "no error");
     Assert.Equal(ModelChoiceKind.Unchanged, received!.Model!.Kind);
-    Assert.True(live.ZeroDataRetention);
+    Assert.Equal(RetentionPolicy.ZeroDataRetention, live.Retention);
   }
 
   [Fact]
@@ -84,8 +84,8 @@ public class ZeroDataRetentionSettingsTests
 
     Assert.True(saved, error ?? "no error");
     Assert.Equal(ModelChoiceKind.Pinned, received!.Model!.Kind);
-    Assert.False(received.Model.ZeroDataRetention);
-    Assert.False(live.ZeroDataRetention);
+    Assert.Equal(RetentionPolicy.RetentionAndTraining, received.Model.Retention);
+    Assert.Equal(RetentionPolicy.RetentionAndTraining, live.Retention);
   }
   [Fact]
   public async Task SavingTheLoosenedPolicy_SerializesNoProviderSettings()
@@ -133,14 +133,14 @@ public class ZeroDataRetentionSettingsTests
     vm.ApplyModelChoice("anthropic/claude", ModelVariant.Standard, zeroDataRetention: false);
 
     Assert.Equal(string.Empty, vm.Status.ServingRetention);
-    Assert.False(preferences.ZeroDataRetention);
+    Assert.Equal(RetentionPolicy.RetentionAndTraining, preferences.Retention);
   }
 
   [Fact]
   public void AChoiceThatNamesOnlyAModel_LeavesThePolicyAlone()
   {
     // A caller that states no policy is not loosening one: the session keeps what it had.
-    SessionModelPreferences preferences = new() { ZeroDataRetention = false };
+    SessionModelPreferences preferences = new() { Retention = RetentionPolicy.RetentionAndTraining };
     AgentSessionViewModel vm = new(
         (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
@@ -149,6 +149,6 @@ public class ZeroDataRetentionSettingsTests
 
     vm.ApplyModelChoice("anthropic/claude");
 
-    Assert.False(preferences.ZeroDataRetention);
+    Assert.Equal(RetentionPolicy.RetentionAndTraining, preferences.Retention);
   }
 }

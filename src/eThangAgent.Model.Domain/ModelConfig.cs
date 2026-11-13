@@ -22,7 +22,7 @@ public sealed record ModelConfig(
     bool AcceptsImageInput = false,
     string? PricingProvider = null,
     ModelVariant Variant = ModelVariant.Standard,
-     bool ZeroDataRetention = false)
+     RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
 {
   public static Result<ModelConfig> Create(
       string modelId,
@@ -44,7 +44,7 @@ public sealed record ModelConfig(
       bool acceptsImageInput = false,
       string? pricingProvider = null,
       ModelVariant variant = ModelVariant.Standard,
-       bool zeroDataRetention = false)
+       RetentionPolicy retention = RetentionPolicy.ZeroDataRetention)
   {
     if (ValidateBasics(modelId, maxTokens) is { } basicsError)
     {
@@ -65,7 +65,7 @@ public sealed record ModelConfig(
         modelId, maxTokens, temperature, contextWindow, effort,
         topP, topK, frequencyPenalty, presencePenalty, repetitionPenalty, minP, topA,
         seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput, pricingProvider, variant,
-        zeroDataRetention);
+        retention);
     return Result.Success(config);
   }
 

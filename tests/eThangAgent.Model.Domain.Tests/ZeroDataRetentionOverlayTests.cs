@@ -1,59 +1,69 @@
 namespace eThangAgent.ModelDomain.Tests;
 
-/// <summary>The retention restriction as a preference: ON unless something explicitly turns it
-///     off.
-///     <para>THE NULL CASE IS THE WHOLE FEATURE. Every other knob in the overlay treats null as
+/// <summary>The retention tier as a preference: the resolved config's tier unless the session
+///     states another.
+///     <para>NULL KEEPS THE CONFIG'S TIER. Every other knob in the overlay treats null as
 ///     'keep what resolution produced', and a session that never opened Model Settings has a
-///     null here. If that null meant 'off', the default would be whatever the config happened
-///     to carry and the promise would depend on a member nobody set - so the overlay decides,
-///     and it decides on.</para></summary>
+///     null here. Defaulting that null to the strict tier would silently tighten a config
+///     nobody asked to tighten, so the default is supplied by the config's own parameter
+///     default and the overlay only ever replaces a stated tier.</para></summary>
 public class ZeroDataRetentionOverlayTests
 {
-  private static ModelConfig Config(bool zeroDataRetention = false)
-      => ModelConfig.Create("alpha/model", 64, 0.7f, 4096, zeroDataRetention: zeroDataRetention).Value!;
+  private static ModelConfig Config(RetentionPolicy retention = RetentionPolicy.RetentionAndTraining)
+      => ModelConfig.Create("alpha/model", 64, 0.7f, 4096, retention: retention).Value!;
 
   [Fact]
-  public void AnUnstatedPreference_RestrictsRouting()
-      // The session has never stated a policy: silence must not be the thing that sends a
-      // prompt to a provider that keeps it.
-      => Assert.True(ModelPreferencesOverlay.Apply(Config(), new SessionModelPreferences())
-          .ZeroDataRetention);
-  [Fact]
-  public void AnExplicitTrue_RestrictsRouting()
-      => Assert.True(ModelPreferencesOverlay.Apply(Config(),
-          new SessionModelPreferences { ZeroDataRetention = true }).ZeroDataRetention);
+  public void AnUnstatedPreference_KeepsTheConfigTier()
+      // The session has never stated a policy: silence must not be the thing that changes
+      // the tier resolution produced.
+      => Assert.Equal(RetentionPolicy.RetentionAndTraining,
+          ModelPreferencesOverlay.Apply(Config(), new SessionModelPreferences()).Retention);
 
   [Fact]
-  public void AnExplicitFalse_IsTheOnlyThingThatLoosensIt()
-      => Assert.False(ModelPreferencesOverlay.Apply(Config(zeroDataRetention: true),
-          new SessionModelPreferences { ZeroDataRetention = false }).ZeroDataRetention);
+  public void AResolvedStrictTier_SurvivesAnEmptyPreference()
+      => Assert.Equal(RetentionPolicy.ZeroDataRetention,
+          ModelPreferencesOverlay.Apply(Config(RetentionPolicy.ZeroDataRetention),
+              new SessionModelPreferences()).Retention);
+
+  [Fact]
+  public void AStatedTier_ReplacesTheConfigTier()
+      => Assert.Equal(RetentionPolicy.SafetyRetention,
+          ModelPreferencesOverlay.Apply(Config(RetentionPolicy.ZeroDataRetention),
+              new SessionModelPreferences { Retention = RetentionPolicy.SafetyRetention }).Retention);
+
+  [Fact]
+  public void AStatedLooseningTier_ReplacesAStrictConfig()
+      => Assert.Equal(RetentionPolicy.RetentionAndTraining,
+          ModelPreferencesOverlay.Apply(Config(RetentionPolicy.ZeroDataRetention),
+              new SessionModelPreferences { Retention = RetentionPolicy.RetentionAndTraining }).Retention);
 
   [Fact]
   public void NoPreferencesAtAll_LeavesTheResolvedConfigAlone()
       // A null preference set is 'nothing was overlaid', not 'the user loosened it'. The
       // resolver supplies the default on the path that builds the config.
-      => Assert.False(ModelPreferencesOverlay.Apply(Config(), null).ZeroDataRetention);
+      => Assert.Equal(RetentionPolicy.RetentionAndTraining,
+          ModelPreferencesOverlay.Apply(Config(), null).Retention);
 
   [Fact]
-  public void ThePolicy_TravelsWithThePreferencesAcrossTheProcessBoundary()
+  public void TheTier_TravelsWithThePreferencesAcrossTheProcessBoundary()
   {
-    // The app owns the picker and the agent lives in its own host, so the policy must survive
+    // The app owns the picker and the agent lives in its own host, so the tier must survive
     // the carrier or a loosened session would silently tighten on every turn.
-    SessionModelPreferences original = new() { ZeroDataRetention = false };
+    SessionModelPreferences original = new() { Retention = RetentionPolicy.SafetyRetention };
 
     SessionModelPreferences restored =
         SessionModelPreferencesJson.Deserialize(SessionModelPreferencesJson.Serialize(original)).Value!;
 
-    Assert.False(restored.ZeroDataRetention);
+    Assert.Equal(RetentionPolicy.SafetyRetention, restored.Retention);
   }
 
   [Fact]
-  public void CopyFrom_CarriesThePolicy()
+  public void CopyFrom_CarriesTheTier()
   {
     SessionModelPreferences target = new();
 
-    target.CopyFrom(new SessionModelPreferences { ZeroDataRetention = false });
+    target.CopyFrom(new SessionModelPreferences { Retention = RetentionPolicy.RetentionAndTraining });
 
-    Assert.False(target.ZeroDataRetention);
+    Assert.Equal(RetentionPolicy.RetentionAndTraining, target.Retention);
   }
 }

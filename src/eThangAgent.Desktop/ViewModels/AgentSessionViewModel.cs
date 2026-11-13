@@ -1358,6 +1358,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     variant already follows.</para></summary>
   public const string ZeroDataRetentionBadge = "no data retention";
 
+  /// <summary>The tier a surface's own boolean states, converted at this one boundary:
+  ///     restricted is the strict tier, unrestricted is no restriction.</summary>
+  private static RetentionPolicy ToRetention(bool restricted)
+      => restricted ? RetentionPolicy.ZeroDataRetention : RetentionPolicy.RetentionAndTraining;
+
   /// <summary>
   /// Applies the user's picker choice: pins the session's MODEL, ROUTING VARIANT, and retention
   /// policy, updates the status bar, and announces the change. Applies from the next turn, root
@@ -1394,7 +1399,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // Null means the caller stated no policy (a picker that only names a model), and the
     // session keeps whatever it had - which, for a session that never stated one, is the
     // restrictive default the overlay applies.
-    _modelPreferences.ZeroDataRetention = zeroDataRetention ?? _modelPreferences.ZeroDataRetention;
+    _modelPreferences.Retention = zeroDataRetention is { } restricted
+        ? ToRetention(restricted)
+        : _modelPreferences.Retention;
     Status.ModelId = chosen;
     // The status line names the routing the request will actually carry, by its bare name
     // ('Nitro', 'Floor') - the caption beneath the Routing dropdown explains what each one
@@ -1406,7 +1413,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // The bar names the restriction only while it is in effect: it is the default, so a badge
     // on every session would be noise, but a session quietly routing WITHOUT it is the one
     // thing the user must be able to see at a glance.
-    Status.ServingRetention = _modelPreferences.ZeroDataRetention is false ? string.Empty : ZeroDataRetentionBadge;
+    Status.ServingRetention = _modelPreferences.Retention is RetentionPolicy.RetentionAndTraining
+        ? string.Empty
+        : ZeroDataRetentionBadge;
     Transcript.AddNotice(variant is { } served && served != ModelVariant.Standard
         ? $"Model set to {chosen} with {ModelVariants.Describe(served)}; applies from the next turn."
         : $"Model set to {chosen}; applies from the next turn.");

@@ -292,7 +292,8 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-4o:nitro", 128, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-4o:nitro", 128, 0.7f, 4096,
+            retention: RetentionPolicy.RetentionAndTraining).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.NotNull(capturedBody);
@@ -316,7 +317,8 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-4o", 128, 0.7f, 4096).Value!,
+        ModelConfig.Create("openai/gpt-4o", 128, 0.7f, 4096,
+            retention: RetentionPolicy.RetentionAndTraining).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);

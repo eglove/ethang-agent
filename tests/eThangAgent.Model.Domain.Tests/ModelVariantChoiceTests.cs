@@ -144,27 +144,96 @@ public class ModelVariantChoiceTests
     Assert.Equal(ModelVariant.Floor, parsed.Variant);
   }
   [Fact]
-  public void AStoredChoiceWithoutTheMember_RestoresRestricted()
+  public void AStoredChoiceWithoutTheMember_RestoresTheStrictTier()
   {
-    // A value written before the restriction existed must read back ON: the absence of a
+    // A value written before the tiers existed must read back strict: the absence of a
     // decision is not a decision to loosen.
     ModelVariantChoice parsed = ModelVariantChoice.Parse(
         /*lang=json,strict*/ """{"ModelId":"alpha/model","Variant":"Nitro"}""").ValueOrNull!;
 
-    Assert.True(parsed.ZeroDataRetention);
+    Assert.Equal(RetentionPolicy.ZeroDataRetention, parsed.Retention);
   }
 
   [Fact]
-  public void AStoredFalse_RoundTripsAsFalse()
+  public void EveryTier_RoundTripsThroughSerializeAndParse()
   {
-    ModelVariantChoice original = new("alpha/model", ModelVariant.Standard, ZeroDataRetention: false);
+    foreach (RetentionPolicy tier in RetentionPolicies.All)
+    {
+      ModelVariantChoice original = new("alpha/model", ModelVariant.Standard, tier);
 
-    ModelVariantChoice parsed = ModelVariantChoice.Parse(original.Serialize()).ValueOrNull!;
+      ModelVariantChoice parsed = ModelVariantChoice.Parse(original.Serialize()).ValueOrNull!;
 
-    Assert.False(parsed.ZeroDataRetention);
+      Assert.Equal(tier, parsed.Retention);
+    }
   }
 
   [Fact]
-  public void ALegacyBareModelId_RestoresRestricted()
-      => Assert.True(ModelVariantChoice.Parse("alpha/model").ValueOrNull!.ZeroDataRetention);
+  public void Serialize_WritesTheTierAndNeverTheRetiredMember()
+  {
+    string serialized = new ModelVariantChoice("alpha/model", ModelVariant.Standard,
+        RetentionPolicy.SafetyRetention).Serialize();
+
+    Assert.Contains("\"Retention\":\"SafetyRetention\"", serialized, StringComparison.Ordinal);
+    Assert.DoesNotContain("ZeroDataRetention", serialized, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ALegacyFalse_ReadsBackAsNoRestriction()
+  {
+    // The boolean could only express two tiers: false meant 'no restriction'.
+    ModelVariantChoice parsed = ModelVariantChoice.Parse(
+        /*lang=json,strict*/ """{"ModelId":"alpha/model","Variant":"Standard","ZeroDataRetention":false}""")
+        .ValueOrNull!;
+
+    Assert.Equal(RetentionPolicy.RetentionAndTraining, parsed.Retention);
+  }
+
+  [Fact]
+  public void ALegacyTrue_ReadsBackAsTheStrictTier()
+  {
+    ModelVariantChoice parsed = ModelVariantChoice.Parse(
+        /*lang=json,strict*/ """{"ModelId":"alpha/model","Variant":"Standard","ZeroDataRetention":true}""")
+        .ValueOrNull!;
+
+    Assert.Equal(RetentionPolicy.ZeroDataRetention, parsed.Retention);
+  }
+
+  [Fact]
+  public void ALegacyFalse_WithABlankVariant_AlsoRestoresItsTier()
+  {
+    // The retired provider-pair payload has no variant member, so the tier must be resolved on
+    // that branch too rather than defaulting.
+    ModelVariantChoice parsed = ModelVariantChoice.Parse(
+        /*lang=json,strict*/ """{"ModelId":"alpha/model","ZeroDataRetention":false}""").ValueOrNull!;
+
+    Assert.Equal(RetentionPolicy.RetentionAndTraining, parsed.Retention);
+  }
+
+  [Fact]
+  public void AnUnknownTier_IsANamedFailure_NotASilentStrictTier()
+  {
+    // It may name a tier a later build added; substituting the strict tier would tighten a
+    // session the user had loosened.
+    Result<ModelVariantChoice> parsed = ModelVariantChoice.Parse(
+        /*lang=json,strict*/ """{"ModelId":"alpha/model","Variant":"Standard","Retention":"Paranoid"}""");
+
+    Assert.False(parsed.IsSuccess);
+    Assert.Equal("InvalidModelChoice", parsed.Error.Code);
+  }
+
+  [Fact]
+  public void AnOutOfRangeTierNumber_IsANamedFailure()
+  {
+    // Enum.TryParse alone accepts "5" and hands back a value the domain never defined.
+    Result<ModelVariantChoice> parsed = ModelVariantChoice.Parse(
+        /*lang=json,strict*/ """{"ModelId":"alpha/model","Variant":"Standard","Retention":"5"}""");
+
+    Assert.False(parsed.IsSuccess);
+    Assert.Equal("InvalidModelChoice", parsed.Error.Code);
+  }
+
+  [Fact]
+  public void ALegacyBareModelId_RestoresTheStrictTier()
+      => Assert.Equal(RetentionPolicy.ZeroDataRetention,
+          ModelVariantChoice.Parse("alpha/model").ValueOrNull!.Retention);
 }

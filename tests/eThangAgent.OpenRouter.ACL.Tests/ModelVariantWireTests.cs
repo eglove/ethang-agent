@@ -62,7 +62,8 @@ public class ModelVariantWireTests
     OpenRouterRequestSettings settings = OpenRouterRequestSettings.Parse(
         /*lang=json,strict*/ """{"routing":{"only":["someone-else"],"allow_fallbacks":true}}""")!;
     ModelConfig config = ModelConfig.Create(BaseModel + ":nitro", 64, 0.7f, 4096,
-        providerSettings: OpenRouterRequestSettings.Serialize(settings)).Value!;
+        providerSettings: OpenRouterRequestSettings.Serialize(settings),
+        retention: RetentionPolicy.RetentionAndTraining).Value!;
 
     string body = await CaptureBodyAsync(config).ConfigureAwait(true);
 
@@ -87,8 +88,11 @@ public class ModelVariantWireTests
     return doc.RootElement.GetProperty("model").GetString()!;
   }
 
+  // NO RESTRICTION STATED: these tests are about the variant suffix, so the retention tier
+  // must not add a provider object of its own to the body they inspect.
   private static ModelConfig ModelFor(ModelVariant variant)
-      => ModelConfig.Create(ModelVariants.ApplyTo(variant, BaseModel), 64, 0.7f, 4096).Value!;
+      => ModelConfig.Create(ModelVariants.ApplyTo(variant, BaseModel), 64, 0.7f, 4096,
+          retention: RetentionPolicy.RetentionAndTraining).Value!;
 
   private static async Task<string> CaptureBodyAsync(ModelConfig config)
   {

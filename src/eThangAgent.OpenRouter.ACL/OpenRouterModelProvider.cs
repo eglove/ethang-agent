@@ -281,7 +281,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       ModelConfig config, CancellationToken ct)
   {
     Dictionary<string, object?>? provider = await CacheFloorProviderAsync(config, ct).ConfigureAwait(false);
-    if (config.ZeroDataRetention)
+    if (config.Retention != RetentionPolicy.RetentionAndTraining)
     {
       if (await ZeroDataRetentionFaultAsync(config, ct).ConfigureAwait(false) is { } fault)
       {

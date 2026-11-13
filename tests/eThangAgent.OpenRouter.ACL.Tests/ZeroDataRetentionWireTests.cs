@@ -22,10 +22,10 @@ public class ZeroDataRetentionWireTests
         Variant = EndpointVariant.Parse(slug, null, null),
       };
 
-  private static ModelConfig Model(bool zeroDataRetention = true,
+  private static ModelConfig Model(RetentionPolicy retention = RetentionPolicy.ZeroDataRetention,
       ModelVariant variant = ModelVariant.Standard)
       => ModelConfig.Create(BaseModel, 64, 0.7f, 4096, variant: variant,
-          zeroDataRetention: zeroDataRetention).Value!;
+          retention: retention).Value!;
 
   [Fact]
   public async Task Body_TheDefaultConfig_RestrictsRoutingToZeroRetentionEndpoints()
@@ -47,7 +47,7 @@ public class ZeroDataRetentionWireTests
   {
     // Only an explicit false removes the restriction, and removing it must leave the body
     // exactly as it was before this feature existed - no empty provider object.
-    string body = await CaptureBodyAsync(Model(zeroDataRetention: false), [Endpoint("alpha")])
+    string body = await CaptureBodyAsync(Model(RetentionPolicy.RetentionAndTraining), [Endpoint("alpha")])
         .ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);
@@ -151,7 +151,7 @@ public class ZeroDataRetentionWireTests
   {
     // The same catalog that fails a restricted session must serve a loosened one: the check
     // exists to enforce the promise, not to gate the model.
-    string body = await CaptureBodyAsync(Model(zeroDataRetention: false), [Endpoint("alpha")])
+    string body = await CaptureBodyAsync(Model(RetentionPolicy.RetentionAndTraining), [Endpoint("alpha")])
         .ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);

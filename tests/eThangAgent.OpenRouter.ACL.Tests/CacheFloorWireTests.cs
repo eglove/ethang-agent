@@ -91,7 +91,10 @@ public class CacheFloorWireTests
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config, catalog: new FakeCatalog(endpoints));
 
-    ModelConfig config = ModelConfig.Create(BaseModel, 64, 0.7f, 4096, variant: variant).Value!;
+    // NO RESTRICTION STATED: these tests are about the Cache Floor order, so the retention
+    // tier must not add a provider object of its own to the body they inspect.
+    ModelConfig config = ModelConfig.Create(BaseModel, 64, 0.7f, 4096, variant: variant,
+        retention: RetentionPolicy.RetentionAndTraining).Value!;
     _ = await provider.SendAsync(
         config, new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
