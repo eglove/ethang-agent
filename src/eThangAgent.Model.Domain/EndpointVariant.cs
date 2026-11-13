@@ -80,7 +80,11 @@ public sealed record EndpointVariant(
   public string Describe()
   {
     List<string> parts = [];
-    if (IsZeroDataRetention)
+    // SAFETY RETENTION IS A RETENTION FACT ON ITS OWN. An endpoint the provider marks as
+    // eligible only under that tier carries the caveat whether or not its tag also says zdr, so
+    // the annotation states the weaker promise rather than omitting the retention fact entirely
+    // or presenting it as the strict one.
+    if (IsZeroDataRetention || RequiresSafetyRetention)
     {
       parts.Add(RequiresSafetyRetention
           ? "zero data retention (safety retention)"

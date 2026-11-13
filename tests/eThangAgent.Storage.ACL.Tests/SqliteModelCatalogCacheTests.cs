@@ -153,7 +153,7 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
     // snapshot is served, and the absent members stay absent rather than being falsely
     // populated.
     const string sparseEnvelope =
-        "{\"ShapeVersion\":2,\"Entries\":[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\"," +
+        "{\"ShapeVersion\":3,\"Entries\":[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\"," +
         "\"PromptPricePerToken\":0.000001,\"PromptCacheReadPricePerToken\":null," +
         "\"CompletionPricePerToken\":0.000002,\"ContextLength\":128000,\"MaxCompletionTokens\":4096," +
         "\"SupportsToolUse\":true,\"SupportsVision\":false,\"SupportsTextOutput\":true," +
@@ -188,14 +188,15 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
   }
 
   [Fact]
-  public async Task WriteThenRead_PreservesTheZeroRetentionList()
+  public async Task WriteThenRead_PreservesTheEligibleEndpointList()
   {
     // The list is a CORRECTNESS member of the snapshot, not a display one: a snapshot that loses
     // it reports every model as having no eligible endpoint, which refuses turns for models the
     // provider serves.
     AppDatabase db = new(_dbPath);
     SqliteModelCatalogCache cache = new(db);
-    ZeroDataRetentionList eligible = ZeroDataRetentionList.Of(["x-ai/grok-4.7:xAI:xai"]);
+    RetentionEligibleList eligible = RetentionEligibleList.Of(
+        [new RetentionEligibleEndpoint("x-ai/grok-4.7", "xAI", "xai", RequiresSafetyRetention: false)]);
     _ = await cache.WriteAsync("openrouter",
         new ModelCatalogSnapshot([VariantEntry("xai")], DateTimeOffset.UtcNow,
             ModelCatalogSnapshot.CurrentShapeVersion, eligible),
@@ -205,8 +206,65 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
         await cache.ReadAsync("openrouter", TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.True(read.IsSuccess);
-    Assert.NotNull(read.Value.ZeroDataRetention);
-    Assert.True(read.Value.ZeroDataRetention.IsEligible("x-ai/grok-4.7", "xAI", "xai"));
+    Assert.NotNull(read.Value.RetentionEligible);
+    Assert.True(read.Value.RetentionEligible.IsEligible("x-ai/grok-4.7", "xAI", "xai",
+        RetentionPolicy.ZeroDataRetention));
+  }
+
+  [Fact]
+  public async Task WriteThenRead_PreservesEachEndpointsRetentionFact()
+  {
+    // The per-endpoint fact is a CORRECTNESS member too: a snapshot that dropped it would
+    // present a safety-retention endpoint as plainly zero-retention.
+    AppDatabase db = new(_dbPath);
+    SqliteModelCatalogCache cache = new(db);
+    RetentionEligibleList eligible = RetentionEligibleList.Of(
+        [
+          new RetentionEligibleEndpoint("x-ai/grok-4.7", "xAI", "xai", RequiresSafetyRetention: false),
+          new RetentionEligibleEndpoint("x-ai/grok-4.7", "xAI", "xai/priority", RequiresSafetyRetention: true),
+        ]);
+    _ = await cache.WriteAsync("openrouter",
+        new ModelCatalogSnapshot([VariantEntry("xai")], DateTimeOffset.UtcNow,
+            ModelCatalogSnapshot.CurrentShapeVersion, eligible),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Result<ModelCatalogSnapshot> read =
+        await cache.ReadAsync("openrouter", TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(read.IsSuccess);
+    RetentionEligibleList restored = read.Value.RetentionEligible!;
+    Assert.False(restored.Endpoints.Single(e => e.Slug == "xai").RequiresSafetyRetention);
+    Assert.True(restored.Endpoints.Single(e => e.Slug == "xai/priority").RequiresSafetyRetention);
+  }
+
+  [Fact]
+  public async Task ReadAsync_AShapeTwoSnapshot_IsAStaleShape()
+  {
+    // Shape 2 carried the eligible list as bare keys, with no per-endpoint retention fact, so
+    // serving it would present a safety-retention endpoint as plainly zero-retention.
+    const string shapeTwo =
+        "{\"ShapeVersion\":2,\"Entries\":[{\"ModelId\":\"google/gemini\",\"ProviderName\":\"Google\"," +
+        "\"PromptPricePerToken\":0.000001,\"PromptCacheReadPricePerToken\":null," +
+        "\"CompletionPricePerToken\":0.000002,\"ContextLength\":128000,\"MaxCompletionTokens\":4096," +
+        "\"SupportsToolUse\":true,\"SupportsVision\":false,\"SupportsTextOutput\":true," +
+        "\"IntelligenceScore\":80.0,\"CodingScore\":70.0,\"AgenticScore\":60.0,\"LatencyMs\":null," +
+        "\"ThroughputTokensPerSec\":null,\"Description\":\"desc\",\"IsRouter\":false}]," +
+        "\"ZeroDataRetention\":{\"EndpointKeys\":[\"google/gemini:Google\"]}}";
+    AppDatabase db = new(_dbPath);
+    using (SqliteConnection connection = db.Open())
+    {
+      using SqliteCommand command = connection.CreateCommand();
+      command.CommandText =
+          "INSERT INTO model_catalog_cache (provider, payload_json, fetched_at) VALUES ('openrouter', $p, $t);";
+      _ = command.Parameters.AddWithValue("$p", shapeTwo);
+      _ = command.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+      _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
+    SqliteCatalogCacheResult read = await ReadLegacyAsync(db);
+
+    Assert.False(read.IsSuccess);
+    Assert.Equal("CatalogCacheStaleShape", read.ErrorCode);
   }
 
   [Fact]

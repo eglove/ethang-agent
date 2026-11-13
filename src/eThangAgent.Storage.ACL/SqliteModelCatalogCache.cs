@@ -122,7 +122,7 @@ public sealed class SqliteModelCatalogCache(AppDatabase database) : IModelCatalo
   ///     old rows meant.</para></summary>
   private static string Serialize(ModelCatalogSnapshot snapshot)
       => JsonSerializer.Serialize(new PersistedCatalog(
-          ModelCatalogSnapshot.CurrentShapeVersion, snapshot.Entries, snapshot.ZeroDataRetention));
+          ModelCatalogSnapshot.CurrentShapeVersion, snapshot.Entries, snapshot.RetentionEligible));
 
   /// <summary>Reads either the current envelope or the legacy bare array, reporting the shape
   ///     each one carries.</summary>
@@ -142,13 +142,13 @@ public sealed class SqliteModelCatalogCache(AppDatabase database) : IModelCatalo
     return stored?.Entries is null
         ? null
         : new ModelCatalogSnapshot(stored.Entries, DateTimeOffset.MinValue, stored.ShapeVersion,
-            stored.ZeroDataRetention);
+            stored.RetentionEligible);
   }
 
   /// <summary>The persisted payload shape. Internal so the storage ACL owns its own wire form
   ///     while the domain owns the contract.</summary>
   private sealed record PersistedCatalog(int ShapeVersion, IReadOnlyList<ModelProviderEntry> Entries,
-      ZeroDataRetentionList? ZeroDataRetention);
+      RetentionEligibleList? RetentionEligible);
 
   private static DomainError Unavailable(SqliteException ex)
       => new("StorageUnavailable", $"the model catalog cache could not complete the operation: {ex.Message}");

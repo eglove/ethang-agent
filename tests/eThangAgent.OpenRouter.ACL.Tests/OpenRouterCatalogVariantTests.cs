@@ -27,6 +27,12 @@ public class OpenRouterCatalogVariantTests
       /*lang=json,strict*/
       """{"data":{"id":"x-ai/grok-4.7","endpoints":[{"provider_name":"xAI","tag":"xai","context_length":500000,"pricing":{"prompt":"0.000002","completion":"0.000006","input_cache_read":"0.0000005"},"quantization":"unknown","service_tier":null,"supports_implicit_caching":true,"uptime_last_30m":100},{"provider_name":"xAI","tag":"xai/zdr","context_length":500000,"pricing":{"prompt":"0.000002","completion":"0.000006","input_cache_read":"0.0000005"},"quantization":"unknown","service_tier":null,"supports_implicit_caching":true,"uptime_last_30m":100},{"provider_name":"xAI","tag":"xai/zdr/us","context_length":500000,"pricing":{"prompt":"0.0000022","completion":"0.0000066","input_cache_read":"0.00000055"},"quantization":"unknown","service_tier":null,"supports_implicit_caching":true,"uptime_last_30m":100},{"provider_name":"xAI","tag":"xai/priority","context_length":500000,"pricing":{"prompt":"0.000004","completion":"0.000012","input_cache_read":"0.000001"},"quantization":"unknown","service_tier":"priority","supports_implicit_caching":true},{"provider_name":"xAI","tag":"xai/zdr/priority","context_length":500000,"pricing":{"prompt":"0.000004","completion":"0.000012","input_cache_read":"0.000001"},"quantization":"unknown","service_tier":"priority","supports_implicit_caching":true}]}}""";
 
+  // The eligible rows, measured live 2026-11-01: one plain endpoint and one the provider marks
+  // as eligible only under safety retention, plus a row for a model the catalog does not hold.
+  private const string EligibleJson =
+      /*lang=json,strict*/
+      """{"data":[{"model_id":"x-ai/grok-4.7","provider_name":"xAI","tag":"xai","safety_retention":false},{"model_id":"x-ai/grok-4.7","provider_name":"xAI","tag":"xai/priority","safety_retention":true},{"model_id":"absent/model","provider_name":"Nobody","tag":"nobody","safety_retention":false}]}""";
+
   private static HttpResponseMessage JsonResponse(string json) =>
       new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
@@ -73,39 +79,92 @@ public class OpenRouterCatalogVariantTests
   }
 
   [Fact]
-  public async Task TheZeroRetentionList_IsReadAndJoinedToTheCatalogRows()
+  public async Task TheEligibleEndpointList_IsReadAndJoinedToTheCatalogRows()
   {
     // THE PROVIDER'S LIST IS THE AUTHORITY (measured live 2026-11-01): deepseek/deepseek-v4.1-flash-1017
     // has 42 eligible endpoints and not one tag says 'zdr', so eligibility cannot be read from
     // the slug. The list names endpoints by model, provider name, and tag - the same parts the
     // catalog keys on - and a row for a model the catalog does not hold contributes nothing.
-    const string zdrJson =
-        /*lang=json,strict*/
-        """{"data":[{"model_id":"x-ai/grok-4.7","provider_name":"xAI","tag":"xai","safety_retention":false},{"model_id":"x-ai/grok-4.7","provider_name":"xAI","tag":"xai/priority","safety_retention":true},{"model_id":"absent/model","provider_name":"Nobody","tag":"nobody","safety_retention":false}]}""";
     FakeHttpMessageHandler handler = new(req => Task.FromResult(req.RequestUri!.AbsolutePath switch
     {
       "/api/v1/models" => JsonResponse(ModelsJson),
-      "/api/v1/endpoints/zdr" => JsonResponse(zdrJson),
+      "/api/v1/endpoints/zdr" => JsonResponse(EligibleJson),
       var path when path.EndsWith("/endpoints", StringComparison.Ordinal) => JsonResponse(EndpointsJson),
       _ => new HttpResponseMessage(HttpStatusCode.NotFound),
     }));
     using HttpClient http = new(handler);
     using OpenRouterCatalogClient client = new(http, Config);
 
-    ZeroDataRetentionList? eligible =
-        await client.GetZeroDataRetentionAsync(TestContext.Current.CancellationToken);
+    RetentionEligibleList? eligible =
+        await client.GetRetentionEligibleAsync(TestContext.Current.CancellationToken);
 
     Assert.NotNull(eligible);
     // The plain endpoint is eligible even though its tag says nothing about retention.
-    Assert.True(eligible.IsEligible("x-ai/grok-4.7", "xAI", "xai"));
-    Assert.True(eligible.ServesModel("x-ai/grok-4.7"));
+    Assert.True(eligible.IsEligible("x-ai/grok-4.7", "xAI", "xai", RetentionPolicy.ZeroDataRetention));
+    Assert.True(eligible.ServesModel("x-ai/grok-4.7", RetentionPolicy.ZeroDataRetention));
     // A row for a model the catalog never loaded is not a key anything can route to.
-    Assert.False(eligible.IsEligible("absent/model", "Nobody", "nobody"));
-    Assert.False(eligible.ServesModel("absent/model"));
+    Assert.False(eligible.IsEligible("absent/model", "Nobody", "nobody",
+        RetentionPolicy.ZeroDataRetention));
+    Assert.False(eligible.ServesModel("absent/model", RetentionPolicy.ZeroDataRetention));
   }
 
   [Fact]
-  public async Task AnUnreadableZeroRetentionList_IsNull_NotEmpty()
+  public async Task ASafetyRetentionRow_IsCarriedOnItsOwnEndpointAndNotOnItsPlainSibling()
+  {
+    // The endpoints payload carries no retention field, so the caveat can only come from the
+    // eligible list - and it must reach the row, or the picker presents a safety-retention
+    // endpoint as plainly zero-retention.
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(req.RequestUri!.AbsolutePath switch
+    {
+      "/api/v1/models" => JsonResponse(ModelsJson),
+      "/api/v1/endpoints/zdr" => JsonResponse(EligibleJson),
+      var path when path.EndsWith("/endpoints", StringComparison.Ordinal) => JsonResponse(EndpointsJson),
+      _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+    }));
+    using HttpClient http = new(handler);
+    using OpenRouterCatalogClient client = new(http, Config);
+
+    Result<IReadOnlyList<ModelProviderEntry>> result =
+        await client.GetAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    ModelProviderEntry priority = result.Value.Single(e => e.Variant.Slug == "xai/priority");
+    ModelProviderEntry plain = result.Value.Single(e => e.Variant.Slug == "xai");
+    Assert.True(priority.Variant.RequiresSafetyRetention);
+    Assert.False(plain.Variant.RequiresSafetyRetention);
+    // The annotation states the difference instead of claiming the strict promise.
+    Assert.Contains("safety retention", priority.Variant.Describe(), StringComparison.Ordinal);
+    // An endpoint the list never named keeps the variant its tag described.
+    Assert.False(result.Value.Single(e => e.Variant.Slug == "xai/zdr/us").Variant.RequiresSafetyRetention);
+  }
+
+  [Fact]
+  public async Task TheTiersAdmitDifferentEndpointsOfTheSameModel()
+  {
+    // The list is one read for every tier: the tier decides which of its rows count.
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(req.RequestUri!.AbsolutePath switch
+    {
+      "/api/v1/models" => JsonResponse(ModelsJson),
+      "/api/v1/endpoints/zdr" => JsonResponse(EligibleJson),
+      var path when path.EndsWith("/endpoints", StringComparison.Ordinal) => JsonResponse(EndpointsJson),
+      _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+    }));
+    using HttpClient http = new(handler);
+    using OpenRouterCatalogClient client = new(http, Config);
+
+    RetentionEligibleList? eligible =
+        await client.GetRetentionEligibleAsync(TestContext.Current.CancellationToken);
+
+    Assert.NotNull(eligible);
+    Assert.Equal(["xai"], eligible.SlugsFor("x-ai/grok-4.7", RetentionPolicy.ZeroDataRetention));
+    Assert.Equal(["xai", "xai/priority"],
+        eligible.SlugsFor("x-ai/grok-4.7", RetentionPolicy.SafetyRetention));
+    // An unenforced tier states no restriction, so the list has nothing to prove.
+    Assert.True(eligible.ServesModel("absent/model", RetentionPolicy.RetentionAndTraining));
+  }
+
+  [Fact]
+  public async Task AnUnreadableEligibleList_IsNull_NotEmpty()
   {
     // Null is 'not consulted' and empty is 'consulted, nothing eligible'. The restriction is
     // enforced on that difference, so a read fault must never masquerade as proof.
@@ -119,7 +178,7 @@ public class OpenRouterCatalogVariantTests
     using HttpClient http = new(handler);
     using OpenRouterCatalogClient client = new(http, Config);
 
-    Assert.Null(await client.GetZeroDataRetentionAsync(TestContext.Current.CancellationToken));
+    Assert.Null(await client.GetRetentionEligibleAsync(TestContext.Current.CancellationToken));
   }
 
   private static async Task<IReadOnlyList<ModelProviderEntry>> CatalogAsync()

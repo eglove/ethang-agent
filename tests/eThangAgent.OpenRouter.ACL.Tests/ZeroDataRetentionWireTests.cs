@@ -22,6 +22,12 @@ public class ZeroDataRetentionWireTests
         Variant = EndpointVariant.Parse(slug, null, null),
       };
 
+  /// <summary>An eligible list naming one endpoint, as the provider publishes it.</summary>
+  private static RetentionEligibleList Eligible(string modelId, string providerName, string slug,
+      bool safetyRetention = false)
+      => RetentionEligibleList.Of(
+          [new RetentionEligibleEndpoint(modelId, providerName, slug, safetyRetention)]);
+
   private static ModelConfig Model(RetentionPolicy retention = RetentionPolicy.ZeroDataRetention,
       ModelVariant variant = ModelVariant.Standard)
       => ModelConfig.Create(BaseModel, 64, 0.7f, 4096, variant: variant,
@@ -79,7 +85,7 @@ public class ZeroDataRetentionWireTests
         "the turn must fail before any HTTP send, not here"));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config, catalog: new FakeCatalog(
-        [Endpoint("alpha")], ZeroDataRetentionList.Of(["other/model:Provider:other"])));
+        [Endpoint("alpha")], Eligible("other/model", "Provider", "other")));
 
     Result<ModelResponse> result = await provider.SendAsync(
         Model(), new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
@@ -100,7 +106,7 @@ public class ZeroDataRetentionWireTests
     // The provider's own list is the authority, and it names this endpoint.
     ModelProviderEntry plain = Endpoint("alpha");
     string body = await CaptureBodyAsync(Model(), [plain],
-        ZeroDataRetentionList.Of([plain.Key])).ConfigureAwait(true);
+        Eligible(BaseModel, "Provider", "alpha")).ConfigureAwait(true);
 
     using JsonDocument doc = JsonDocument.Parse(body);
     Assert.True(doc.RootElement.GetProperty("provider").GetProperty("zdr").GetBoolean());
@@ -116,7 +122,7 @@ public class ZeroDataRetentionWireTests
         "the turn must fail before any HTTP send, not here"));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config, catalog: new FakeCatalog(
-        [Endpoint("alpha")], ZeroDataRetentionList.Of(["other/model:Provider:other"])));
+        [Endpoint("alpha")], Eligible("other/model", "Provider", "other")));
 
     Result<ModelResponse> result = await provider.SendAsync(
         Model(), new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
@@ -240,7 +246,7 @@ public class ZeroDataRetentionWireTests
   }
 
   private static async Task<string> CaptureBodyAsync(ModelConfig config,
-      IReadOnlyList<ModelProviderEntry> endpoints, ZeroDataRetentionList? eligible = null)
+      IReadOnlyList<ModelProviderEntry> endpoints, RetentionEligibleList? eligible = null)
   {
     string? captured = null;
     FakeHttpMessageHandler handler = new(async req =>
@@ -261,12 +267,12 @@ public class ZeroDataRetentionWireTests
   }
 
   private sealed class FakeCatalog(IReadOnlyList<ModelProviderEntry> entries,
-      ZeroDataRetentionList? eligible = null) : IModelCatalog
+      RetentionEligibleList? eligible = null) : IModelCatalog
   {
     public Task<Result<IReadOnlyList<ModelProviderEntry>>> GetAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success(entries));
 
-    public Task<ZeroDataRetentionList?> GetZeroDataRetentionAsync(CancellationToken ct = default)
+    public Task<RetentionEligibleList?> GetRetentionEligibleAsync(CancellationToken ct = default)
         => Task.FromResult(eligible);
   }
 
@@ -276,8 +282,8 @@ public class ZeroDataRetentionWireTests
         => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
             new DomainError("CatalogUnavailable", "down")));
 
-    public Task<ZeroDataRetentionList?> GetZeroDataRetentionAsync(CancellationToken ct = default)
-        => Task.FromResult<ZeroDataRetentionList?>(null);
+    public Task<RetentionEligibleList?> GetRetentionEligibleAsync(CancellationToken ct = default)
+        => Task.FromResult<RetentionEligibleList?>(null);
   }
 }
 #pragma warning restore CA2000

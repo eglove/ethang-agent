@@ -349,8 +349,8 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       return null;
     }
 
-    ZeroDataRetentionList? eligible = await _catalog.GetZeroDataRetentionAsync(ct).ConfigureAwait(false);
-    return eligible is null || eligible.ServesModel(baseModel)
+    RetentionEligibleList? eligible = await _catalog.GetRetentionEligibleAsync(ct).ConfigureAwait(false);
+    return eligible is null || eligible.ServesModel(baseModel, RetentionPolicy.ZeroDataRetention)
         ? null
         : new DomainError(ZeroDataRetentionUnavailable,
             $"No zero-data-retention endpoint serves {baseModel}, and this session only routes to "
