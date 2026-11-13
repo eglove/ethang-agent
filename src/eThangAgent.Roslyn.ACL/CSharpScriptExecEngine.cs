@@ -195,10 +195,11 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       new(_registry(),
           _workspaceRoot(),
           Path.GetTempPath(),
-          shellToken: cts.Token,
           verificationSink: _verificationSink?.Invoke(),
           execBudget: program.Budget,
-          floor: _floor?.Invoke());
+          floor: _floor?.Invoke(),
+          progress: program.Progress,
+          shellToken: cts.Token);
 
   /// <summary>Compile-diagnostic failure result, or null when the compilation is
   ///     clean. Validation reads GetDiagnostics only — pure analysis, never

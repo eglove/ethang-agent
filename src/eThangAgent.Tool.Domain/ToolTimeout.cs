@@ -65,8 +65,25 @@ public static class ToolTimeout
   ///     almost always a command too big to be one step, and raising the budget only
   ///     lengthens the wait before the same failure.</summary>
   public static ToolResult TimedOut(string toolName, TimeSpan budget) =>
-      new("Error [ToolTimeout]: '" + toolName + "' exceeded the " +
-          budget.TotalSeconds.ToString("0", CultureInfo.InvariantCulture) +
-          "s execution budget you set via timeoutSeconds. Narrow the command, or split the " +
-          "work into smaller runs that each finish well inside a budget.", true);
+      new(Message(toolName, budget), true);
+
+  /// <summary>The standard timeout result, carrying what the run had already printed.
+  ///     An abandoned run's output is the only account of how far it got, so it rides the
+  ///     failure rather than being lost with it: the caller sees the progress AND the
+  ///     reason it stopped, in one result.</summary>
+  public static ToolResult TimedOut(string toolName, TimeSpan budget, ExecOutputProgress? progress)
+  {
+    string printed = progress?.Render() ?? string.Empty;
+    return printed.Length == 0
+        ? TimedOut(toolName, budget)
+        : new ToolResult(Message(toolName, budget) +
+            "\n[exec: output printed before the budget elapsed — the run was abandoned mid-flight, " +
+            "so this is everything it printed, not a complete run]\n" + printed, true);
+  }
+
+  private static string Message(string toolName, TimeSpan budget) =>
+      "Error [ToolTimeout]: '" + toolName + "' exceeded the " +
+      budget.TotalSeconds.ToString("0", CultureInfo.InvariantCulture) +
+      "s execution budget you set via timeoutSeconds. Narrow the command, or split the " +
+      "work into smaller runs that each finish well inside a budget.";
 }

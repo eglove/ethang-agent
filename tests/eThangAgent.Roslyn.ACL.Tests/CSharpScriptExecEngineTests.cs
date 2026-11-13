@@ -240,6 +240,56 @@ public class CSharpScriptExecEngineTests
     Assert.True(run.IsCompleted, "ExecuteAsync must settle on cancellation even when the script cannot observe the token");
   }
 
+  /// <summary>An elapsed budget abandons the program where it stands, so the printed-output
+  ///     record is the only account of how far it got. The lines are published as they are
+  ///     printed — not assembled at the end of a run that never reaches its end.
+  ///     <para>The program prints with Output() only: Console capture swaps a PROCESS-WIDE
+  ///     writer, so a script that writes to Console while other tests run in parallel lands
+  ///     in their output too.</para></summary>
+  [Fact]
+  public async Task Cancelled_Run_Publishes_What_It_Printed_Before_Stopping()
+  {
+    CSharpScriptExecEngine engine = CreateEngine();
+    ExecOutputProgress progress = new();
+    using CancellationTokenSource cts = new();
+    Task<ExecRunResult> run = engine.ExecuteAsync(
+        new ExecProgram(
+            "Output(\"first line\"); Output(\"second line\"); while (true) { }",
+            Progress: progress),
+        cts.Token);
+
+    // The cancel is the STIMULUS: it is issued once the script has demonstrably printed, so
+    // no duration decides whether the lines made it into the record.
+    await WaitForPrintedAsync(progress, "second line").ConfigureAwait(true);
+    await cts.CancelAsync().ConfigureAwait(true);
+
+    _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+        () => run.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken));
+
+    string printed = progress.Render();
+    Assert.Contains("first line", printed, StringComparison.Ordinal);
+    Assert.Contains("second line", printed, StringComparison.Ordinal);
+  }
+
+  /// <summary>Waits until the run published <paramref name="expected"/>. The ceiling bounds
+  ///     the wait so a broken publish fails with its own message instead of hanging; it is
+  ///     not a latency contract — the wait ends as soon as the line arrives.</summary>
+  private static async Task WaitForPrintedAsync(ExecOutputProgress progress, string expected)
+  {
+    DateTime deadline = DateTime.UtcNow + TestCeiling.Value;
+    while (DateTime.UtcNow < deadline)
+    {
+      if (progress.Lines.Any(line => line.Contains(expected, StringComparison.Ordinal)))
+      {
+        return;
+      }
+
+      await Task.Delay(20, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
+    Assert.Fail($"the run never published '{expected}'; printed so far: {progress.Render()}");
+  }
+
   [Fact]
   public async Task Workspace_Global_Reflects_Injected_Resolver_PerExecution()
   {

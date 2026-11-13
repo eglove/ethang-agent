@@ -44,8 +44,10 @@ public sealed class ScriptGlobals
   public ScriptGlobals(ICapabilityRegistry registry, string workspace, string temp,
       bool captureStdout = true, IVerificationLedger? verificationSink = null,
       TimeSpan? execBudget = null, ScriptCeilings? ceilings = null,
-      ChainFloorLedger? floor = null, CancellationToken shellToken = default)
+      ChainFloorLedger? floor = null, ExecOutputProgress? progress = null,
+      CancellationToken shellToken = default)
   {
+    Progress = progress;
     Workspace = workspace;
     // The resolver is built from the SAME workspace root the scripts see, so
     // PathResolver.Resolve and Path.Combine(Workspace, ...) can never disagree.
@@ -110,6 +112,12 @@ public sealed class ScriptGlobals
   /// <summary>Optional sink receiving every completed Shell run (verification
   ///     gating reads it downstream; this surface knows nothing of that purpose).</summary>
   public IVerificationLedger? VerificationSink { get; }
+
+  /// <summary>Where every printed line is published as it is printed, or null when the host
+  ///     keeps no such record. The run's own output is assembled at the end, so this record
+  ///     exists for the run that never reaches its end: an elapsed budget abandons the
+  ///     program mid-flight, and these lines are what the caller gets instead of silence.</summary>
+  public ExecOutputProgress? Progress { get; }
 
   /// <summary>The enclosing exec call's stated budget, when the script runs under one
   ///     (the evidence runner constructs globals budgetless). Nested tool calls that
@@ -484,6 +492,15 @@ public sealed class ScriptGlobals
     // (the 2026-10-19 leak: 15 GB working set, 9.3M handles).
     string text = value is null ? "" : ScriptValueJson.Serialize(value);
     _outputLines.Enqueue(text);
+    Progress?.Add(text);
+  }
+
+  /// <summary>Records one piece of captured console text: it joins the run's output and,
+  ///     when the host keeps one, the live record the timeout result reads.</summary>
+  private void RecordPrinted(string text)
+  {
+    _outputLines.Enqueue(text);
+    Progress?.Add(text);
   }
 
   /// <summary>Redirect Console.Out to capture writes like Console.WriteLine().
@@ -512,25 +529,15 @@ public sealed class ScriptGlobals
   private sealed class CapturingWriter(ScriptGlobals globals) : TextWriter
   {
     public override Encoding Encoding => Encoding.UTF8;
-    public override void Write(char value) => globals._outputLines.Enqueue(value.ToString());
+    public override void Write(char value) => globals.RecordPrinted(value.ToString());
     public override void Write(string? value)
     {
       if (value is not null)
       {
-        globals._outputLines.Enqueue(value);
+        globals.RecordPrinted(value);
       }
     }
-    public override void WriteLine(string? value)
-    {
-      if (value is not null)
-      {
-        globals._outputLines.Enqueue(value);
-      }
-      else
-      {
-        globals._outputLines.Enqueue("");
-      }
-    }
+    public override void WriteLine(string? value) => globals.RecordPrinted(value ?? "");
   }
 }
 

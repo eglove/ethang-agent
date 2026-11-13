@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.28";
+  public const string Version = "2.29";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -367,7 +367,10 @@ public static class ExecGuide
       `var r = Tools.Invoke(...);`
     - exec cannot call itself (no nested exec).
     - timeoutSeconds is the only execution budget; when it elapses the call fails
-      with Error [ToolTimeout]. There is no other cap.
+      with Error [ToolTimeout]. That result carries whatever the program had already
+      printed with Output()/Console.WriteLine() before it was abandoned, so a run that
+      overran still tells you how far it got — read it before re-issuing anything.
+      There is no other cap.
     - Every tool call — exec and every action inside scripts — is bounded by a
       timeoutSeconds budget: a whole-second value, 1..3600. Nested calls inherit the
       exec call's budget unless they state their own; an exceeded call fails with
