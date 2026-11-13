@@ -12,13 +12,13 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>A two-member group runs together, merges, and is reviewed: the acceptance test for
+/// <summary>A two-member group runs together, merges, and is refined: the acceptance test for
 ///     parallel chain steps (docs/parallel-chain-steps.md).
 ///     <para>WHAT IT DRIVES, for real: a model-authored <c>chain.start</c> declares steps 1 and 2
-///     as one group, step 3 as the reconciler, and step 4 as a review. Two member sessions are
+///     as one group, step 3 as the reconciler, and step 4 as a refiner. Two member sessions are
 ///     launched, each anchored at its own git worktree; each member writes a file, commits it,
 ///     verifies, and marks its step done; the reconciler's brief names both branches and it
-///     merges them into the workspace checkout; the review session then starts and the members'
+///     merges them into the workspace checkout; the refiner's session then starts and the members'
 ///     worktrees are gone.</para>
 ///     <para>THE MOCK IS SCRIPTED, AND THAT IS THE HONEST LIMIT. Each session obeys a scripted
 ///     exec program rather than reading its brief and deciding, so this proves the MACHINERY
@@ -49,7 +49,7 @@ public class ChainGroupExecutionE2ETests
               new { position = 1, group = 1 },
               new { position = 2, group = 1 },
               new { position = 3 },
-              new { position = 4, role = "review" } } });
+              new { position = 4, role = "refine" } } });
       return created + "|" + started;
       """;
 
@@ -193,7 +193,7 @@ public class ChainGroupExecutionE2ETests
       await WaitForFileAsync(Path.Combine(workspace, "member-2.txt"), StepLimit, () => Notices(shell))
           .ConfigureAwait(true);
 
-      // ---- BOUNDARY 5: the review starts, and the landed group's worktrees are gone ----
+      // ---- BOUNDARY 5: the refiner starts, and the landed group's worktrees are gone ----
       Chain reviewed = await WaitForRecordAsync(host.DatabasePath, workspaceId,
           c => c.StepAt(4)?.Status == ChainStepStatus.Running && IsRealSession(c.StepAt(4)),
           StepLimit, () => Notices(shell)).ConfigureAwait(true);
