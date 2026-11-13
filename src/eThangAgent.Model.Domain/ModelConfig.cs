@@ -22,8 +22,18 @@ public sealed record ModelConfig(
     bool AcceptsImageInput = false,
     string? PricingProvider = null,
     ModelVariant Variant = ModelVariant.Standard,
-     RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
+     RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention,
+     IReadOnlyList<string>? FallbackModelIds = null)
 {
+  /// <summary>The ordered models to fall through to when <see cref="ModelId"/> cannot serve,
+  ///     most preferred first. Never null, and never containing the head.
+  ///     <para>THIS IS A ROUTING PREFERENCE, NOT A SELECTION: the head remains the model the turn
+  ///     is budgeted against and the id reported when the provider names no serving model. A
+  ///     backup serves only when the head cannot, and the request itself carries the order.</para>
+  ///     <para>EMPTY MEANS NO FALLBACK, which is what a single-model session resolves to, so the
+  ///     request built from it is the one that session always sent.</para></summary>
+  public IReadOnlyList<string> FallbackModelIds { get; init; } = FallbackModelIds ?? [];
+
   public static Result<ModelConfig> Create(
       string modelId,
       int maxTokens,
@@ -44,7 +54,8 @@ public sealed record ModelConfig(
       bool acceptsImageInput = false,
       string? pricingProvider = null,
       ModelVariant variant = ModelVariant.Standard,
-       RetentionPolicy retention = RetentionPolicy.ZeroDataRetention)
+       RetentionPolicy retention = RetentionPolicy.ZeroDataRetention,
+      IReadOnlyList<string>? fallbackModelIds = null)
   {
     if (ValidateBasics(modelId, maxTokens) is { } basicsError)
     {
@@ -65,7 +76,7 @@ public sealed record ModelConfig(
         modelId, maxTokens, temperature, contextWindow, effort,
         topP, topK, frequencyPenalty, presencePenalty, repetitionPenalty, minP, topA,
         seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput, pricingProvider, variant,
-        retention);
+        retention, fallbackModelIds is { Count: > 0 } ? [.. fallbackModelIds] : null);
     return Result.Success(config);
   }
 

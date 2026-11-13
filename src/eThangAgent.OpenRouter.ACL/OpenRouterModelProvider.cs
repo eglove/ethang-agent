@@ -460,7 +460,14 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 
   /// <summary>The base body fields; the system prompt rides the responses API's
   ///     system channel — a single top-level instruction string instead of a
-  ///     system-role message in the array.</summary>
+  ///     system-role message in the array.
+  ///     <para><c>model</c> ALWAYS CARRIES THE HEAD AS A STRING, and <c>models</c> is the ordered
+  ///     list the provider falls through when that head cannot serve. The list is built from the
+  ///     head plus the config's fallbacks, never assembled independently, so the two fields cannot
+  ///     disagree about which model comes first.</para>
+  ///     <para><c>models</c> IS OMITTED ENTIRELY WHEN NOTHING FOLLOWS THE HEAD: a single-model
+  ///     request keeps the exact body it has always sent, and a one-element array beside
+  ///     <c>model</c> is a form the provider documents no behaviour for.</para></summary>
   private static Dictionary<string, object?> BaseBody(ModelConfig config, ModelRequest request)
   {
     Dictionary<string, object?> bodyDict = new()
@@ -475,6 +482,11 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
     {
       bodyDict["instructions"] = request.SystemPrompt;
+    }
+
+    if (config.FallbackModelIds.Count > 0)
+    {
+      bodyDict["models"] = new List<string>([config.ModelId, .. config.FallbackModelIds]);
     }
 
     return bodyDict;
