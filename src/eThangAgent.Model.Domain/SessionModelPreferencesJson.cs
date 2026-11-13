@@ -26,7 +26,12 @@ public static class SessionModelPreferencesJson
 
   /// <summary>Reads the wire form back, or fails with a named error when the carrier is
   ///     not a preferences document. Null/blank is a failure too: a caller that means
-  ///     "no preferences" simply omits the carrier.</summary>
+  ///     "no preferences" simply omits the carrier.
+  ///     <para>A DOCUMENT WITH NO MODEL LIST DESERIALIZES WITH A NULL LIST, which is the same
+  ///     statement as a preference the sender never made. Absence is not a failure here.</para>
+  ///     <para>AN ENTRY THAT NAMES NO MODEL IS A FAILURE, never a list quietly shortened: the
+  ///     list is what the request's <c>models</c> array is built from, so a compacted list would
+  ///     put an order on the wire that the carrier never stated.</para></summary>
   public static Result<SessionModelPreferences> Deserialize(string json)
   {
     if (string.IsNullOrWhiteSpace(json))
@@ -38,10 +43,18 @@ public static class SessionModelPreferencesJson
     try
     {
       SessionModelPreferences? parsed = JsonSerializer.Deserialize<SessionModelPreferences>(json);
-      return parsed is null
-          ? Result.Failure<SessionModelPreferences>(new DomainError("InvalidModelPreferences",
-              "the model-preferences carrier deserialized to null."))
-          : Result.Success(parsed);
+      if (parsed is null)
+      {
+        return Result.Failure<SessionModelPreferences>(new DomainError("InvalidModelPreferences",
+            "the model-preferences carrier deserialized to null."));
+      }
+
+      int blank = IndexOfBlankModelId(parsed.ModelIds);
+      return blank < 0
+          ? Result.Success(parsed)
+          : Result.Failure<SessionModelPreferences>(new DomainError("InvalidModelPreferences",
+              $"the model-preferences carrier names no model at position {blank + 1}; every entry "
+              + "must name a model."));
     }
 #pragma warning disable CA1031 // A malformed carrier is an EXPECTED condition: it becomes a named error.
     catch (JsonException ex)
@@ -51,4 +64,12 @@ public static class SessionModelPreferencesJson
           "the model-preferences carrier is not valid JSON: " + ex.Message));
     }
   }
+
+  /// <summary>The position of the first entry that names no model, or -1 when every entry does
+  ///     (a carrier with no list at all has no blank entry).</summary>
+  private static int IndexOfBlankModelId(IReadOnlyList<string>? modelIds)
+      => modelIds is null
+          ? -1
+          : Enumerable.Range(0, modelIds.Count).FirstOrDefault(
+              position => string.IsNullOrWhiteSpace(modelIds[position]), -1);
 }

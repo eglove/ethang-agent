@@ -1,8 +1,10 @@
+using System.Text.Json;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.ChildHost;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
+using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
@@ -143,6 +145,119 @@ public sealed class ChildHostRootModelPreferenceTests
     Assert.Contains("NoModelSelected", Assert.Single(events).Payload, StringComparison.Ordinal);
   }
 
+  private const string Head = "alpha/model";
+  private const string Second = "beta/other";
+  private const string Third = "gamma/third";
+
+  [Fact]
+  public async Task AnOrderedList_ReachesAHostRunTurn_AsTheSameModelsArrayAnInProcessTurnSends()
+  {
+    // THE WHOLE POINT OF THE CARRIER: the app owns the picker and the agent lives in its own host,
+    // so an ordered list that did not travel would leave the host resolving from the persisted pin
+    // - the wrong model FIRST, and no fallbacks at all. The two turns below are the same session
+    // seen from either side of that boundary, and the comparison is made on the request body the
+    // provider actually receives, not on the resolver's intermediate value.
+    (RootRunHost runner, RecordingProvider provider, _) = await StartHostAsync(pinnedModel: FallbackModel)
+        .ConfigureAwait(true);
+    SessionModelPreferences preferences = new()
+    {
+      ModelIds = [Head, Second, Third],
+      ModelVariant = ModelVariant.Nitro,
+    };
+
+    RootTurnRequest request = new("turn-1", "hello", [])
+    {
+      ModelPreferences = SessionModelPreferencesJson.Serialize(preferences),
+    };
+    Result<string> hostTurn = await runner.RunTurnAsync(request, _ => { },
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(hostTurn.IsSuccess, hostTurn.Error?.Message);
+    Assert.NotNull(provider.LastConfig);
+
+    // The in-process turn reads the app's own live preferences instance directly - the same value
+    // the carrier above encodes - so the two paths differ only in how the list arrived.
+    RootAgentResolver inProcess = new(
+        new RootModelContext(null, null, FallbackModel, 4096, 0f, new FixedWindow()), preferences);
+    Result<(ModelConfig Config, string? Notice)> inProcessTurn =
+        await inProcess.ResolveAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(inProcessTurn.IsSuccess, inProcessTurn.Error?.Message);
+
+    IReadOnlyList<string> hostModels =
+        await ModelsAsync(provider.LastConfig).ConfigureAwait(true);
+    IReadOnlyList<string> inProcessModels =
+        await ModelsAsync(inProcessTurn.Value.Config).ConfigureAwait(true);
+
+    Assert.Equal(inProcessModels, hostModels);
+    Assert.Equal([Head + ":nitro", Second + ":nitro", Third + ":nitro"], hostModels);
+  }
+
+  [Fact]
+  public async Task AnOrderedListWithABackup_ThatTheUserDidNotPick_IsNeverServedInPlaceOfTheHead()
+  {
+    // Order is the whole statement: the head runs, so the config the provider is handed names it
+    // first and lists the backups after it.
+    (RootRunHost runner, RecordingProvider provider, _) = await StartHostAsync(pinnedModel: FallbackModel)
+        .ConfigureAwait(true);
+    RootTurnRequest request = new("turn-1", "hello", [])
+    {
+      ModelPreferences = SessionModelPreferencesJson.Serialize(new SessionModelPreferences
+      {
+        ModelIds = [Head, Second],
+      }),
+    };
+
+    Result<string> result = await runner.RunTurnAsync(request, _ => { },
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsSuccess, result.Error?.Message);
+    Assert.Equal(Head, provider.LastModelId);
+    Assert.Equal([Second], provider.LastConfig!.FallbackModelIds);
+  }
+
+  /// <summary>Renders a config through the REAL OpenRouter body builder and returns the ordered
+  ///     <c>models</c> array it puts on the wire - empty when the request carries no such member,
+  ///     which is what a single-model session sends.</summary>
+#pragma warning disable CA2000 // HttpClient owns the handler; the using below bounds it
+  private static async Task<IReadOnlyList<string>> ModelsAsync(ModelConfig config)
+  {
+    string? captured = null;
+    CapturingHandler handler = new(async request =>
+    {
+      captured = request.Content is { } content
+          ? await content.ReadAsStringAsync().ConfigureAwait(false)
+          : null;
+      return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+      {
+        Content = new StringContent(
+            /*lang=json,strict*/ "\u007B\"status\":\"completed\",\"output\":[]\u007D"),
+      };
+    });
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider modelProvider = new(
+        http, new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
+
+    Result<ModelResponse> sent = await modelProvider.SendAsync(config,
+        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(sent.IsSuccess, sent.Error?.Message);
+
+    using JsonDocument body = JsonDocument.Parse(captured!);
+    return body.RootElement.TryGetProperty("models", out JsonElement models)
+        ? [.. models.EnumerateArray().Select(entry => entry.GetString()!)]
+        : [];
+  }
+#pragma warning restore CA2000
+
+  /// <summary>Captures the request body the provider sends and answers with a minimal completed
+  ///     response.</summary>
+  private sealed class CapturingHandler(
+      Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+  {
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+        CancellationToken cancellationToken) => respond(request);
+  }
+
   private sealed class FixedWindow : IContextWindowSource
   {
     public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
@@ -153,13 +268,17 @@ public sealed class ChildHostRootModelPreferenceTests
   ///     observation of what actually served the turn.</summary>
   private sealed class RecordingProvider : IModelProvider
   {
-    public string? LastModelId { get; private set; }
+    public string? LastModelId => LastConfig?.ModelId;
+
+    /// <summary>The whole config the loop handed the provider for the last turn: the direct
+    ///     observation of the head, the fallbacks, and every overlaid knob.</summary>
+    public ModelConfig? LastConfig { get; private set; }
 
     public int Calls { get; private set; }
 
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
     {
-      LastModelId = config.ModelId;
+      LastConfig = config;
       Calls++;
       return Task.FromResult(Result.Success(new ModelResponse("ok", [])));
     }

@@ -27,6 +27,14 @@ public class RootAgentResolverTests
         => Task.FromResult<int?>(null);
   }
 
+  /// <summary>A window source that knows exactly one model, so a turn's failure can be attributed
+  ///     to the head it named rather than to a catalog that knows nothing.</summary>
+  private sealed class OnlyOneModelKnownWindowSource(string knownModelId) : IContextWindowSource
+  {
+    public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
+        => Task.FromResult(modelId == knownModelId ? 64_000 : (int?)null);
+  }
+
   [Fact]
   public async Task UnpinnedSession_FailsNoModelSelected_NeverSubstitutesTheFallback()
   {
@@ -286,6 +294,129 @@ public class RootAgentResolverTests
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
     Assert.Equal("alpha/model:nitro", resolution.Value.Config.ModelId);
   }
+  [Fact]
+  public async Task AnOrderedPreference_ResolvesItsHeadAndCarriesTheRestInOrder()
+  {
+    // The head is the model that runs and the tail is the ordered fallback the provider falls
+    // through, so the list has to survive resolution in the order the user stated it.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new()
+    {
+      ModelIds = ["alpha/model", "beta/other", "gamma/third"],
+    };
+    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
+    Assert.Equal(["beta/other", "gamma/third"], resolution.Value.Config.FallbackModelIds);
+  }
+
+  [Fact]
+  public async Task ASingleModelPreference_ResolvesToAnEmptyFallbackList()
+  {
+    // One entry is every workspace's shape today, and empty is what makes the request carry no
+    // models array at all.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"] };
+    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
+    Assert.Empty(resolution.Value.Config.FallbackModelIds);
+  }
+
+  [Fact]
+  public async Task NoLivePreference_ServesThePin_WithNoFallbacks()
+  {
+    // A resumed session has no live list; the persisted pin is what served and it names ONE
+    // model, so the turn must not inherit a list from anywhere.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
+    Assert.True(root.IsSuccess);
+    _ = await store.UpdateAsync(root.Value with { ModelUsed = "pinned/model" },
+        TestContext.Current.CancellationToken);
+    RootAgentResolver resolver = new(Ctx(store, rootId));
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("pinned/model", resolution.Value.Config.ModelId);
+    Assert.Empty(resolution.Value.Config.FallbackModelIds);
+  }
+
+  [Fact]
+  public async Task NeitherPreferenceNorPin_FailsNoModelSelected_WithNoBackupToTry()
+  {
+    // Nothing selected is a FAILURE, never a list to fall through: a backup is a model the user
+    // named, so there is no list to build when they named none.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    RootAgentResolver resolver = new(Ctx(store, rootId));
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.False(resolution.IsSuccess);
+    Assert.Equal("NoModelSelected", resolution.Error.Code);
+    Assert.Contains("never substitutes one", resolution.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task AnUnknownHead_FailsTheTurn_EvenWhenItsBackupsAreKnown()
+  {
+    // The backups are a ROUTING PREFERENCE, not a rescue: a head the harness cannot budget has no
+    // context window, and quietly serving the second entry instead would be the substitution this
+    // resolver exists to refuse. The user re-picks; the harness never does.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new()
+    {
+      ModelIds = ["unknown/model", "beta/other"],
+    };
+    RootAgentResolver resolver = new(
+        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f,
+            new OnlyOneModelKnownWindowSource("beta/other")),
+        preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.False(resolution.IsSuccess);
+    Assert.Equal("UnknownModelWindow", resolution.Error.Code);
+    Assert.Contains("unknown/model", resolution.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task AnOrderedPreference_PersistsOnlyItsHeadAsWhatServed()
+  {
+    // ModelUsed is the record of what actually served ONE turn, and the resolver normalizes a
+    // suffixed id to its base. Writing the list there would make 'what served' and 'what was
+    // requested' the same field.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new()
+    {
+      ModelIds = ["alpha/model", "beta/other"],
+      ModelVariant = ModelVariant.Nitro,
+    };
+    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
+
+    _ = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    AgentRecord updated = Assert.Single(store.Updated);
+    Assert.Equal("alpha/model", updated.ModelUsed);
+  }
+
   [Fact]
   public async Task PinnedModelWithUnknownWindow_FailsUnknownModelWindow()
   {
