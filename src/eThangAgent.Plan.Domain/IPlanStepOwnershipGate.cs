@@ -26,9 +26,19 @@ public interface IPlanStepOwnershipGate
 }
 
 /// <summary>The gate's answer. <see cref="Allowed"/> is the only shape that needs no code, so
-///     a caller cannot render a refusal without saying why.</summary>
+///     a caller cannot render a refusal without saying why.
+///     <para><see cref="BackedByThePlan"/> says the completion is a REFINE step's, whose
+///     done-claim is the plan record rather than a shell run. It is a separate fact from
+///     <paramref name="Allowed"/> because the two answer different questions: 'may this session
+///     complete this step' and 'what evidence backs the claim'. A refine step changes the plan,
+///     so no command can show that a step became checkable, and the workspace gate would refuse
+///     a claim that is in fact the best evidence available.</para></summary>
 public sealed record PlanStepOwnership(bool Allowed, string? Code, string? Message)
 {
+  /// <summary>True when the step being completed is a refine step, so the workspace
+  ///     verification gate does not apply.</summary>
+  public bool BackedByThePlan { get; init; }
+
   /// <summary>The completion may proceed.</summary>
   public static PlanStepOwnership Permit { get; } = new(true, null, null);
 

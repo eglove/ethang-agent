@@ -35,5 +35,20 @@ public interface IChainPlanSource
 /// <param name="WorkspaceId">The workspace the plan belongs to, which the chain inherits so
 ///     the two records are scoped identically.</param>
 /// <param name="StepPositions">Every position the plan has, in order.</param>
+/// <param name="SettledPositions">The positions the plan already records as Done or Skipped, or
+///     null when the caller did not say. A chain executes work that is NOT done, so a settled
+///     position is one a chain must not claim: starting a chain over it redoes work that has
+///     already landed.</param>
 public sealed record ChainPlanFacts(int PlanId, int Version, string Title, string WorkspaceId,
-    IReadOnlyList<int> StepPositions);
+    IReadOnlyList<int> StepPositions, IReadOnlyList<int>? SettledPositions = null)
+{
+  /// <summary>The positions the plan already settled, never null.</summary>
+  public IReadOnlyList<int> Settled => SettledPositions ?? [];
+
+  /// <summary>The positions a chain may execute: the ones the plan has not already settled.
+  ///     <para>THIS IS WHAT A DECLARATION THAT NAMES NOTHING MEANS. 'Execute the whole plan' can
+  ///     only honestly mean the part that is not already finished, and a chain that claimed a
+  ///     Done step would redo landed work under a fresh session.</para></summary>
+  public IReadOnlyList<int> ExecutablePositions =>
+      [.. StepPositions.Where(position => !Settled.Contains(position))];
+}

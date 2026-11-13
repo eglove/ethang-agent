@@ -128,14 +128,10 @@ public sealed class ChainBriefService(IChainBriefSource source)
       return Result.Failure<ChainBriefFacts>(plan.Error);
     }
 
-    // THE RUBRIC IS ASKED FOR ONLY WHEN SOMETHING USES IT (issue #306): an implement step never
-    // reads the skill catalog, so a chain with no review step costs exactly what it did before.
-    Result<bool> rubric = RoleOf(chain.Value, assignment).IsReview
-      ? await _source.GetReviewRubricAvailableAsync(ct).ConfigureAwait(false)
-      : Result.Success(false);
-    return rubric.IsSuccess
-      ? Result.Success(Facts(assignment, chain.Value, plan.Value, rubric.Value))
-      : Result.Failure<ChainBriefFacts>(rubric.Error);
+    // NO SKILL CATALOG IS READ. The rubric was the reviewer's, and the reviewer is gone: a
+    // refiner works from the plan's own goal, so a refine step costs exactly what an implement
+    // step does.
+    return Result.Success(Facts(assignment, chain.Value, plan.Value, false));
   }
 
   /// <summary>The role this brief is for (issue #306): the ASSIGNMENT's when the launcher read

@@ -179,7 +179,7 @@ public static class ChainTelemetry
       IReadOnlyList<ChainTelemetryStep> steps, ChainTelemetryReviewFacts reviews,
       ChainTelemetryThresholds limits)
   {
-    int reviewSteps = steps.Count(step => step.Role.IsReview);
+    int reviewSteps = steps.Count(step => step.Role.IsRefine);
     List<ChainTelemetryReview> recorded = [.. reviews.Reviews];
     bool measurable = reviewSteps > 0 && recorded.Count > 0;
     int denials = recorded.Count(review => review.IsDenial);
@@ -390,7 +390,7 @@ public static class ChainTelemetry
   private static void AddReviewNote(List<string> notes, IReadOnlyList<ChainTelemetryStep> steps,
       ChainTelemetryReviewFacts reviews)
   {
-    int reviewSteps = steps.Count(step => step.Role.IsReview);
+    int reviewSteps = steps.Count(step => step.Role.IsRefine);
     if (reviewSteps > 0 && reviews.Reviews.Count == 0)
     {
       notes.Add($"{reviewSteps} review step(s) exist but NO verdict was recorded: the deny rate "

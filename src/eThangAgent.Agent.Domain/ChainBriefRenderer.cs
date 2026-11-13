@@ -120,9 +120,9 @@ public static class ChainBriefRenderer
     AddCompletionEvidence(lines);
     // THE ONE BRANCH ON ROLE (issue #306): a reviewer is not asked to finish the work, because
     // a reviewer told to mark the step done would finish it instead of judging it.
-    if (facts.IsReview)
+    if (facts.IsRefine)
     {
-      AddReview(lines, facts);
+      AddRefine(lines, facts);
     }
     else
     {
@@ -257,80 +257,65 @@ public static class ChainBriefRenderer
     lines.Add("code you are declaring finished, and the gate refuses a claim that predates the change.");
   }
 
-  /// <summary>How a REVIEW step finishes (issue #306): judge the work and record a verdict,
-  ///     rather than mark the step done.
-  ///     <para>WHY THIS IS NOT <see cref="AddCompletion"/>: a reviewer handed the implementer's
-  ///     contract is told to mark the step done, which is the one thing a reviewer must not do —
-  ///     it would finish the work instead of judging it, and the chain would advance on the
-  ///     reviewer's own labour. The role exists so this instruction can differ.</para>
-  ///     <para>THE VERDICT IS NOT A TYPE YET (#216). <see cref="ChainStep.Outcome"/> is free text
-  ///     on the record, so the verdict and its cited findings ride the step outcome. This states
-  ///     the shape the outcome must have; #216 gives it a typed home.</para>
-  ///     <para>THE RUBRIC IS #217's, AND ITS ABSENCE IS STATED. A reviewer told to apply a rubric
-  ///     that does not exist would invent one, and an invented rubric is a verdict nobody can
-  ///     compare. Saying plainly that none is installed is the honest answer, and it is the reason
-  ///     <see cref="ChainBriefFacts.ReviewRubricAvailable"/> is a fact rather than an assumption.</para></summary>
-  private static void AddReview(List<string> lines, ChainBriefFacts facts)
+  /// <summary>How a REFINE step runs (issue #313 D7): it makes the plan executable, then
+  ///     advances into implementation.
+  ///     <para>WHY THIS IS NOT <see cref="AddCompletion"/>: a refine step's work is ON THE PLAN,
+  ///     not on the workspace. Handed the implementer's contract it would start building the
+  ///     first step's code, which is the one thing it exists to make unnecessary - the chain
+  ///     would implement before the plan said what implementation means.</para>
+  ///     <para>IT IS TECHNICAL AND IT IS THE MODEL'S. The stakeholder decided WHAT should be
+  ///     true before the chain started; this step decides how to say it so each step states what
+  ///     must be observably true, and resolves what the plan left ambiguous. No verdict is
+  ///     returned and nothing is sent back: it refines until it believes the plan is ready, then
+  ///     completes and the chain advances.</para>
+  ///     <para>THE PLAN IS THE DELIVERABLE, so the plan record is the evidence. A shell command
+  ///     proves nothing about whether a step is checkable, which is why this step's done-claim is
+  ///     backed by the plan having changed rather than by a passing run.</para></summary>
+  private static void AddRefine(List<string> lines, ChainBriefFacts facts)
   {
     lines.Add("");
-    lines.Add("## You are the REVIEWER for this step");
+    lines.Add("## You are the REFINER for this step");
     lines.Add("");
-    // The word is literal because this method only runs for a review step (the branch in
-    // Text), so there is no second case for a computed name to distinguish.
-    lines.Add($"Step {facts.AssignedPosition} was assigned the review role, so your job is to JUDGE the");
-    lines.Add("work on it, not to do it. Do not change the workspace to make the work pass: a reviewer");
-    lines.Add("that fixes what it reviews has replaced the independent verdict with its own.");
+    lines.Add($"Step {facts.AssignedPosition} was assigned the refine role, so your job is to make this");
+    lines.Add("plan EXECUTABLE, not to implement it. Do not write the feature: the steps after you do");
+    lines.Add("that, and they can only be as good as the plan you leave them.");
     lines.Add("");
-    AddRubric(lines, facts);
-    lines.Add("## What to record");
+    lines.Add("## What to do");
     lines.Add("");
-    lines.Add("Record your verdict with plan.review before you mark the step done:");
+    lines.Add("Read the whole plan, then change it until every remaining step states what must be");
+    lines.Add("OBSERVABLY TRUE when it is done - a fact someone can check, not a procedure to follow.");
+    lines.Add("Specifically:");
     lines.Add("");
-    lines.Add("    verdict: approve | deny | approve-with-conditions");
-    lines.Add("    scores: requirement-coverage, testability, blast-radius, step-design (each 1-5, with a reason)");
-    lines.Add("    findings: one per finding, each citing a requirement id or a step position");
+    lines.Add("- Resolve what is ambiguous. A step that says 'handle errors' does not say which, and the");
+    lines.Add("  session that has to implement it will guess. Say which.");
+    lines.Add("- Sharpen the acceptance criterion. If you cannot state how a later reader would know the");
+    lines.Add("  step succeeded, the step is not ready and saying so is this step's job.");
+    lines.Add("- Name the files, types, and commands the step touches when the plan knows them, so the");
+    lines.Add("  implementing session spends its effort on the work rather than on rediscovery.");
+    lines.Add("- Split a step that is really two, and merge steps that cannot be done apart.");
+    lines.Add("- Leave the plan's goal alone unless it is wrong. It is the stakeholder's statement of what");
+    lines.Add("  should be true, and rewriting it would silently change what was asked for.");
     lines.Add("");
-    lines.Add("The harness reads the RECORD, not your transcript: a verdict that stays in prose moves");
-    lines.Add("nothing, and a review step that completes without one is refused.");
+    lines.Add("## What NOT to do");
     lines.Add("");
-    lines.Add("A finding that cites nothing is not a finding: 'the code is unclear' cannot be acted on or");
-    lines.Add("audited, while 'step 3 has no acceptance criterion for requirement R2' can.");
+    lines.Add("Do not change a step's STATUS, and do not mark anything Done except this step. The plan's");
+    lines.Add("step statuses are the execution record, and a refiner that marked its own work done would");
+    lines.Add("report progress nobody made.");
     lines.Add("");
     lines.Add("## How to finish");
     lines.Add("");
-    lines.Add($"Mark step {facts.AssignedPosition} of plan #{facts.PlanId} done once your verdict is recorded:");
+    lines.Add("Refine until you believe the plan is ready, then mark this step done:");
     lines.Add("");
     lines.Add($"    plan.update-step id={facts.PlanId} position={facts.AssignedPosition} status=Done");
     lines.Add("");
     lines.Add("That is the ONLY step you may mark done. The harness refuses a Done on any other step of");
     lines.Add("this plan, and it refuses a Done on this step from any other session.");
     lines.Add("");
-    lines.Add("Completing your step is what starts the next one — the harness reacts to it, you do not");
-    lines.Add("start anything yourself. If you cannot reach a verdict, say so in the transcript and stop;");
-    lines.Add("the chain parks rather than guessing.");
-  }
-
-  /// <summary>The rubric a reviewer applies: the skill when it is installed, and an explicit
-  ///     statement when it is not. Never an invented rubric — an unstated one is at least
-  ///     visibly absent, while a fabricated one is a verdict nobody can compare or audit.</summary>
-  private static void AddRubric(List<string> lines, ChainBriefFacts facts)
-  {
-    lines.Add("## The rubric");
-    lines.Add("");
-    if (facts.ReviewRubricAvailable)
-    {
-      lines.Add("Load the `reviewing-plans` skill and apply its rubric: it carries the dimensions to score,");
-      lines.Add("the verdict contract, and the citation rule. It is the rubric for this review.");
-    }
-    else
-    {
-      lines.Add("No `reviewing-plans` skill is installed in this session, so there is no rubric to apply.");
-      lines.Add("Judge the work against the plan's own goal and its steps, and say in your verdict that no");
-      lines.Add("rubric was available. A verdict that silently invents its own criteria cannot be compared");
-      lines.Add("with any other review.");
-    }
-
-    lines.Add("");
+    lines.Add("Completing your step is what starts the first implementation step - the harness reacts to");
+    lines.Add("it, you do not start anything yourself. If the plan cannot be made ready - a requirement");
+    lines.Add("contradicts another, or the goal is unachievable as stated - say so in the transcript and");
+    lines.Add("stop. The chain parks rather than guessing, and a parked chain is something a human can act");
+    lines.Add("on.");
   }
 
   /// <summary>D4: how to finish, stated so a session that does not know how to finish can.

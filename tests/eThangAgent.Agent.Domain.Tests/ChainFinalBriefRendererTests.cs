@@ -25,7 +25,7 @@ public sealed class ChainFinalBriefRendererTests
           ],
           LedgerKey: "sci.dashboard-truth/ledger",
           Role: null,
-          ReviewRubricAvailable: false,
+          RefineRubricAvailable: false,
           IsFinal: true);
 
   [Fact]

@@ -11,7 +11,7 @@ public class ChainCreationPolicyTests
   [Fact]
   public void RefusalFor_AReviewStepNeedsNoModel() =>
       Assert.Null(ChainCreationPolicy.RefusalFor(
-          [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review)],
+          [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Refine)],
           PlanSteps));
 
   [Fact]
@@ -61,14 +61,14 @@ public class ChainCreationPolicyTests
   public void RefusalFor_OnePositionWithTwoRoles_IsRefusedNamingBoth()
   {
     DomainError? error = ChainCreationPolicy.RefusalFor(
-        [ChainStepSeed.Implementing(1), new ChainStepSeed(1, ChainStepRole.Review)],
+        [ChainStepSeed.Implementing(1), new ChainStepSeed(1, ChainStepRole.Refine)],
         PlanSteps);
 
     Assert.NotNull(error);
     Assert.Equal(ChainCreationCode.ConflictingRole, error.Code);
     Assert.Contains("position 1", error.Message, StringComparison.Ordinal);
     Assert.Contains("Implement", error.Message, StringComparison.Ordinal);
-    Assert.Contains("Review", error.Message, StringComparison.Ordinal);
+    Assert.Contains("Refine", error.Message, StringComparison.Ordinal);
   }
 
   [Fact]

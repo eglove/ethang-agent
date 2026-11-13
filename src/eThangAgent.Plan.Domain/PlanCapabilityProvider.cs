@@ -294,10 +294,12 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     // started by hand is not in a chain and passes straight through, so the ordinary way a
     // plan has always been worked is untouched. Checked BEFORE the write, so a refusal leaves
     // the plan byte-identical and the version unspent.
-    if (stepStatus == PlanStepStatus.Done
-        && await OwnershipRefusalAsync(id, position).ConfigureAwait(false) is { } refusal)
+    PlanStepOwnership? ownership = stepStatus == PlanStepStatus.Done
+        ? await OwnershipRefusalAsync(id, position).ConfigureAwait(false)
+        : null;
+    if (ownership is { Allowed: false })
     {
-      return refusal;
+      return CapabilityInvocationResult.Fail($"Error [{ownership.Code}]: {ownership.Message}");
     }
 
     // ISSUE #304 D1: THE SAME GATE, ONE LEVEL DOWN. A step claiming Done is a completion
@@ -307,7 +309,11 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     // unspent; ownership runs first because 'this is not your step' is the more specific
     // answer. Skipped is deliberately NOT gated: it is the truthful exit the completion
     // invariant depends on, and gating it would make the honest answer unreachable.
+    // A REFINE STEP IS EXEMPT FROM THE WORKSPACE GATE. Its work is the plan, so a shell run
+    // proves nothing about whether a step became checkable and the gate would refuse the one
+    // claim the role can make. Every other completion is gated exactly as before.
     return stepStatus == PlanStepStatus.Done
+        && ownership?.BackedByThePlan != true
         && await StepCompletionGateRefusalAsync().ConfigureAwait(false) is { } gateRefusal
       ? gateRefusal
       : await ApplyStepUpdateAsync(id, position, title, detail, stepStatus, plan.Value.Version)
@@ -625,18 +631,11 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   /// <summary>Asks the ownership gate; null means 'proceed'. A provider with no gate wired
   ///     (a headless host, or a test that composes the provider directly) behaves exactly as
   ///     before - which is also the correct behaviour for a session outside any chain.</summary>
-  private async Task<CapabilityInvocationResult?> OwnershipRefusalAsync(int planId, int position)
+  private async Task<PlanStepOwnership?> OwnershipRefusalAsync(int planId, int position)
   {
-    if (_ownershipGate is null || _sessionId() is not { } session)
-    {
-      return null;
-    }
-
-    PlanStepOwnership ownership = await _ownershipGate
-        .EvaluateAsync(planId, position, session).ConfigureAwait(false);
-    return ownership.Allowed
+    return _ownershipGate is null || _sessionId() is not { } session
         ? null
-        : CapabilityInvocationResult.Fail($"Error [{ownership.Code}]: {ownership.Message}");
+        : await _ownershipGate.EvaluateAsync(planId, position, session).ConfigureAwait(false);
   }
 
   /// <summary>Asks the completion gate; null means 'proceed'. A plan provider with no

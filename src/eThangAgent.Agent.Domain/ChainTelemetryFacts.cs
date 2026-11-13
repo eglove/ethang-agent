@@ -1,5 +1,27 @@
 namespace eThangAgent.AgentDomain;
 
+/// <summary>What a reviewer concluded, as the telemetry report reads it.
+///     <para>WHY A SECOND SPELLING OF THE VERDICT: the record lives in the Plan Domain
+///     (<c>PlanReviewVerdict</c>) and the Agent Domain does not reference it — the same
+///     boundary <see cref="ChainBriefPlanStep"/> holds for <c>PlanStep</c>. The composition
+///     root maps one onto the other in ONE place, and a test pins that mapping and these
+///     tokens against <c>PlanReviewVerdictCodec</c> so the two cannot drift apart.</para>
+///     <para>THIS SURVIVES THE RETIREMENT OF THE REVIEW STEP. A plan is still reviewed — by
+///     the stakeholder, before a chain starts — so the verdict is still a fact the record
+///     holds and the report still measures. What is gone is the chain step that used to judge
+///     work already done.</para></summary>
+public enum ChainReviewVerdict
+{
+  /// <summary>The work may advance.</summary>
+  Approve,
+
+  /// <summary>The work goes back for a fix.</summary>
+  Deny,
+
+  /// <summary>The work may advance once the cited findings are addressed.</summary>
+  ApproveWithConditions,
+}
+
 /// <summary>One session's spend as the telemetry report reads it (issue #309 D1).
 ///     <para>A SESSION THE CHAIN STARTED IS ONE ROW HERE, keyed by the id the chain recorded.
 ///     The cost itself is the usage ledger's — this carries the ledger's own answer, never a

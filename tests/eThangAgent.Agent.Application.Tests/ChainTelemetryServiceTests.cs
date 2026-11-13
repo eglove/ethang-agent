@@ -81,7 +81,7 @@ public class ChainTelemetryServiceTests
       new(id, "Chain " + id, ChainStatus.Completed, null, T0, T0.AddHours(2), steps);
 
   private static ChainTelemetryStep Step(int position, string sessionId) =>
-      new(position, ChainStepStatus.Done, sessionId, 1, 0, ChainStepRole.Implement, T0,
+      new(position, ChainStepStatus.Done, sessionId, 1, ChainStepRole.Implement, T0,
           T0.AddHours(1));
 
   [Fact]

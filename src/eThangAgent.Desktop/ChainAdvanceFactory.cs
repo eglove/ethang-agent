@@ -28,11 +28,7 @@ internal static class ChainAdvanceFactory
     ArgumentNullException.ThrowIfNull(session);
     ArgumentNullException.ThrowIfNull(shell);
     return session.Services.GetService<ChainService>() is { } chains
-      ? new ChainAdvanceService(chains, HostFor(session, shell),
-          // THE REVIEW CURSOR'S ONE READ (issue #320): the verdict a review step's session
-          // recorded. Without it a review step would advance exactly as it did before, which
-          // is the silent discard this issue closes.
-          reviews: session.Services.GetService<IChainReviewSource>())
+      ? new ChainAdvanceService(chains, HostFor(session, shell))
       : null;
   }
 

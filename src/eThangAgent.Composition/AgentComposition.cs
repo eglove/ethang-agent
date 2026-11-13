@@ -666,12 +666,7 @@ public static class AgentComposition
             sp.GetRequiredService<IGitQueryAccess>(),
             sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<ChainBriefService>()
-        // THE REVIEW PORT (issue #320): the writer nothing in this harness had. The review
-        // record lives in the Plan Domain, so the translation between the two verdict spellings
-        // lives in the composition root - the one place allowed to know both.
-        .AddSingleton<IChainReviewSource>(sp => new CompositionChainReviewSource(
-            sp.GetRequiredService<IPlanReviewStore>()))
-        .AddSingleton<ChainReviewService>()
+
         // The plan-to-execution transition (issue #313): the plan port the creation action
         // validates against, and the session-start port it launches step 1 through. The start
         // port rides the SAME session-request channel the compaction handoff uses - the act is
@@ -687,6 +682,9 @@ public static class AgentComposition
         .AddSingleton<IChainResumeLaunchPort>(sp => new WireChainResumeLaunch(
             sp.GetRequiredService<SessionRequestChannel>()))
         .AddSingleton<ChainResumeService>()
+        // THE REPAIR PATH (issue #313): a chain that is Running with nothing running is the one
+        // state neither the advance nor the resume can leave, and abandoning was the only exit.
+        .AddSingleton<ChainRepairService>()
         .AddSingleton(sp => new ChainCapabilityProvider(
             sp.GetRequiredService<ChainService>(),
             sp.GetRequiredService<IChainPlanSource>(),
@@ -700,12 +698,61 @@ public static class AgentComposition
                 // A group member's checkout is made by the same provisioner the advance uses,
                 // because creation starts a group's members itself.
                 sp.GetRequiredService<IWorktreeProvisioner>()),
-            // THE EXIT FROM A PARKED CHAIN (issue #303): the action delegates to the resume
-            // service, which un-parks, re-arms, and starts through the launch port above. The
-            // Agent Domain cannot start a session itself, so the work is delegated rather than
-            // re-derived.
-            resume: chainId => ResumeChainAsync(sp, chainId)));
+            // THE TWO EXITS FROM A CHAIN NOTHING ELSE CAN MOVE (issues #303, #313): resume a
+            // parked one, repair a stuck one. Both delegate to their service, which starts a
+            // session through the launch port above - the Agent Domain cannot start one itself,
+            // so the work is delegated rather than re-derived.
+            new ChainRecoveryActions(
+                chainId => ResumeChainAsync(sp, chainId),
+                chainId => RepairChainAsync(sp, chainId))));
   }
+
+  /// <summary>The <c>chain.repair</c> action's work: repair a chain that cannot move on its own,
+  ///     and report what it did.
+  ///     <para>A CONTAINER WITH NO REPAIR SERVICE REFUSES BY NAME, never a success: reporting
+  ///     'repaired' while changing nothing would leave the chain exactly as stuck as it was, and
+  ///     the caller with no way to tell.</para></summary>
+  /// <param name="sp">The container.</param>
+  /// <param name="chainId">The chain to repair.</param>
+  private static async Task<CapabilityInvocationResult> RepairChainAsync(IServiceProvider sp,
+      int chainId)
+  {
+    if (sp.GetService<ChainRepairService>() is not { } repairs)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [RepairUnsupported]: this host cannot repair a chain; the chain was NOT repaired.");
+    }
+
+    Result<ChainRepairOutcome> repaired = await repairs
+        .RepairAsync(chainId, DateTimeOffset.UtcNow).ConfigureAwait(false);
+    return repaired.IsSuccess
+        ? CapabilityInvocationResult.Ok(RenderRepair(repaired.Value))
+        : CapabilityInvocationResult.Fail(
+            $"Error [{repaired.Error.Code}]: {repaired.Error.Message}");
+  }
+
+  /// <summary>What the repair did, stated so the caller sees which of the three it was.
+  ///     <para>EACH SHAPE NAMES ITS OWN OUTCOME, because they are not variations of one another:
+  ///     a started step has a session to watch, a completed chain is finished, and a park is
+  ///     waiting for a human with a reason worth reading.</para></summary>
+  /// <param name="outcome">What the repair produced.</param>
+  private static string RenderRepair(ChainRepairOutcome outcome) =>
+      outcome.Kind switch
+      {
+        ChainRepairKind.StartStep => string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"[chain] repaired #{outcome.ChainId}: started step {outcome.Position} as session "
+            + $"{outcome.SessionId}"),
+        ChainRepairKind.CompleteChain => string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"[chain] repaired #{outcome.ChainId}: marked it Completed (every step had settled)"),
+        ChainRepairKind.ParkChain => string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"[chain] repaired #{outcome.ChainId}: parked at step {outcome.Position} - "
+            + $"{outcome.Reason}"),
+        _ => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"[chain] repaired #{outcome.ChainId}: {outcome.Kind}"),
+      };
 
   /// <summary>The <c>chain.resume</c> action's work (issue #303's exit): resume the parked chain
   ///     and report what it did.
@@ -762,41 +809,32 @@ public static class AgentComposition
       PlanReviewDraft draft, CancellationToken ct)
   {
     ArgumentNullException.ThrowIfNull(draft);
-    if (sp.GetService<ChainReviewService>() is not { } reviews
+    if (sp.GetService<IPlanReviewStore>() is not { } reviews
         || sp.GetService<RootSessionIdentity>()?.Id is not { } reviewer)
     {
       return Result.Failure<PlanReview>(new DomainError("ReviewUnsupported",
-          "this container has no chain review machinery, so the verdict was NOT saved."));
+          "this container has no plan review store, so the verdict was NOT saved."));
     }
 
     // THE REVIEWER'S MODEL IS THE SESSION'S RESOLVED MODEL (issue #216 D6): a verdict's
     // provenance is part of the verdict, and the same session can be resumed on a different one.
-    ChainReviewRecord review = new(MapVerdict(draft.Verdict),
-        [.. draft.Findings.Select(finding => new ChainReviewFinding(finding.Text, finding.Citation))],
-        new ChainReviewScores(draft.Scores.RequirementCoverage, draft.Scores.Testability,
-            draft.Scores.BlastRadius, draft.Scores.StepDesign),
-        sp.GetService<ModelConfig>()?.ModelId);
-    Result<Chain> recorded = await reviews.RecordAsync(reviewer.ToString(), review, ct)
-        .ConfigureAwait(false);
-    return recorded.IsSuccess
-        ? Result.Success(new PlanReview(0, draft.PlanId, recorded.Value.PlanVersion, draft.Verdict,
-            reviewer.ToString(), review.ReviewerModel, draft.Scores, draft.Findings, draft.Notes,
-            DateTimeOffset.UtcNow))
-        : Result.Failure<PlanReview>(recorded.Error);
+    //
+    // THE PLAN'S CURRENT VERSION IS WHAT IS JUDGED. This was the chain's recorded start version
+    // while a review step lived inside a chain; with the review step gone, the reviewer is the
+    // stakeholder reading the plan as it stands, so the version it saw is the version the store
+    // holds now.
+    Result<Plan> plan = await sp.GetRequiredService<PlanService>()
+        .GetAsync(draft.PlanId, ct).ConfigureAwait(false);
+    if (!plan.IsSuccess)
+    {
+      return Result.Failure<PlanReview>(plan.Error);
+    }
+
+    PlanReview review = new(0, draft.PlanId, plan.Value.Version, draft.Verdict,
+        reviewer.ToString(), sp.GetService<ModelConfig>()?.ModelId, draft.Scores, draft.Findings,
+        draft.Notes, DateTimeOffset.UtcNow);
+    return await reviews.CreateAsync(review, ct).ConfigureAwait(false);
   }
-
-  /// <summary>The plan verdict as the chain verdict. Exhaustive, so a new verdict cannot be
-  ///     added without deciding what the chain does with it.</summary>
-  /// <param name="verdict">The plan review verdict.</param>
-  private static ChainReviewVerdict MapVerdict(PlanReviewVerdict verdict) => verdict switch
-  {
-    PlanReviewVerdict.Approve => ChainReviewVerdict.Approve,
-    PlanReviewVerdict.Deny => ChainReviewVerdict.Deny,
-    PlanReviewVerdict.ApproveWithConditions => ChainReviewVerdict.ApproveWithConditions,
-    _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict,
-        "not a plan review verdict."),
-  };
-
   /// <summary>The completion gate's two domain ports and the floor's turn ledger (issues
   ///     #283, #304).
   ///     <para>WHY ITS OWN METHOD: <c>AddPersistenceServices</c> is at the length limit S138

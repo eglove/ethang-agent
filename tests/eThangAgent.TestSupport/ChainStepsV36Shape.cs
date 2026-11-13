@@ -48,7 +48,7 @@ public static class ChainStepsV36Shape
             actor, claimed_at, completed_at, role, role_model, served_model, review_attempts,
             invalidated_by, group_id, worktree_path, worktree_branch)
             SELECT chain_id, position, status, session_id, attempts, outcome, actor, claimed_at,
-                completed_at, role, NULL, NULL, review_attempts, invalidated_by, group_id,
+                completed_at, CASE role WHEN 'Refine' THEN 'Review' ELSE role END, NULL, NULL, 0, invalidated_by, group_id,
                 worktree_path, worktree_branch FROM chain_steps;
         DROP TABLE chain_steps;
         ALTER TABLE chain_steps_v36 RENAME TO chain_steps;

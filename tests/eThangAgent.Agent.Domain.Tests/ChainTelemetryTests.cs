@@ -30,8 +30,8 @@ public class ChainTelemetryTests
       };
 
   private static ChainTelemetryStep Step(int position, ChainStepStatus status, int attempts = 1,
-      int reviewAttempts = 0, ChainStepRole? role = null, double hours = 1d)
-      => new(position, status, "session-" + position, attempts, reviewAttempts,
+      ChainStepRole? role = null, double hours = 1d)
+      => new(position, status, "session-" + position, attempts,
           role ?? ChainStepRole.Implement, T0, status == ChainStepStatus.Pending ? null
               : T0.AddHours(hours));
 
@@ -204,7 +204,7 @@ public class ChainTelemetryTests
         [new ChainTelemetryReview(7, 1, ChainReviewVerdict.Approve)],
         new Dictionary<int, int> { [7] = 1 });
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))],
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Refine))],
         DefaultLimits() with { ReviewDenyShareMin = 0.15m }, reviews));
 
     ChainTelemetryMetric deny = Metric(report, "review-deny-share");
@@ -230,7 +230,7 @@ public class ChainTelemetryTests
   public void ReviewStepsWithNoRecordedVerdict_GetANote_NamingTheSilentDiscardShape()
   {
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))]));
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Refine))]));
 
     // A reviewer that did the work and recorded nothing is a DEFECT, not an absence, and the
     // report distinguishes the two.
@@ -247,7 +247,7 @@ public class ChainTelemetryTests
          new ChainTelemetryReview(7, 2, ChainReviewVerdict.Deny)],
         new Dictionary<int, int> { [7] = 3 });
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))],
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Refine))],
         DefaultLimits(), reviews));
 
     ChainTelemetryMetric changed = Metric(report, "plan-changed-after-deny");
@@ -261,7 +261,7 @@ public class ChainTelemetryTests
   public void PlanChangedAfterDeny_IsNotMeasuredWhenNoDenialWasRecorded()
   {
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))],
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Refine))],
         DefaultLimits(), ChainTelemetryReviewFacts.Empty));
 
     // There is no share of nothing: reporting 0% would say every denial was ignored when in
@@ -340,7 +340,7 @@ public class ChainTelemetryTests
   {
     // A step whose status says settled but whose completion clock is absent is COUNTED as
     // settled and EXCLUDED from the median: a duration that cannot be computed is not zero.
-    ChainTelemetryStep clockless = new(2, ChainStepStatus.Done, "session-2", 1, 0,
+    ChainTelemetryStep clockless = new(2, ChainStepStatus.Done, "session-2", 1,
         ChainStepRole.Implement, T0, null);
     ChainTelemetryBaseline baseline = new(10, 10, 7200d, 0.10m, 0);
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(

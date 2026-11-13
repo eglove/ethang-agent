@@ -331,39 +331,18 @@ public sealed record Chain(
     return ReplaceStep(index, Steps[index].Retry(sessionId, now), now);
   }
 
-  /// <summary>Reopens the DONE step at <paramref name="position"/> on a reviewer's denial
-  ///     (issue #320): the review back-edge's aggregate mutation.
-  ///     <para>THE RETRY COUNTER IS UNTOUCHED and the REVIEW counter increments — see
-  ///     <see cref="ChainStep.Reopen"/>, which owns the reasoning. The chain simply delegates,
-  ///     so the rule has one home.</para>
-  ///     <para>A PARKED CHAIN STAYS PARKED. Reopening a step is not the same act as resuming a
-  ///     chain: the park was a human's to clear (D9's no-auto-resume rule), and a back-edge that
-  ///     silently un-parked it would restart work nobody asked to restart.</para></summary>
-  /// <param name="position">The 1-based step position to reopen.</param>
-  /// <param name="outcome">What the review recorded, so the step says why it is open again.</param>
-  /// <param name="actor">Who reopened it.</param>
-  /// <param name="now">The clock.</param>
-  public Chain ReopenStep(int position, ChainActor actor, string? outcome, DateTimeOffset now)
-  {
-    EnsureMutable();
-    ArgumentNullException.ThrowIfNull(actor);
-    int index = IndexOf(position);
-    return ReplaceStep(index, Steps[index].Reopen(actor, outcome), now);
-  }
-
-  /// <summary>The nearest PRECEDING step a denial would send back: the work a review at
-  ///     <paramref name="reviewPosition"/> judges.
+  /// <summary>The nearest PRECEDING step a later conclusion supersedes: the work a refutation
+  ///     recorded by the step at <paramref name="position"/> is about.
   ///     <para>WHY THE NEAREST PRECEDING STEP AND NOT A DECLARED PAIRING: chain steps are
-  ///     INDEPENDENT (#299 D8), so the record carries no review-to-implementer link, and the
-  ///     honest reading is that a review judges the work that came before it. The back-edge is
-  ///     what makes the pairing explicit.</para>
-  ///     <para>ONLY A STEP THAT ALREADY RAN CAN BE SENT BACK, so the search skips anything
-  ///     that is not Done: reopening a Pending step would be a reopen the aggregate refuses, and
-  ///     a review at the chain's first position has nothing before it at all.</para></summary>
-  /// <param name="reviewPosition">The review step's 1-based position.</param>
-  public ChainStep? FixTargetFor(int reviewPosition)
+  ///     INDEPENDENT (#299 D8), so the record carries no link from a finding to the step it
+  ///     disproves, and the honest reading is that a refutation is about the work that came
+  ///     before it.</para>
+  ///     <para>ONLY A STEP THAT ALREADY RAN CAN BE INVALIDATED, so the search skips anything
+  ///     that is not Done: a Pending step concluded nothing to disprove.</para></summary>
+  /// <param name="position">The position of the step recording the refutation.</param>
+  public ChainStep? FixTargetFor(int position)
     => Steps
-        .Where(candidate => candidate.Position < reviewPosition
+        .Where(candidate => candidate.Position < position
             && candidate.Status == ChainStepStatus.Done)
         .OrderByDescending(candidate => candidate.Position)
         .FirstOrDefault();

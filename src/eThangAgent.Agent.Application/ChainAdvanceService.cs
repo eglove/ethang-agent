@@ -100,12 +100,10 @@ public interface IChainResumeLaunchPort
 ///     chain has no owner for the step it is about to run.</para>
 ///     <para>A refusal is returned as a <see cref="ChainAdvance"/> value, never thrown: the
 ///     model receives it as a tool result and can correct itself.</para></summary>
-public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost host,
-    IChainReviewSource? reviews = null)
+public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost host)
 {
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly IChainAdvanceHost _host = host ?? throw new ArgumentNullException(nameof(host));
-  private readonly IChainReviewSource? _reviews = reviews;
 
   /// <summary>Handles one completion fact: settle the step the session was assigned, then
   ///     advance the cursor.
@@ -166,16 +164,6 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       DateTimeOffset now, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(chain);
-    // THE REVIEWER'S VERDICT IS READ BEFORE THE STEP SETTLES (issue #320). The reviewer was
-    // always told to record one; the advance used to write outcome: null and discard it, so
-    // the cursor had nothing to read and a denial could not exist.
-    Result<ChainReviewRecord?> review = await ReadReviewAsync(chain, position, sessionId, ct)
-        .ConfigureAwait(false);
-    if (!review.IsSuccess)
-    {
-      return Result.Failure<ChainAdvance>(review.Error);
-    }
-
     // A MEMBER'S WORKTREE MUST BE COMMITTED BEFORE ITS COMPLETION SETTLES (D9): the reconciler
     // merges branches, so work that was never committed cannot land. The refusal is a NUDGE - it
     // reaches the session while it is still alive, and the step stays Running so the same session
@@ -185,11 +173,11 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       return Result.Success(dirty);
     }
 
-    // THE OUTCOME CARRIES THE VERDICT for a review step and stays NULL for an implementer
-    // step, which is byte-identical to the pre-#320 behaviour (#306 pins that text).
-    string? outcome = review.Value is { } recorded ? ChainReviewNotes.Render(recorded.Findings) : null;
+    // A COMPLETION RECORDS NO OUTCOME OF ITS OWN. The step's outcome is what a LATER step reads
+    // in its brief, and the completion fact carries no text: the plan step is the record of what
+    // was done, and a second prose copy of it would be a second thing to keep true.
     Result<Chain> settled = await _chains.SettleStepAsync(chain.Id, position, ChainStepStatus.Done,
-        ChainActor.Session(sessionId), outcome, now, ct).ConfigureAwait(false);
+        ChainActor.Session(sessionId), null, now, ct).ConfigureAwait(false);
     if (!settled.IsSuccess)
     {
       return Result.Failure<ChainAdvance>(settled.Error);
@@ -201,13 +189,6 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     // checkout: a conflict is evidence, and its members' work is still unmerged.
     await RemoveLandedWorktreesAsync(settled.Value, position, now, ct).ConfigureAwait(false);
 
-    // A REVIEW STEP'S CURSOR IS THE VERDICT (issue #320), not the plain 'next available step'
-    // rule: a denial moves the cursor BACK, and the round-trip cap parks rather than looping.
-    if (IsReviewStep(settled.Value, position))
-    {
-      return await DecideOnReviewAsync(settled.Value, position, sessionId, review.Value, now, ct)
-          .ConfigureAwait(false);
-    }
 
     // A GROUP'S MEMBERS START TOGETHER (D2): the completion that makes the group runnable starts
     // every member that has not started yet, not just the first one the cursor offers. A group
@@ -249,223 +230,8 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
             .ConfigureAwait(false));
   }
 
-  /// <summary>Reads the review a session recorded, when the step it holds is a review step.
-  ///     <para>AN IMPLEMENT STEP READS NOTHING. Asking the review store for a step that judges
-  ///     nothing would spend a query on every ordinary completion and let a stray review row
-  ///     from some other session change what an implementer's completion does.</para>
-  ///     <para>A STORE FAULT IS REPORTED, never treated as 'no review': a cursor that read an
-  ///     unreadable verdict as an absent one would refuse the advance with the wrong reason and
-  ///     leave the reviewer's work unexplained.</para></summary>
-  /// <param name="chain">The chain the step belongs to.</param>
-  /// <param name="position">The 1-based step position being completed.</param>
-  /// <param name="sessionId">The session that reported the completion.</param>
-  /// <param name="ct">Cancellation.</param>
-  private async Task<Result<ChainReviewRecord?>> ReadReviewAsync(Chain chain, int position,
-      string sessionId, CancellationToken ct)
-    => _reviews is null || !IsReviewStep(chain, position)
-        ? Result.Success<ChainReviewRecord?>(null)
-        : await _reviews.FindForSessionAsync(chain.PlanId, sessionId, ct).ConfigureAwait(false);
-
-  /// <summary>True when the step at <paramref name="position"/> judges work rather than doing
-  ///     it. A position the chain does not hold is NOT a review step: the aggregate refuses it
-  ///     by name, and guessing here would report a role for a step that does not exist.
-  ///     </summary>
-  /// <param name="chain">The chain to read the role from.</param>
-  /// <param name="position">The 1-based step position.</param>
-  private static bool IsReviewStep(Chain chain, int position)
-    => chain.StepAt(position)?.Role.IsReview == true;
-
-  /// <summary>Enacts <see cref="ChainReviewPolicy"/> for a settled review step (issue #320):
-  ///     advance, send the step back for a fix, or park at the round-trip cap.
-  ///     <para>THE DECISION IS PURE AND THIS IS NOT: the rule lives in the domain so it is
-  ///     unit-testable, and the side effects live here so there is exactly one place they
-  ///     happen - the <see cref="ChainAdvancePolicy"/> split, applied to the review path.</para>
-  ///     <para>A REFUSAL LEAVES THE SESSION OPEN, exactly as the advance's refusals do: the
-  ///     reviewer must be able to read why its completion was rejected and correct itself, and
-  ///     the step is already Done so nothing is half-written.</para></summary>
-  /// <param name="chain">The chain as it stands after the step settled.</param>
-  /// <param name="position">The review step's 1-based position.</param>
-  /// <param name="sessionId">The reviewing session.</param>
-  /// <param name="review">The verdict it recorded, or null when it recorded none.</param>
-  /// <param name="now">The clock.</param>
-  /// <param name="ct">Cancellation.</param>
-  private async Task<Result<ChainAdvance>> DecideOnReviewAsync(Chain chain, int position,
-      string sessionId, ChainReviewRecord? review, DateTimeOffset now, CancellationToken ct)
-  {
-    ChainStep? target = chain.FixTargetFor(position);
-    IReadOnlyList<int>? members = GroupMembersJudgedBy(chain, target);
-    int? cited = ChainReviewPolicy.CitedMember(review, members);
-    ChainReviewDecision decision = ChainReviewPolicy.Decide(review, target?.Position,
-        (cited is { } citedPosition ? chain.StepAt(citedPosition) : target)?.ReviewAttempts ?? 0,
-        members);
-    return decision.Kind switch
-    {
-      ChainReviewDecisionKind.SendBack =>
-          Result.Success(await SendBackAsync(chain, decision, sessionId, now, ct)
-              .ConfigureAwait(false)),
-      ChainReviewDecisionKind.ParkAtCap =>
-          Result.Success(await ParkAtCapAsync(chain, decision, now, ct).ConfigureAwait(false)),
-      ChainReviewDecisionKind.Advance => Result.Success(await AdvancePastReviewAsync(
-          chain, position, sessionId, now, ct).ConfigureAwait(false)),
-      ChainReviewDecisionKind.Refused => Result.Success(ReviewRefusal(decision)),
-      _ => Result.Failure<ChainAdvance>(UnknownDecision(decision)),
-    };
-  }
-
-  /// <summary>The positions of the group members a review at this step judges, or null when
-  ///     the step it judges is not a group's reconciler (D11).
-  ///     <para>A REVIEW AFTER A GROUP JUDGES THE MERGED RESULT, so the step it judges is the
-  ///     RECONCILER and the work behind it belongs to the group whose last member sits
-  ///     immediately before that reconciler - the position chain creation requires a reconciler
-  ///     to occupy.</para></summary>
-  /// <param name="chain">The chain the review settled on.</param>
-  /// <param name="target">The nearest preceding Done step, or null when there is none.</param>
-  private static IReadOnlyList<int>? GroupMembersJudgedBy(Chain chain, ChainStep? target)
-    => target is { } reconciler && chain.GroupAt(reconciler.Position - 1) is { } group
-        ? [.. chain.GroupMembers(group).Select(step => step.Position)]
-        : null;
-
-  /// <summary>A refused review reported as a refusal the model can act on, never thrown:
-  ///     the reviewer reads it and corrects itself (the <see cref="ChainAdvance"/> contract).
-  ///     </summary>
-  /// <param name="decision">The refusal decision.</param>
-  private static ChainAdvance ReviewRefusal(ChainReviewDecision decision) =>
-      ChainAdvance.Refused(decision.Code ?? ChainReviewCode.NoVerdict,
-          decision.Reason ?? "the review could not be acted on.");
-
-  /// <summary>A decision kind outside the closed set is a defect in the policy, reported as a
-  ///     named error rather than an escaping exception on an event-pump thread.</summary>
-  /// <param name="decision">The unknown decision.</param>
-  private static DomainError UnknownDecision(ChainReviewDecision decision) =>
-      new("UnknownReviewDecision",
-          $"{decision.Kind} is not a chain review decision kind; the set is closed.");
-
-  /// <summary>The reviewer approved: advance the chain exactly as an implementer's completion
-  ///     would, and carry any conditions into the next session's brief.
-  ///     <para>THE APPROVAL PATH IS THE ORDINARY ADVANCE, deliberately. An approve is not a
-  ///     different kind of progress, so it must not acquire its own rules; only the denial has a
-  ///     back-edge. Conditions ride the notes the settled step's outcome carries, which the next
-  ///     brief renders in its predecessors section (issue #219's surviving rule: conditions
-  ///     travel the same path a denial's findings do).</para></summary>
-  /// <param name="chain">The chain as it stands after the review settled.</param>
-  /// <param name="position">The review step's 1-based position.</param>
-  /// <param name="sessionId">The reviewing session.</param>
-  /// <param name="now">The clock.</param>
-  /// <param name="ct">Cancellation.</param>
-  private async Task<ChainAdvance> AdvancePastReviewAsync(Chain chain, int position,
-      string sessionId, DateTimeOffset now, CancellationToken ct)
-  {
-    ChainAdvance next = ChainAdvancePolicy.Decide(chain, position, sessionId);
-    return next.Kind switch
-    {
-      ChainAdvanceKind.Blocked => await ParkBlockedAsync(chain, next, now, ct).ConfigureAwait(false),
-      ChainAdvanceKind.CompleteChain => await CompleteAsync(chain, sessionId, now, ct)
-          .ConfigureAwait(false),
-      ChainAdvanceKind.StartStep => await StartStepAsync(chain, next.Position!.Value, sessionId,
-          now, ct).ConfigureAwait(false),
-      ChainAdvanceKind.Refused => ChainAdvance.Refused(next.Code ?? ChainAdvanceCode.StepNotDone,
-          next.Reason ?? "the chain cannot advance past this review."),
-      ChainAdvanceKind.NotInAChain => ChainAdvance.NoChain(),
-      _ => ChainAdvance.Refused("UnknownAdvanceKind",
-          $"{next.Kind} is not a chain advance kind; the set is closed."),
-    };
-  }
-
-  /// <summary>The reviewer denied: reopen the step it judged and start a fix session seeded
-  ///     with the cited findings (issue #320).
-  ///     <para>ORDER IS LOAD-BEARING, the <see cref="StartStepAsync"/> rule applied to a
-  ///     back-edge: the target is REOPENED and then CLAIMED before the session starts, so the
-  ///     fix session's ownership check passes and the chain never has a step with no owner. The
-  ///     claim is then reassigned to the real id, which spends no second attempt.</para>
-  ///     <para>THE REVIEWER'S SESSION IS REPLACED, not closed separately: the fix session is
-  ///     started with the reviewer as its predecessor, and a sequential launch replaces that
-  ///     session's cell. Closing it here as well would tear one session down twice - the
-  ///     <see cref="ChainAdvanceService"/> rule for every sequential move.</para></summary>
-  /// <param name="chain">The chain the review settled on.</param>
-  /// <param name="decision">The send-back decision, which names the target and the notes.</param>
-  /// <param name="reviewerSessionId">The session that reviewed.</param>
-  /// <param name="now">The clock.</param>
-  /// <param name="ct">Cancellation.</param>
-  private async Task<ChainAdvance> SendBackAsync(Chain chain, ChainReviewDecision decision,
-      string reviewerSessionId, DateTimeOffset now, CancellationToken ct)
-  {
-    int target = decision.Target!.Value;
-    Result<Chain> reopened = await _chains
-        .ReopenStepAsync(chain.Id, target, ChainActor.Harness, decision.ReviewNotes, now, ct)
-        .ConfigureAwait(false);
-    if (!reopened.IsSuccess)
-    {
-      return ChainAdvance.Refused(reopened.Error.Code, reopened.Error.Message);
-    }
-
-    // THE FIX SESSION RUNS THE TARGET'S ROLE, which is Implement in every real chain (a review
-    // judges an implementer's work). Reading it from the record rather than assuming it keeps a
-    // chain of reviews honest: the reopened step is started as whatever it was declared to be.
-    ChainStep reopenedStep = reopened.Value.StepAt(target)!;
-    return await StartReopenedAsync(reopened.Value, reopenedStep, reviewerSessionId, now, ct)
-        .ConfigureAwait(false);
-  }
-
-  /// <summary>Claims and starts the reopened step. Split out so the reopen's two failure paths
-  ///     (a refused claim, a refused launch) read as separate statements rather than as a
-  ///     nested conditional (S3358).</summary>
-  /// <param name="chain">The chain the reopened step belongs to.</param>
-  /// <param name="step">The reopened step, as the record now stands.</param>
-  /// <param name="predecessorSessionId">The reviewer's session, whose cell the fix takes.</param>
-  /// <param name="now">The clock.</param>
-  /// <param name="ct">Cancellation.</param>
-  private async Task<ChainAdvance> StartReopenedAsync(Chain chain, ChainStep step,
-      string predecessorSessionId, DateTimeOffset now, CancellationToken ct)
-  {
-    string provisional = "pending-" + Guid.NewGuid().ToString("N");
-    Result<Chain> claimed = await _chains
-        .ClaimStepAsync(chain.Id, step.Position, provisional, now, ct).ConfigureAwait(false);
-    if (!claimed.IsSuccess)
-    {
-      return ChainAdvance.Refused(claimed.Error.Code, claimed.Error.Message);
-    }
-
-    ChainStepAssignment assignment = new ChainStepAssignment(chain.Id, chain.PlanId,
-        step.Position, null).WithRole(step.Role);
-    Result<string> started = await _host
-        .StartSessionAsync(assignment, predecessorSessionId, ct).ConfigureAwait(false);
-    if (!started.IsSuccess)
-    {
-      _ = await _chains.ReleaseStepAsync(chain.Id, step.Position, ChainActor.Harness, now, ct)
-          .ConfigureAwait(false);
-      return ChainAdvance.Refused(started.Error.Code, started.Error.Message);
-    }
-
-    Result<Chain> reassigned = await _chains.ReassignStepAsync(chain.Id, step.Position,
-        started.Value, now, ct).ConfigureAwait(false);
-    return reassigned.IsSuccess
-      ? new ChainAdvance(ChainAdvanceKind.StartStep, step.Position, null, started.Value)
-      : ChainAdvance.Refused(ChainAdvanceCode.ClaimNotCorrected,
-          $"chain #{chain.Id} step {step.Position} was started as session {started.Value} but its "
-          + $"claim could not be corrected to it ({reassigned.Error.Code}: {reassigned.Error.Message}); "
-          + "the step is still held by a placeholder and will be adopted when that session opens.");
-  }
-
-  /// <summary>The round-trip cap is spent: park the chain naming the step and the reason
-  ///     (issue #320). A park is waiting-for-a-human, not broken (D8/D9), and the reviewer's
-  ///     session is left open so a human can read what it said.</summary>
-  /// <param name="chain">The chain to park.</param>
-  /// <param name="decision">The cap decision, which names the step and the reason.</param>
-  /// <param name="now">The clock.</param>
-  /// <param name="ct">Cancellation.</param>
-  private async Task<ChainAdvance> ParkAtCapAsync(Chain chain, ChainReviewDecision decision,
-      DateTimeOffset now, CancellationToken ct)
-  {
-    string reason = decision.Reason ?? "the review round-trip cap was reached.";
-    Result<Chain> parked = await _chains
-        .ParkAsync(chain.Id, reason, decision.Target, ChainActor.Harness, now, ct)
-        .ConfigureAwait(false);
-    return parked.IsSuccess
-        ? new ChainAdvance(ChainAdvanceKind.Blocked, null, ChainReviewCode.CapReached, reason)
-        : ChainAdvance.Refused(parked.Error.Code, parked.Error.Message);
-  }
-  /// <summary>Starts every PENDING member of <paramref name="group"/> that has no session yet, so
-  ///     a group's members run at the same moment instead of one per completion.
+  /// <summary>Starts every PENDING member of <paramref name="group"/> that has no session yet,
+  ///     so a group's members run at the same moment instead of one per completion.
   ///     <para>THE MEMBERS SHARE ONE PREDECESSOR, which is the session whose completion made the
   ///     group runnable: a member is not waiting on its siblings, so none of them is the
   ///     predecessor of another.</para>

@@ -102,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 41;
+  public const int LatestSchemaVersion = 42;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -150,6 +150,7 @@ public sealed class AppDatabase
     (39, ApplyV39),
     (40, ApplyV40),
     (41, ApplyV41),
+    (42, ApplyV42),
   ];
 
   private void Migrate()
@@ -1700,6 +1701,76 @@ public sealed class AppDatabase
   ///     open. The two versions share one body so the repair cannot drift, and running it over an
   ///     already-repaired database writes nothing.</summary>
   private static void ApplyV41(SqliteConnection connection) => RepairWorkspaceSpellings(connection);
+
+  /// <summary>V42 retires the review role: <c>chain_steps.role</c> becomes Implement | Refine,
+  ///     every historical 'Review' row becomes 'Refine', and <c>review_attempts</c> is dropped
+  ///     with the round-trip budget it counted.
+  ///     <para>THE ROLE CHANGED MEANING, NOT ONLY SPELLING, so the rows are REWRITTEN rather
+  ///     than carried: a step that was going to judge finished work now makes the plan
+  ///     executable, and leaving the old value would fail the new CHECK and make the row
+  ///     unreadable.</para>
+  ///     <para>THE COUNTER GOES WITH THE MECHANISM. <c>review_attempts</c> bounded how many
+  ///     times a reviewer could send a step back; with no reviewer there is no round trip to
+  ///     bound, and a column nothing reads is a second answer to a question with none.</para>
+  ///     <para>THE TABLE IS REBUILT (the V23/V28/V35/V37 idiom) because SQLite cannot drop a
+  ///     column: the rebuild carries the status CHECK forward VERBATIM so the door that
+  ///     migration closed against a direct writer stays closed, and every other column is
+  ///     copied so no chain changes identity or CAS state.</para>
+  ///     <para>CONDITIONAL ON <c>chain_steps</c> EXISTING, because a migration runs against
+  ///     every historical shape of this database and one stamped below V23 does not have the
+  ///     table yet.</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV42(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "chain_steps"))
+    {
+      return;
+    }
+
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE chain_steps_v42 (
+              chain_id INTEGER NOT NULL REFERENCES chains(id),
+              position INTEGER NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('Pending', 'Running', 'Done', 'Failed', 'Skipped', 'Parked')),
+              session_id TEXT,
+              attempts INTEGER NOT NULL,
+              outcome TEXT,
+              actor TEXT NOT NULL,
+              claimed_at TEXT,
+              completed_at TEXT,
+              role TEXT NOT NULL DEFAULT 'Implement' CHECK (role IN ('Implement', 'Refine')),
+              invalidated_by TEXT,
+              group_id INTEGER,
+              worktree_path TEXT,
+              worktree_branch TEXT,
+              PRIMARY KEY (chain_id, position)
+          );
+          INSERT INTO chain_steps_v42 (chain_id, position, status, session_id, attempts, outcome,
+              actor, claimed_at, completed_at, role, invalidated_by, group_id,
+              worktree_path, worktree_branch)
+              SELECT chain_id, position, status, session_id, attempts, outcome, actor,
+                  claimed_at, completed_at,
+                  CASE role WHEN 'Review' THEN 'Refine' ELSE role END,
+                  invalidated_by, group_id, worktree_path, worktree_branch
+              FROM chain_steps;
+          DROP TABLE chain_steps;
+          ALTER TABLE chain_steps_v42 RENAME TO chain_steps;
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
+  }
 
   /// <summary>The repair both V39 and V41 apply: every workspace id that is a second spelling of
   ///     one directory is moved onto the normalized form.</summary>

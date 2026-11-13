@@ -19,7 +19,7 @@ internal sealed class CompositionChainBriefSource(ChainService chains, PlanServi
   /// <summary>The embedded skill that carries the reviewer's rubric (issue #217). Named here
   ///     rather than assumed present: until #217 ships, a review brief says plainly that no
   ///     rubric is installed instead of inventing one.</summary>
-  private const string ReviewRubricSkill = "reviewing-plans";
+  private const string ReviewRubricSkill = "writing-plans";
 
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly PlanService _plans = plans ?? throw new ArgumentNullException(nameof(plans));
@@ -114,7 +114,7 @@ internal sealed class CompositionChainBriefSource(ChainService chains, PlanServi
   /// <summary>Whether the reviewer's rubric skill is installed (issue #306). The catalog is the
   ///     same one this session's listing is built from, so the brief and the skill listing
   ///     cannot disagree about whether a rubric exists.</summary>
-  public async Task<Result<bool>> GetReviewRubricAvailableAsync(CancellationToken ct = default)
+  public async Task<Result<bool>> GetRefineRubricAvailableAsync(CancellationToken ct = default)
   {
     Result<IReadOnlyList<SkillDefinition>> listed = await _skills.ListAsync(ct).ConfigureAwait(false);
     return listed.IsSuccess

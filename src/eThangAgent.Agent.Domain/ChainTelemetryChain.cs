@@ -20,9 +20,8 @@ public sealed record ChainTelemetryChain(int ChainId, string Title, ChainStatus 
     IReadOnlyList<ChainTelemetryStep> Steps);
 
 /// <summary>One chain step's execution record, as the report reads it (issue #309).
-///     <para><paramref name="Attempts"/> IS THE RETRY METRIC and <paramref name="ReviewAttempts"/>
-///     IS THE REVIEW METRIC: Q14 keeps those budgets separate, so the report reads them
-///     separately. Summing them would report a demanding reviewer as a flaky session.</para>
+///     <para><paramref name="Attempts"/> IS THE RETRY METRIC: how many times the step was
+///     claimed. It is the only counter a step carries.</para>
 ///     <para>THE CLAIM AND COMPLETION CLOCKS ARE BOTH CARRIED, because a step that was CLAIMED
 ///     and never COMPLETED is the silent loss the started-settled ratio exists to expose — and
 ///     a null completion clock is how that step identifies itself.</para></summary>
@@ -32,13 +31,11 @@ public sealed record ChainTelemetryChain(int ChainId, string Title, ChainStatus 
 ///     was ever assigned (a step still Pending). The telemetry report prices the ledger over
 ///     exactly these ids, so a null here is 'no session to ask about' rather than a zero.</param>
 /// <param name="Attempts">How many times the step was claimed (the retry counter).</param>
-/// <param name="ReviewAttempts">How many times a review sent the step back (the review counter,
-///     separate from <paramref name="Attempts"/> by Q14).</param>
 /// <param name="Role">The role assigned to the step.</param>
 /// <param name="ClaimedAt">When the current (or last) claim started, or null.</param>
 /// <param name="CompletedAt">When the step settled, or null when it never did.</param>
 public sealed record ChainTelemetryStep(int Position, ChainStepStatus Status, string? SessionId,
-    int Attempts, int ReviewAttempts, ChainStepRole Role, DateTimeOffset? ClaimedAt,
+    int Attempts, ChainStepRole Role, DateTimeOffset? ClaimedAt,
     DateTimeOffset? CompletedAt)
 {
   /// <summary>True when this step settled: Done, Failed, Skipped or Parked.
@@ -61,6 +58,4 @@ public sealed record ChainTelemetryStep(int Position, ChainStepStatus Status, st
   ///     literal, so the report and the cap cannot drift apart.</para></summary>
   public bool ReachedRetryCap => Attempts >= ChainRetryPolicy.MaxAttempts;
 
-  /// <summary>True when the step was sent back by a review at least once.</summary>
-  public bool WasReviewedBack => ReviewAttempts > 0;
 }

@@ -1,29 +1,34 @@
 namespace eThangAgent.AgentDomain;
 
 /// <summary>What a chain step's session is FOR (issue #313 D7). The vocabulary is exactly two
-///     members in v1: <see cref="Implement"/> and
-///     <see cref="Review"/>.
+///     members: <see cref="Implement"/> and <see cref="Refine"/>.
+///     <para>REFINE REPLACED REVIEW, and the reason is what a reviewer could not do. A reviewer
+///     judged work that had already been done and returned a verdict; a denial then had to be
+///     enacted, which meant reopening a settled step, spending a round-trip budget, and - when
+///     the budget ran out - parking the chain for a human. Every one of those was machinery for
+///     a decision the stakeholder had already made before the chain started.</para>
+///     <para>THE STAKEHOLDER'S REVIEW IS THE GATE BEFORE A CHAIN STARTS, not a step inside it.
+///     A plan is reviewed while it is still a plan, by the person who decided it should be done.
+///     What a chain needs instead is a step that makes the plan EXECUTABLE: it reads the plan,
+///     resolves what is ambiguous, sharpens the steps that are not yet checkable, and then
+///     advances into implementation. That is technical work on the plan, and it is the model's.
+///     </para>
 ///     <para>ROLES ARE ASSIGNED, NOT EMERGENT (parent #299 D15). An assigned role is checkable
-///     and an emergent one is not: there is a role on the record, a verdict the cursor reads,
-///     and a brief that can differ per role. That is a deliberate departure from Agensh,
-///     recorded on the parent, and reopening it is a decision rather than an improvement.</para>
-///     <para>TWO MEMBERS IS ENOUGH to express the loop the parent describes; more would be
-///     speculation about workflows that do not exist. A chain with no review step is legal -
-///     independent implementation work needs none (issue #306 D4).</para>
+///     and an emergent one is not: there is a role on the record, a brief that differs per role,
+///     and a completion contract that differs per role.</para>
 ///     <para>A ROLE CARRIES NO MODEL. A step's session runs on whatever model the workspace has
 ///     selected, exactly as every other session does; the role decides what the session is
-///     asked to do, never which model is asked to do it.</para>
-///     <para>NO GRANT SET YET (D7). A role that carried capabilities would be a second
-///     permission surface beside the spawn contract's, and nothing asks for one.</para></summary>
+///     asked to do, never which model is asked to do it.</para></summary>
 public enum ChainStepRoleKind
 {
   /// <summary>This step's session changes the workspace: it is the work.</summary>
   Implement,
 
-  /// <summary>This step's session judges another step's work and returns a verdict
-  ///     (issue #306).</summary>
-  Review,
+  /// <summary>This step's session makes the plan executable and then advances: it refines the
+  ///     plan's remaining steps rather than implementing them.</summary>
+  Refine,
 }
+
 /// <summary>A chain step's assigned role (issue #313 D7): the kind, and nothing else.
 ///     <para>IMMUTABLE AND TOTAL. Every chain step has a role - there is no 'unassigned'
 ///     state, because a step whose role nobody declared is a step nobody can start
@@ -38,23 +43,28 @@ public sealed record ChainStepRole(ChainStepRoleKind Kind)
   /// <summary>The implementer role: the default for a step that names none.</summary>
   public static ChainStepRole Implement { get; } = new(ChainStepRoleKind.Implement);
 
-  /// <summary>The reviewer role.</summary>
-  public static ChainStepRole Review { get; } = new(ChainStepRoleKind.Review);
+  /// <summary>The refine role.</summary>
+  public static ChainStepRole Refine { get; } = new(ChainStepRoleKind.Refine);
 
-  /// <summary>True for a review step: the role whose brief asks for a verdict rather than for
-  ///     the work.</summary>
-  public bool IsReview => Kind == ChainStepRoleKind.Review;
+  /// <summary>True for a refine step: the role whose brief asks for the plan to be made
+  ///     executable rather than for the work.</summary>
+  public bool IsRefine => Kind == ChainStepRoleKind.Refine;
 
   /// <summary>The stored role name. The enum member name, so a CHECK constraint and a
   ///     reader agree without a second spelling to keep in sync.</summary>
   public string Encoded => Kind.ToString();
+
   /// <summary>Reads a persisted role. STRICT: only a DEFINED enum member parses, so a
   ///     corrupt column is reported rather than silently read as an implementer - a step
   ///     whose role nobody can name is worse than a named failure.
   ///     <para><c>Enum.TryParse</c> alone is not enough: it accepts a numeric string ('5')
   ///     and yields an UNDEFINED member, which would smuggle a value outside the enum into
   ///     the domain (the <c>SqliteChainStore</c> status rule, applied here for the same
-  ///     reason).</para></summary>
+  ///     reason).</para>
+  ///     <para>THE RETIRED SPELLING IS NOT ACCEPTED. A row that still says 'Review' was written
+  ///     before the role changed, and the migration that renamed the vocabulary rewrites it; a
+  ///     decoder that also accepted 'Review' would let the two spellings coexist forever and
+  ///     make 'which role is this' a question with two answers.</para></summary>
   /// <param name="encoded">The stored role name.</param>
   /// <param name="role">The decoded role, or null.</param>
   public static bool TryDecode(string? encoded,
@@ -74,6 +84,7 @@ public sealed record ChainStepRole(ChainStepRoleKind Kind)
 
   public override string ToString() => Encoded;
 }
+
 /// <summary>One step a chain is created from (issue #313 D2): the plan position it executes
 ///     and the role assigned to the session that will run it.
 ///     <para>A SEED, NOT A <see cref="ChainStep"/>: a chain step carries execution state

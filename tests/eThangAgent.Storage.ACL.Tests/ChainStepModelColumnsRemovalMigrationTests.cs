@@ -60,8 +60,8 @@ public sealed class ChainStepModelColumnsRemovalMigrationTests : IDisposable
             actor, claimed_at, completed_at, role, role_model, served_model, review_attempts,
             invalidated_by, group_id, worktree_path, worktree_branch)
             SELECT chain_id, position, status, session_id, attempts, outcome, actor, claimed_at,
-                completed_at, role, NULL, NULL, review_attempts, invalidated_by, group_id,
-                worktree_path, worktree_branch FROM chain_steps;
+                completed_at, CASE role WHEN 'Refine' THEN 'Review' ELSE role END, NULL, NULL, 0,
+                invalidated_by, group_id, worktree_path, worktree_branch FROM chain_steps;
         DROP TABLE chain_steps;
         ALTER TABLE chain_steps_v36 RENAME TO chain_steps;
         PRAGMA user_version = 36;
@@ -122,10 +122,14 @@ public sealed class ChainStepModelColumnsRemovalMigrationTests : IDisposable
 
     _ = new AppDatabase(_dbPath);
 
-    Assert.Equal("Review", Scalar<string>("SELECT role FROM chain_steps WHERE position=2;"));
+    // THE ROLE IS REWRITTEN BY V42: the row said 'Review' in V36 and the vocabulary moved on,
+    // so a migrated database reads 'Refine' - the value the current CHECK constraint allows.
+    Assert.Equal("Refine", Scalar<string>("SELECT role FROM chain_steps WHERE position=2;"));
     Assert.Equal("Done", Scalar<string>("SELECT status FROM chain_steps WHERE position=2;"));
     Assert.Equal("judged", Scalar<string>("SELECT outcome FROM chain_steps WHERE position=2;"));
-    Assert.Equal(3L, Scalar<long>("SELECT review_attempts FROM chain_steps WHERE position=2;"));
+    // V42 DROPS review_attempts with the round-trip budget it counted, so the column is gone.
+    Assert.Equal(0L, Scalar<long>(
+        "SELECT COUNT(*) FROM pragma_table_info('chain_steps') WHERE name='review_attempts';"));
   }
 
   [Fact]
@@ -136,7 +140,8 @@ public sealed class ChainStepModelColumnsRemovalMigrationTests : IDisposable
 
     string stepsSql = Scalar<string>(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='chain_steps';");
-    Assert.Contains("CHECK (role IN ('Implement', 'Review'))", stepsSql, StringComparison.Ordinal);
+    // V42 RENAMED THE VOCABULARY, so the closed set a migrated database carries is the new one.
+    Assert.Contains("CHECK (role IN ('Implement', 'Refine'))", stepsSql, StringComparison.Ordinal);
     Assert.Contains("'Skipped'", stepsSql, StringComparison.Ordinal);
   }
 
@@ -157,7 +162,7 @@ public sealed class ChainStepModelColumnsRemovalMigrationTests : IDisposable
     SqliteChainStore store = new(new AppDatabase(_dbPath), Ws);
     Result<Chain> created = await store.CreateAsync(
         Chain.NewFromSeeds(Ws, 5, 1, "reviewed", null,
-            [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Review)],
+            [ChainStepSeed.Implementing(1), new ChainStepSeed(2, ChainStepRole.Refine)],
             DateTimeOffset.UtcNow),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(created.IsSuccess, created.Error?.Message ?? "create must succeed");
@@ -166,6 +171,6 @@ public sealed class ChainStepModelColumnsRemovalMigrationTests : IDisposable
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(reloaded.IsSuccess, reloaded.Error?.Message ?? "get must succeed");
     Assert.Equal(ChainStepRoleKind.Implement, reloaded.Value.Steps[0].Role.Kind);
-    Assert.Equal(ChainStepRoleKind.Review, reloaded.Value.Steps[1].Role.Kind);
+    Assert.Equal(ChainStepRoleKind.Refine, reloaded.Value.Steps[1].Role.Kind);
   }
 }

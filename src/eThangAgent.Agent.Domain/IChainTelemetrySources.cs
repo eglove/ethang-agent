@@ -61,8 +61,8 @@ public interface IChainSessionCostSource
 
 /// <summary>The plan review record plus each reviewed plan's current version (issue #309).
 ///     <para>WHY A PORT AND NOT THE REVIEW STORE DIRECTLY: the review record lives in the Plan
-///     Domain and the Agent Domain does not reference it — the boundary <see cref="IChainReviewSource"/>
-///     and <see cref="IChainPlanSource"/> already hold. The composition root adapts the real
+///     Domain and the Agent Domain does not reference it — the boundary <see cref="IChainPlanSource"/>
+///     already holds. The composition root adapts the real
 ///     store, so the report reads THE SAME ROWS THE CURSOR DOES (the #216 D7 rule) without the
 ///     Agent Domain learning what a review row is.</para>
 ///     <para>READ-ONLY, like every port on this surface.</para></summary>
