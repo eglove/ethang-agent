@@ -302,6 +302,27 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     the governor owns the ladder alone.</summary>
   public ResourceIndicatorViewModel Resource { get; } = new();
 
+  /// <summary>The most recent app-level warning, shown in the shell's own bar. Distinct from a
+  ///     session notice: this is about the APP, so it must reach the user whichever tab is
+  ///     open - and with no tab open at all.</summary>
+  [ObservableProperty]
+  public partial string AppWarning { get; set; } = string.Empty;
+
+  /// <summary>Whether an app-level warning is showing. Re-raised with the warning itself,
+  ///     because the bar binds its visibility to this.</summary>
+  public bool HasAppWarning => AppWarning.Length > 0;
+
+  partial void OnAppWarningChanged(string value) => OnPropertyChanged(nameof(HasAppWarning));
+
+  /// <summary>Raises an app-level warning. Marshalled to the UI thread because the callers are
+  ///     background monitors.</summary>
+  /// <param name="message">What the user needs to know.</param>
+  public void WarnApp(string message)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(message);
+    Avalonia.Threading.Dispatcher.UIThread.Post(() => AppWarning = message);
+  }
+
   /// <summary>How many conversations are open right now. The governor's per-
   ///     conversation share is derived from this count, so the indicator and the
   ///     governor always agree on how the budget is split.</summary>

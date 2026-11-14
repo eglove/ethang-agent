@@ -233,12 +233,18 @@ internal static class DesktopHost
     WatchdogLoop watchdogLoop = new(watchdogOptions.TickInterval, TimeProvider.System);
     WatchdogPolicy policy = WatchdogPolicyFactory.FromOptions(watchdogOptions);
 
+    // The shell view-model, captured for the callbacks below that outlive its construction.
+    MainViewModel? vmRef = null;
+
     // Process-lifetime RSS watch: observes the app for as long as the window is open,
     // tabs or no tabs — the 14 GB incident surfaced exactly that blind spot. The host
     // records breaches into the shared audit; the app process is the single RSS owner
     // (in-process children live inside this one number; a remote ChildHost would own
     // its own sampler).
-    ProcessRssMonitor rssMonitor = new(new ProcessMetrics(), boot.WatchdogEvents, watchdogOptions, TimeProvider.System);
+    // The escalation reaches the shell's own warning bar: the breach is about the APP, so it
+    // must surface whichever tab is open (issue #382). vm is assigned by the time this runs.
+    ProcessRssMonitor rssMonitor = new(new ProcessMetrics(), boot.WatchdogEvents, watchdogOptions,
+        TimeProvider.System, message => vmRef?.WarnApp(message));
 
     WatchdogServices ServicesFor(AgentSession session) => new(
         session.Services.GetRequiredService<IAgentStore>(),
@@ -250,7 +256,6 @@ internal static class DesktopHost
         session.Services.GetService<AgentSupervisorRegistry>());
 
     // The mechanical advance (issue #301 D1/D2): a completion fact starts the next session.
-    MainViewModel? vmRef = null;
     ChainAdvanceService? AdvanceFor(AgentSession session) =>
         ChainAdvanceFactory.For(session, () => vmRef);
 

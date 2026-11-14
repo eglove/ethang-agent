@@ -65,6 +65,15 @@
       <Border x:Name="ResourceBar" Grid.Row="0" Padding="10,5"
               Background="#FF23232E">
         <StackPanel Spacing="4">
+          <!-- The app's own warning (issue #382): a sustained memory breach is about the APP, so it
+               surfaces in this app-wide bar rather than in whichever conversation happens to be
+               selected. Hidden until there is something to say, so an ordinary session renders
+               exactly the chrome it did before. -->
+          <Border x:Name="AppWarningBar" Padding="8,4" Background="#FF5A2A2A" CornerRadius="3"
+                  IsVisible="{Binding HasAppWarning}">
+            <TextBlock x:Name="AppWarningText" Text="{Binding AppWarning}" FontSize="12"
+                       TextWrapping="Wrap" Foreground="#FFFFD9D9"/>
+          </Border>
           <StackPanel Orientation="Horizontal" Spacing="10">
             <TextBlock Text="Memory" FontWeight="SemiBold" FontSize="12"
                        VerticalAlignment="Center"/>

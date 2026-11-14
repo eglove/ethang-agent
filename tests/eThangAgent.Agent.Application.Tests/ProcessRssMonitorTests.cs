@@ -102,7 +102,7 @@ public class ProcessRssMonitorTests
   }
 
   private static (ProcessRssMonitor Monitor, FakeMetrics Metrics, StubClock Clock, FakeEvents Events) Harness(
-      long workingSetBytes, StubClock clock, int? sustainedTicks = null)
+      long workingSetBytes, StubClock clock, int? sustainedTicks = null, Action<string>? escalate = null)
   {
     FakeMetrics metrics = new(workingSetBytes);
     FakeEvents events = new();
@@ -112,7 +112,8 @@ public class ProcessRssMonitorTests
         sustainedTicks is { } t
             ? new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60), Rss: new RssOptions(SustainedBreachTicks: t))
             : new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)),
-        clock);
+        clock,
+        escalate);
     return (monitor, metrics, clock, events);
   }
 
@@ -192,6 +193,55 @@ public class ProcessRssMonitorTests
     metrics.Bytes = 1024L * 1024 * 1024;
     await monitor.TickAsync(TestContext.Current.CancellationToken); // still alive, nothing recorded below threshold
     Assert.Empty(events.Appended);
+  }
+
+  /// <summary>A breach that becomes SUSTAINED reaches the user, not only the audit table
+  ///     (issue #382). The rows are read by nothing, so a monitor that only appended them
+  ///     reported a problem it could never surface: the shell grew to 6.4 GB while the table
+  ///     held hundreds of breach rows and the screen said nothing.</summary>
+  [Fact]
+  public async Task Tick_BreachSustained_EscalatesToTheUserExactlyOncePerEpisode()
+  {
+    List<string> escalated = [];
+    (ProcessRssMonitor monitor, _, _, _) = Harness(5000L * 1024 * 1024, new StubClock(T0),
+        sustainedTicks: 2, escalate: escalated.Add);
+    await monitor.TickAsync(TestContext.Current.CancellationToken); // breach 1: not yet sustained
+    Assert.Empty(escalated);
+    await monitor.TickAsync(TestContext.Current.CancellationToken); // breach 2: sustained
+    string message = Assert.Single(escalated);
+    Assert.Contains("5000", message, StringComparison.Ordinal);
+    await monitor.TickAsync(TestContext.Current.CancellationToken); // still the same episode
+    _ = Assert.Single(escalated);
+  }
+
+  /// <summary>A RECOVERED episode that breaches again is a new episode, so it escalates
+  ///     again. Otherwise a user who saw the first warning would never see the second.</summary>
+  [Fact]
+  public async Task Tick_RecoveryThenNewSustainedBreach_EscalatesAgain()
+  {
+    List<string> escalated = [];
+    (ProcessRssMonitor monitor, FakeMetrics metrics, _, _) = Harness(5000L * 1024 * 1024,
+        new StubClock(T0), sustainedTicks: 2, escalate: escalated.Add);
+    await monitor.TickAsync(TestContext.Current.CancellationToken);
+    await monitor.TickAsync(TestContext.Current.CancellationToken);
+    metrics.Bytes = 1024L * 1024 * 1024;
+    await monitor.TickAsync(TestContext.Current.CancellationToken);
+    metrics.Bytes = 5000L * 1024 * 1024;
+    await monitor.TickAsync(TestContext.Current.CancellationToken);
+    await monitor.TickAsync(TestContext.Current.CancellationToken);
+    Assert.Equal(2, escalated.Count);
+  }
+
+  /// <summary>A single breach report is not an escalation: the working set crossing the
+  ///     threshold once is ordinary, and warning on it would train the user to ignore it.</summary>
+  [Fact]
+  public async Task Tick_SingleBreach_DoesNotEscalate()
+  {
+    List<string> escalated = [];
+    (ProcessRssMonitor monitor, _, _, _) = Harness(5000L * 1024 * 1024, new StubClock(T0),
+        sustainedTicks: 5, escalate: escalated.Add);
+    await monitor.TickAsync(TestContext.Current.CancellationToken);
+    Assert.Empty(escalated);
   }
 
   [Fact]
