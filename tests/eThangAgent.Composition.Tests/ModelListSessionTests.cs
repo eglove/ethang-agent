@@ -131,33 +131,30 @@ public class ModelListSessionTests
     });
   }
 
-  // 6: an over-long list is the provider's refusal, and the list stands.
+  // 6: a list longer than the provider accepts never reaches the wire.
 
   [Fact]
-  public async Task AListTheProviderRefuses_TypedErrorNamesTheRefusal_AndTheStoredListIsUntouched()
+  public async Task AListLongerThanTheProviderAccepts_FailsBeforeAnyRequest_AndTheStoredListIsUntouched()
   {
-    const int ProviderLimit = 20;
-    string[] overLong =
-    [
-      Head,
-      Second,
-      .. Enumerable.Range(0, ProviderLimit).Select(index => $"many/model{index}"),
-    ];
+    // A live preference can carry more entries than the limit (a hand-edited store, a value
+    // written before the limit existed). The turn fails naming the limit and NOTHING is sent:
+    // the provider would only refuse the same list, and a round trip spent on a body that cannot
+    // serve is a failure reported later than it could have been.
     using ComposedHostHarness session = await ComposedHostHarness
-        .StartAsync(overLong);
+        .StartAsync([Head, Second]);
     string storedBefore = session.StoredValue;
-    session.Provider.Responder = body => RefuseLongLists(body, ProviderLimit);
+    session.Preference.ModelIds = [Head, Second, "gamma/third", "delta/fourth"];
 
     Result<string> turn = await session.SendAsync("hi").ConfigureAwait(true);
 
     Assert.False(turn.IsSuccess);
-    Assert.Equal("ProviderError", turn.Error?.Code);
-    Assert.Contains($"models accepts at most {ProviderLimit}", turn.Error!.Message,
-        StringComparison.Ordinal);
+    Assert.Equal("ModelListTooLong", turn.Error?.Code);
+    Assert.Contains("at most 3", turn.Error!.Message, StringComparison.Ordinal);
+    Assert.Empty(session.Provider.ResponseBodies);
     // THE FAILURE TRIMS NOTHING: neither the stored preference nor the live selection was
     // reordered or shortened by a refusal at request time.
     Assert.Equal(storedBefore, await session.ReadStoredValueAsync().ConfigureAwait(true));
-    Assert.Equal(overLong, session.Preference.ModelIds!);
+    Assert.Equal(4, session.Preference.ModelIds.Count);
   }
 
   // 8: an untouched workspace's traffic is unchanged.
@@ -190,24 +187,6 @@ public class ModelListSessionTests
     // And the request still carries the model that workspace had chosen, under its own variant.
     Assert.Equal(restored.WireModelIds[0],
         request.RootElement.GetProperty("model").GetString());
-  }
-
-  /// <summary>The provider's own refusal of a list it will not accept: a 400 whose body names
-  ///      the limit and the member that broke it, exactly as a real provider would.</summary>
-  private static MockAnswer RefuseLongLists(string body, int limit)
-  {
-    using JsonDocument request = JsonDocument.Parse(body);
-    int entries = request.RootElement.GetProperty("models").GetArrayLength();
-    return entries > limit
-        ? MockAnswer.Refuse(400, JsonSerializer.Serialize(new
-        {
-          error = new
-          {
-            message = $"models accepts at most {limit} entries; the request listed {entries}",
-            type = "invalid_request_error",
-          },
-        }))
-        : MockAnswer.Ok(MockProviderServer.Completion(Head));
   }
 
   /// <summary>The ids a request body carries in <c>models</c>, in order.</summary>

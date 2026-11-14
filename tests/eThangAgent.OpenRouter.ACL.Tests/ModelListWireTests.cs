@@ -191,22 +191,18 @@ public class ModelListWireTests
   }
 
   [Fact]
-  public async Task Send_ARefusedOverLongList_IsTheProvidersOwnError_AndTheConfigIsUnchanged()
+  public async Task Send_AListLongerThanTheProviderAccepts_FailsBeforeAnythingIsSent()
   {
-    // A list the provider will not accept is refused BY THE PROVIDER, at request time:
-    // the harness does not trim, reorder, or shorten it to fit, because a shorter list is a
-    // different selection from the one the user stated.
-    const int Limit = 20;
-    IReadOnlyList<string> fallbacks = [.. Enumerable.Range(0, Limit).Select(i => $"many/model{i}")];
+    // The provider takes at most three entries and refuses a longer list with a 400, so the
+    // request is never built: the turn fails naming the limit rather than spending a round trip
+    // on a body the provider will reject.
+    IReadOnlyList<string> fallbacks = [Second, Third, "delta/fourth"];
     ModelConfig config = Model(fallbacks);
-    string? captured = null;
-    FakeHttpMessageHandler handler = new(async req =>
+    int sends = 0;
+    FakeHttpMessageHandler handler = new(_ =>
     {
-      captured = req.Content is { } content
-          ? await content.ReadAsStringAsync().ConfigureAwait(false)
-          : null;
-      return Wire.Json(System.Net.HttpStatusCode.BadRequest,
-          /*lang=json,strict*/ """{"error":{"message":"models accepts at most 20 entries"}}""");
+      sends++;
+      return Task.FromResult(Wire.Ok());
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
@@ -215,13 +211,9 @@ public class ModelListWireTests
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error.Code);
-    Assert.Contains("at most 20", result.Error.Message, StringComparison.Ordinal);
-    // THE REQUEST NAMED EVERY ENTRY THE USER STATED: the refusal came from what was sent, not
-    // from a request the harness had already reduced.
-    using JsonDocument sent = JsonDocument.Parse(captured!);
-    Assert.Equal(Limit + 1, ModelsOf(sent.RootElement).Count);
-    Assert.Equal(fallbacks, config.FallbackModelIds);
+    Assert.Equal("ModelListTooLong", result.Error.Code);
+    Assert.Contains("at most 3", result.Error.Message, StringComparison.Ordinal);
+    Assert.Equal(0, sends);
   }
 
   private static string ServedBy(string modelId)

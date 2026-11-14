@@ -174,6 +174,46 @@ public class ModelSelectionTests
     Assert.Equal(RetentionPolicy.SafetyRetention, created.Retention);
   }
 
+  // ── the provider's three-model limit ─────────────────────────────────────
+
+  [Fact]
+  public void AThreeEntryList_IsAccepted_BecauseTheProviderTakesThree()
+  {
+    Result<ModelSelection> created = ModelSelection.Create(["alpha/model", "beta/other", "gamma/third"]);
+
+    Assert.True(created.IsSuccess, created.Error?.Message);
+    Assert.Equal(3, created.ValueOrNull!.ModelIds.Count);
+  }
+
+  [Fact]
+  public void AFourthModel_IsANamedFailure_NamingTheCountAndTheLimit()
+  {
+    // The provider refuses a longer list with a 400 before any model serves, so a fourth entry
+    // is a selection that can never run. The refusal names both numbers so the surplus entry is
+    // obvious rather than something the user has to count.
+    Result<ModelSelection> created = ModelSelection.Create(
+        ["alpha/model", "beta/other", "gamma/third", "delta/fourth"]);
+
+    Assert.False(created.IsSuccess);
+    Assert.Equal("InvalidModelChoice", created.Error.Code);
+    Assert.Contains("4 models", created.Error.Message, StringComparison.Ordinal);
+    Assert.Contains("at most 3", created.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void AStoredListLongerThanTheLimit_RestoresItsFirstThreeEntries()
+  {
+    // A value written before the limit existed, or hand-edited past it. The surplus can never
+    // serve, and refusing the whole value would drop the head the user did choose.
+    ModelSelection parsed = ModelSelection.Parse(
+        /*lang=json,strict*/
+        """{"Models":["alpha/model","beta/other","gamma/third","delta/fourth"],"Variant":"Standard"}""")
+        .ValueOrNull!;
+
+    Assert.Equal(["alpha/model", "beta/other", "gamma/third"], parsed.ModelIds);
+    Assert.Equal("alpha/model", parsed.Head);
+  }
+
   // ── the legacy shapes ────────────────────────────────────────────────────
 
   [Fact]

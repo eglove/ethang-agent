@@ -26,6 +26,12 @@ public sealed record ModelSelection(IReadOnlyList<string> ModelIds,
     ModelVariant Variant = ModelVariant.Standard,
     RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
 {
+  /// <summary>The most models a selection may name: the head plus two backups.
+  ///     <para>THE PROVIDER ACCEPTS THREE. Its routing list is documented as taking at most three
+  ///     entries, and a longer one is refused with a 400 before any model serves, so a fourth
+  ///     entry is a list that can never run.</para></summary>
+  public const int MaxModels = 3;
+
   /// <summary>Value equality over the ordered ids, the variant, and the tier.
   ///     <para>THE DEFAULT RECORD EQUALITY COMPARES THE LIST BY REFERENCE, so two selections
   ///     carrying the same ids would compare unequal. Order is part of the value: the same ids in
@@ -106,12 +112,9 @@ public sealed record ModelSelection(IReadOnlyList<string> ModelIds,
           $"the model list has no id at position {blank + 1}; every entry must name a model."));
     }
 
-    string? duplicate = trimmed.GroupBy(id => id, StringComparer.Ordinal)
-        .FirstOrDefault(group => group.Count() > 1)?.Key;
-    return duplicate is not null
-        ? Result.Failure<ModelSelection>(new DomainError("InvalidModelChoice",
-            $"the model '{duplicate}' appears more than once in the list; a repeated model "
-            + "can never serve, so remove the extra entry."))
+    DomainError? refusal = DuplicateRefusal(trimmed) ?? TooManyRefusal(trimmed);
+    return refusal is not null
+        ? Result.Failure<ModelSelection>(refusal)
         : Result.Success(new ModelSelection(trimmed, variant, retention));
   }
 
@@ -176,10 +179,12 @@ public sealed record ModelSelection(IReadOnlyList<string> ModelIds,
         storedIds = [parsed.ModelId];
       }
 
+      // A LIST LONGER THAN THE PROVIDER ACCEPTS RESTORES AS ITS FIRST ENTRIES: the surplus could
+      // never serve, and refusing the whole value would drop a head the user did choose.
       return storedIds.Count == 0 || storedIds.Any(string.IsNullOrWhiteSpace)
           ? Result.Failure<ModelSelection>(NoModel())
           : Result.Success(new ModelSelection(
-              [.. storedIds.Select(BaseId)], variant.Value, tier.Value));
+              [.. storedIds.Take(MaxModels).Select(BaseId)], variant.Value, tier.Value));
     }
 #pragma warning disable CA1031 // A malformed preference is an EXPECTED condition: it becomes a named error.
     catch (JsonException ex)
@@ -276,6 +281,26 @@ public sealed record ModelSelection(IReadOnlyList<string> ModelIds,
   private static DomainError AtLeastOneModel()
       => new("InvalidModelChoice",
           "the model list is empty; add at least one model before saving.");
+
+  /// <summary>The refusal for a list naming a model twice: the second occurrence can never serve,
+  ///     because the first already covered it.</summary>
+  private static DomainError? DuplicateRefusal(List<string> ids)
+      => ids.GroupBy(id => id, StringComparer.Ordinal).FirstOrDefault(group => group.Count() > 1)?.Key is { } duplicate
+          ? new DomainError("InvalidModelChoice",
+              $"the model '{duplicate}' appears more than once in the list; a repeated model "
+              + "can never serve, so remove the extra entry.")
+          : null;
+
+  /// <summary>The refusal for a list longer than the provider accepts, or null when it fits.</summary>
+  private static DomainError? TooManyRefusal(List<string> ids)
+      => ids.Count > MaxModels ? TooManyModels(ids.Count) : null;
+
+  /// <summary>The refusal for a selection longer than the provider accepts, naming the count and
+  ///     the limit so the surplus entries can be removed rather than guessed at.</summary>
+  private static DomainError TooManyModels(int count)
+      => new("InvalidModelChoice",
+          $"the model list names {count} models; at most {MaxModels} can be selected, because the "
+          + "provider accepts no more than that on one request. Remove the extra entries.");
 
   private static DomainError NoModel()
       => new("InvalidModelChoice",

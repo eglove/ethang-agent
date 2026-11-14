@@ -302,6 +302,25 @@ public class AgentSessionViewModelTests
   }
 
   [Fact]
+  public void AListLongerThanTheProviderAccepts_IsRefused_AndLeavesTheSelectionAlone()
+  {
+    // The provider takes at most three entries on one request, so a longer list is a caller fault
+    // the session reports rather than a selection it adopts and then fails to serve.
+    SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"] };
+    AgentSessionViewModel vm = new(
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
+
+    vm.ApplyModelChoice(["alpha/model", "beta/other", "gamma/third", "delta/fourth"]);
+
+    Assert.Equal(["alpha/model"], preferences.ModelIds);
+    Assert.Equal("alpha/model", vm.Status.ModelId);
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("At most 3 models", notice.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void A_Session_With_A_Pick_Keeps_It()
   {
     // The restored per-workspace pick is the user's choice and is never overwritten.

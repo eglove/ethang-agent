@@ -1408,6 +1408,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return;
     }
 
+    if (modelIds.Count > ModelSelection.MaxModels)
+    {
+      Transcript.AddNotice($"At most {ModelSelection.MaxModels} models can be selected, because the "
+          + "provider accepts no more on one request; the model list was left unchanged.");
+      return;
+    }
+
     // The list lands whole: a reopened or relaunched session serves the same models in the
     // same order. The status bar names the HEAD, because entry 1 is the model that runs - a
     // backup that answered one turn never becomes the head.

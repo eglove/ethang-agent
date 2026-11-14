@@ -121,6 +121,34 @@ public class ModelPickerViewModelTests
     Assert.Contains(Beta, vm.SelectionError!, StringComparison.Ordinal);
   }
 
+  [Fact]
+  public async Task AddingAFourthModel_IsRefused_AndSaysWhy()
+  {
+    // The provider accepts at most three entries on one request, so a fourth could never serve.
+    // The refusal names the limit rather than leaving the button looking dead.
+    ModelPickerViewModel vm = await LoadAsync(
+        [Entry(), Entry(modelId: Beta), Entry(modelId: "gamma/model"), Entry(modelId: "delta/model")],
+        [Model, Beta, "gamma/model"]).ConfigureAwait(true);
+
+    SelectCatalogRow(vm, "delta/model");
+    vm.AddModelCommand.Execute(null);
+
+    Assert.Equal([Model, Beta, "gamma/model"], vm.SelectedModels.Select(row => row.ModelId));
+    Assert.Contains("At most 3", vm.SelectionError!, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Opening_WithMoreModelsThanTheProviderAccepts_ShowsTheFirstThree()
+  {
+    // A list longer than the limit is trimmed to the entries that can actually serve, in order.
+    ModelPickerViewModel vm = await LoadAsync(
+        [Entry(), Entry(modelId: Beta), Entry(modelId: "gamma/model"), Entry(modelId: "delta/model")],
+        [Model, Beta, "gamma/model", "delta/model"]).ConfigureAwait(true);
+
+    Assert.Equal([Model, Beta, "gamma/model"], vm.SelectedModels.Select(row => row.ModelId));
+    Assert.Equal([1, 2, 3], vm.SelectedModels.Select(row => row.Position));
+  }
+
   // ── behaviour 3: adding with nothing selected does nothing, silently ───────
 
   [Fact]

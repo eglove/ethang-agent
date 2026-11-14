@@ -250,6 +250,16 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   private async Task<Result<Dictionary<string, object?>>> BuildRequestBodyAsync(ModelConfig config,
       ModelRequest request, bool stream, CancellationToken ct)
   {
+    if (config.FallbackModelIds.Count + 1 > ModelSelection.MaxModels)
+    {
+      // THE PROVIDER TAKES AT MOST THREE ENTRIES and refuses a longer list with a 400 before any
+      // model serves, so the request is never built: the turn fails naming the limit instead of
+      // spending a round trip on a body the provider will reject.
+      return Result.Failure<Dictionary<string, object?>>(new DomainError("ModelListTooLong",
+          $"the model list names {config.FallbackModelIds.Count + 1} models; at most "
+          + $"{ModelSelection.MaxModels} can be sent on one request."));
+    }
+
     Dictionary<string, object?> bodyDict = BaseBody(config, request);
     DomainError? fault = AttachSessionId(bodyDict, request);
     if (fault is null)

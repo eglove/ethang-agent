@@ -254,7 +254,13 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       RetentionPolicy currentRetention = RetentionPolicy.ZeroDataRetention)
   {
     _loadCatalog = loadCatalog ?? throw new ArgumentNullException(nameof(loadCatalog));
-    _modelIds = [.. (currentModelIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim())];
+    _modelIds =
+    [
+      .. (currentModelIds ?? [])
+        .Where(id => !string.IsNullOrWhiteSpace(id))
+        .Select(id => id.Trim())
+        .Take(ModelSelection.MaxModels),
+    ];
 
     // The commands exist before the observable properties: setting those raises the changed
     // hooks, which requery command availability. The guard in the action is load-bearing:
@@ -349,6 +355,8 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   /// <summary>Appends the catalog row under the search box as the LAST entry of the ordered list.
   ///     <para>A REPEATED MODEL IS REFUSED AND NAMED rather than appended twice: the second
   ///     occurrence can never serve, because the first already covered it.</para>
+  ///     <para>A FOURTH MODEL IS REFUSED AND NAMED for the same reason: the provider accepts at
+  ///     most three entries on one request, so an entry past the third could never serve.</para>
   ///     <para>NOTHING SELECTED IN THE CATALOG IS NOT AN ERROR - it is the state the section opens
   ///     in, and reporting it as a failure would put a message under a list the user has not
   ///     tried to change.</para></summary>
@@ -363,6 +371,13 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     {
       SelectionError = $"{modelId} is already in the list; a model that appears twice can never be "
           + "the backup that runs.";
+      return;
+    }
+
+    if (_modelIds.Count >= ModelSelection.MaxModels)
+    {
+      SelectionError = $"At most {ModelSelection.MaxModels} models can be selected; remove one before "
+          + "adding another.";
       return;
     }
 

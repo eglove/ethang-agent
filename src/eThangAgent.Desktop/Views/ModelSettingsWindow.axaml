@@ -30,6 +30,8 @@
                tick order is a priority the user cannot see - so the order is stated by the numbers
                and changed by the three buttons beside the list. -->
           <TextBlock Text="Model" FontWeight="SemiBold"/>
+          <TextBlock Text="Entry 1 runs; the rest are ordered backups. At most 3 models can be selected."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
           <ListBox x:Name="SelectedModelList" ItemsSource="{Binding ModelSection.SelectedModels}"
                    SelectedItem="{Binding ModelSection.SelectedModel}" MaxHeight="160">
             <ListBox.ItemTemplate>
