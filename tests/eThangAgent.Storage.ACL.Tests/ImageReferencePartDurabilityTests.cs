@@ -24,6 +24,10 @@ public sealed class ImageReferencePartDurabilityTests : IDisposable
   private const string Jpeg2x2Base64 =
       "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD5soooroMD/9k=";
 
+  // The 8-byte PNG signature: payload admission sniffs it, so a payload of N bytes that must be
+  // admitted starts with it.
+  private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
   private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly string _imageRoot = TestTempRoot.CreateDirectory("ethang-imgref").FullName;
   private readonly SqliteAgentStore _store;
@@ -352,6 +356,239 @@ public sealed class ImageReferencePartDurabilityTests : IDisposable
     _ = command.ExecuteNonQuery();
   }
 
+  // --- A reference survives a process boundary ---
+
+  /// <summary>A screenshot-sized payload persisted as a reference and read back through a SECOND
+  ///     store over the same file - the instance a restarted app builds, with nothing the first
+  ///     instance held. The row stays a pointer under a kilobyte, the pointer names the same file,
+  ///     and the bytes behind it are the bytes that were stored.</summary>
+  [Fact]
+  public async Task AStoredScreenshot_SurvivesARestart_AndItsBytesAreTheFile()
+  {
+    AgentId id = await SavedAgentAsync();
+    byte[] screenshot = PngPayload(400 * 1024);
+    string path = StoreImage(screenshot, "png");
+    MessagePart.ImageReferencePart part = Must(
+        MessagePart.ImageReferencePart.Create("image/png", screenshot, path));
+    string metaJson = await AppendAndReadMetaAsync(id, part);
+
+    Result<IReadOnlyList<Message>> transcript = await Restarted()
+        .GetTranscriptAsync(id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(transcript.IsSuccess, transcript.Error?.Message);
+    Message loaded = Assert.Single(transcript.Value);
+    Assert.Equal("captured the screen", loaded.Content);
+    MessagePart.ImageReferencePart loadedPart = Assert.IsType<MessagePart.ImageReferencePart>(
+        Assert.Single(loaded.Parts!));
+    Assert.Equal(path, loadedPart.Path);
+    Assert.Equal("image/png", loadedPart.MediaType);
+    Assert.DoesNotContain("Base64Data", metaJson, StringComparison.Ordinal);
+    Assert.True(metaJson.Length < 1024,
+        $"a reference row stays under 1,024 bytes; this one is {metaJson.Length}");
+    Assert.Equal(screenshot, await File.ReadAllBytesAsync(loadedPart.Path,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+  }
+
+  /// <summary>One row in the old inline Base64Data shape and one in the reference shape, both
+  ///     written after this database is open and both read through a second instance over the same
+  ///     file. The inline row still returns its payload, and its stored meta_json is byte-identical
+  ///     to what the write left there: nothing rewrote history.</summary>
+  [Fact]
+  public async Task TheLegacyRowAndTheReferenceRow_CoexistAcrossARestart_AndTheLegacyRowIsUntouched()
+  {
+    AgentId id = await SavedAgentAsync();
+    byte[] png = PngPayload(400 * 1024);
+    string path = StoreImage(png, "png");
+    const string LegacyPayload = "aGVsbG8=";
+
+    foreach (Message message in new[]
+             {
+               new Message(Role.Tool, "older screenshot", At(1), ToolCallId: "call_1",
+                   Parts: [new MessagePart.ImagePart("image/png", LegacyPayload)]),
+               new Message(Role.Tool, "newer screenshot", At(2), ToolCallId: "call_2",
+                   Parts: [Must(MessagePart.ImageReferencePart.Create("image/png", png, path))]),
+             })
+    {
+      Result<string> appended = await _store.AppendMessageAsync(id, message,
+          ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(appended.IsSuccess, appended.Error?.Message);
+    }
+
+    string legacyBefore = MetaJsonAt(id, 0);
+
+    Result<IReadOnlyList<Message>> transcript = await Restarted()
+        .GetTranscriptAsync(id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(transcript.IsSuccess, transcript.Error?.Message);
+    Assert.Equal(2, transcript.Value.Count);
+    MessagePart.ImagePart legacy = Assert.IsType<MessagePart.ImagePart>(
+        Assert.Single(transcript.Value[0].Parts!));
+    Assert.Equal("image/png", legacy.MediaType);
+    Assert.Equal(LegacyPayload, legacy.Base64Data);
+    MessagePart.ImageReferencePart reference = Assert.IsType<MessagePart.ImageReferencePart>(
+        Assert.Single(transcript.Value[1].Parts!));
+    Assert.Equal(path, reference.Path);
+    Assert.Equal(legacyBefore, MetaJsonAt(id, 0));
+    Assert.DoesNotContain("Base64Data", MetaJsonAt(id, 1), StringComparison.Ordinal);
+  }
+
+  /// <summary>A reference whose file is gone still reads as a MESSAGE: the text survives, the
+  ///     pointer survives, and the only thing missing is the picture. The shared render path reads
+  ///     the part without touching the file, so a request or a context list never throws over a
+  ///     lost image.</summary>
+  [Fact]
+  public async Task AReferenceWhoseFileIsGone_StillReadsAsAMessage_AndRendersItsPath()
+  {
+    AgentId id = await SavedAgentAsync();
+    byte[] png = PngPayload(400 * 1024);
+    string path = StoreImage(png, "png");
+    _ = await AppendAndReadMetaAsync(id, Must(
+        MessagePart.ImageReferencePart.Create("image/png", png, path)));
+    File.Delete(path);
+
+    Result<IReadOnlyList<Message>> transcript = await Restarted()
+        .GetTranscriptAsync(id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(transcript.IsSuccess, transcript.Error?.Message);
+    Message loaded = Assert.Single(transcript.Value);
+    Assert.Equal("captured the screen", loaded.Content);
+    MessagePart.ImageReferencePart missing = Assert.IsType<MessagePart.ImageReferencePart>(
+        Assert.Single(loaded.Parts!));
+    Assert.Equal(path, missing.Path);
+    Assert.False(File.Exists(missing.Path), "the fixture's file is gone");
+    PartRender rendered = Assert.Single(PartRenders.Of(loaded.Parts!));
+    Assert.Equal(path, rendered.ImagePath);
+  }
+
+  /// <summary>A message carrying no parts keeps the legacy parts-less shape: an empty parts list
+  ///     persists as null and reads back as null, so no row gains a parts entry it has nothing to
+  ///     put in.</summary>
+  [Fact]
+  public async Task AnEmptyPartsList_StaysNull_AcrossARestart()
+  {
+    AgentId id = await SavedAgentAsync();
+    _ = await _store.AppendMessageAsync(id,
+        new Message(Role.Tool, "no picture", At(1), ToolCallId: "call_1", Parts: []),
+        ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Result<IReadOnlyList<Message>> transcript = await Restarted()
+        .GetTranscriptAsync(id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(transcript.IsSuccess, transcript.Error?.Message);
+    Assert.Null(Assert.Single(transcript.Value).Parts);
+  }
+
+  /// <summary>A restored transcript re-persisted - what a compaction or a flush does after a
+  ///     restart - is BYTE-IDENTICAL to what it was restored from: the part is already a pointer,
+  ///     so nothing is converted on the way back in and neither column can drift. This is the
+  ///     property a repeated flush depends on, and it holds whether or not the row's content
+  ///     names the file.</summary>
+  [Fact]
+  public async Task RestoringAndRePersistingAReference_LeavesBothColumnsByteIdentical()
+  {
+    AgentId id = await SavedAgentAsync();
+    byte[] png = PngPayload(400 * 1024);
+    string path = StoreImage(png, "png");
+    _ = await AppendAndReadMetaAsync(id, Must(
+        MessagePart.ImageReferencePart.Create("image/png", png, path)));
+    string contentBefore = ContentAt(id, 0);
+    string metaBefore = MetaJsonAt(id, 0);
+
+    Result<IReadOnlyList<Message>> transcript = await Restarted()
+        .GetTranscriptAsync(id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(transcript.IsSuccess, transcript.Error?.Message);
+    Result<string> replaced = await Restarted().ReplaceTranscriptAsync(id, transcript.Value,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(replaced.IsSuccess, replaced.Error?.Message);
+
+    Assert.Equal(contentBefore, ContentAt(id, 0));
+    Assert.Equal(metaBefore, MetaJsonAt(id, 0));
+  }
+
+  // --- The closed in-memory vocabulary, and the schema the durable form needs ---
+
+  /// <summary>The part vocabulary later steps read: exactly three concrete kinds, so a consumer's
+  ///     switch is exhaustive and a new kind cannot appear unnoticed. Both image forms are members,
+  ///     and <c>is MessagePart.ImagePart</c> still matches the inline form alone.</summary>
+  [Fact]
+  public void ThePartVocabulary_IsClosed_AndBothImageFormsAreMembers()
+  {
+    string[] members = [.. typeof(MessagePart).Assembly.GetTypes()
+        .Where(type => type.IsSubclassOf(typeof(MessagePart)) && !type.IsAbstract)
+        .Select(type => type.Name)
+        .OrderBy(name => name, StringComparer.Ordinal)];
+
+    Assert.Equal(["ImagePart", "ImageReferencePart", "TextPart"], members);
+
+    MessagePart inline = new MessagePart.ImagePart("image/png", "aGVsbG8=");
+    MessagePart reference = new MessagePart.ImageReferencePart(
+        Path.Combine(_imageRoot, "closed.png"), "image/png");
+
+    _ = Assert.IsType<MessagePart.ImagePart>(inline);
+    Assert.IsNotType<MessagePart.ImagePart>(reference);
+  }
+
+  /// <summary>A reference is a meta_json entry, not a column: the file is at the version this build
+  ///     declares, and no column of agent_messages names an image or a payload. A durable image
+  ///     form that needed a column would move both numbers in the same change, because the
+  ///     migration runner refuses to run when they disagree.</summary>
+  [Fact]
+  public void TheDurablePointerForm_AddsNoColumn_AndTheFileStaysAtTheDeclaredVersion()
+  {
+    Assert.Equal(AppDatabase.LatestSchemaVersion, SchemaVersion());
+
+    string[] imageShaped = [.. AgentMessageColumns().Where(name =>
+        name.Contains("image", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("base64", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("blob", StringComparison.OrdinalIgnoreCase))];
+    Assert.Empty(imageShaped);
+  }
+
+  /// <summary>A database stamped one version below this build's declared version migrates forward
+  ///     on open - exactly one step - and the transcript it already holds reads back with its text
+  ///     and its pointer intact.</summary>
+  [Fact]
+  public async Task ADatabaseAtThePreviousVersion_MigratesForward_AndItsTranscriptStillReads()
+  {
+    AgentId id = await SavedAgentAsync();
+    byte[] png = PngPayload(400 * 1024);
+    string path = StoreImage(png, "png");
+    _ = await AppendAndReadMetaAsync(id, Must(
+        MessagePart.ImageReferencePart.Create("image/png", png, path)));
+    string metaBefore = MetaJsonAt(id, 0);
+    Execute($"PRAGMA user_version = {AppDatabase.LatestSchemaVersion - 1};");
+
+    Result<IReadOnlyList<Message>> transcript = await Restarted()
+        .GetTranscriptAsync(id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(transcript.IsSuccess, transcript.Error?.Message);
+    Assert.Equal(AppDatabase.LatestSchemaVersion, SchemaVersion());
+    MessagePart.ImageReferencePart loaded = Assert.IsType<MessagePart.ImageReferencePart>(
+        Assert.Single(Assert.Single(transcript.Value).Parts!));
+    Assert.Equal(path, loaded.Path);
+    Assert.Equal("captured the screen", Assert.Single(transcript.Value).Content);
+    Assert.Equal(metaBefore, MetaJsonAt(id, 0));
+  }
+
+  /// <summary>Opening a database that is already at this build's version runs no migration at all:
+  ///     the version is unmoved and the row the previous open left is byte-identical.</summary>
+  [Fact]
+  public async Task ADatabaseAlreadyAtTheDeclaredVersion_OpensWithoutReMigrating()
+  {
+    AgentId id = await SavedAgentAsync();
+    byte[] png = PngPayload(400 * 1024);
+    string path = StoreImage(png, "png");
+    _ = await AppendAndReadMetaAsync(id, Must(
+        MessagePart.ImageReferencePart.Create("image/png", png, path)));
+    string before = MetaJsonAt(id, 0);
+
+    _ = Restarted();
+    _ = Restarted();
+
+    Assert.Equal(AppDatabase.LatestSchemaVersion, SchemaVersion());
+    Assert.Equal(before, MetaJsonAt(id, 0));
+  }
+
   // --- Behaviour 7: unrepresentable parts stay a programmer error ---
 
   [Fact]
@@ -379,6 +616,84 @@ public sealed class ImageReferencePartDurabilityTests : IDisposable
     command.CommandText = "SELECT COUNT(*) FROM agent_messages WHERE agent_id=@id;";
     _ = command.Parameters.AddWithValue("@id", id.ToString());
     return Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+  }
+
+  /// <summary>Writes a PNG-signature payload of exactly <paramref name="size"/> bytes: the
+  ///     admission rule reads the signature, so a payload this large is admitted.</summary>
+  private static byte[] PngPayload(int size)
+  {
+    byte[] bytes = new byte[size];
+    PngSignature.CopyTo(bytes, 0);
+    return bytes;
+  }
+
+  /// <summary>A second store over the same file, standing in for the instance a restarted app
+  ///     builds: nothing the first instance held is reachable from here.</summary>
+  private SqliteAgentStore Restarted() => new(new AppDatabase(_dbPath));
+
+  /// <summary>The content column of one row, read straight from the file.</summary>
+  private string ContentAt(AgentId id, int seq) => RowAt(id, seq, "content");
+
+  /// <summary>The meta_json of one row, read straight from the file.</summary>
+  private string MetaJsonAt(AgentId id, int seq) => RowAt(id, seq, "meta_json");
+
+  /// <summary>One text column of one row, read on this test's own connection.</summary>
+  private string RowAt(AgentId id, int seq, string column)
+  {
+    using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString());
+    connection.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    // Named decision (CA2100): the column is a literal from this test file, never input.
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+    command.CommandText = $"SELECT {column} FROM agent_messages WHERE agent_id=@id AND seq=@seq;";
+#pragma warning restore CA2100
+    _ = command.Parameters.AddWithValue("@id", id.ToString());
+    _ = command.Parameters.AddWithValue("@seq", seq);
+    return (string)command.ExecuteScalar()!;
+  }
+
+  /// <summary>The file's schema version, as PRAGMA user_version reports it.</summary>
+  private long SchemaVersion() =>
+      Convert.ToInt64(FirstColumn("PRAGMA user_version;"), System.Globalization.CultureInfo.InvariantCulture);
+
+  /// <summary>The column names on agent_messages as the file spells them.</summary>
+  private List<string> AgentMessageColumns() =>
+      [.. Column("SELECT name FROM pragma_table_info('agent_messages');")
+          .Select(value => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!)];
+
+  /// <summary>The first column of the query's first row.</summary>
+  private object FirstColumn(string sql) => Column(sql)[0];
+
+  /// <summary>Every value of the query's first column, in row order.</summary>
+  private List<object> Column(string sql)
+  {
+    using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString());
+    connection.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    // Named decision (CA2100): every caller passes a literal from this test file.
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    using SqliteDataReader reader = command.ExecuteReader();
+    List<object> values = [];
+    while (reader.Read())
+    {
+      values.Add(reader.GetValue(0));
+    }
+    return values;
+  }
+
+  /// <summary>Runs a statement that mutates this test's database file.</summary>
+  private void Execute(string sql)
+  {
+    using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString());
+    connection.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    // Named decision (CA2100): every caller passes a literal from this test file.
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
   }
 
   private static T Must<T>(Result<T> result)
