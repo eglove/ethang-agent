@@ -5,9 +5,9 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
-// Pins for the reasoning TELEMETRY channel at the loop (issue #263): the trace is
-// recorded at the safe point each iteration completes, under CancellationToken.None, and
-// a persistence fault never fails the turn. Nothing here feeds back into a request.
+// Pins that the reasoning trace stays a DISPLAY channel (issue #263) and is never a
+// persisted one (issue #384): the loop writes no row for it, and nothing it might write
+// reaches the next request either way.
 public class AgentReasoningTelemetryTests
 {
   private static ModelConfig DefaultConfig =>
@@ -42,8 +42,11 @@ public class AgentReasoningTelemetryTests
     }
   }
 
+  /// <summary>The trace is displayed, never persisted: a provider that streamed one for every
+  ///     iteration adds no event row at all. The reasoning table was 79% of the app database
+  ///     and nothing read a row of it, so the write is what had to stop.</summary>
   [Fact]
-  public async Task SendMessage_WithReasoning_RecordsOneEventPerIteration()
+  public async Task SendMessage_WithReasoning_RecordsNoEventRow()
   {
     ReasoningProvider provider = new(
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "read", "{}")])
@@ -62,16 +65,8 @@ public class AgentReasoningTelemetryTests
     Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.True(result.IsSuccess);
-    Assert.Equal(2, log.Events.Count);
-    AgentReasoningRecorded first = Assert.IsType<AgentReasoningRecorded>(log.Events[0]);
-    AgentReasoningRecorded second = Assert.IsType<AgentReasoningRecorded>(log.Events[1]);
-    Assert.Equal("first thought", first.Text);
-    Assert.Equal("second thought", second.Text);
-    // (agent, turn, iteration) identity: one turn id across the turn, 0-based iteration.
-    Assert.Equal(first.TurnId, second.TurnId);
-    Assert.Equal(0, first.Iteration);
-    Assert.Equal(1, second.Iteration);
-    Assert.Equal(agent.Id, first.AgentId);
+    Assert.Empty(log.Events.OfType<AgentReasoningRecorded>());
+    Assert.Empty(log.Events);
   }
 
   [Fact]

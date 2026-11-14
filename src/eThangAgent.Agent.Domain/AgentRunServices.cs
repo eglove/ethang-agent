@@ -38,8 +38,8 @@ namespace eThangAgent.AgentDomain;
 ///     audit row instead of looping on tools with zero model calls (issue #124,
 ///     2026-10-15 incident). Legacy test wiring (false, the default) stays
 ///     byte-identical.</param>
-/// <param name="EventLog">Append-only event log a child records its reasoning traces to
-///     (issue #263) — the same telemetry channel the root uses, keyed by the child's own
+/// <param name="EventLog">Append-only event log a child records its usage rows to
+///     (issue #270) — the same telemetry channel the root uses, keyed by the child's own
 ///     id. Null disables child telemetry (legacy wiring, tests): byte-identical behavior.</param>
 /// <param name="UsagePrices">Resolves the prices stamped onto each child usage row at
 ///     write time (issue #23). Null (legacy wiring) stamps null prices: the row records

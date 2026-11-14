@@ -557,9 +557,9 @@ public static class AgentComposition
         .AddSingleton<IAgentStore>(sp => new SqliteAgentStore(
             sp.GetRequiredService<AppDatabase>(),
             imagesFor: sessionId => sp.GetRequiredService<IImageStore>()))
-        // The append-only event log (issue #263): the SAME store instance backs both
-        // seams — the reasoning trace is an ordinary agent_events row, which is exactly
-        // what keeps it out of the conversation (and out of every request).
+        // The append-only event log (issue #270): the SAME store instance backs both seams —
+        // a usage row is an ordinary agent_events row, which keeps the cost ledger out of the
+        // conversation (and out of every request).
         .AddSingleton<IAgentEventLog>(sp => (SqliteAgentStore)sp.GetRequiredService<IAgentStore>())
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
@@ -1052,8 +1052,8 @@ public static class AgentComposition
             // row) instead of looping without model calls. The spawn stamp above always
             // supplies one; this is the second net under it.
             ProviderRequired: true,
-            // Children record their reasoning traces to the same append-only log
-            // (issue #263), keyed by their own agent id.
+            // Children record their usage rows to the same append-only log (issue #270),
+            // keyed by their own agent id.
             EventLog: sp.GetRequiredService<IAgentEventLog>(),
             // Every run stamps the same prices and workspace as the root (issue #23);
             // a run's usage rows carry its own agent id, which is its session (#24).

@@ -63,7 +63,8 @@ public static class EmbeddedImagePayloadStrip
   ///     <c>app_preferences</c> is a key-value store for what the app and its user chose, and a
   ///     migration's audit row is neither. Keeping it in its own table also means the question
   ///     'does the table exist yet' has one answer - this step creates it - rather than depending
-  ///     on how old the database is.</summary>
+  ///     on how old the database is. V44's reasoning sweep keeps its record here too, so every
+  ///     migration that moves data into the same table.</summary>
   public const string ReportTable = "migration_reports";
 
   /// <summary>The version this record belongs to.</summary>

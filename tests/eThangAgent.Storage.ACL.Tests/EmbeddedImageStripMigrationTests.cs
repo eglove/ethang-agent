@@ -20,6 +20,10 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
   ///     stayed behind would still be a real image rather than bytes nothing could decode.</summary>
   private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
+  /// <summary>The version before the strip's own. The fixture steps the database back to it so
+  ///     opening runs that step and every step after it, in the order a real upgrade runs them.</summary>
+  private const int BeforeV43 = 42;
+
   private readonly string _dbPath = TemplateDatabase.Copy();
   private readonly string _imageRoot = TestTempRoot.CreateDirectory("ethang-strip").FullName;
 
@@ -169,7 +173,7 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
   public void TheStripRunsOnce_InsideTheMigration_AndNotOnEveryStartup()
   {
     SeedLegacyHistory();
-    Assert.Equal(AppDatabase.LatestSchemaVersion - 1, Scalar("PRAGMA user_version;"));
+    Assert.Equal(BeforeV43, Scalar("PRAGMA user_version;"));
 
     _ = new AppDatabase(_dbPath);
 
@@ -321,7 +325,7 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
   {
     string first = Convert.ToBase64String(PngPayload(1000));
     string second = Convert.ToBase64String(PngPayload(2000));
-    Execute($"PRAGMA user_version = {AppDatabase.LatestSchemaVersion - 1};");
+    Execute($"PRAGMA user_version = {BeforeV43};");
     Insert("two screenshots", JsonSerializer.Serialize(new
     {
       Timestamp = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
@@ -355,7 +359,7 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
   {
     string stored = Path.Combine(_imageRoot, "kept.png");
     File.WriteAllBytes(stored, PngPayload(400));
-    Execute($"PRAGMA user_version = {AppDatabase.LatestSchemaVersion - 1};");
+    Execute($"PRAGMA user_version = {BeforeV43};");
     Insert("one stored, one inline", JsonSerializer.Serialize(new
     {
       Timestamp = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
@@ -385,7 +389,7 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
   [Fact]
   public async Task AHundredPayloadRows_AreAllStripped_AndTheCountMatches()
   {
-    Execute($"PRAGMA user_version = {AppDatabase.LatestSchemaVersion - 1};");
+    Execute($"PRAGMA user_version = {BeforeV43};");
     for (int i = 0; i < 100; i++)
     {
       Insert($"screen {i}", PayloadMeta(Convert.ToBase64String(PngPayload(2000 + i))));
@@ -426,7 +430,7 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
     // Forty rows of 200 KB each: a population where the payloads dominate the file, so the
     // relationship is measurable rather than lost in schema overhead.
     const int rows = 40;
-    Execute($"PRAGMA user_version = {AppDatabase.LatestSchemaVersion - 1};");
+    Execute($"PRAGMA user_version = {BeforeV43};");
     for (int i = 0; i < rows; i++)
     {
       Insert($"screen {i}", PayloadMeta(Convert.ToBase64String(PngPayload(200 * 1024))));
@@ -514,7 +518,7 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
   ///     wrote, and reproducing it is the only way to test the migration against it.</para></summary>
   private void SeedLegacyHistory()
   {
-    Execute($"PRAGMA user_version = {AppDatabase.LatestSchemaVersion - 1};");
+    Execute($"PRAGMA user_version = {BeforeV43};");
     // The agent row the transcript belongs to, so a read through the store resolves it: the strip
     // rewrites messages, and a test that could not READ the result could not show they survived.
     Execute("INSERT INTO agents (id, status, failure_reason, model_used, label, task_prompt, "

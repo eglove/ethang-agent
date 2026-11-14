@@ -395,13 +395,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         continue; // overflow recovery ran: re-send
       }
 
-      // The reasoning trace and the usage counts are recorded BEFORE the iteration
-      // advances: the safe point is the moment the response exists, so a crash later in
-      // the turn still leaves every completed iteration persisted (issues #263, #270).
-      // Both records read state.Iteration here, so their (turn, iteration) identities
-      // agree; recording usage from ReportUsage instead would number it one ahead,
-      // because that runs after the increment inside HandleSuccessAsync.
-      await RecordReasoningAsync(result.Value, state).ConfigureAwait(false);
+      // The usage counts are recorded BEFORE the iteration advances: the safe point is the
+      // moment the response exists, so a crash later in the turn still leaves every completed
+      // iteration persisted (issue #270). The record reads state.Iteration here; recording
+      // usage from ReportUsage instead would number it one ahead, because that runs after the
+      // increment inside HandleSuccessAsync.
       await RecordUsageTelemetryAsync(result.Value, state, callbacks).ConfigureAwait(false);
       state.Iteration++;
       callbacks?.OnIterationEnd?.Invoke();
@@ -504,35 +502,6 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     Conversation.AddSystemMessage(failure);
     callbacks?.OnSystemMessage?.Invoke(failure);
     return Result.Failure<string>(error);
-  }
-
-  /// <summary>Records one iteration's reasoning text as TELEMETRY (issue #263): an
-  ///     append-only event row keyed by (agent, turn, iteration). Runs at the safe point
-  ///     where the response exists, with <see cref="CancellationToken.None"/> — the trace
-  ///     of a turn that is about to be cancelled is exactly the trace worth keeping.
-  ///     <para>A provider that streamed no reasoning records nothing (an absent trace is
-  ///     a different fact from an empty one), and a persistence fault is SWALLOWED: the
-  ///     established best-effort discipline — the turn must never fail because its
-  ///     telemetry hiccupped. Nothing here reads back into the request, so the model's
-  ///     next request is byte-identical whether or not this ran.</para></summary>
-  private async Task RecordReasoningAsync(ModelResponse response, TurnState state)
-  {
-    if (_eventLog is null || string.IsNullOrEmpty(response.Reasoning))
-    {
-      return;
-    }
-
-    try
-    {
-      _ = await _eventLog.AppendEventAsync(
-          new AgentReasoningRecorded(Id, DateTimeOffset.UtcNow, state.TurnId, state.Iteration,
-              response.Reasoning),
-          CancellationToken.None).ConfigureAwait(false);
-    }
-    catch (Exception ex) when (ex is not OperationCanceledException)
-    {
-      // Swallowed deliberately: telemetry is best-effort, never turn-failing.
-    }
   }
 
   /// <summary>Records one provider call's token accounting AND cost as TELEMETRY (issues

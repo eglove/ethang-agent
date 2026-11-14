@@ -55,10 +55,9 @@ public sealed record AgentOptions
   ///     without persisting anything.</summary>
   public IImageStore? Images { get; init; }
 
-  /// <summary>Append-only event log the loop records reasoning traces to (issue #263):
-  ///     the TELEMETRY channel, never the context channel — no request builder reads it
-  ///     back, so a persisted trace changes no request byte. Null (legacy wiring) records
-  ///     nothing: byte-identical legacy behavior.</summary>
+  /// <summary>Append-only event log the loop records per-call usage rows to (issue #270).
+  ///     The TELEMETRY channel, never the context channel — no request builder reads it back.
+  ///     Null (legacy wiring) records nothing: byte-identical legacy behavior.</summary>
   public IAgentEventLog? EventLog { get; init; }
 
   /// <summary>Resolves the per-token prices stamped onto each usage row at write time

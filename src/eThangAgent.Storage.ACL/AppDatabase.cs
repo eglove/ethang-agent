@@ -102,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 43;
+  public const int LatestSchemaVersion = 44;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -152,6 +152,7 @@ public sealed class AppDatabase
     (41, ApplyV41),
     (42, ApplyV42),
     (43, ApplyV43),
+    (44, ApplyV44),
   ];
 
   private void Migrate()
@@ -1801,6 +1802,26 @@ public sealed class AppDatabase
     }
 
     _ = EmbeddedImagePayloadStrip.Run(connection);
+  }
+
+  /// <summary>V44 removes the reasoning traces this database already holds, and reclaims the file
+  ///     so the space returns to the disk rather than sitting in free pages.
+  ///     <para>IT RUNS ONCE, INSIDE THE MIGRATION, for the same reason V43 does: a rewrite of
+  ///     hundreds of megabytes is only acceptable when the runner advances <c>user_version</c>
+  ///     past it. What it measured and deleted is left in <c>migration_reports</c>.</para>
+  ///     <para>CONDITIONAL ON <c>agent_events</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database; a fresh install reaches this step with the table
+  ///     empty, measures zero, writes that, and advances.</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV44(SqliteConnection connection)
+  {
+    EmbeddedImagePayloadStrip.CreateReportTable(connection);
+    if (!TableExists(connection, "agent_events"))
+    {
+      return;
+    }
+
+    _ = ReasoningTraceRetention.Run(connection);
   }
 
   /// <summary>The repair both V39 and V41 apply: every workspace id that is a second spelling of

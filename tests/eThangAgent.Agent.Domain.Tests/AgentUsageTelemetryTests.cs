@@ -151,11 +151,13 @@ public class AgentUsageTelemetryTests
     Assert.Equal("done", result.Value);
   }
 
+  /// <summary>One turn id across the turn, one row per provider call, 0-based iteration -
+  ///     the safe point that numbers a call before the iteration advances.</summary>
   [Fact]
-  public async Task SendMessage_UsageAndReasoningRows_ShareTurnAndIterationIdentity()
+  public async Task SendMessage_UsageRows_CarryOneTurnIdAndOneRowPerCall()
   {
     // The alignment trap: recording usage from ReportUsage would land it after
-    // state.Iteration++ and number it one ahead of the reasoning row for the same call.
+    // state.Iteration++ and number the first call's row one.
     ScriptedProvider provider = new(
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "read", "{}")])
         {
@@ -175,14 +177,9 @@ public class AgentUsageTelemetryTests
     Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.True(result.IsSuccess);
-    List<AgentReasoningRecorded> reasoning = [.. log.Events.OfType<AgentReasoningRecorded>()];
     List<AgentUsageRecorded> usage = [.. log.Events.OfType<AgentUsageRecorded>()];
-    Assert.Equal(2, reasoning.Count);
     Assert.Equal(2, usage.Count);
-    for (int i = 0; i < reasoning.Count; i++)
-    {
-      Assert.Equal(reasoning[i].TurnId, usage[i].TurnId);
-      Assert.Equal(reasoning[i].Iteration, usage[i].Iteration);
-    }
+    Assert.Equal(usage[0].TurnId, usage[1].TurnId);
+    Assert.Equal([0, 1], usage.Select(row => row.Iteration));
   }
 }
