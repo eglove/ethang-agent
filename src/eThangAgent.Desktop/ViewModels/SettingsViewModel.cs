@@ -47,6 +47,10 @@ internal sealed record SettingsValues
   public string? RootTurnIdleText { get; init; }
   public string? WatchdogIdleText { get; init; }
   public string? WatchdogWrapUpText { get; init; }
+
+  /// <summary>How long persisted history is kept, as raw text. Blank means the thirty-day
+  ///     default; '0' disables retention entirely.</summary>
+  public string? RetentionWindowText { get; init; }
   public string? OpenRouterBaseUrlText { get; init; }
   public bool ComputerUse { get; init; }
 
@@ -70,7 +74,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     string? SkillRegistryDefaultTarget = null,
     string? OpenRouterManagementKey = null,
     string? RootTurnIdleText = null,
-    bool CompactionHandoff = false);
+    bool CompactionHandoff = false,
+    string? RetentionWindowText = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -211,6 +216,14 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string WatchdogWrapUpText { get; set; }
 
+  /// <summary>How long persisted history is retained, as raw text — blank means the
+  ///     default window; a non-blank value must be a positive duration, and '0' disables
+  ///     retention.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string RetentionWindowText { get; set; }
+
   /// <summary>The OpenRouter base URL as raw text — hosts remember exactly what the
   ///     user typed; a non-blank value must parse as an absolute URI.</summary>
   [ObservableProperty]
@@ -304,6 +317,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
       ?? ValidateWrapUp(WatchdogWrapUpText)
       ?? ValidateDuration(RootTurnIdleText, "Root turn idle bound")
+      ?? ValidateRetentionWindow(RetentionWindowText)
       ?? ValidateLabeledBaseUrl(OpenRouterBaseUrlText, "OpenRouter base URL");
 
   public SettingsViewModel(SettingsValues values)
@@ -337,7 +351,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 SkillRegistryDefaultTarget: SkillRegistryTarget,
                 OpenRouterManagementKey: Normalize(OpenRouterManagementKey),
                 RootTurnIdleText: Normalize(RootTurnIdleText),
-                CompactionHandoff: CompactionHandoff));
+                CompactionHandoff: CompactionHandoff,
+                RetentionWindowText: Normalize(RetentionWindowText)));
           }
         },
         () => CanSave);
@@ -412,6 +427,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     RootTurnIdleText = values.RootTurnIdleText ?? string.Empty;
     WatchdogIdleText = values.WatchdogIdleText ?? string.Empty;
     WatchdogWrapUpText = values.WatchdogWrapUpText ?? string.Empty;
+    RetentionWindowText = values.RetentionWindowText ?? string.Empty;
   }
 
   private static CommitStyleOption StyleFor(CommitStyle style) => style switch
@@ -524,6 +540,32 @@ internal sealed partial class SettingsViewModel : ObservableObject
     return legal
         ? null
         : $"{label} must be a positive duration in constant format (e.g. '00:00:02').";
+  }
+
+  /// <summary>Returns the validation problem with the retention window text, or null when it
+  ///     is a legal entry: blank (the thirty-day default applies), '0' (retention disabled), or a
+  ///     positive constant-format duration.
+  ///     <para>ZERO IS A LEGAL ENTRY HERE, unlike every other duration on this page: disabling
+  ///     retention is a setting, and refusing it would leave a user with no way to stop the
+  ///     sweep except by deleting a preference row.</para></summary>
+  private static string? ValidateRetentionWindow(string text)
+  {
+    string trimmed = text.Trim();
+    if (trimmed.Length == 0 || trimmed == "0")
+    {
+      return null;
+    }
+
+    if (trimmed.All(char.IsDigit))
+    {
+      return $"Retention window must carry units (e.g. '30.00:00:00'); the bare integer '{trimmed}' would bind as days.";
+    }
+
+    bool legal = TimeSpan.TryParseExact(trimmed, ["c", "g"], CultureInfo.InvariantCulture,
+        TimeSpanStyles.None, out TimeSpan window) && window > TimeSpan.Zero;
+    return legal
+        ? null
+        : "Retention window must be a positive duration in constant format, or '0' to disable it.";
   }
 
   /// <summary>Returns the validation problem with the wrap-up-attempts text, or null

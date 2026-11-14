@@ -1,3 +1,4 @@
+using System.Globalization;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
@@ -37,7 +38,8 @@ internal sealed record DesktopBootstrap(
     IWatchdogEventStore WatchdogEvents,
     WatchdogOptions WatchdogOptions,
     bool CompactionHandoff,
-    Func<Uri, IProviderSignIn> OpenRouterSignIn);
+    Func<Uri, IProviderSignIn> OpenRouterSignIn,
+    IRetentionService Retention);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads settings from app preferences (provider API keys live DPAPI-
@@ -99,7 +101,8 @@ internal static class DesktopHost
         new SqliteWatchdogEventStore(database),
         watchdogOptions,
         compactionHandoff,
-        SignInFor);
+        SignInFor,
+        new RetentionSweep(database, preferences, TimeProvider.System));
   }
 
   /// <summary>Builds the OpenRouter sign-in for a base URL: the browser is the OS default
@@ -320,31 +323,65 @@ internal static class DesktopHost
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
     CancellationTokenSource watchdogCts = new();
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
-    _ = Task.Run(() => watchdogLoop.RunAsync(watchdogCts.Token))
-        .ContinueWith(
-            static t => _ = Console.Error.WriteLineAsync("watchdog loop faulted: " + t.Exception),
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
-    _ = Task.Run(() => resourceLoop.RunAsync(watchdogCts.Token))
-        .ContinueWith(
-            static t => _ = Console.Error.WriteLineAsync("resource governor loop faulted: " + t.Exception),
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
-    _ = Task.Run(() => rssMonitor.RunAsync(watchdogCts.Token))
-        .ContinueWith(
-            static t => _ = Console.Error.WriteLineAsync("rss monitor faulted: " + t.Exception),
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
+    StartBackgroundLoops(watchdogCts.Token,
+        (watchdogLoop.RunAsync, "watchdog loop"),
+        (resourceLoop.RunAsync, "resource governor loop"),
+        (rssMonitor.RunAsync, "rss monitor"));
+    StartRetentionLoop(boot.Retention, vmRef, watchdogCts.Token);
     window.Closed += (_, _) =>
     {
       watchdogCts.Cancel();
       watchdogCts.Dispose();
     };
     return window;
+  }  /// <summary>Starts each process-lifetime loop on the host's token, with one fault reporter
+     ///     each: a loop that throws must not take the host down silently, and the report names
+     ///     which loop it was.</summary>
+     /// <param name="ct">The process-lifetime token every loop observes.</param>
+     /// <param name="loops">Each loop's run method and the name its fault is reported under.</param>
+  private static void StartBackgroundLoops(CancellationToken ct,
+      params (Func<CancellationToken, Task> Run, string Name)[] loops)
+  {
+    foreach ((Func<CancellationToken, Task> run, string name) in loops)
+    {
+      // Named decision (CA2016, S8949): the token reaches each loop through 'run'; the
+      // continuation deliberately uses CancellationToken.None so a fault that happens after
+      // the token fires is still reported.
+      _ = Task.Run(() => run(ct), CancellationToken.None)
+          .ContinueWith(
+              ReportFault(name),
+              CancellationToken.None,
+              TaskContinuationOptions.OnlyOnFaulted,
+              TaskScheduler.Default);
+    }
   }
+
+  /// <summary>The continuation that reports one loop's fault, named so the line says which loop
+  ///     it was.</summary>
+  /// <param name="name">The loop's name.</param>
+  private static Action<Task> ReportFault(string name) =>
+      t => _ = Console.Error.WriteLineAsync(name + " faulted: " + t.Exception);
+
+
+  /// <summary>Starts the app-level retention job (issue #246): a maintenance sweep, not a
+  ///     model-driven one, so it runs for the life of the process on the host's own token.
+  ///     <para>ITS REPORTS REACH THE SHELL'S WARNING BAR: a run that reclaimed space is a fact
+  ///     the user can check, and one that could not is a fact they should see.</para></summary>
+  /// <param name="retention">The configured sweep.</param>
+  /// <param name="vm">The shell the reports surface on.</param>
+  /// <param name="ct">The process-lifetime token the host's loops share.</param>
+  private static void StartRetentionLoop(IRetentionService retention, MainViewModel? vm,
+      CancellationToken ct)
+  {
+    RetentionLoop loop = new(retention,
+        report => vm?.WarnApp("retention reclaimed "
+            + report.BytesReclaimed.ToString(CultureInfo.InvariantCulture) + " bytes by deleting "
+            + report.RowsDeleted.ToString(CultureInfo.InvariantCulture) + " rows older than "
+            + report.Cutoff.ToString("u", CultureInfo.InvariantCulture)),
+        message => vm?.WarnApp("retention run failed: " + message));
+    StartBackgroundLoops(ct, (loop.RunAsync, "retention loop"));
+  }
+
 
   /// <summary>The live conversation hosts: one handle per open tab whose host process
   ///     is running. A tab whose host has not started (or has died) contributes

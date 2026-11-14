@@ -961,6 +961,10 @@ internal sealed partial class MainViewModel : ObservableObject
     await PersistPreferenceAsync(SessionHandoffPreferences.Key,
         update.CompactionHandoff ? "true" : null);
     ConfiguredCompactionHandoff = update.CompactionHandoff;
+    // Retention window (issue #246): '0' is stored as the zero-hour window, which the sweep
+    // reads as 'delete nothing'; blank deletes the key so the thirty-day default applies.
+    await PersistPreferenceAsync(RetentionSweep.WindowHoursKey,
+        Normalize(update.RetentionWindowText));
   }
 
   /// <summary>Persists the two scoped settings of a settings-modal update: the
