@@ -69,6 +69,24 @@ public static class ImagePartMarker
     return "[image: " + mediaType + ", " + path + "]";
   }
 
+  /// <summary>The one spelling of an image the request did NOT re-send: the media type, the
+  ///     decoded size, and why. A picture that was sent once and deliberately withheld after that
+  ///     is not a picture that vanished - the record keeps saying it was here, so the transcript
+  ///     never reads as a message that silently lost content.
+  ///     <para>THE SIZE IS THE POINT of the difference from <see cref="MarkerForStored"/>: a stored
+  ///     image has no payload left to measure, but a withheld one still holds its bytes and the
+  ///     model is being told how much it is NOT paying for.</para></summary>
+  /// <param name="mediaType">The withheld image's media type.</param>
+  /// <param name="decodedBytes">The withheld image's decoded size.</param>
+  public static string MarkerForNotResent(string mediaType, int decodedBytes)
+  {
+    ArgumentNullException.ThrowIfNull(mediaType);
+    ArgumentOutOfRangeException.ThrowIfNegative(decodedBytes);
+    return "[image not re-sent: " + mediaType + ", "
+        + decodedBytes.ToString(CultureInfo.InvariantCulture)
+        + " bytes - already sent on the turn that produced it]";
+  }
+
   /// <summary>The one spelling of an image that did NOT land: the media type and the decoded
   ///     size, with no path, because there is no file to name.
   ///     <para>THE RECORD IS THE POINT. An image that could not be stored is still something the

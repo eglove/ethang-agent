@@ -336,15 +336,20 @@ public static class ResponsesApiRequestCore
   {
     ArgumentNullException.ThrowIfNull(request);
     List<object> items = [];
-    foreach (Message m in request.Messages)
+    // ONE resend decision for the whole request: an image's bytes are encoded only when the
+    // image belongs to the current turn (see ImageResendPlan). The plan is built once, here,
+    // and handed to every message's encoder, so no two messages can be judged differently.
+    ImageResendPlan plan = ImageResendPlan.For(request.Messages);
+    for (int i = 0; i < request.Messages.Count; i++)
     {
+      Message m = request.Messages[i];
       switch (m.Role)
       {
         case Role.System:
-          items.Add(MessageItem("system", InputContent(m)));
+          items.Add(MessageItem("system", InputContent(m, plan, i)));
           break;
         case Role.User:
-          items.Add(MessageItem("user", InputContent(m)));
+          items.Add(MessageItem("user", InputContent(m, plan, i)));
           break;
         case Role.Assistant when m.Content is { Length: > 0 }:
           items.Add(new Dictionary<string, object?>
@@ -357,7 +362,7 @@ public static class ResponsesApiRequestCore
         case Role.Assistant:
           break; // textless assistant shell — its tool calls translate below
         case Role.Tool:
-          items.Add(FunctionCallOutput(m));
+          items.Add(FunctionCallOutput(m, plan, i));
           break;
         default:
           throw new ArgumentOutOfRangeException(nameof(request), m.Role, "Unknown role.");
@@ -387,14 +392,14 @@ public static class ResponsesApiRequestCore
   ///     parts exist but none of them is a text part (issue #123): the typed body of
   ///     an image-attached user message lives in Content while Parts carries only the
   ///     images — emitting the parts alone would silently drop the text.</summary>
-  private static object[] InputContent(Message m)
+  private static object[] InputContent(Message m, ImageResendPlan plan, int messageIndex)
   {
     if (m.Parts is not { Count: > 0 })
     {
       return [TextPart(m.Content)];
     }
 
-    object[] content = [.. m.Parts.Select(PartContent)];
+    object[] content = [.. m.Parts.Select(part => PartContent(part, plan, messageIndex))];
     return m.Parts.Any(p => p is MessagePart.TextPart) || string.IsNullOrEmpty(m.Content)
         ? content
         : [TextPart(m.Content), .. content];
@@ -420,23 +425,30 @@ public static class ResponsesApiRequestCore
     ["text"] = text,
   };
 
-  private static Dictionary<string, object?> PartContent(MessagePart part) => part switch
-  {
-    MessagePart.TextPart text => TextPart(text.Text),
-    MessagePart.ImagePart image => new Dictionary<string, object?>
-    {
-      ["type"] = "input_image",
-      ["image_url"] = $"data:{image.MediaType};base64,{image.Base64Data}",
-    },
-    // A stored image is a POINTER, and the wire carries no way to hand a provider one: the
-    // bytes are resolved through the session's image store, which this synchronous encoder
-    // has no reach into. It renders as the same marker every other parts consumer emits, so
-    // the history still records that a picture was there and where it lives.
-    MessagePart.ImageReferencePart stored => TextPart(
-        ImagePartMarker.MarkerForStored(stored.MediaType, stored.Path)),
-    _ => throw new InvalidOperationException(
-          $"Unhandled message part type: {part.GetType().Name}."),
-  };
+  private static Dictionary<string, object?> PartContent(MessagePart part, ImageResendPlan plan,
+      int messageIndex) => part switch
+      {
+        MessagePart.TextPart text => TextPart(text.Text),
+        // THE ONLY PLACE A data: URL IS BUILT. It is reached only when the one resend decision says
+        // this image belongs to the current turn; an image from an earlier turn renders as the
+        // marker instead, which is the difference between a conversation that remembers a picture
+        // and a conversation that pays for it again on every request.
+        MessagePart.ImagePart image when plan.Sends(image, messageIndex) => new Dictionary<string, object?>
+        {
+          ["type"] = "input_image",
+          ["image_url"] = $"data:{image.MediaType};base64,{image.Base64Data}",
+        },
+        MessagePart.ImagePart withheld => TextPart(ImagePartMarker.MarkerForNotResent(
+            withheld.MediaType, ImagePartMarker.DecodedByteCount(withheld.Base64Data))),
+        // A stored image is a POINTER, and the wire carries no way to hand a provider one: the
+        // bytes are resolved through the session's image store, which this synchronous encoder
+        // has no reach into. It renders as the same marker every other parts consumer emits, so
+        // the history still records that a picture was there and where it lives.
+        MessagePart.ImageReferencePart stored => TextPart(
+            ImagePartMarker.MarkerForStored(stored.MediaType, stored.Path)),
+        _ => throw new InvalidOperationException(
+              $"Unhandled message part type: {part.GetType().Name}."),
+      };
 
   /// <summary>One tool result: a flat string output when the message carries only text
   ///     (the common case), an input-part array when it carries images — the text
@@ -444,7 +456,8 @@ public static class ResponsesApiRequestCore
   ///     same shape as user messages: Agent.ToParts builds image-only parts) — strict
   ///     attribution: a well-formed history always carries the tool call id, a null
   ///     one is programmer error and coerces to nothing.</summary>
-  private static Dictionary<string, object?> FunctionCallOutput(Message m)
+  private static Dictionary<string, object?> FunctionCallOutput(Message m, ImageResendPlan plan,
+      int messageIndex)
   {
     if (string.IsNullOrEmpty(m.ToolCallId))
     {
@@ -463,7 +476,7 @@ public static class ResponsesApiRequestCore
       };
     }
 
-    object[] content = [.. parts.Select(PartContent)];
+    object[] content = [.. parts.Select(part => PartContent(part, plan, messageIndex))];
     object[] output = parts.Any(p => p is MessagePart.TextPart) || string.IsNullOrEmpty(m.Content)
         ? content
         : [TextPart(m.Content), .. content];

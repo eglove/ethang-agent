@@ -36,9 +36,10 @@ public sealed class ConversationContextService(Conversation conversation)
   {
     List<string> lines = [];
     IReadOnlyList<Message> messages = _conversation.Messages;
+    ImageResendPlan plan = ImageResendPlan.For(messages);
     for (int i = 0; i < messages.Count; i++)
     {
-      AppendRendered(lines, i + 1, messages[i]);
+      AppendRendered(lines, i + 1, messages[i], plan);
     }
 
     return lines.Count == 0 ? "[context: empty]" : string.Join("\n", lines);
@@ -237,7 +238,12 @@ public sealed class ConversationContextService(Conversation conversation)
     return Result.Success(positions);
   }
 
-  private static void AppendRendered(List<string> lines, int number, Message message)
+  /// <summary>One message's line: its content, its tool calls, its parts render, and the tool
+  ///     call it answers. <paramref name="plan"/> is the resend decision the parts render consults,
+  ///     so an image the request will not re-send reads here as the marker rather than as a
+  ///     picture - the listing must describe the request the model will actually see.</summary>
+  private static void AppendRendered(List<string> lines, int number, Message message,
+      ImageResendPlan plan)
   {
     string[] content = (message.Content ?? "").Split('\n');
     lines.Add($"[{number}] [{message.Role}] " + content[0]);
@@ -255,7 +261,7 @@ public sealed class ConversationContextService(Conversation conversation)
     if (message.Parts is { Count: > 0 })
     {
       StringBuilder sb = new();
-      ImagePartMarker.AppendParts(sb, PartRenders.Of(message.Parts));
+      ImagePartMarker.AppendParts(sb, PartRenders.Of(message.Parts, plan, number - 1));
       lines[^1] += (lines[^1].EndsWith(' ', StringComparison.Ordinal) ? "" : " ") + sb.ToString().Trim();
     }
 

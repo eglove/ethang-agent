@@ -203,16 +203,21 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     ArgumentNullException.ThrowIfNull(evicted);
     ArgumentNullException.ThrowIfNull(keptTail);
     StringBuilder sb = new();
+    // The render describes the request the model is reading, so it consults the SAME resend
+    // decision the wire does: a picture the request withholds reads as the marker here too.
+    // The two lists are rendered in the order they are handed over, so the plan is built over
+    // their concatenation and each list is offset into it.
+    ImageResendPlan plan = ImageResendPlan.For([.. evicted, .. keptTail]);
     _ = sb.AppendLine("## Evicted messages (to summarize)");
-    foreach (Message message in evicted)
+    for (int i = 0; i < evicted.Count; i++)
     {
-      AppendMessage(sb, message);
+      AppendMessage(sb, evicted[i], plan, i);
     }
 
     _ = sb.AppendLine("## Kept tail (recent context, for continuity)");
-    foreach (Message message in keptTail)
+    for (int i = 0; i < keptTail.Count; i++)
     {
-      AppendMessage(sb, message);
+      AppendMessage(sb, keptTail[i], plan, evicted.Count + i);
     }
 
     return sb.ToString();
@@ -221,12 +226,15 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
   /// <summary>Appends the message's parts render to <paramref name="sb"/> - the
   ///     shared renderer (ImagePartMarker, Tool Domain): an image part becomes the
   ///     text marker '[image: mediaType, N bytes]' (N = decoded byte length), a STORED
-  ///     image becomes '[image: mediaType, path]', a text part appends verbatim.
+  ///     image becomes '[image: mediaType, path]', an image the request does not re-send
+  ///     becomes '[image not re-sent: ...]', a text part appends verbatim.
   ///     Pinned by tests.</summary>
-  private static void AppendParts(StringBuilder sb, Message message) =>
-      ImagePartMarker.AppendParts(sb, PartRenders.Of(message.Parts!));
+  private static void AppendParts(StringBuilder sb, Message message, ImageResendPlan plan,
+      int messageIndex) =>
+      ImagePartMarker.AppendParts(sb, PartRenders.Of(message.Parts!, plan, messageIndex));
 
-  private static void AppendMessage(StringBuilder sb, Message message)
+  private static void AppendMessage(StringBuilder sb, Message message, ImageResendPlan plan,
+      int messageIndex)
   {
     _ = sb.Append('[').Append(message.Role).Append("] ").Append(message.Content);
     if (message.ToolCalls is { Count: > 0 } calls)
@@ -239,7 +247,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
 
     if (message.Parts is { Count: > 0 })
     {
-      AppendParts(sb, message);
+      AppendParts(sb, message, plan, messageIndex);
     }
 
     if (message.ToolCallId is not null)

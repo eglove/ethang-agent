@@ -456,7 +456,8 @@ public sealed class ImageReferencePartDurabilityTests : IDisposable
         Assert.Single(loaded.Parts!));
     Assert.Equal(path, missing.Path);
     Assert.False(File.Exists(missing.Path), "the fixture's file is gone");
-    PartRender rendered = Assert.Single(PartRenders.Of(loaded.Parts!));
+    PartRender rendered = Assert.Single(PartRenders.Of(loaded.Parts!,
+        ImageResendPlan.For([loaded]), 0));
     Assert.Equal(path, rendered.ImagePath);
   }
 

@@ -1039,12 +1039,20 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     callbacks?.OnContextUpdate?.Invoke(new ContextSnapshot(_contextMonitor.Status, _contextMonitor.Breakdown));
   }
 
-  /// <summary>The message bucket of the UI character breakdown.</summary>
+  /// <summary>The message bucket of the UI character breakdown: the size of the request the
+  ///     model is reading, so an image's payload counts only when that request carries it.
+  ///     <para>WHAT IT COUNTS AFTER THE RESEND RULE (step 6): an inline image's base64 length when
+  ///     <see cref="ImageResendPlan"/> says the current turn produced it, and NOTHING for an image
+  ///     from an earlier turn or for a stored reference. Both of those reach the provider as a
+  ///     short marker, so counting their payloads here would report megabytes the request does not
+  ///     send - the same fiction the marker rule exists to remove, one bucket over.</para></summary>
   private static long MessageChars(IReadOnlyList<Message> messages)
   {
     long messageChars = 0;
-    foreach (Message message in messages)
+    ImageResendPlan plan = ImageResendPlan.For(messages);
+    for (int i = 0; i < messages.Count; i++)
     {
+      Message message = messages[i];
       messageChars += message.Content.Length;
       if (message.ToolCalls is { Count: > 0 } calls)
       {
@@ -1053,12 +1061,20 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
       // Image base64 lengths join the message bucket of the UI character breakdown
       // only. Provider-scored token usage remains the sole decision input; the wire
-      // serializes images through provider-specific parts, not this estimate. A STORED
-      // image reference carries no payload, so it adds nothing here: the bucket sizes the
-      // bytes actually in memory, and a reference holds only a path.
+      // serializes images through provider-specific parts, not this estimate. The bucket
+      // sizes the bytes the REQUEST carries: a STORED reference holds only a path, and an
+      // inline image the current turn did not produce is withheld from the request, so
+      // neither adds its payload here. Both are still in memory in the transcript - this
+      // number was never a memory reading.
       if (message.Parts is { Count: > 0 } parts)
       {
-        messageChars += parts.OfType<MessagePart.ImagePart>().Sum(p => p.Base64Data.Length);
+        foreach (MessagePart part in parts)
+        {
+          if (part is MessagePart.ImagePart image && plan.Sends(image, i))
+          {
+            messageChars += image.Base64Data.Length;
+          }
+        }
       }
     }
 

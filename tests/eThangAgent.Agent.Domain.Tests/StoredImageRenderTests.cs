@@ -37,11 +37,15 @@ public class StoredImageRenderTests
   [Fact]
   public void PartRenders_StoredImage_ProjectsThePath_AndTextPartsAreUnchanged()
   {
-    IReadOnlyList<PartRender> renders = PartRenders.Of(
-    [
-      new MessagePart.ImageReferencePart(StoredPath, "image/png"),
-      new MessagePart.TextPart("beside it"),
-    ]);
+    Message message = new(Role.Tool, "beside it", T, ToolCallId: "c1",
+        Parts:
+        [
+          new MessagePart.ImageReferencePart(StoredPath, "image/png"),
+          new MessagePart.TextPart("beside it"),
+        ]);
+
+    IReadOnlyList<PartRender> renders = PartRenders.Of(message.Parts!,
+        ImageResendPlan.For([message]), 0);
 
     Assert.Equal(2, renders.Count);
     Assert.Equal(StoredPath, renders[0].ImagePath);
@@ -66,7 +70,8 @@ public class StoredImageRenderTests
   ///     than dropping it, which is the rule the meta_json mapping follows too.</summary>
   [Fact]
   public void PartRenders_UnknownPartKind_Throws_RatherThanDroppingIt() =>
-      _ = Assert.Throws<InvalidOperationException>(() => PartRenders.Of([new UnrenderablePart()]));
+      _ = Assert.Throws<InvalidOperationException>(() => PartRenders.Of([new UnrenderablePart()],
+          ImageResendPlan.For([]), 0));
 
   private sealed record UnrenderablePart : MessagePart;
 }

@@ -72,6 +72,12 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@":\s*IImageStore\b")]
   private static partial Regex ImageStoreImplementationPattern();
 
+  // A data: URL being BUILT: 'data:' and the ';base64' marker on one line. Deliberately loose
+  // about what sits between them (an interpolated media type, a concatenation, a literal), and
+  // deliberately not matched by the ';base64,' constant alone, which builds nothing.
+  [GeneratedRegex(@"data:.*;base64")]
+  private static partial Regex DataUrlPattern();
+
   /// <summary>The projects a solution filter keeps, as the filter file spells them.</summary>
   private static string[] FilterProjects(string filterPath)
   {
@@ -491,6 +497,51 @@ public sealed partial class DoctrineTests
         "tests touching process-global state outside a serialized collection (join a "
         + "[Collection] whose definition says it runs serially, or stop touching the global): "
         + string.Join(", ", violations));
+  }
+
+  /// <summary>A data: URL - an image's bytes leaving this process - is built in EXACTLY ONE place,
+  ///     and that place consults <c>ImageResendPlan</c>. The rule is about the shape of the decision,
+  ///     not about tidiness: the wire encoder, the context list and the compaction render all have
+  ///     to agree about which pictures the model sees, and they agree because there is one condition
+  ///     to consult rather than three to keep in step. A second place that spells <c>data:</c> is a
+  ///     second answer waiting to disagree, and the disagreement costs megabytes on every later
+  ///     request rather than failing anything.
+  ///     <para>The check is over SOURCE text because the question is whether a second spelling exists
+  ///     at all, which no runtime assertion can answer. The allowlist is one file: the encoder's
+  ///     data-URL arm, which reads the plan.</para></summary>
+  [Fact]
+  public void ImageBytes_LeaveThroughExactlyOneDataUrl()
+  {
+    string[] allowed = ["src/eThangAgent.Provider.Wire/ResponsesApiRequestCore.cs"];
+
+    List<string> violations = [];
+    foreach (string file in SourceFiles("src"))
+    {
+      string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
+      if (allowed.Contains(relative))
+      {
+        continue;
+      }
+
+      // Comment lines are excluded: a doc comment that DESCRIBES the URL shape builds nothing,
+      // and the parser that reads one back is not a second place that emits one.
+      if (File.ReadAllLines(file).Any(line => !IsComment(line) && DataUrlPattern().IsMatch(line)))
+      {
+        violations.Add(relative);
+      }
+    }
+
+    Assert.True(violations.Count == 0,
+        "a second data: URL spelling (image bytes leave through the encoder's one arm, which "
+        + "consults ImageResendPlan): " + string.Join(", ", violations));
+  }
+
+  private static bool IsComment(string line)
+  {
+    string trimmed = line.TrimStart();
+    return trimmed.StartsWith("//", StringComparison.Ordinal)
+        || trimmed.StartsWith('*', StringComparison.Ordinal)
+        || trimmed.StartsWith("/*", StringComparison.Ordinal);
   }
 
   /// <summary>A session image has exactly ONE store. Two implementations of "save an image for a
