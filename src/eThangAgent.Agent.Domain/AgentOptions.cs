@@ -48,11 +48,12 @@ public sealed record AgentOptions
   ///     leaves the request's id unset: byte-identical legacy behavior.</summary>
   public string? SessionId { get; init; }
 
-  /// <summary>Persists the artifact an image-generation server tool produced inside the
-  ///     provider's response. The loop saves the bytes and names the ABSOLUTE path in the
-  ///     surfaced line, so the model can read_image it on a later turn and the user can open
-  ///     it. Null (legacy wiring, tests) surfaces the call without persisting anything.</summary>
-  public IServerToolImageStore? ServerToolImages { get; init; }
+  /// <summary>The session's one image store, where a produced image is persisted whether a
+  ///     server-side tool emitted it or a screenshot captured it. The loop saves the bytes and
+  ///     names the ABSOLUTE path in the surfaced line, so the model can read_image it on a
+  ///     later turn and the user can open it. Null (legacy wiring, tests) surfaces the call
+  ///     without persisting anything.</summary>
+  public IImageStore? Images { get; init; }
 
   /// <summary>Append-only event log the loop records reasoning traces to (issue #263):
   ///     the TELEMETRY channel, never the context channel — no request builder reads it

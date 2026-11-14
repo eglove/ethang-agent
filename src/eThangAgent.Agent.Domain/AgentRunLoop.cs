@@ -66,7 +66,8 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
   private readonly IModelCatalog? _catalog = catalog;
   private readonly IAgentHeartbeat? _heartbeat = services.Heartbeat;
-  private readonly Func<string?, IServerToolImageStore?>? _serverToolImagesFor = services.ServerToolImagesFor; private readonly Func<AgentId, AgentSupervisor?>? _supervisorFor = services.SupervisorFor;
+  private readonly Func<string?, IImageStore?>? _imagesFor = services.ImagesFor;
+  private readonly Func<AgentId, AgentSupervisor?>? _supervisorFor = services.SupervisorFor;
   private readonly IAgentEvents? _events = services.Events;
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
@@ -270,9 +271,9 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
             // of fragments per second; a per-fragment registry lookup would take two locks
             // per fragment on the hot path.
             OnStreamActivity = ResolveStreamStamp(child.Id),
-            // A child's generated images land in its OWN session folder, so two runs never
-            // overwrite each other's artifacts.
-            ServerToolImages = _serverToolImagesFor?.Invoke(child.Id.ToString()),
+            // A child's images land in its OWN session folder, so two runs never overwrite
+            // each other's images.
+            Images = _imagesFor?.Invoke(child.Id.ToString()),
 
             // The reasoning trace is recorded under the RUN's own id (issue #263): an
             // agent's thinking is evidence about that agent's run, never another's.

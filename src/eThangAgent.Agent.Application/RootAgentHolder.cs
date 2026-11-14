@@ -15,7 +15,7 @@ public sealed record RootDependencies(
     int? MaxAutoContinuations = null,
     IContextCompactor? ContextCompactor = null,
     IAgentTranscriptStore? TranscriptSink = null,
-    IServerToolImageStore? ServerToolImages = null, IAgentEventLog? EventLog = null,
+    IImageStore? Images = null, IAgentEventLog? EventLog = null,
     // The session's event stream (issue #253 B3). The root loop publishes its mailbox
     // lifecycle facts here - above all the drain fact naming which steering messages it
     // consumed - so a host can forward them and the app can release a pinned echo. Null
@@ -115,7 +115,7 @@ public sealed class RootAgentHolder(
       ContextMonitor = Accountant,
       ContextCompactor = _dependencies?.ContextCompactor,
       TranscriptSink = _dependencies?.TranscriptSink,
-      ServerToolImages = _dependencies?.ServerToolImages,
+      Images = _dependencies?.Images,
       EventLog = _dependencies?.EventLog,
       Events = _dependencies?.Events,
       SessionId = ResolveSessionId(),

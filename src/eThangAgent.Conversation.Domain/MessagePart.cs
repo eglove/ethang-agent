@@ -64,21 +64,14 @@ public abstract record MessagePart
     {
       ArgumentException.ThrowIfNullOrWhiteSpace(path);
       ArgumentNullException.ThrowIfNull(mediaType);
-      if (mediaType is not ("image/png" or "image/jpeg"))
+      if (mediaType is not (ImagePayload.Png or ImagePayload.Jpeg))
       {
         throw new ArgumentException(
-            $"Image media type must be exactly \"image/png\" or \"image/jpeg\"; got \"{mediaType}\".",
+            $"Image media type must be exactly \"{ImagePayload.Png}\" or \"{ImagePayload.Jpeg}\"; got \"{mediaType}\".",
             nameof(mediaType));
       }
 
-      string extension = System.IO.Path.GetExtension(path);
-      bool extensionAgrees = mediaType switch
-      {
-        "image/png" => extension.Equals(".png", StringComparison.OrdinalIgnoreCase),
-        _ => extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase),
-      };
-      if (!extensionAgrees)
+      if (!ImagePayload.ExtensionAgrees(path, mediaType))
       {
         throw new ArgumentException(
             $"An image reference claiming \"{mediaType}\" must name a file whose extension agrees with it; got \"{path}\".",
@@ -117,32 +110,11 @@ public abstract record MessagePart
     }
 
     /// <summary>The typed refusal for a payload that may not enter the reference form, or
-    ///     null when it may. The cases are reported in order: empty, oversize, unsniffable,
-    ///     then a claim the bytes contradict.</summary>
-    private static DomainError? RefusalFor(string mediaType, byte[] bytes)
-    {
-      if (bytes.Length == 0)
-      {
-        return new DomainError("InvalidImagePayload", "The image carried no payload.");
-      }
-
-      if (bytes.Length > ImageLimits.MaxBytes)
-      {
-        return new DomainError("ImageTooLarge",
-            $"The image is {bytes.Length} bytes; the maximum is {ImageLimits.MaxBytes} bytes (20 MB).");
-      }
-
-      string? sniffed = ImageFormats.SniffMediaType(bytes);
-      return sniffed switch
-      {
-        null => new DomainError("UnsupportedImageFormat",
-            $"The image is neither PNG nor JPEG (the producer claimed '{mediaType}')."),
-        _ when !string.Equals(sniffed, mediaType, StringComparison.Ordinal) =>
-            new DomainError("ImageMediaTypeMismatch",
-                $"The image claims media type '{mediaType}' but its bytes are {sniffed}."),
-        _ => null,
-      };
-    }
+    ///     null when it may: the payload admission rule is
+    ///     <see cref="ImagePayload.Refusal"/>, shared with the store that writes the file, so
+    ///     the bytes that may be named and the bytes that may be stored are one rule.</summary>
+    private static DomainError? RefusalFor(string mediaType, byte[] bytes) =>
+        ImagePayload.Refusal(mediaType, bytes);
   }
 #pragma warning restore CA1034 // Do not nest type
 }

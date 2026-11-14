@@ -69,6 +69,9 @@ public sealed partial class DoctrineTests
   [GeneratedRegex("<Project\\s+Path=\"([^\"]+)\"", RegexOptions.CultureInvariant)]
   private static partial Regex SolutionProjectPattern();
 
+  [GeneratedRegex(@":\s*IImageStore\b")]
+  private static partial Regex ImageStoreImplementationPattern();
+
   /// <summary>The projects a solution filter keeps, as the filter file spells them.</summary>
   private static string[] FilterProjects(string filterPath)
   {
@@ -488,5 +491,40 @@ public sealed partial class DoctrineTests
         "tests touching process-global state outside a serialized collection (join a "
         + "[Collection] whose definition says it runs serially, or stop touching the global): "
         + string.Join(", ", violations));
+  }
+
+  /// <summary>A session image has exactly ONE store. Two implementations of "save an image for a
+  ///     session" is the state this rule exists to prevent: a screenshot and a generated artifact
+  ///     landing under different roots, named by different rules, read back by different code. The
+  ///     check is over SOURCE text because the question is whether a second implementation exists
+  ///     at all, which no runtime assertion can answer.
+  ///     <para>The directory is deliberately not checked here: a rule for "where an image lives"
+  ///     would have to name the folder in two places, which is the drift this rule forbids.</para>
+  ///     </summary>
+  [Fact]
+  public void SessionImages_HaveExactlyOneStore()
+  {
+    string[] allowed = ["src/eThangAgent.FileSystem.ACL/SessionImageStore.cs"];
+
+    List<string> violations = [];
+    foreach (string file in SourceFiles("src"))
+    {
+      string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
+      if (allowed.Contains(relative))
+      {
+        continue;
+      }
+
+      // The pattern matches the interface appearing in a base list, not the name in prose.
+      string text = File.ReadAllText(file);
+      if (ImageStoreImplementationPattern().IsMatch(text))
+      {
+        violations.Add(relative);
+      }
+    }
+
+    Assert.True(violations.Count == 0,
+        "a second implementation of a session image store (implement IImageStore once, in "
+        + "src/eThangAgent.FileSystem.ACL/SessionImageStore.cs): " + string.Join(", ", violations));
   }
 }

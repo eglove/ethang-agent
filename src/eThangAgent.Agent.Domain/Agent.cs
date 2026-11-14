@@ -97,7 +97,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
   private readonly IContextMonitor? _contextMonitor = options?.ContextMonitor;
-  private readonly IServerToolImageStore? _serverToolImages = options?.ServerToolImages;
+  private readonly IImageStore? _images = options?.Images;
   private readonly IContextCompactor? _contextCompactor = options?.ContextCompactor;
   private readonly IAgentHeartbeat? _heartbeat = options?.Heartbeat;
   private readonly IAgentEvents? _events = options?.Events;
@@ -1289,16 +1289,16 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
   }
 
-  /// <summary>Persists one generated image and surfaces its line. The ABSOLUTE path is the
-  ///     artifact's identity in the transcript: the model reaches the bytes with read_image
-  ///     on a later turn, and a model that wants the image kept copies it into the workspace.
-  ///     The bytes also ride the tool-result callback so the transcript renders the picture.
-  ///     A failed save renders the typed error on the same line, so the transcript records
-  ///     WHY the artifact is missing.</summary>
+  /// <summary>Persists one produced image and surfaces its line. The ABSOLUTE path is the
+  ///     image's identity in the transcript: the model reaches the bytes with read_image on a
+  ///     later turn, and a model that wants the image kept copies it into the workspace. The
+  ///     bytes also ride the tool-result callback so the transcript renders the picture. A
+  ///     failed save renders the typed error on the same line, so the transcript records WHY
+  ///     the image is missing.</summary>
   private async Task SurfaceImageAsync(ServerToolCall call, ServerToolCallImage image,
       TurnCallbacks? callbacks, CancellationToken ct)
   {
-    if (_serverToolImages is null)
+    if (_images is null)
     {
       string bare = RenderServerToolCall(call);
       Conversation.AddSystemMessage(bare);
@@ -1306,17 +1306,17 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       return;
     }
 
-    Result<SavedServerToolImage> saved = await _serverToolImages
-        .SaveAsync(image.MediaType, image.Base64Data, ct).ConfigureAwait(false);
+    Result<StoredImage> saved = await _images
+        .PersistBase64Async(image.MediaType, image.Base64Data, ct).ConfigureAwait(false);
     string line = saved.IsSuccess
-        ? $"[{call.Tool}] {saved.Value.FullPath}"
+        ? $"[{call.Tool}] {saved.Value.Path}"
         : $"[{call.Tool}] Error [{saved.Error.Code}]: {saved.Error.Message}";
     Conversation.AddSystemMessage(line);
     callbacks?.OnSystemMessage?.Invoke(line);
     if (saved.IsSuccess)
     {
-      callbacks?.OnToolResult?.Invoke(call.Tool, saved.Value.FullPath, saved.Value.FullPath, false,
-          new ToolResult($"saved to {saved.Value.FullPath}", false, call.Tool,
+      callbacks?.OnToolResult?.Invoke(call.Tool, saved.Value.Path, saved.Value.Path, false,
+          new ToolResult($"saved to {saved.Value.Path}", false, call.Tool,
               [new ToolResultImage(image.MediaType, image.Base64Data)]));
     }
   }

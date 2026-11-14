@@ -30,9 +30,9 @@ namespace eThangAgent.AgentDomain;
 /// <param name="Cleanliness">Optional workspace-cleanliness reader for the child-report
 ///     contract: a completed run's report gains an annotation listing untracked files
 ///     left behind. Null disables the check (legacy wiring, tests).</param>
-/// <param name="ServerToolImagesFor">Resolves the generated-image artifact store for a
-///     child's run: the child's own session folder under the temp directory. Null disables
-///     artifact persistence for children (legacy wiring, tests).</param>
+/// <param name="ImagesFor">Resolves the image store for a child's run: the child's own
+///     session folder under the temp directory. Null disables image persistence for children
+///     (legacy wiring, tests).</param>
 /// <param name="ProviderRequired">Production wiring (true): a begin-run whose record
 ///     carries the UnboundProvider marker fails LOUDLY as Failed(ProviderError) with an
 ///     audit row instead of looping on tools with zero model calls (issue #124,
@@ -59,7 +59,7 @@ public sealed record AgentRunServices(
     IWorkspaceAnchorScope? AnchorScope = null,
     IWorkspaceCleanlinessCheck? Cleanliness = null,
     Func<AgentId, AgentSupervisor?>? SupervisorFor = null,
-    Func<string?, IServerToolImageStore?>? ServerToolImagesFor = null, bool ProviderRequired = false,
+    Func<string?, IImageStore?>? ImagesFor = null, bool ProviderRequired = false,
     IAgentEventLog? EventLog = null,
     IUsagePriceSource? UsagePrices = null,
     string? WorkspaceId = null);

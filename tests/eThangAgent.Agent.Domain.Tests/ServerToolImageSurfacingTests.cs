@@ -22,12 +22,12 @@ public class ServerToolImageSurfacingTests
   private static ModelConfig DefaultConfig =>
       ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
-  private static Agent BuildAgent(IServerToolImageStore store, ModelConfig config) =>
+  private static Agent BuildAgent(IImageStore store, ModelConfig config) =>
       new(new ScriptedProvider(new ModelResponse("done", [],
               ServerToolCalls: [new ServerToolCall("image_generation", null, null,
                   new ServerToolCallImage("image/png", PngBase64))])),
           new Conversation(), config, new ToolRegistry([]),
-          new AgentOptions { ServerToolImages = store });
+          new AgentOptions { Images = store });
 
   [Fact]
   public async Task ImageGenerationCall_SavesTheArtifactAndNamesItsAbsolutePath()
@@ -76,7 +76,7 @@ public class ServerToolImageSurfacingTests
   {
     // A failed write is a TYPED error the model sees, never a silent skip: the user must
     // learn the artifact could not be saved.
-    FakeImageStore store = new(Result.Failure<SavedServerToolImage>(
+    FakeImageStore store = new(Result.Failure<StoredImage>(
         new DomainError("ImageUnwritable", "refused")));
     Agent agent = BuildAgent(store, DefaultConfig);
     List<string> surfaced = [];
@@ -105,21 +105,31 @@ public class ServerToolImageSurfacingTests
     Assert.Equal("[image_generation]", Assert.Single(surfaced));
   }
 
-  private static readonly SavedServerToolImage Saved = new(SavedPath, "generated-1.png");
+  private static readonly StoredImage Saved = new(SavedPath, "generated-1.png", "image/png");
 
-  private sealed class FakeImageStore(Result<SavedServerToolImage> outcome) : IServerToolImageStore
+  /// <summary>The surfacing path carries base64 and writes; the other two members are
+  ///     unreachable from it, so reaching either is a wrong call, not a silent no-op.</summary>
+  private sealed class FakeImageStore(Result<StoredImage> outcome) : IImageStore
   {
     public string? SavedMediaType { get; private set; }
 
     public string? SavedBase64 { get; private set; }
 
-    public Task<Result<SavedServerToolImage>> SaveAsync(string mediaType, string base64Data,
+    public Task<Result<StoredImage>> PersistBase64Async(string mediaType, string base64Data,
         CancellationToken ct = default)
     {
       SavedMediaType = mediaType;
       SavedBase64 = base64Data;
       return Task.FromResult(outcome);
     }
+
+    public Task<Result<StoredImage>> PersistAsync(string mediaType, byte[] bytes,
+        CancellationToken ct = default) =>
+        throw new InvalidOperationException("the surfacing path carries base64, never bytes.");
+
+    public Task<Result<StoredImageContent>> ResolveAsync(string path,
+        CancellationToken ct = default) =>
+        throw new InvalidOperationException("surfacing writes an image; it never reads one back.");
   }
 
   private sealed class ScriptedProvider(ModelResponse response) : IModelProvider
