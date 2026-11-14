@@ -114,6 +114,16 @@ internal static class TestFixtures
   ///     every runner in DesktopHost.OffUiThread, so the runner body executes on a worker
   ///     thread — the production shape for callbacks that raise notices mid-turn.</summary>
   internal static AgentSessionViewModel CreateViewModel(TurnRunner runner, bool marshalToUIThread = false)
+      => CreateViewModel(runner, marshalToUIThread, uiMarshal: null);
+
+  /// <summary>Builds a view-model whose UI marshal is the caller's, so a test that runs no
+  ///     message loop can drive the transcript-path appends synchronously instead of waiting for
+  ///     a dispatcher that nothing is pumping.</summary>
+  /// <param name="runner">The turn runner the session drives.</param>
+  /// <param name="marshalToUIThread">Whether the stream sink marshals onto the UI thread.</param>
+  /// <param name="uiMarshal">The UI marshal, or null for the headless harness default.</param>
+  internal static AgentSessionViewModel CreateViewModel(TurnRunner runner, bool marshalToUIThread,
+      Action<Action>? uiMarshal)
   {
     AgentSessionViewModel? vmRef = null;
     Func<UiStreamEvent, Task> sink = marshalToUIThread
@@ -126,10 +136,28 @@ runner,
         new Conversation(),
         provider: "OpenRouter",
         modelId: "test/model",
-        new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", UiStreamSink = sink });
+        new AgentSessionViewModelOptions
+        {
+          WorkspaceRoot = @"C:\work\demo",
+          UiStreamSink = sink,
+          UiMarshal = uiMarshal,
+        });
     vmRef = vm;
     return vm;
   }
+
+  /// <summary>The ordinary view-model with a UI marshal that runs inline, so a test that pumps
+  ///     no message loop still completes a transcript-path append instead of waiting on a
+  ///     dispatcher post nothing will drain.</summary>
+  internal static AgentSessionViewModel CreateSynchronouslyMarshalledViewModel()
+      => CreateViewModel(
+          static (command, ct, callbacks, onNotice) =>
+          {
+            callbacks?.OnContentDelta?.Invoke("ack");
+            return Task.FromResult(Result.Success("ack"));
+          },
+          marshalToUIThread: false,
+          action => action());
 
   /// <summary>Builds a workspace TAB around one agent cell (issue #307 D1), for tests that
   ///     exercise the tab-level surfaces: the grid, the workbench rail, and the cell's

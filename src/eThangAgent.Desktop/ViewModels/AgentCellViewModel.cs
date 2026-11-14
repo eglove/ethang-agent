@@ -1,7 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
-using eThangAgent.ConversationDomain;
+
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -358,13 +358,41 @@ internal sealed partial class AgentCellViewModel : ObservableObject
   ///     following immediately, and a flag would read as 'keep going' to the loop that is
   ///     already retiring.</para></summary>
   /// <param name="generation">The generation this loop owns.</param>
-  private async Task FollowAsync(int generation)
+  private Task FollowAsync(int generation)
+      => RunFollowAsync(WaitForNextPollAsync, generation);
+
+  /// <summary>Starts a loop that reads once per tick from <paramref name="waitForTick"/>.
+  ///     <para>THE CLOCK IS A PARAMETER so a test can drive a poll without waiting out a 500 ms
+  ///     interval: what the test asserts is how many messages each tick ASKS FOR, which is a
+  ///     property of the loop and not of the wall clock.</para></summary>
+  /// <param name="waitForTick">Waits one interval, and answers false when the loop is over.</param>
+  /// <param name="generation">The generation this loop owns.</param>
+  internal Task RunFollowAsync(Func<TimeSpan, Task<bool>> waitForTick, int generation)
+      => RunFollowLoopAsync(waitForTick, generation);
+
+  /// <summary>Waits for one poll interval. The seam a test substitutes so a poll runs on the
+  ///     test's own clock rather than on a 500 ms wall clock.</summary>
+  /// <param name="interval">How long one poll interval is.</param>
+  private static Task<bool> WaitForNextPollAsync(TimeSpan interval)
   {
-    // The first read is immediate: the cell appears with whatever the agent has already
-    // persisted, rather than as an empty card for one interval.
+    return Wait();
+
+    async Task<bool> Wait()
+    {
+      using PeriodicTimer timer = new(interval);
+      return await timer.WaitForNextTickAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>The poll loop itself: one read per tick while this generation owns the follower.
+  ///     <para>THE FIRST READ IS IMMEDIATE: the cell appears with whatever the agent has already
+  ///     persisted, rather than as an empty card for one interval.</para></summary>
+  /// <param name="waitForTick">Waits one interval, and answers false when the loop is over.</param>
+  /// <param name="generation">The generation this loop owns.</param>
+  private async Task RunFollowLoopAsync(Func<TimeSpan, Task<bool>> waitForTick, int generation)
+  {
     await ReadTranscriptAsync().ConfigureAwait(false);
-    using PeriodicTimer timer = new(TranscriptPollInterval);
-    while (await timer.WaitForNextTickAsync(CancellationToken.None).ConfigureAwait(false))
+    while (await waitForTick(TranscriptPollInterval).ConfigureAwait(false))
     {
       if (!OwnsFollow(generation))
       {
@@ -461,15 +489,19 @@ internal sealed partial class AgentCellViewModel : ObservableObject
     }
   }
 
-  /// <summary>Appends the messages the store holds that this cell has not rendered yet.
-  ///     <para>INCREMENTAL BY INDEX: a running agent's transcript grows at its safe points, so
-  ///     re-rendering the whole list every interval would rebuild every card and lose the
-  ///     reader's place. The store's message list is append-only within a run, which is what
-  ///     makes a count a sound cursor.</para>
+  /// <summary>Appends the messages the store holds past this cell's cursor.
+  ///     <para>THE READ IS INCREMENTAL, NOT THE RENDER ALONE. A tick asks the store for the
+  ///     messages AFTER the last one rendered, so its cost follows what ARRIVED rather than what
+  ///     is on screen: a cell following a 1,735-message, 4.69 MiB transcript read the whole of it
+  ///     twice a second - 9.38 MiB/s of continuous read from a file this process is writing - to
+  ///     discover that nothing had changed.</para>
   ///     <para>THE CURSOR ADVANCES WITH THE APPEND, never before it: the append is marshalled
   ///     onto the UI thread and awaited, so a message counted here has been handed to the
   ///     transcript before the next read can skip it. Advancing first would silently DROP
   ///     messages if the marshalled append never ran.</para>
+  ///     <para>AND IT RESYNCS WHEN THE TRANSCRIPT SHRANK: a compaction replaces the rows under
+  ///     the cursor, so a total below the cursor means the transcript was rewritten rather than
+  ///     appended, and the cursor restarts from the store's own count.</para>
   ///     <para>UI-THREAD CONTRACT: the append runs through the view-model's own UI marshal,
   ///     because entries are bound by the view.</para></summary>
   private async Task ReadTranscriptAsync()
@@ -479,22 +511,26 @@ internal sealed partial class AgentCellViewModel : ObservableObject
       return;
     }
 
-    Result<IReadOnlyList<Message>> persisted = await _store.GetTranscriptAsync(RootId, CancellationToken.None)
-        .ConfigureAwait(false);
+    Result<TranscriptTail> persisted = await _store.GetTranscriptTailAsync(RootId, _renderedCount,
+        CancellationToken.None).ConfigureAwait(false);
     if (!persisted.IsSuccess)
     {
       return;
     }
 
-    IReadOnlyList<Message> messages = persisted.Value;
-    if (messages.Count <= _renderedCount)
+    TranscriptTail tail = persisted.Value;
+    if (tail.TotalCount < _renderedCount)
+    {
+      _renderedCount = tail.TotalCount;
+    }
+
+    if (tail.Messages.Count == 0)
     {
       return;
     }
 
-    List<Message> fresh = [.. messages.Skip(_renderedCount)];
-    await ViewModel.AppendPersistedMessagesAsync(fresh).ConfigureAwait(false);
-    _renderedCount = messages.Count;
+    await ViewModel.AppendPersistedMessagesAsync(tail.Messages).ConfigureAwait(false);
+    _renderedCount += tail.Messages.Count;
   }
 
   /// <summary>The store the host agent's transcript lands in. Null for a container cell, and

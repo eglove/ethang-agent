@@ -421,6 +421,67 @@ public sealed class SqliteAgentStore(
     return Result.Success<IReadOnlyList<Message>>(messages);
   }
 
+  /// <summary>The transcript from <paramref name="fromSeq"/> onward.</summary>
+  public async Task<Result<TranscriptTail>> GetTranscriptTailAsync(AgentId id, int fromSeq,
+      CancellationToken ct = default)
+  {
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using SqliteConnection connection = _database.Open();
+#pragma warning restore CA2007
+    if (!await AgentExistsAsync(connection, transaction: null, id, ct).ConfigureAwait(false))
+    {
+      return Result.Failure<TranscriptTail>(NotFound(id));
+    }
+
+    using SqliteCommand command = connection.CreateCommand();
+    // The COUNT comes first in the same statement so the total and the tail describe one
+    // snapshot: two statements could straddle a concurrent append and report a count that
+    // does not belong to the tail beside it.
+    command.CommandText = """
+        SELECT role, content, meta_json,
+               (SELECT COUNT(*) FROM agent_messages WHERE agent_id=@id)
+        FROM agent_messages WHERE agent_id=@id AND seq >= @from ORDER BY seq;
+        """;
+    Add(command, "@id", id.ToString());
+    Add(command, "@from", fromSeq);
+    List<Message> messages = [];
+    int total = 0;
+    using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+    while (await reader.ReadAsync(ct).ConfigureAwait(false))
+    {
+      total = reader.GetInt32(3);
+      MessageMeta meta = JsonSerializer.Deserialize<MessageMeta>(reader.GetString(2))!;
+      messages.Add(new Message(
+          Enum.Parse<Role>(reader.GetString(0)),
+          reader.GetString(1),
+          meta.Timestamp,
+          meta.ToolCalls,
+          meta.ToolCallId,
+          Parts: FromMetaParts(meta.Parts)));
+    }
+
+    if (messages.Count == 0)
+    {
+      // No row carried the count, so the total is read on its own. This is the common case for
+      // a poll that found nothing new, and it is one indexed count rather than a transcript.
+      total = await CountMessagesAsync(connection, id, ct).ConfigureAwait(false);
+    }
+
+    return Result.Success(new TranscriptTail(messages, total));
+  }
+
+  /// <summary>How many messages the agent's transcript holds.</summary>
+  private static async Task<int> CountMessagesAsync(SqliteConnection connection, AgentId id,
+      CancellationToken ct)
+  {
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "SELECT COUNT(*) FROM agent_messages WHERE agent_id=@id;";
+    Add(command, "@id", id.ToString());
+    return Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false),
+        CultureInfo.InvariantCulture);
+  }
+
   /// <summary>Every stored-image path the agent's PERSISTED transcript names - the reference
   ///     set an orphan sweep is measured against.
   ///     <para>READ FROM THE ROWS, NOT FROM THE CONVERSATION: a path that reached a row is what

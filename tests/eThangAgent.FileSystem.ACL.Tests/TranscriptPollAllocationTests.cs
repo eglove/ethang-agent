@@ -8,14 +8,17 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 
 /// <summary>ASSERTION 3 OF THE PLAN'S VERIFICATION: a poll allocates nothing proportional to the
 ///     image.
-///     <para>THE POLL IS THE MECHANISM THE PLAN EXISTS TO STOP. The desktop cell re-reads the
-///     transcript every 500 ms (<c>AgentCellViewModel.TranscriptPollInterval</c>), and
+///     <para>THE READ IS THE MECHANISM THE PLAN EXISTS TO STOP.
 ///     <see cref="SqliteAgentStore.GetTranscriptAsync"/> selects role, content and meta_json for
-///     EVERY message. While a screenshot's bytes lived in meta_json, each poll materialised them
-///     as a UTF-16 string - a 7.4 MB session re-allocating its pictures twice a second, the
-///     measured ~15 MB/s of pure garbage behind the shell's 2.1 GB working set. Once the row
-///     holds a POINTER, the same read allocates with the ROW (a media type and a path) instead of
-///     with the PICTURE.</para>
+///     EVERY message, and the desktop cell performed it twice a second. While a screenshot's
+///     bytes lived in meta_json, each read materialised them as a UTF-16 string - a 7.4 MB session
+///     re-allocating its pictures twice a second, the measured ~15 MB/s of pure garbage behind the
+///     shell's 2.1 GB working set. Once the row holds a POINTER, the same read allocates with the
+///     ROW (a media type and a path) instead of with the PICTURE.</para>
+///     <para>THE CELL NO LONGER CALLS THIS ON A TICK (issue #385): a follower reads
+///     <see cref="SqliteAgentStore.GetTranscriptTailAsync"/> past its cursor instead. This test
+///     still measures the whole-transcript read, which is what a first paint and a restore cost.
+///     </para>
 ///     <para>WHAT THIS MEASURES, AND WHAT IT DOES NOT. It measures ALLOCATED BYTES across the
 ///     read - <see cref="GC.GetTotalAllocatedBytes(bool)"/> around the call - because that is the
 ///     garbage the poll produces. It does NOT assert a managed heap that returns to zero: a
