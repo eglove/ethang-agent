@@ -649,7 +649,10 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         TransportEnvelope envelope = await transport.ReceiveAsync(ct).ConfigureAwait(false);
         DispatchEnvelope(envelope);
 
-        await _transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence), ct).ConfigureAwait(false);
+        if (envelope.ShouldAcknowledge)
+        {
+          await _transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence), ct).ConfigureAwait(false);
+        }
       }
     }
     // Named decision (CA1031): the pump is the connection's fault boundary. Cancellation

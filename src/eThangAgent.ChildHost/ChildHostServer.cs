@@ -115,7 +115,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 #pragma warning disable CA1031 // Do not catch general exception types
       try
       {
-        await transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence)).ConfigureAwait(false);
+        if (envelope.ShouldAcknowledge)
+        {
+          await transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence)).ConfigureAwait(false);
+        }
       }
       catch
       {

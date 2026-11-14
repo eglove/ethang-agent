@@ -23,6 +23,13 @@ public sealed record TransportEnvelope(string Kind, string Json, long Sequence)
   ///     DISTINGUISH "unknown" from "known but unhandled" — task 9's host validation is the
   ///     natural place — should use it rather than re-listing the kinds.</para></summary>
   public bool HasKnownKind => Array.IndexOf(KnownKinds, Kind) >= 0;
+
+  /// <summary>Whether a receiver must confirm delivery of this envelope.
+  ///     <para>AN ACK IS NEVER ACKED. An ack confirms that a frame arrived, so it carries no
+  ///     delivery of its own to confirm; acking one makes each side's ack a new frame for the
+  ///     other, and the two pumps ack each other forever. Both pumps ask this before replying,
+  ///     so the rule has one home instead of two copies that can drift.</para></summary>
+  public bool ShouldAcknowledge => !string.Equals(Kind, "ack", StringComparison.Ordinal);
 }
 
 /// <summary>The child-host transport seam (FR-X2). The domain never references this
