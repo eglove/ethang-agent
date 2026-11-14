@@ -292,6 +292,14 @@ public sealed class RootTranscriptSink : IAgentTranscriptStore, IDisposable, IAs
     flush.GetAwaiter().GetResult();
   }
 
+  /// <summary>The line a message carries when an attempt to persist it did not land. It is
+  ///     recorded in the QUEUED message's own text (never in a second write attempt), so a
+  ///     retried append reports what happened instead of quietly succeeding as if the failed
+  ///     attempt had never been made. The wording states the attempt, not the outcome: a message
+  ///     that lands on the retry still carries it, because the attempt did happen.</summary>
+  internal const string AppendDidNotLandLine =
+      "[not persisted: an attempt to write this message did not land; it was retried]";
+
   /// <summary>Starts the one active drain, or hands back the one already running. The
   ///     drain holds the single-flight flag from start to completion so no second drainer
   ///     can peek the same head message.</summary>

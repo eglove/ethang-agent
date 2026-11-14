@@ -143,4 +143,49 @@ public sealed class SessionImageStore : IImageStore
           $"The stored image named '{path}' could not be read: {ex.Message}"));
     }
   }
+
+  /// <summary>Removes the files in this session's folder that no persisted message names. The
+  ///     ONE sound test of an orphan: nothing in the transcript points at the file. A name that
+  ///     is still there is still referenced, whatever its age.
+  ///     <para>DELETION ONLY, NEVER CREATION: a message whose reference resolves to nothing
+  ///     keeps reading and keeps rendering as a message with a missing picture, and nothing here
+  ///     invents a replacement.</para>
+  ///     <para>THE SESSION FOLDER IS THE UNIT: an unreadable directory entry, a file another
+  ///     process holds open, or an unwritable folder ends the sweep with a typed failure rather
+  ///     than throwing - a cleanup that cannot run is reported, never escalated.</para></summary>
+  public Task<Result<int>> SweepAsync(IReadOnlySet<string> referencedPaths, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(referencedPaths);
+    int removed = 0;
+    try
+    {
+      if (!Directory.Exists(_sessionFolder))
+      {
+        return Result.Success(0).AsTask();
+      }
+
+      // The comparer is chosen HERE rather than trusted from the caller: two spellings of one
+      // Windows path are one file, and a caller that passed an ordinal set would let the sweep
+      // delete a picture its own transcript still names.
+      HashSet<string> referenced = new(referencedPaths, StringComparer.OrdinalIgnoreCase);
+      foreach (string file in Directory.EnumerateFiles(_sessionFolder))
+      {
+        ct.ThrowIfCancellationRequested();
+        if (referenced.Contains(file))
+        {
+          continue;
+        }
+
+        File.Delete(file);
+        removed++;
+      }
+
+      return Result.Success(removed).AsTask();
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+    {
+      return Result.Failure<int>(new DomainError("ImageSweepFailed",
+          $"The session's image folder '{_sessionFolder}' could not be swept: {ex.Message}")).AsTask();
+    }
+  }
 }

@@ -38,19 +38,27 @@ public sealed class SqliteAgentStore(
 
   /// <summary>Message fields without a dedicated column, serialized into agent_messages.meta_json.
   ///     Parts (content parts such as tool-produced images) ride here as a nullable entry list;
-  ///     rows written before parts existed carry no parts key and read back with Parts null.</summary>
+  ///     rows written before parts existed carry no parts key and read back with Parts null.
+  ///     <para>A NULL ENTRY records an image that did not land: the store could not produce a file
+  ///     for it and deliberately kept no payload in the row, so the entry's only job is to hold the
+  ///     position its part occupied. The message's own text is what says an image was there.</para>
+  ///     </summary>
   internal sealed record MessageMeta(DateTimeOffset Timestamp, IReadOnlyList<ToolCall>? ToolCalls,
-      string? ToolCallId, IReadOnlyList<MessageMetaPart>? Parts = null);
+      string? ToolCallId, IReadOnlyList<MessageMetaPart?>? Parts = null);
 
-  /// <summary>Maps conversation parts onto the meta_json entry shape, persisting an inline
-  ///     image payload as a FILE PLUS A POINTER when it is at or above
-  ///     <see cref="ImageLimits.InlineThresholdBytes"/>. Part kinds with no entry representation
-  ///     are a programmer error (extend the mapping with the kind), never a silent drop.
+  /// <summary>Maps conversation parts onto the meta_json entry shape, persisting an image
+  ///     payload as a FILE PLUS A POINTER.
+  ///     <para>AN IMAGE WHOSE FILE THE SINK FAILED TO WRITE IS NOT STORED AS BYTES INSTEAD. A null
+  ///     entry means exactly that: no reference names a file that was never written, and the
+  ///     payload does not fall back into the row. The alternative - keeping a 20 MB screenshot
+  ///     inline because its file could not be written - is the payload shape this store exists to
+  ///     remove, and it would silently reappear on exactly the path that is already failing.</para>
+  ///     <para>Part kinds with no entry representation are a programmer error (extend the mapping
+  ///     with the kind), never a silent drop.</para>
   ///     <para>THE STORE IS WHERE THE SIZE LANDS, not the conversation: the message keeps its
   ///     inline part, so the request the producing turn builds still carries the bytes and the
-  ///     model still sees what its tool just captured. What changes is the ROW - a large payload
-  ///     becomes a file the row names, so a transcript poll never re-materialises it.</para></summary>
-  private async Task<IReadOnlyList<MessageMetaPart>?> ToMetaPartsAsync(
+  ///     model still sees what its tool just captured. What changes is the ROW.</para></summary>
+  private async Task<IReadOnlyList<MessageMetaPart?>?> ToMetaPartsAsync(
       IReadOnlyList<MessagePart>? parts, string? sessionId, CancellationToken ct)
   {
     if (parts is not { Count: > 0 })
@@ -58,7 +66,7 @@ public sealed class SqliteAgentStore(
       return null;
     }
 
-    MessageMetaPart[] entries = new MessageMetaPart[parts.Count];
+    MessageMetaPart?[] entries = new MessageMetaPart?[parts.Count];
     for (int i = 0; i < parts.Count; i++)
     {
       entries[i] = await ToMetaPartAsync(parts[i], sessionId, ct).ConfigureAwait(false);
@@ -67,7 +75,7 @@ public sealed class SqliteAgentStore(
     return entries;
   }
 
-  private async Task<MessageMetaPart> ToMetaPartAsync(MessagePart part, string? sessionId, CancellationToken ct) => part switch
+  private async Task<MessageMetaPart?> ToMetaPartAsync(MessagePart part, string? sessionId, CancellationToken ct) => part switch
   {
     MessagePart.ImagePart image when IsBelowThreshold(image.Base64Data) =>
         new(image.MediaType, Base64Data: image.Base64Data),
@@ -85,10 +93,18 @@ public sealed class SqliteAgentStore(
       ImagePartMarker.DecodedByteCount(base64Data) < ImageLimits.InlineThresholdBytes;
 
   /// <summary>Writes an over-threshold payload to the session's image store and returns the
-  ///     entry that NAMES it. A store that cannot be resolved, or a write that fails, leaves the
-  ///     payload INLINE: the row is still correct and still renders, it is merely large, and no
-  ///     reference names a file that was never written.</summary>
-  private async Task<MessageMetaPart> PersistPayloadAsync(MessagePart.ImagePart image,
+  ///     entry that NAMES it.
+  ///     <para>NO SINK RESOLVABLE IS NOT A FAILURE: a container composed without an image store
+  ///     (a unit test, a legacy wiring, the catalog's read-only store) has nowhere to put a file,
+  ///     so the payload keeps the inline shape it always had. Losing the picture would be a worse
+  ///     answer than a large row.</para>
+  ///     <para>A WIRED SINK THAT FAILS IS A DIFFERENT FACT: the file it was asked for is not
+  ///     there, so NULL is returned - no reference names a file that was never written, and the
+  ///     payload is NOT smuggled back into the row the reference existed to keep it out of. That
+  ///     loss is recorded in the message's own text by <see
+  ///     cref="ImagePartMarker.MarkerForUnstored"/>, which <see
+  ///     cref="ContentNamingStoredImages"/> appends.</para></summary>
+  private async Task<MessageMetaPart?> PersistPayloadAsync(MessagePart.ImagePart image,
       string? sessionId, CancellationToken ct)
   {
     if (_imagesFor?.Invoke(sessionId) is not { } store)
@@ -98,26 +114,36 @@ public sealed class SqliteAgentStore(
 
     Result<StoredImage> stored = await store
         .PersistBase64Async(image.MediaType, image.Base64Data, ct).ConfigureAwait(false);
-    return stored.IsSuccess
-        ? new MessageMetaPart(stored.Value.MediaType, Path: stored.Value.Path)
-        : new MessageMetaPart(image.MediaType, Base64Data: image.Base64Data);
+    return stored.IsSuccess ? new MessageMetaPart(stored.Value.MediaType, Path: stored.Value.Path) : null;
   }
 
+
+
   /// <summary>Rebuilds conversation parts from their meta_json entries; empty stays null
-  ///     so parts-less messages keep the legacy shape. An entry carrying neither payload
-  ///     names no image and is a programmer error, never a silent drop.</summary>
-  private static IReadOnlyList<MessagePart>? FromMetaParts(IReadOnlyList<MessageMetaPart>? entries)
-      => entries is { Count: > 0 }
-          ? [.. entries.Select(FromMetaPart)]
-          : null;
+  ///     so parts-less messages keep the legacy shape. A null entry is an image that did not
+  ///     land - the store wrote no reference and kept no payload - so it contributes NO part, and
+  ///     the message's own text is what says an image was there. An entry carrying neither
+  ///     payload names no image and is a programmer error, never a silent drop.</summary>
+  private static List<MessagePart>? FromMetaParts(IReadOnlyList<MessageMetaPart?>? entries)
+  {
+    if (entries is not { Count: > 0 })
+    {
+      return null;
+    }
+
+    List<MessagePart> parts = [.. entries.OfType<MessageMetaPart>().Select(FromMetaPart)];
+    return parts.Count > 0 ? parts : null;
+  }
+
 
   /// <summary>The message's text with one line per image that became a FILE, naming the
-  ///     absolute path. The content column is what a transcript read hands back, so without this
-  ///     line the path would live only in meta_json and nothing would tell the model where the
-  ///     picture went - the model pulls it back with read_image. The message's own text is
-  ///     untouched; an image that stayed inline adds no line, because its bytes are the part.</summary>
+  ///     absolute path, and one line per image that did NOT land, naming its media type and
+  ///     size. The content column is what a transcript read hands back, so without these lines
+  ///     the outcome of an image would live only in meta_json and nothing would tell the model
+  ///     where the picture went - or that one was lost. The message's own text is untouched; an
+  ///     image that stayed inline adds no line, because its bytes are the part.</summary>
   private static string ContentNamingStoredImages(string content,
-      IReadOnlyList<MessagePart>? parts, IReadOnlyList<MessageMetaPart>? entries)
+      IReadOnlyList<MessagePart>? parts, IReadOnlyList<MessageMetaPart?>? entries)
   {
     if (parts is not { Count: > 0 } || entries is not { Count: > 0 })
     {
@@ -130,6 +156,11 @@ public sealed class SqliteAgentStore(
       if (parts[i] is MessagePart.ImagePart && entries[i] is { Path: { } path, MediaType: { } mediaType })
       {
         _ = named.Append('\n').Append(ImagePartMarker.MarkerForStored(mediaType, path));
+      }
+      else if (entries[i] is null && parts[i] is MessagePart.ImagePart unstored)
+      {
+        _ = named.Append('\n').Append(ImagePartMarker.MarkerForUnstored(unstored.MediaType,
+            ImagePartMarker.DecodedByteCount(unstored.Base64Data)));
       }
     }
 
@@ -266,7 +297,7 @@ public sealed class SqliteAgentStore(
                 VALUES (@id, (SELECT COALESCE(MAX(seq), -1) + 1 FROM agent_messages WHERE agent_id=@id), @role, @content, @meta);
                 """;
       ArgumentNullException.ThrowIfNull(message);
-      IReadOnlyList<MessageMetaPart>? parts = await ToMetaPartsAsync(
+      IReadOnlyList<MessageMetaPart?>? parts = await ToMetaPartsAsync(
           message.Parts, id.ToString(), ct).ConfigureAwait(false);
       Add(command, "@id", id.ToString());
       Add(command, "@role", message.Role.ToString());
@@ -328,7 +359,7 @@ public sealed class SqliteAgentStore(
         Add(command, "@id", id.ToString());
         Add(command, "@seq", seq);
         Add(command, "@role", message.Role.ToString());
-        IReadOnlyList<MessageMetaPart>? parts = await ToMetaPartsAsync(
+        IReadOnlyList<MessageMetaPart?>? parts = await ToMetaPartsAsync(
             message.Parts, id.ToString(), ct).ConfigureAwait(false);
         Add(command, "@content", ContentNamingStoredImages(message.Content, message.Parts, parts));
         Add(command, "@meta", JsonSerializer.Serialize(
@@ -374,6 +405,54 @@ public sealed class SqliteAgentStore(
     }
     return Result.Success<IReadOnlyList<Message>>(messages);
   }
+
+  /// <summary>Every stored-image path the agent's PERSISTED transcript names - the reference
+  ///     set an orphan sweep is measured against.
+  ///     <para>READ FROM THE ROWS, NOT FROM THE CONVERSATION: a path that reached a row is what
+  ///     survives a restart, and a path that reached only an in-memory message names nothing a
+  ///     later process could resolve. That is also why the answer comes from meta_json: the
+  ///     content column names a converted image's path only as a rendering convenience.</para>
+  ///     <para>A ROW WHOSE META_JSON WILL NOT PARSE IS AN ERROR HERE, never a silent omission: a
+  ///     sweep driven by an incomplete reference set would delete the picture that row's own
+  ///     message is about.</para></summary>
+  public async Task<Result<IReadOnlySet<string>>> GetStoredImagePathsAsync(AgentId id,
+      CancellationToken ct = default)
+  {
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using SqliteConnection connection = _database.Open();
+#pragma warning restore CA2007
+    if (!await AgentExistsAsync(connection, transaction: null, id, ct).ConfigureAwait(false))
+    {
+      return Result.Failure<IReadOnlySet<string>>(NotFound(id));
+    }
+
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "SELECT meta_json FROM agent_messages WHERE agent_id=@id AND meta_json IS NOT NULL;";
+    Add(command, "@id", id.ToString());
+    List<string> paths = [];
+    try
+    {
+      using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+      while (await reader.ReadAsync(ct).ConfigureAwait(false))
+      {
+        MessageMeta meta = JsonSerializer.Deserialize<MessageMeta>(reader.GetString(0))!;
+        paths.AddRange((meta.Parts ?? []).OfType<MessageMetaPart>()
+            .Where(part => part.Path is not null)
+            .Select(part => part.Path!));
+      }
+    }
+    catch (JsonException ex)
+    {
+      return Result.Failure<IReadOnlySet<string>>(new DomainError("TranscriptUnreadable",
+          $"agent {id}'s transcript holds a row whose meta_json is not readable, so the images it names cannot be known: {ex.Message}"));
+    }
+
+    // The set is case-insensitive because two spellings of one Windows path are one file: a
+    // sweep told otherwise would delete a picture its own transcript still names.
+    return Result.Success<IReadOnlySet<string>>(paths.ToHashSet(StringComparer.OrdinalIgnoreCase));
+  }
+
 
   public async Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
   {

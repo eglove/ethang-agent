@@ -107,8 +107,8 @@ public class ServerToolImageSurfacingTests
 
   private static readonly StoredImage Saved = new(SavedPath, "generated-1.png", "image/png");
 
-  /// <summary>The surfacing path carries base64 and writes; the other two members are
-  ///     unreachable from it, so reaching either is a wrong call, not a silent no-op.</summary>
+  /// <summary>The surfacing path carries base64 and writes; the other members are unreachable
+  ///     from it, so reaching any of them is a wrong call, not a silent no-op.</summary>
   private sealed class FakeImageStore(Result<StoredImage> outcome) : IImageStore
   {
     public string? SavedMediaType { get; private set; }
@@ -130,6 +130,10 @@ public class ServerToolImageSurfacingTests
     public Task<Result<StoredImageContent>> ResolveAsync(string path,
         CancellationToken ct = default) =>
         throw new InvalidOperationException("surfacing writes an image; it never reads one back.");
+
+    public Task<Result<int>> SweepAsync(IReadOnlySet<string> referencedPaths,
+        CancellationToken ct = default) =>
+        throw new InvalidOperationException("surfacing writes an image; it never sweeps the folder.");
   }
 
   private sealed class ScriptedProvider(ModelResponse response) : IModelProvider

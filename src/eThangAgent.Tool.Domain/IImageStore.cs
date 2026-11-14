@@ -53,4 +53,21 @@ public interface IImageStore
   /// <param name="path">The absolute path of a persisted image.</param>
   /// <param name="ct">Cancels the read.</param>
   Task<Result<StoredImageContent>> ResolveAsync(string path, CancellationToken ct = default);
+
+  /// <summary>Removes every file in this session's folder that <paramref name="referencedPaths"/>
+  ///     does not name, and reports how many it removed.
+  ///     <para>AN ORPHAN IS A FILE NO PERSISTED MESSAGE NAMES - that and nothing else. A file
+  ///     written moments ago is not an orphan while the turn that wrote it is still going to
+  ///     persist the message naming it, so the caller runs this only where no turn for this
+  ///     session can be in flight.</para>
+  ///     <para>AGE IS NEVER THE TEST: a timestamp cannot distinguish a file a live turn produced
+  ///     from one a killed process abandoned, and deleting the first is losing a picture the
+  ///     conversation is about to record.</para>
+  ///     <para>A folder that does not exist reports zero rather than failing - nothing was
+  ///     written, so there is nothing to sweep. A second run over an already-swept folder
+  ///     reports zero for the same reason: the removal leaves nothing to find.</para></summary>
+  /// <param name="referencedPaths">Every stored-image path a persisted message names. The
+  ///     comparison is case-insensitive: two spellings of one Windows path are the same file.</param>
+  /// <param name="ct">Cancels the sweep.</param>
+  Task<Result<int>> SweepAsync(IReadOnlySet<string> referencedPaths, CancellationToken ct = default);
 }

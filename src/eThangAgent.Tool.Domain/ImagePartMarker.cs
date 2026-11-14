@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace eThangAgent.ToolDomain;
@@ -66,6 +67,21 @@ public static class ImagePartMarker
     ArgumentNullException.ThrowIfNull(mediaType);
     ArgumentException.ThrowIfNullOrWhiteSpace(path);
     return "[image: " + mediaType + ", " + path + "]";
+  }
+
+  /// <summary>The one spelling of an image that did NOT land: the media type and the decoded
+  ///     size, with no path, because there is no file to name.
+  ///     <para>THE RECORD IS THE POINT. An image that could not be stored is still something the
+  ///     conversation produced, so the transcript says so rather than reading as a message that
+  ///     never had a picture. What is missing is the picture, not the fact of it.</para></summary>
+  /// <param name="mediaType">The image's media type.</param>
+  /// <param name="decodedBytes">The image's decoded size, which is what was lost.</param>
+  public static string MarkerForUnstored(string mediaType, int decodedBytes)
+  {
+    ArgumentNullException.ThrowIfNull(mediaType);
+    ArgumentOutOfRangeException.ThrowIfNegative(decodedBytes);
+    return "[image not stored: " + mediaType + ", " + decodedBytes.ToString(CultureInfo.InvariantCulture)
+        + " bytes]";
   }
 
   /// <summary>Decoded byte length of a base64 payload: 3/4 of the character count

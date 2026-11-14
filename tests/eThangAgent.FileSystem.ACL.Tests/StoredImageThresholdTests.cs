@@ -206,10 +206,10 @@ public sealed class StoredImageThresholdTests : IDisposable
             .ConfigureAwait(true)));
   }
 
-  // --- The awkward case: a sink that cannot write leaves the row correct, never a dangling reference ---
+  // --- Behaviour 1 of the sweep step: a sink that cannot write leaves NO reference and no bytes ---
 
   [Fact]
-  public async Task SinkFailure_LeavesThePayloadInline_RatherThanNamingAFileThatWasNeverWritten()
+  public async Task SinkFailure_WritesNoReference_KeepsNoInlinePayload_AndNamesWhatWasLost()
   {
     AgentId id = await SavedAgentAsync();
     byte[] big = Png(400 * 1024);
@@ -224,12 +224,16 @@ public sealed class StoredImageThresholdTests : IDisposable
 
     (string metaJson, string content) = await PersistAsync(store, id, Convert.ToBase64String(big));
 
-    // The write failed, so the payload stays inline: the row still reads and still renders, and
-    // no reference names a file that does not exist.
-    Assert.Contains("Base64Data", metaJson, StringComparison.Ordinal);
-    Assert.DoesNotContain("\"Path\"", metaJson, StringComparison.Ordinal);
-    Assert.Equal("computer: observe", content);
+    // A reference is never persisted before its file exists: nothing names a file nobody wrote.
+    Assert.DoesNotContain("Path", metaJson, StringComparison.Ordinal);
+    // And the payload does NOT fall back into the row - that is the shape this store exists to
+    // remove, and a 20 MB screenshot inline is exactly the defect, not the safe answer.
+    Assert.DoesNotContain("Base64Data", metaJson, StringComparison.Ordinal);
+    // The loss is recorded in the message's own text, so the transcript is not silent about it.
+    Assert.StartsWith("computer: observe", content, StringComparison.Ordinal);
+    Assert.Contains("[image not stored: image/png, ", content, StringComparison.Ordinal);
   }
+
 
   // --- A store with no sink attached is the legacy shape ---
 

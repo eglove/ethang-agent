@@ -382,6 +382,16 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         return Result.Failure<AgentSession>(new DomainError("HostUnavailable",
             "the conversation host could not be started: " + ex.Message));
       }
+      // A RESUMED SESSION IS THE REST POINT WHERE ITS ORPHANS CAN BE SWEPT (the file-plus-pointer
+      // form's other half). The session had no turn in flight in any process when this method
+      // began - the previous container is disposed and its host exited - so a file nothing names
+      // is now safely an orphan rather than a picture the current turn is about to record.
+      //
+      // REPORTED, NEVER FATAL: a sweep that cannot run must not stop the session from opening, so
+      // the outcome goes to stderr exactly like the startup sweeps and the resume proceeds.
+      await SweepStoredImagesAsync(store, sessionId,
+          services.GetRequiredService<IImageStore>(), ct).ConfigureAwait(false);
+
       // Re-open: clear a Completed row back to Running so status reflects the live session.
       Result<string> reopened = await store.UpdateAsync(record with
       {
@@ -400,6 +410,38 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     {
       await services.DisposeAsync().ConfigureAwait(false);
       throw;
+    }
+  }
+
+  /// <summary>Sweeps <paramref name="sessionId"/>'s stored images against the references its
+  ///     persisted transcript names, and reports the outcome without ever failing the resume:
+  ///     a cleanup that cannot run is information, not a reason to refuse to open a session.
+  ///     <para>THE STORE IS THE CONTAINER'S OWN, resolved from the container rather than
+  ///     constructed here: a second spelling of the folder rule could disagree with the one the
+  ///     next turn writes through, and a sweep pointed at the wrong folder is a sweep that either
+  ///     deletes nothing or deletes everything.</para></summary>
+  /// <param name="store">The store holding the session's transcript.</param>
+  /// <param name="sessionId">The session whose images are swept.</param>
+  /// <param name="images">That session's image store.</param>
+  /// <param name="ct">Cancels the sweep.</param>
+  private static async Task SweepStoredImagesAsync(SqliteAgentStore store, AgentId sessionId,
+      IImageStore images, CancellationToken ct)
+  {
+    Result<int> swept = await SessionImageSweep
+        .SweepAsync(store, sessionId, images, ct).ConfigureAwait(false);
+    if (!swept.IsSuccess)
+    {
+      string failure =
+          $"orphan image sweep failed: [{swept.Error?.Code}] {swept.Error?.Message}";
+      await Console.Error.WriteLineAsync(failure.AsMemory(), ct).ConfigureAwait(false);
+      return;
+    }
+
+    if (swept.Value > 0)
+    {
+      // A startup line about a cleanup that DID something is the audit trail for a deletion.
+      string report = $"swept {swept.Value} unreferenced session image(s).";
+      await Console.Error.WriteLineAsync(report.AsMemory(), ct).ConfigureAwait(false);
     }
   }
 
