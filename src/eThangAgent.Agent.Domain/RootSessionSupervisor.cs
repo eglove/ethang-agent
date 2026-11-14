@@ -6,6 +6,11 @@ namespace eThangAgent.AgentDomain;
 ///     and the watchdog sweeps only the runs this container stamped a heartbeat for, so the
 ///     root is never in the set. Orphan repair exempts the root explicitly because it is
 ///     Running by design between turns. The policy is reused; the supervision is built.</para>
+///     <para>THE CLOCK STARTS AT THE LAUNCH. A session launched FOR a chain step owes a
+///     completion from the moment it exists, so <paramref name="launchedAt"/> seeds the clock
+///     and a fact replaces it. Without that seed, a session whose first turn never reached the
+///     model produces no fact at all, reads as 'never started' rather than 'idle', and is the
+///     one session the ladder can never reach.</para>
 ///     <para>THE CLOCK IS RE-SOURCED. Its input is <see cref="RootTurnActivity"/> - facts the
 ///     ROOT loop produces (turn started, tool started, streamed, turn settled) - and NOT
 ///     <see cref="AgentProgressEvent"/>, which describes a run's progress.
@@ -13,11 +18,15 @@ namespace eThangAgent.AgentDomain;
 ///     idle and would never be nudged.</para>
 ///     <para>THREAD-SAFE. Facts arrive from the host's event pump while the tick reads them, and
 ///     the idle alert is raised under the same lock so it can be handled exactly once per
-///     breach - the <c>AgentSupervisor.CheckIdle</c> pattern, for the same reason.</para></summary>
-public sealed class RootSessionSupervisor(AgentId sessionId)
+///     breach - the <c>AgentSupervisor.CheckIdle</c> pattern, for the same reason.</para>
+///     </summary>
+/// <param name="sessionId">The root session this supervisor watches.</param>
+/// <param name="launchedAt">When the session was launched, or null for a supervisor that
+///     waits for its first turn fact.</param>
+public sealed class RootSessionSupervisor(AgentId sessionId, DateTimeOffset? launchedAt = null)
 {
   private readonly Lock _gate = new();
-  private DateTimeOffset? _lastActivity;
+  private DateTimeOffset? _lastActivity = launchedAt;
   private RootTurnPhase _phase = RootTurnPhase.TurnSettled;
   private string _label = "never started";
   private int _wrapUpAttempts;
@@ -79,9 +88,9 @@ public sealed class RootSessionSupervisor(AgentId sessionId)
     }
   }
 
-  /// <summary>The idle age, or null when the session has produced no fact yet (a session
-  ///     that never started is not idle - it is not running, and nudging it would be a
-  ///     message to nobody).</summary>
+  /// <summary>The idle age, or null when the clock has no origin at all (a session with no
+  ///     launch time and no fact yet is not idle - it is not running, and nudging it would be
+  ///     a message to nobody).</summary>
   public TimeSpan? IdleAge(DateTimeOffset now)
   {
     lock (_gate)

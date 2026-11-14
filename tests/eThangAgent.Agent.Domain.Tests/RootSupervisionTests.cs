@@ -18,6 +18,27 @@ public class RootSupervisionTests
   }
 
   [Fact]
+  public void CheckIdle_ForASessionLaunchedButNeverStarted_ReadsIdleFromItsLaunch()
+  {
+    // A chain step's session is launched FOR work, so its idleness begins at the launch rather
+    // than at the first turn fact. A kickoff turn that never reached the model produces NO fact
+    // at all, and a clock that waits for one is blind to exactly the session that needs
+    // recovering.
+    RootSessionSupervisor supervisor = new(Session, launchedAt: T0);
+
+    Assert.Equal(TimeSpan.FromMinutes(20), supervisor.IdleAge(T0.AddMinutes(20)));
+    Assert.NotNull(supervisor.CheckIdle(TimeSpan.FromMinutes(15), T0.AddMinutes(20)));
+  }
+
+  [Fact]
+  public void CheckIdle_ForASessionLaunchedMomentsAgo_IsNotIdle()
+  {
+    RootSessionSupervisor supervisor = new(Session, launchedAt: T0);
+
+    Assert.Null(supervisor.CheckIdle(TimeSpan.FromMinutes(15), T0.AddMinutes(14)));
+  }
+
+  [Fact]
   public void CheckIdle_BelowTheThreshold_IsNotIdle()
   {
     RootSessionSupervisor supervisor = new(Session);
@@ -52,6 +73,16 @@ public class RootSupervisionTests
     supervisor.OnActivity(new RootTurnActivity(Session, late, RootTurnPhase.ToolStarted, "tool:exec"));
 
     Assert.NotNull(supervisor.CheckIdle(TimeSpan.FromMinutes(15), late.AddMinutes(20)));
+  }
+
+  [Fact]
+  public void OnActivity_ForASessionLaunchedButNeverStarted_ReplacesTheLaunchClock()
+  {
+    RootSessionSupervisor supervisor = new(Session, launchedAt: T0);
+
+    supervisor.OnActivity(new RootTurnActivity(Session, T0.AddMinutes(1), RootTurnPhase.TurnStarted, "turn-start"));
+
+    Assert.Equal(TimeSpan.FromMinutes(9), supervisor.IdleAge(T0.AddMinutes(10)));
   }
 
   [Fact]

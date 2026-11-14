@@ -3474,7 +3474,12 @@ internal sealed partial class MainViewModel : ObservableObject
       return null; // no audit sink: a decision nobody can read is not a decision
     }
 
-    RootSessionSupervisor supervisor = new(session.RootId);
+    // THE CLOCK STARTS AT THE LAUNCH, not at the first turn fact. A step's kickoff turn is
+    // fired without being awaited, so a kickoff that never reached the model leaves a session
+    // with its brief and no fact at all - and a supervisor that waits for one reads that
+    // session as 'never started' instead of 'idle', which is the one state the ladder cannot
+    // reach. This is the moment the session exists, so it is the moment its clock starts.
+    RootSessionSupervisor supervisor = new(session.RootId, DateTimeOffset.UtcNow);
     RootSessionWatchdog watchdog = new(
         session.RootId, supervisor,
         new ChainStepAssignment(contract.ChainId, contract.PlanId, contract.Position, null),
