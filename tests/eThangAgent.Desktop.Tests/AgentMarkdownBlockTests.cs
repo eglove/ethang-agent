@@ -354,6 +354,126 @@ public class AgentMarkdownBlockTests
     Assert.Equal(afterFirst + 2, block.RenderCount);
     Assert.Equal("three", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
   }
+  /// <summary>A block that leaves the visual tree stops its coalescing window. An armed
+  ///     DispatcherTimer is rooted by the dispatcher and its tick delegate targets the block,
+  ///     so an armed window outliving the block keeps the block and every rendered object
+  ///     beneath it reachable - one per block the transcript has ever shown.</summary>
+  [AvaloniaFact]
+  public void Detached_Block_Holds_No_Armed_Throttle_Timer()
+  {
+    Window window = new() { Width = 400, Height = 300 };
+    AgentMarkdownBlock block = new()
+    {
+      MarkdownText = "start",
+      IsOpen = true,
+      ThrottleInterval = TimeSpan.FromSeconds(60),
+    };
+    window.Content = block;
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    block.MarkdownText = "streaming delta";
+    Dispatcher.UIThread.RunJobs();
+    Assert.True(block.IsThrottleArmed, "the first content of an open block opens the coalescing window");
+
+    window.Content = null; // the transcript's own gesture: the entry's container goes away
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.False(block.IsThrottleArmed, "a detached block must not hold an armed timer");
+  }
+
+  /// <summary>The window is drained, not dropped, on the way out: a block re-attached by a
+  ///     recycled container renders what it says rather than the text of the last flush.</summary>
+  [AvaloniaFact]
+  public void Detached_Block_Still_Renders_Its_Latest_Text()
+  {
+    Window window = new() { Width = 400, Height = 300 };
+    AgentMarkdownBlock block = new()
+    {
+      MarkdownText = "start",
+      IsOpen = true,
+      ThrottleInterval = TimeSpan.FromSeconds(60),
+    };
+    window.Content = block;
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    block.MarkdownText = "pending when the entry left";
+    Dispatcher.UIThread.RunJobs();
+    window.Content = null;
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.Equal("pending when the entry left", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
+  }
+
+  /// <summary>Twelve streamed entries, then the transcript moves on: nearly all of them must be
+  ///     collectable. This is the shape the defect had - one retained block per block ever
+  ///     rendered - so it fails against a control that leaves its window armed, and it asserts
+  ///     a proportion rather than an exact count because collection is not a deterministic
+  ///     event.</summary>
+  [AvaloniaFact]
+  public void Departed_Blocks_Do_Not_Accumulate()
+  {
+    const int Entries = 12;
+    Window window = new() { Width = 400, Height = 300 };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    List<WeakReference> blocks = [];
+    for (int i = 0; i < Entries; i++)
+    {
+      blocks.Add(AttachAndDetachStreamingBlock(window));
+    }
+
+    window.Close();
+    int alive = LiveAfterCollection(blocks);
+    Assert.True(alive < Entries / 4,
+        $"{alive} of {Entries} detached blocks are still alive; a block whose entry left the tree must not stay reachable");
+  }
+
+  private static WeakReference AttachAndDetachStreamingBlock(Window window)
+  {
+    AgentMarkdownBlock block = new()
+    {
+      MarkdownText = "start",
+      IsOpen = true,
+      ThrottleInterval = TimeSpan.FromSeconds(60),
+    };
+    window.Content = block;
+    Dispatcher.UIThread.RunJobs();
+    block.MarkdownText = "a delta, so the window is open";
+    Dispatcher.UIThread.RunJobs();
+    Assert.True(block.IsThrottleArmed);
+    WeakReference probe = new(block);
+    window.Content = null;
+    Dispatcher.UIThread.RunJobs();
+    return probe;
+  }
+
+  /// <summary>How many of the referenced blocks survive a forced reclaim. Collected in rounds
+  ///     because unload and finalization are asynchronous: a single pass can leave a residue
+  ///     the next one takes.</summary>
+  private static int LiveAfterCollection(List<WeakReference> blocks)
+  {
+    int alive = blocks.Count;
+    for (int attempt = 0; attempt < 12; attempt++)
+    {
+      Dispatcher.UIThread.RunJobs();
+#pragma warning disable S1215 // Do not force garbage collection
+      GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+      GC.WaitForPendingFinalizers();
+      GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+#pragma warning restore S1215 // Do not force garbage collection
+      alive = blocks.Count(v => v.IsAlive);
+      if (alive == 0)
+      {
+        return 0;
+      }
+    }
+
+    return alive;
+  }
+
   private static IEnumerable<T> Descendants<T>(Control root) where T : Control
   {
     foreach (object child in root.GetVisualChildren())

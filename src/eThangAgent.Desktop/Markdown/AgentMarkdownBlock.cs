@@ -50,6 +50,11 @@ internal class AgentMarkdownBlock : ContentControl
   private DispatcherTimer? _throttle;
   private bool _pending;
 
+  /// <summary>Whether the coalescing window is currently armed. A detached block never is: the
+  ///     dispatcher roots an armed timer and the timer's tick delegate targets this block, so an
+  ///     armed window keeps the block, its viewer and the rendered tree beneath it reachable.</summary>
+  internal bool IsThrottleArmed => _throttle?.IsEnabled ?? false;
+
   /// <summary>How many scrollbar thumbs inside this block are mid-drag. A re-render while one is
   ///     held is DEFERRED, because the re-render replaces the scroll viewer, its scrollbar, and the
   ///     thumb - and the pointer keeps driving the OLD thumb it captured. That orphaned the gesture
@@ -124,6 +129,20 @@ internal class AgentMarkdownBlock : ContentControl
     {
       RenderNow();
     }
+  }
+
+  /// <summary>Ends the coalescing window when this block leaves the visual tree: a timer left
+  ///     armed here keeps this block and its rendered tree reachable for the life of the
+  ///     process, and a transcript detaches blocks on every scroll and every session close.
+  ///     <para>A pending render is DRAINED rather than dropped, so the rendered content matches
+  ///     MarkdownText for whatever re-attaches this block. The drag deferral is reset because a
+  ///     detached control holds no pointer capture.</para></summary>
+  protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+  {
+    base.OnDetachedFromVisualTree(e);
+    _activeDrags = 0;
+    _renderDeferredByDrag = false;
+    RenderNow();
   }
 
   /// <summary>Drains a coalesced pending render immediately; the throttle timer's tick calls

@@ -72,6 +72,12 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@":\s*IImageStore\b")]
   private static partial Regex ImageStoreImplementationPattern();
 
+  [GeneratedRegex(@"new\s+(?:[A-Za-z_]\w*\.)*DispatcherTimer\b|DispatcherTimer\??\s+[A-Za-z_]\w*\s*[=;]")]
+  private static partial Regex DispatcherTimerCreationPattern();
+
+  [GeneratedRegex(@"\b([A-Z][A-Za-z0-9_]*)\s*\(")]
+  private static partial Regex MethodCallPattern();
+
   // A data: URL being BUILT: 'data:' and the ';base64' marker on one line. Deliberately loose
   // about what sits between them (an interpolated media type, a concatenation, a literal), and
   // deliberately not matched by the ';base64,' constant alone, which builds nothing.
@@ -577,5 +583,88 @@ public sealed partial class DoctrineTests
     Assert.True(violations.Count == 0,
         "a second implementation of a session image store (implement IImageStore once, in "
         + "src/eThangAgent.FileSystem.ACL/SessionImageStore.cs): " + string.Join(", ", violations));
+  }
+
+  /// <summary>Whether a control's detach path reaches a DispatcherTimer.Stop call: the body of
+  ///     its OnDetachedFromVisualTree override, or the body of one method that override calls
+  ///     (release-the-subscriptions helpers are the ordinary shape). One level is deliberate -
+  ///     the check exists to catch a timer nobody stops, not to build a call graph.</summary>
+  private static bool DetachStopsItsTimer(string text)
+  {
+    int start = text.IndexOf("OnDetachedFromVisualTree(", StringComparison.Ordinal);
+    if (start < 0)
+    {
+      return false;
+    }
+
+    int relative = text.AsSpan(start).IndexOf('{');
+    if (relative < 0)
+    {
+      return false;
+    }
+
+    int open = start + relative;
+
+    int depth = 0;
+    int end = -1;
+    for (int i = open; i < text.Length; i++)
+    {
+      if (text[i] == '{')
+      {
+        depth++;
+      }
+      else if (text[i] == '}' && --depth == 0)
+      {
+        end = i;
+        break;
+      }
+    }
+
+    if (end < 0)
+    {
+      return false;
+    }
+
+    string body = text[open..end];
+    if (body.Contains(".Stop(", StringComparison.Ordinal))
+    {
+      return true;
+    }
+
+    foreach (Match call in MethodCallPattern().Matches(body))
+    {
+      int declaration = text.IndexOf(" void " + call.Groups[1].Value + "(", StringComparison.Ordinal);
+      if (declaration >= 0
+          && text[declaration..Math.Min(text.Length, declaration + 2000)].Contains(".Stop(", StringComparison.Ordinal))
+      {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// <summary>R5.4: a dispatcher timer is stopped by the same control that started it, when
+  ///     that control leaves the visual tree. The dispatcher roots an armed timer and the
+  ///     timer's tick delegate targets its owner, so a stopped-on-nothing timer keeps its owner
+  ///     and everything the owner holds reachable for the life of the process.</summary>
+  [Fact]
+  public void DispatcherTimers_AreStopped_WhenTheirOwnerLeavesTheVisualTree()
+  {
+    List<string> violations = [];
+    foreach (string file in SourceFiles("src"))
+    {
+      string text = File.ReadAllText(file);
+      if (!DispatcherTimerCreationPattern().IsMatch(text) || DetachStopsItsTimer(text))
+      {
+        continue;
+      }
+
+      violations.Add(Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/'));
+    }
+
+    Assert.True(violations.Count == 0,
+        "a control that starts a DispatcherTimer must also stop it on detach "
+        + "(override OnDetachedFromVisualTree and call Stop): " + string.Join(", ", violations));
   }
 }
