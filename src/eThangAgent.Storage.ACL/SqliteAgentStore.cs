@@ -31,10 +31,15 @@ public sealed class SqliteAgentStore(
   ///     <para>Exactly one payload field is populated and the unpopulated one is absent from
   ///     the JSON: <see cref="Base64Data"/> for an inline image, <see cref="Path"/> for a
   ///     reference to a stored image. A row written before references existed carries
-  ///     Base64Data alone and deserializes unchanged.</para></summary>
+  ///     Base64Data alone and deserializes unchanged.</para>
+  ///     <para>A THIRD SHAPE RECORDS A REMOVAL: <see cref="RemovedBytes"/> is what V43 left in place
+  ///     of a payload it stripped from history, so a row that lost its picture still says how large
+  ///     the picture was. It carries no payload and no path, and it rebuilds to NO part - the strip
+  ///     is a one-way removal of bytes, not a new kind of image.</para></summary>
   internal sealed record MessageMetaPart(string MediaType,
       [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Base64Data = null,
-      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Path = null);
+      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Path = null,
+      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? RemovedBytes = null);
 
   /// <summary>Message fields without a dedicated column, serialized into agent_messages.meta_json.
   ///     Parts (content parts such as tool-produced images) ride here as a nullable entry list;
@@ -131,7 +136,7 @@ public sealed class SqliteAgentStore(
       return null;
     }
 
-    List<MessagePart> parts = [.. entries.OfType<MessageMetaPart>().Select(FromMetaPart)];
+    List<MessagePart> parts = [.. entries.OfType<MessageMetaPart>().Select(FromMetaPart).OfType<MessagePart>()];
     return parts.Count > 0 ? parts : null;
   }
 
@@ -167,12 +172,22 @@ public sealed class SqliteAgentStore(
     return named.ToString();
   }
 
-  private static MessagePart FromMetaPart(MessageMetaPart entry) => entry switch
+  /// <summary>The part an entry rebuilds to, or NULL for an entry that records a REMOVAL. V43 left
+  ///     <see cref="MessageMetaPart.RemovedBytes"/> where a payload used to be, so the row still says
+  ///     an image was there and how large it was; there is no longer a picture to hand a consumer,
+  ///     and inventing one would be the lie the marker exists to prevent.
+  ///     <para>IT REBUILDS TO NO PART rather than to a text part carrying the marker: the part
+  ///     vocabulary has no meta representation for text, so a part invented here would make a
+  ///     stripped transcript unpersistable - a compaction or a flush of it would throw. The record
+  ///     lives in meta_json, which is where the strip put it and where a reader can find it.</para>
+  ///     </summary>
+  private static MessagePart? FromMetaPart(MessageMetaPart entry) => entry switch
   {
     { Path: { } path } => new MessagePart.ImageReferencePart(path, entry.MediaType),
     { Base64Data: { } base64Data } => new MessagePart.ImagePart(entry.MediaType, base64Data),
+    { RemovedBytes: not null } => null,
     _ => throw new InvalidOperationException(
-        $"a meta_json part claiming media type '{entry.MediaType}' carries neither Base64Data nor Path."),
+        $"a meta_json part claiming media type '{entry.MediaType}' carries none of Base64Data, Path or RemovedBytes."),
   };
 
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));

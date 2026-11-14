@@ -102,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 42;
+  public const int LatestSchemaVersion = 43;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -151,6 +151,7 @@ public sealed class AppDatabase
     (40, ApplyV40),
     (41, ApplyV41),
     (42, ApplyV42),
+    (43, ApplyV43),
   ];
 
   private void Migrate()
@@ -1770,6 +1771,36 @@ public sealed class AppDatabase
     {
       Execute(connection, "PRAGMA foreign_keys = ON;");
     }
+  }
+
+  /// <summary>V43 strips the image bytes history already holds: every embedded base64 payload in
+  ///     <c>agent_messages.meta_json</c> becomes a record of what was there, and the file is
+  ///     reclaimed so the space returns to the disk rather than sitting in free pages.
+  ///     <para>IT RUNS ONCE, INSIDE THE MIGRATION, and never on startup again: the runner advances
+  ///     <c>user_version</c> past it, which is the only reason a 900 MB rewrite is allowed to exist
+  ///     at all. What it measured and did is left in <c>migration_reports</c> - the audit trail of
+  ///     a one-way operation, readable by anything that can query the database.</para>
+  ///     <para>CONDITIONAL ON <c>agent_messages</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database and one stamped below V2 does not have the table. It
+  ///     also runs against a database that holds no messages at all, which is the ordinary case for
+  ///     a fresh install: the strip measures zero, writes nothing, and the version advances.</para>
+  ///     <para>THE RECLAIM IS THE LAST THING THAT HAPPENS and it is outside the strip's transaction,
+  ///     because VACUUM cannot run inside one. A reclaim that cannot take the lock throws, so the
+  ///     version stays behind and the next start finishes only the reclaim - never a record
+  ///     claiming a reclaimed file that still holds the free pages.</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV43(SqliteConnection connection)
+  {
+    // The record's table comes first, so the strip has somewhere to write what it measured
+    // whatever shape the database arrived in. It is this step's own table, not a preference:
+    // a migration's audit row is neither the app's nor the user's choice.
+    EmbeddedImagePayloadStrip.CreateReportTable(connection);
+    if (!TableExists(connection, "agent_messages"))
+    {
+      return;
+    }
+
+    _ = EmbeddedImagePayloadStrip.Run(connection);
   }
 
   /// <summary>The repair both V39 and V41 apply: every workspace id that is a second spelling of
