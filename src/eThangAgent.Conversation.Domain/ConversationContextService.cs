@@ -255,10 +255,7 @@ public sealed class ConversationContextService(Conversation conversation)
     if (message.Parts is { Count: > 0 })
     {
       StringBuilder sb = new();
-      List<PartRender> parts = [.. message.Parts.Select(part => part is MessagePart.ImagePart image
-          ? PartRender.ForImage(image.MediaType, image.Base64Data)
-          : PartRender.ForText(((MessagePart.TextPart)part).Text))];
-      ImagePartMarker.AppendParts(sb, parts);
+      ImagePartMarker.AppendParts(sb, PartRenders.Of(message.Parts));
       lines[^1] += (lines[^1].EndsWith(' ', StringComparison.Ordinal) ? "" : " ") + sb.ToString().Trim();
     }
 

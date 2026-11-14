@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using eThangAgent.AgentDomain;
@@ -16,7 +17,9 @@ namespace eThangAgent.Storage.ACL;
 // Named decision (CA1001): process-lifetime singleton owned by the composition root —
 // disposing the write gate on teardown adds no value.
 #pragma warning disable CA1001 // Types that own disposable fields should be disposable
-public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgentEventLog
+public sealed class SqliteAgentStore(
+    AppDatabase database,
+    Func<string?, IImageStore?>? imagesFor = null) : IAgentStore, IAgentEventLog
 {
   private const string SpawnedEventType = "spawned";
   private const string CompletedEventType = "completed";
@@ -39,21 +42,66 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
   internal sealed record MessageMeta(DateTimeOffset Timestamp, IReadOnlyList<ToolCall>? ToolCalls,
       string? ToolCallId, IReadOnlyList<MessageMetaPart>? Parts = null);
 
-  /// <summary>Maps conversation parts onto the meta_json entry shape. Part kinds with no
-  ///     entry representation are a programmer error (extend the mapping with the kind),
-  ///     never a silent drop.</summary>
-  private static IReadOnlyList<MessageMetaPart>? ToMetaParts(IReadOnlyList<MessagePart>? parts)
-      => parts is not { Count: > 0 }
-          ? null
-          : [.. parts.Select(ToMetaPart)];
-
-  private static MessageMetaPart ToMetaPart(MessagePart part) => part switch
+  /// <summary>Maps conversation parts onto the meta_json entry shape, persisting an inline
+  ///     image payload as a FILE PLUS A POINTER when it is at or above
+  ///     <see cref="ImageLimits.InlineThresholdBytes"/>. Part kinds with no entry representation
+  ///     are a programmer error (extend the mapping with the kind), never a silent drop.
+  ///     <para>THE STORE IS WHERE THE SIZE LANDS, not the conversation: the message keeps its
+  ///     inline part, so the request the producing turn builds still carries the bytes and the
+  ///     model still sees what its tool just captured. What changes is the ROW - a large payload
+  ///     becomes a file the row names, so a transcript poll never re-materialises it.</para></summary>
+  private async Task<IReadOnlyList<MessageMetaPart>?> ToMetaPartsAsync(
+      IReadOnlyList<MessagePart>? parts, string? sessionId, CancellationToken ct)
   {
-    MessagePart.ImagePart image => new(image.MediaType, Base64Data: image.Base64Data),
+    if (parts is not { Count: > 0 })
+    {
+      return null;
+    }
+
+    MessageMetaPart[] entries = new MessageMetaPart[parts.Count];
+    for (int i = 0; i < parts.Count; i++)
+    {
+      entries[i] = await ToMetaPartAsync(parts[i], sessionId, ct).ConfigureAwait(false);
+    }
+
+    return entries;
+  }
+
+  private async Task<MessageMetaPart> ToMetaPartAsync(MessagePart part, string? sessionId, CancellationToken ct) => part switch
+  {
+    MessagePart.ImagePart image when IsBelowThreshold(image.Base64Data) =>
+        new(image.MediaType, Base64Data: image.Base64Data),
+    MessagePart.ImagePart image => await PersistPayloadAsync(image, sessionId, ct).ConfigureAwait(false),
     MessagePart.ImageReferencePart reference => new(reference.MediaType, Path: reference.Path),
     _ => throw new InvalidOperationException(
         $"message part type {part.GetType().Name} has no meta_json representation."),
   };
+
+  /// <summary>True when a base64 payload is small enough to stay in its row. Measured on the
+  ///     DECODED length, which is the unit the threshold is declared in: a payload's text is a
+  ///     third larger than its bytes, so measuring the text would move the boundary with the
+  ///     encoding.</summary>
+  private static bool IsBelowThreshold(string base64Data) =>
+      ImagePartMarker.DecodedByteCount(base64Data) < ImageLimits.InlineThresholdBytes;
+
+  /// <summary>Writes an over-threshold payload to the session's image store and returns the
+  ///     entry that NAMES it. A store that cannot be resolved, or a write that fails, leaves the
+  ///     payload INLINE: the row is still correct and still renders, it is merely large, and no
+  ///     reference names a file that was never written.</summary>
+  private async Task<MessageMetaPart> PersistPayloadAsync(MessagePart.ImagePart image,
+      string? sessionId, CancellationToken ct)
+  {
+    if (_imagesFor?.Invoke(sessionId) is not { } store)
+    {
+      return new(image.MediaType, Base64Data: image.Base64Data);
+    }
+
+    Result<StoredImage> stored = await store
+        .PersistBase64Async(image.MediaType, image.Base64Data, ct).ConfigureAwait(false);
+    return stored.IsSuccess
+        ? new MessageMetaPart(stored.Value.MediaType, Path: stored.Value.Path)
+        : new MessageMetaPart(image.MediaType, Base64Data: image.Base64Data);
+  }
 
   /// <summary>Rebuilds conversation parts from their meta_json entries; empty stays null
   ///     so parts-less messages keep the legacy shape. An entry carrying neither payload
@@ -62,6 +110,31 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
       => entries is { Count: > 0 }
           ? [.. entries.Select(FromMetaPart)]
           : null;
+
+  /// <summary>The message's text with one line per image that became a FILE, naming the
+  ///     absolute path. The content column is what a transcript read hands back, so without this
+  ///     line the path would live only in meta_json and nothing would tell the model where the
+  ///     picture went - the model pulls it back with read_image. The message's own text is
+  ///     untouched; an image that stayed inline adds no line, because its bytes are the part.</summary>
+  private static string ContentNamingStoredImages(string content,
+      IReadOnlyList<MessagePart>? parts, IReadOnlyList<MessageMetaPart>? entries)
+  {
+    if (parts is not { Count: > 0 } || entries is not { Count: > 0 })
+    {
+      return content;
+    }
+
+    StringBuilder named = new(content);
+    for (int i = 0; i < parts.Count && i < entries.Count; i++)
+    {
+      if (parts[i] is MessagePart.ImagePart && entries[i] is { Path: { } path, MediaType: { } mediaType })
+      {
+        _ = named.Append('\n').Append(ImagePartMarker.MarkerForStored(mediaType, path));
+      }
+    }
+
+    return named.ToString();
+  }
 
   private static MessagePart FromMetaPart(MessageMetaPart entry) => entry switch
   {
@@ -72,6 +145,11 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
   };
 
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
+
+  /// <summary>Resolves the session's image store by session id. Null (legacy wiring, a unit
+  ///     test) leaves every image inline in its row, which is the shape this store wrote before
+  ///     references existed - the legacy-wiring rule every seam in this codebase follows.</summary>
+  private readonly Func<string?, IImageStore?>? _imagesFor = imagesFor;
 
   /// <summary>Single-writer gate: serializes all mutating operations so concurrent
   ///     callers never race inside SQLite transactions (e.g. transcript seq allocation).
@@ -188,11 +266,13 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
                 VALUES (@id, (SELECT COALESCE(MAX(seq), -1) + 1 FROM agent_messages WHERE agent_id=@id), @role, @content, @meta);
                 """;
       ArgumentNullException.ThrowIfNull(message);
+      IReadOnlyList<MessageMetaPart>? parts = await ToMetaPartsAsync(
+          message.Parts, id.ToString(), ct).ConfigureAwait(false);
       Add(command, "@id", id.ToString());
       Add(command, "@role", message.Role.ToString());
-      Add(command, "@content", message.Content);
+      Add(command, "@content", ContentNamingStoredImages(message.Content, message.Parts, parts));
       Add(command, "@meta", JsonSerializer.Serialize(
-          new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, ToMetaParts(message.Parts))));
+          new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, parts)));
       _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       await transaction.CommitAsync(ct).ConfigureAwait(false);
       return Result.Success(id.ToString());
@@ -248,9 +328,11 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
         Add(command, "@id", id.ToString());
         Add(command, "@seq", seq);
         Add(command, "@role", message.Role.ToString());
-        Add(command, "@content", message.Content);
+        IReadOnlyList<MessageMetaPart>? parts = await ToMetaPartsAsync(
+            message.Parts, id.ToString(), ct).ConfigureAwait(false);
+        Add(command, "@content", ContentNamingStoredImages(message.Content, message.Parts, parts));
         Add(command, "@meta", JsonSerializer.Serialize(
-            new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, ToMetaParts(message.Parts))));
+            new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, parts)));
         _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       }
 

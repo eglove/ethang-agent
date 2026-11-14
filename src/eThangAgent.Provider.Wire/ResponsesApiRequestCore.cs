@@ -400,6 +400,13 @@ public static class ResponsesApiRequestCore
         : [TextPart(m.Content), .. content];
   }
 
+  /// <summary>True for every part that answers "an image rides this message": the inline form
+  ///     that carries its bytes, and the stored form that names its file. Both make the output an
+  ///     input-part array rather than a flat string, which is what keeps a stored image's path in
+  ///     front of the model instead of dropping it with the message's text.</summary>
+  private static bool IsImagePart(MessagePart part) =>
+      part is MessagePart.ImagePart or MessagePart.ImageReferencePart;
+
   private static Dictionary<string, object?> MessageItem(string role, object[] content) => new()
   {
     ["type"] = "message",
@@ -421,6 +428,12 @@ public static class ResponsesApiRequestCore
       ["type"] = "input_image",
       ["image_url"] = $"data:{image.MediaType};base64,{image.Base64Data}",
     },
+    // A stored image is a POINTER, and the wire carries no way to hand a provider one: the
+    // bytes are resolved through the session's image store, which this synchronous encoder
+    // has no reach into. It renders as the same marker every other parts consumer emits, so
+    // the history still records that a picture was there and where it lives.
+    MessagePart.ImageReferencePart stored => TextPart(
+        ImagePartMarker.MarkerForStored(stored.MediaType, stored.Path)),
     _ => throw new InvalidOperationException(
           $"Unhandled message part type: {part.GetType().Name}."),
   };
@@ -440,7 +453,7 @@ public static class ResponsesApiRequestCore
           nameof(m));
     }
 
-    if (m.Parts is not { Count: > 0 } parts || !parts.Any(p => p is MessagePart.ImagePart))
+    if (m.Parts is not { Count: > 0 } parts || !parts.Any(IsImagePart))
     {
       return new Dictionary<string, object?>
       {

@@ -1053,7 +1053,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
       // Image base64 lengths join the message bucket of the UI character breakdown
       // only. Provider-scored token usage remains the sole decision input; the wire
-      // serializes images through provider-specific parts, not this estimate.
+      // serializes images through provider-specific parts, not this estimate. A STORED
+      // image reference carries no payload, so it adds nothing here: the bucket sizes the
+      // bytes actually in memory, and a reference holds only a path.
       if (message.Parts is { Count: > 0 } parts)
       {
         messageChars += parts.OfType<MessagePart.ImagePart>().Sum(p => p.Base64Data.Length);

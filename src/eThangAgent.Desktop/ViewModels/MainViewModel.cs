@@ -3043,6 +3043,15 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     because whether a card outlives its session is a fact about the grid rather than about
   ///     the launch.</para>
   ///     </summary>
+  /// <summary>The session's stored-image reader, or null when its container wired no image
+  ///     store (a headless stub). A transcript row carries a stored image's PATH rather than its
+  ///     bytes, so rendering a restored picture reads the file back through the same store that
+  ///     wrote it.</summary>
+  private static Func<string, Result<StoredImageContent>>? StoredImageResolverOf(AgentSession session) =>
+      session.Services.GetService<IImageStore>() is { } imageStore
+          ? path => imageStore.ResolveAsync(path).GetAwaiter().GetResult()
+          : null;
+
   private AgentSessionViewModel BuildSessionViewModel(AgentSession session,
       WorkbenchViewModel workbench, Func<AgentSessionViewModel> currentViewModel,
       Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab)
@@ -3112,6 +3121,7 @@ internal sealed partial class MainViewModel : ObservableObject
             return Task.CompletedTask;
           },
           WorkspaceWatcher = session.Services.GetService<IFileWatcher>(),
+          StoredImageResolver = StoredImageResolverOf(session),
           // Spec D6: the app runs NO agent work. A container built with the wire runtime
           // (every production session) resolves the channel here and every turn travels to
           // this conversation's host; a headless/test container that opted into the

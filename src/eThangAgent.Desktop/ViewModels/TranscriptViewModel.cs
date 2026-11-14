@@ -14,11 +14,16 @@ namespace eThangAgent.Desktop.ViewModels;
 /// TickToolElapsed advances it, AddToolResult freezes the total onto the result card.
 /// All methods run on the UI thread — callers marshal (Task 9 bridge).
 /// </summary>
-internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
+internal sealed class TranscriptViewModel(Func<double>? secondsClock = null,
+    Func<string, Result<StoredImageContent>>? storedImageResolver = null)
 {
   // Seconds source for the running tool's elapsed timing; injectable so tests
   // drive it deterministically instead of sleeping.
   private readonly Func<double>? _injectedClock = secondsClock;
+
+  // Reads a stored image's bytes back from disk. Null = no image store was wired (a bare
+  // transcript in a test), and a stored image renders as a notice naming its path.
+  private readonly Func<string, Result<StoredImageContent>>? _storedImageResolver = storedImageResolver;
 
   // The one running tool's timing state (tools execute sequentially, one at a
   // time); null when no tool is running or a turn ended mid-tool.
@@ -345,7 +350,11 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
 
   /// <summary>Decodes a restored user message's image parts (issue #20); a payload
   ///     that no longer decodes degrades to a notice, never throws. The labels are
-  ///     not persisted (parts carry no source label), so chips render unnamed.</summary>
+  ///     not persisted (parts carry no source label), so chips render unnamed.
+  ///     <para>A STORED image renders from its file: the bytes are read off disk through the
+  ///     session's store, so the transcript shows the picture without the database carrying it.
+  ///     A file that is gone is the same notice a broken payload gets - the message still reads,
+  ///     and what is missing is the picture.</para></summary>
   private List<TranscriptImage>? DecodeUserImages(Message message)
   {
     if (message.Parts is not { Count: > 0 } parts)
@@ -354,21 +363,73 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     }
 
     List<TranscriptImage>? decoded = null;
-    foreach (MessagePart.ImagePart part in parts.OfType<MessagePart.ImagePart>())
+    foreach (MessagePart part in parts)
     {
-      try
+      byte[]? bytes = part switch
       {
-        TranscriptImage image = new(Convert.FromBase64String(part.Base64Data));
-        decoded ??= [];
-        decoded.Add(image);
-      }
-      catch (Exception ex) when (ex is FormatException or ArgumentException or InvalidOperationException)
+        MessagePart.ImagePart image => InlineBytes(image.Base64Data),
+        MessagePart.ImageReferencePart stored => ReadStored(stored.Path),
+        MessagePart.TextPart => null,
+        _ => throw new InvalidOperationException(
+            $"message part type {part.GetType().Name} has no restored render."),
+      };
+      if (bytes is not null)
       {
-        AddNotice("[chat] a restored image could not be decoded and was skipped.");
+        AddDecoded(ref decoded, bytes);
       }
     }
 
     return decoded;
+  }
+
+  /// <summary>One inline payload's bytes, or null (with the issue #20 degradation notice) when it
+  ///     no longer decodes.</summary>
+  private byte[]? InlineBytes(string base64Data)
+  {
+    try
+    {
+      return Convert.FromBase64String(base64Data);
+    }
+    catch (FormatException)
+    {
+      AddNotice("[chat] a restored image could not be decoded and was skipped.");
+      return null;
+    }
+  }
+
+  /// <summary>Reads a stored image's bytes back through the session's store, or null (with a
+  ///     notice naming the path) when no store is wired or the file is gone. The message still
+  ///     reads; what is missing is the picture.</summary>
+  private byte[]? ReadStored(string path)
+  {
+    Result<StoredImageContent> resolved = _storedImageResolver is { } resolver
+        ? resolver(path)
+        : Result.Failure<StoredImageContent>(new DomainError("ImageStoreUnwired",
+            $"no image store is wired to read '{path}'."));
+    if (resolved.IsSuccess)
+    {
+      return resolved.Value.Bytes.ToArray();
+    }
+
+    AddNotice("[chat] a stored image could not be read and was skipped: " + path);
+    return null;
+  }
+
+  /// <summary>Decodes one payload into the rendered image list. A payload the decoder refuses
+  ///     degrades to a notice - the entry renders regardless, which is the issue #20 no-crash
+  ///     contract. The list is created on the first image, so a message with none stays null.
+  ///     </summary>
+  private void AddDecoded(ref List<TranscriptImage>? decoded, byte[] bytes)
+  {
+    try
+    {
+      decoded ??= [];
+      decoded.Add(new TranscriptImage(bytes));
+    }
+    catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+    {
+      AddNotice("[chat] a restored image could not be decoded and was skipped.");
+    }
   }
 
   public void AppendAssistantDelta(string text)

@@ -298,6 +298,52 @@ public class PartsSerializationWireTests
     Assert.Contains("hello", json, StringComparison.Ordinal);
   }
 
+  // --- A STORED image on the wire: a pointer the encoder cannot fetch, rendered as a marker ---
+
+  /// <summary>A restarted session hydrates a tool message whose large image was persisted as a
+  ///     FILE PLUS A POINTER. The bytes are resolved through the session's image store, which this
+  ///     synchronous encoder has no reach into, so the part renders as the same marker every other
+  ///     parts consumer emits - the history still says a picture was there and where it lives,
+  ///     instead of the request failing or the part vanishing.
+  ///     <para>This is the case that would otherwise crash the NEXT turn of any session after this
+  ///     change: <c>PartContent</c> used to throw on a part kind it did not know.</para></summary>
+  [Fact]
+  public void BuildInput_ToolResultWithAStoredImagePart_RendersItsPathAsText()
+  {
+    ModelRequest request = new(
+        [
+          new Message(Role.Tool, "computer: observe", SentAt, ToolCallId: "c1",
+              Parts: [new MessagePart.ImageReferencePart(@"C:\images\shot.png", "image/png")]),
+        ]);
+
+    string json = Serialize(ResponsesApiRequestCore.BuildInput(request));
+
+    // The output is an input-part array (an image rides this message), the tool's own text
+    // travels FIRST, and the pointer rides beside it as text - never as a data: URL, because
+    // there are no bytes here to encode.
+    Assert.Equal(
+        /*lang=json,strict*/"""[{"type":"function_call_output","call_id":"c1","output":[{"type":"input_text","text":"computer: observe"},{"type":"input_text","text":"[image: image/png, C:\\images\\shot.png]"}]}]""",
+        json);
+    Assert.DoesNotContain("image_url", json, StringComparison.Ordinal);
+  }
+
+  /// <summary>A stored image part does NOT depend on the message carrying text: an image-only
+  ///     message still becomes an input-part array, so the path reaches the model.</summary>
+  [Fact]
+  public void BuildInput_StoredImageOnlyParts_StillEmitsThePartArray()
+  {
+    ModelRequest request = new(
+        [
+          new Message(Role.Tool, "", SentAt, ToolCallId: "c1",
+              Parts: [new MessagePart.ImageReferencePart(@"C:\images\shot.png", "image/png")]),
+        ]);
+
+    string json = Serialize(ResponsesApiRequestCore.BuildInput(request));
+
+    Assert.Contains(@"C:\\images\\shot.png", json, StringComparison.Ordinal);
+    Assert.StartsWith("[{\"type\":\"function_call_output\",\"call_id\":\"c1\",\"output\":[{\"type\":\"input_text\"", json, StringComparison.Ordinal);
+  }
+
   private static string Serialize(object payload) =>
       JsonSerializer.Serialize(payload, WireJson);
 }

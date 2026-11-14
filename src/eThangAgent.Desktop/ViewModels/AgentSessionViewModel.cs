@@ -122,6 +122,12 @@ internal sealed record AgentSessionViewModelOptions
   ///     done). Null = the panel attaches nothing (headless stubs).</summary>
   public IAgentEvents? AgentEvents { get; init; }
 
+  /// <summary>Reads a STORED image's bytes back from disk for the restored transcript. The
+  ///     transcript carries a path, not a payload, so rendering the picture means resolving it
+  ///     through the same store that wrote it. Null = no store was wired (a headless stub), and a
+  ///     restored stored image renders as a notice naming its path rather than as a picture.</summary>
+  public Func<string, Result<StoredImageContent>>? StoredImageResolver { get; init; }
+
   /// <summary>This conversation's host channel (spec D6). When wired, EVERY turn travels
   ///     to the host process and the app runs no agent work; when null the session is a
   ///     headless/test host that deliberately opted into the in-process runtime. The
@@ -353,7 +359,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     OnPropertyChanged(nameof(HasPendingImages));
   }
 
-  public TranscriptViewModel Transcript { get; } = new();
+  /// <summary>The transcript, rendering stored image bytes off disk through the session's
+  ///     image store. A container that registered none (a headless stub, a bare test) renders
+  ///     each stored image as a notice naming its path instead of resolving it.</summary>
+  public TranscriptViewModel Transcript { get; }
   public StatusViewModel Status { get; }
 
   /// <summary>The per-workspace language-server prompt, or null when this container wired no
@@ -706,6 +715,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
             ReferenceOptions(trigger, query, options.ReferenceCatalogSource));
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
+    Transcript = new TranscriptViewModel(storedImageResolver: options.StoredImageResolver);
     RunsInOwnHost = options.RunsInOwnHost;
     Steering = options.Steering;
     _rootActivity = options.RootActivitySink;

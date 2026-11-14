@@ -550,7 +550,13 @@ public static class AgentComposition
         // The experiment ledger rides state keys (append-only): the tool resolves this
         // port, never IStateService.
         .AddSingleton<IExperimentLedgerStore>(sp => new StateServiceExperimentLedgerStore(sp.GetRequiredService<IStateService>()))
-        .AddSingleton<IAgentStore, SqliteAgentStore>()
+        // The store resolves the session's image store so a PAYLOAD at or above
+        // ImageLimits.InlineThresholdBytes lands as a file the row names, not as bytes in the
+        // row. Resolved lazily and per call, so the session identity the first line already
+        // depends on can be filled after the container builds.
+        .AddSingleton<IAgentStore>(sp => new SqliteAgentStore(
+            sp.GetRequiredService<AppDatabase>(),
+            imagesFor: sessionId => sp.GetRequiredService<IImageStore>()))
         // The append-only event log (issue #263): the SAME store instance backs both
         // seams — the reasoning trace is an ordinary agent_events row, which is exactly
         // what keeps it out of the conversation (and out of every request).

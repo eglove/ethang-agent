@@ -3,11 +3,16 @@ using System.Text;
 namespace eThangAgent.ToolDomain;
 
 /// <summary>One part to render, projected from a consumer's own part type: an
-///     image part carries its media type and base64 payload; a text part carries
-///     its text. Exactly one side is populated.</summary>
-public sealed record PartRender(string? ImageMediaType, string? ImageBase64, string? Text)
+///     image part carries its media type and base64 payload; a STORED image carries its
+///     media type and the path that names its file; a text part carries its text. Exactly
+///     one slot is populated.</summary>
+public sealed record PartRender(string? ImageMediaType, string? ImageBase64, string? Text,
+    string? ImagePath = null)
 {
   public static PartRender ForImage(string mediaType, string base64Data) => new(mediaType, base64Data, null);
+
+  public static PartRender ForStoredImage(string mediaType, string path) =>
+      new(mediaType, null, null, path);
 
   public static PartRender ForText(string text) => new(null, null, text);
 }
@@ -17,11 +22,12 @@ public sealed record PartRender(string? ImageMediaType, string? ImageBase64, str
 ///     context_edit tool shows (Conversation Domain, through its port). An image part
 ///     becomes the text marker '[image: mediaType, N bytes]' - N is the DECODED byte
 ///     length, computed from the base64 payload length without allocating the decoded
-///     buffer; a text part appends verbatim, space-separated. Consumers project their
-///     own part types into <see cref="PartRender"/>, so this class needs no
-///     dependency on any conversation type and every consumer renders identically.
-///     The byte rule and the marker shape are pinned by tests in the Agent Domain
-///     suite (DefaultContextCompactorImageMarkerTests).</summary>
+///     buffer; a STORED image part becomes '[image: mediaType, path]', because a stored
+///     image has no payload to measure and its path is what names it; a text part appends
+///     verbatim, space-separated. Consumers project their own part types into
+///     <see cref="PartRender"/>, so this class needs no dependency on any conversation type
+///     and every consumer renders identically. The byte rule and the marker shape are pinned
+///     by tests in the Agent Domain suite (DefaultContextCompactorImageMarkerTests).</summary>
 public static class ImagePartMarker
 {
   /// <summary>Appends the parts render to <paramref name="sb"/>: images as
@@ -33,7 +39,11 @@ public static class ImagePartMarker
     ArgumentNullException.ThrowIfNull(parts);
     foreach (PartRender part in parts)
     {
-      if (part.ImageMediaType is { } mediaType)
+      if (part is { ImagePath: { } path, ImageMediaType: { } storedMediaType })
+      {
+        _ = sb.Append(' ').Append(MarkerForStored(storedMediaType, path));
+      }
+      else if (part.ImageMediaType is { } mediaType)
       {
         _ = sb.Append(" [image: ").Append(mediaType).Append(", ")
             .Append(DecodedByteCount(part.ImageBase64!)).Append(" bytes]");
@@ -43,6 +53,19 @@ public static class ImagePartMarker
         _ = sb.Append(' ').Append(text);
       }
     }
+  }
+
+  /// <summary>The one spelling of a STORED image in rendered text: the media type and the
+  ///     absolute path that names the file. A stored image has no payload to measure, so the
+  ///     byte count an inline marker carries would be a fiction; the path is what survives and
+  ///     what the model hands to read_image.</summary>
+  /// <param name="mediaType">The stored image's media type.</param>
+  /// <param name="path">The absolute path of the stored file.</param>
+  public static string MarkerForStored(string mediaType, string path)
+  {
+    ArgumentNullException.ThrowIfNull(mediaType);
+    ArgumentException.ThrowIfNullOrWhiteSpace(path);
+    return "[image: " + mediaType + ", " + path + "]";
   }
 
   /// <summary>Decoded byte length of a base64 payload: 3/4 of the character count

@@ -220,15 +220,11 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
 
   /// <summary>Appends the message's parts render to <paramref name="sb"/> - the
   ///     shared renderer (ImagePartMarker, Tool Domain): an image part becomes the
-  ///     text marker '[image: mediaType, N bytes]' (N = decoded byte length), a text
-  ///     part appends verbatim. Pinned by tests.</summary>
-  private static void AppendParts(StringBuilder sb, Message message)
-  {
-    List<PartRender> parts = [.. message.Parts!.Select(part => part is MessagePart.ImagePart image
-        ? PartRender.ForImage(image.MediaType, image.Base64Data)
-        : PartRender.ForText(((MessagePart.TextPart)part).Text))];
-    ImagePartMarker.AppendParts(sb, parts);
-  }
+  ///     text marker '[image: mediaType, N bytes]' (N = decoded byte length), a STORED
+  ///     image becomes '[image: mediaType, path]', a text part appends verbatim.
+  ///     Pinned by tests.</summary>
+  private static void AppendParts(StringBuilder sb, Message message) =>
+      ImagePartMarker.AppendParts(sb, PartRenders.Of(message.Parts!));
 
   private static void AppendMessage(StringBuilder sb, Message message)
   {

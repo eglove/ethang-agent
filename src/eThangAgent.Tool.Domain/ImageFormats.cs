@@ -46,4 +46,11 @@ public static class ImageLimits
   public const int MaxBytes = 20 * 1024 * 1024;
 
   public const int MaxPerMessage = 4;
+
+  /// <summary>The largest image payload, in DECODED bytes, that a persisted transcript row
+  ///     carries inline. At or above this size the payload is a stored file and the row names
+  ///     its path instead of its bytes. One number for the whole harness: the persistence layer
+  ///     decides by it, so a producer and the row its image lands in cannot disagree about which
+  ///     form an image takes.</summary>
+  public const int InlineThresholdBytes = 64 * 1024;
 }
