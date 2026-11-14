@@ -406,6 +406,67 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
     Assert.Equal(100L, Scalar("SELECT COUNT(*) FROM agent_messages WHERE meta_json LIKE '%RemovedBytes%';"));
   }
 
+  // --- ASSERTION 2 of the plan's verification: the file shrinks by the predicted amount ---
+
+  /// <summary>THE PREDICTED AMOUNT, AS A RELATIONSHIP RATHER THAN A CONSTANT. The plan's numbers
+  ///     were taken on one machine's history - SUM(LENGTH(meta_json)) 1,170 MB and a 2,349 MB file
+  ///     before the strip, about 277 MB and about 1,457 MB after - and a test that asserted those
+  ///     absolutes would fail on every other machine and on any database of a different age. What
+  ///     is actually claimed, and what this checks, is the ARITHMETIC: the meta_json total falls by
+  ///     the base64 total measured by query beforehand (less the small record the strip leaves in
+  ///     place of each payload), and the file itself shrinks rather than holding the space as free
+  ///     pages.</summary>
+  /// <para>BOTH NUMBERS ARE THE DATABASE'S OWN. The payload total comes from the same json_each
+  ///     walk the strip uses, taken BEFORE the migration runs; the meta totals are
+  ///     SUM(LENGTH(meta_json)) read by query; the file's size is page_count * page_size. Nothing
+  ///     here is a recollection.</para>
+  [Fact]
+  public void TheMetaTotal_FallsByTheBase64Total_AndTheFileShrinksRatherThanHoldingFreePages()
+  {
+    // Forty rows of 200 KB each: a population where the payloads dominate the file, so the
+    // relationship is measurable rather than lost in schema overhead.
+    const int rows = 40;
+    Execute($"PRAGMA user_version = {AppDatabase.LatestSchemaVersion - 1};");
+    for (int i = 0; i < rows; i++)
+    {
+      Insert($"screen {i}", PayloadMeta(Convert.ToBase64String(PngPayload(200 * 1024))));
+    }
+
+    (long payloadRows, long base64Chars) = IndependentPayloadCount();
+    Assert.Equal(rows, payloadRows);
+    Assert.True(base64Chars > 10 * 1024 * 1024,
+        $"the fixture holds {base64Chars} base64 chars, which is too little to measure a fall");
+    long metaBefore = MetaJsonTotal();
+    long fileBefore = FileBytes();
+    Assert.True(metaBefore > base64Chars,
+        $"the meta total ({metaBefore}) holds the payloads ({base64Chars}) plus the rest of each row");
+
+    _ = new AppDatabase(_dbPath);
+
+    long metaAfter = MetaJsonTotal();
+    long fileAfter = FileBytes();
+    long fall = metaBefore - metaAfter;
+
+    // THE RELATIONSHIP: the meta total fell by the base64 total, minus the record left behind in
+    // place of each payload. The record is a media type and a byte count - tens of bytes a row - so
+    // the fall sits just under the payload total and can never exceed it.
+    Assert.True(fall <= base64Chars,
+        $"the meta total cannot fall by MORE than the payloads it held: fell {fall}, payloads {base64Chars}");
+    long recordCeiling = rows * 200L;
+    Assert.True(fall >= base64Chars - recordCeiling,
+        $"the meta total fell {fall} against a payload total of {base64Chars}; the {rows} records the "
+        + $"strip leaves behind account for at most {recordCeiling} of the difference");
+
+    // AND THE FILE ITSELF SHRANK - materially, and without keeping the space as free pages. This is
+    // the half a plain DELETE would fail: the rows would be gone and the file unchanged.
+    Assert.True(fileAfter < fileBefore,
+        $"the file shrinks: {fileBefore} bytes before, {fileAfter} after");
+    Assert.Equal(0L, Scalar("PRAGMA freelist_count;"));
+    Assert.True(fileBefore - fileAfter >= base64Chars * 3 / 4,
+        $"the reclaimed space is the payloads' own: {fileBefore - fileAfter} bytes came back against "
+        + $"{base64Chars} base64 chars ({base64Chars * 3 / 4} decoded bytes at most)");
+  }
+
   /// <summary>The record lives in its OWN table, not in the preference store: a migration's audit
   ///     row is neither the app's nor the user's choice, and putting it in <c>app_preferences</c>
   ///     would also have made it depend on a table a database stamped below V7 does not have yet.
@@ -554,6 +615,11 @@ public sealed class EmbeddedImageStripMigrationTests : IDisposable
   ///     This is the number a reclaim moves, and it is read from the file rather than from a
   ///     recollection.</summary>
   private long FileBytes() => Scalar("PRAGMA page_count;") * Scalar("PRAGMA page_size;");
+
+  /// <summary>SUM(LENGTH(meta_json)) over the whole table - the number the plan predicted would
+  ///     fall from 1,170 MB to about 277 MB, read here by query.</summary>
+  private long MetaJsonTotal() =>
+      Scalar("SELECT COALESCE(SUM(LENGTH(meta_json)), 0) FROM agent_messages;");
 
   private long Scalar(string sql)
   {
