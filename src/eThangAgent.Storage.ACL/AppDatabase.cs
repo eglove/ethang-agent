@@ -102,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 44;
+  public const int LatestSchemaVersion = 45;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -153,6 +153,7 @@ public sealed class AppDatabase
     (42, ApplyV42),
     (43, ApplyV43),
     (44, ApplyV44),
+    (45, ApplyV45),
   ];
 
   private void Migrate()
@@ -397,6 +398,40 @@ public sealed class AppDatabase
 #pragma warning restore CA2100
       _ = alter.ExecuteNonQuery();
     }
+  }
+
+  /// <summary>V45 gives <c>watchdog_events</c> the shape a coalesced event needs: an occurrence
+  ///     count and a last-seen stamp, so a repeating identical event updates one row instead of
+  ///     adding another.
+  ///     <para>THE COLUMNS ARE NULLABLE AND THE OLD WRITE STILL WORKS: a row written before this
+  ///     step has no count, and reads it as 1 - one occurrence, which is exactly what it was.
+  ///     The count is what a repeated event advances; <c>created_at</c> stops being the newest
+  ///     time once a row is updated, so <c>last_seen_at</c> is what the recent-first listings
+  ///     order by.</para>
+  ///     <para>THE INDEX IS THE COALESCING LOOKUP'S OWN SHAPE: (agent_id, kind, detail) is what
+  ///     a write matches on, and without it each append would scan the table.</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV45(SqliteConnection connection)
+  {
+    if (!TableExists(connection, "watchdog_events"))
+    {
+      // A database stamped below V9 has no table, and reaches this step through the same path
+      // that created it: the columns are part of the shape V9 makes, so this step creates
+      // nothing and the version advances.
+      return;
+    }
+
+    // Added ONE AT A TIME: a migration must not fail on a column a concurrent pass already
+    // added, and several statements in one command leave that outcome decided by whichever
+    // one the engine prepared first.
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('watchdog_events') WHERE name = 'occurrences';",
+        "ALTER TABLE watchdog_events ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1;");
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('watchdog_events') WHERE name = 'last_seen_at';",
+        "ALTER TABLE watchdog_events ADD COLUMN last_seen_at TEXT NULL;");
+    Execute(connection, "CREATE INDEX IF NOT EXISTS ix_watchdog_events_coalescing ON watchdog_events (agent_id, kind, detail);");
+    Execute(connection, "UPDATE watchdog_events SET last_seen_at = created_at WHERE last_seen_at IS NULL;");
   }
 
   /// <summary>V9 adds watchdog_events: the append-only audit trail of watchdog decisions
