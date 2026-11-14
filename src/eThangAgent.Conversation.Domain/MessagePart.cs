@@ -1,7 +1,11 @@
+using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
+
 namespace eThangAgent.ConversationDomain;
 
 /// <summary>One content part of a conversation message. Text parts carry plain
-///     text; image parts carry an image inline. Image construction-time validation
+///     text; inline image parts carry an image's bytes; image reference parts name a
+///     stored image by path and never carry its bytes. Image construction-time validation
 ///     rejects anything but image/png and image/jpeg with undecodable base64.</summary>
 public abstract record MessagePart
 {
@@ -47,6 +51,98 @@ public abstract record MessagePart
     public string MediaType { get; }
 
     public string Base64Data { get; }
+  }
+
+  /// <summary>An image part that NAMES a stored image instead of carrying it: the file's
+  ///     path and its media type, and no bytes. The path's extension must agree with the
+  ///     media type, so a part can never point at a .jpg while claiming image/png; a
+  ///     disagreement is a programmer error and throws ArgumentException at construction.
+  ///     <see cref="Create"/> is the admission rule for bytes entering this form.</summary>
+  public sealed record ImageReferencePart : MessagePart
+  {
+    public ImageReferencePart(string path, string mediaType)
+    {
+      ArgumentException.ThrowIfNullOrWhiteSpace(path);
+      ArgumentNullException.ThrowIfNull(mediaType);
+      if (mediaType is not ("image/png" or "image/jpeg"))
+      {
+        throw new ArgumentException(
+            $"Image media type must be exactly \"image/png\" or \"image/jpeg\"; got \"{mediaType}\".",
+            nameof(mediaType));
+      }
+
+      string extension = System.IO.Path.GetExtension(path);
+      bool extensionAgrees = mediaType switch
+      {
+        "image/png" => extension.Equals(".png", StringComparison.OrdinalIgnoreCase),
+        _ => extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase),
+      };
+      if (!extensionAgrees)
+      {
+        throw new ArgumentException(
+            $"An image reference claiming \"{mediaType}\" must name a file whose extension agrees with it; got \"{path}\".",
+            nameof(mediaType));
+      }
+
+      Path = path;
+      MediaType = mediaType;
+    }
+
+    /// <summary>The stored image's path.</summary>
+    public string Path { get; }
+
+    /// <summary>The stored image's media type, which its file extension agrees with.</summary>
+    public string MediaType { get; }
+
+    /// <summary>Admits <paramref name="bytes"/> into the reference form, naming the file at
+    ///     <paramref name="path"/>. The format is SNIFFED from the bytes, never taken from the
+    ///     claim: an empty payload, a payload over <see cref="ImageLimits.MaxBytes"/>, bytes
+    ///     that are neither PNG nor JPEG, and a claim the bytes contradict are each a typed
+    ///     failure naming the media type - never an exception, never a silent drop. Nothing
+    ///     is written: the caller stores the bytes at the path it names.</summary>
+    /// <param name="mediaType">The media type the producer claims.</param>
+    /// <param name="bytes">The image payload, decoded.</param>
+    /// <param name="path">The file the payload is stored at.</param>
+    public static Result<ImageReferencePart> Create(string mediaType, byte[] bytes, string path)
+    {
+      ArgumentNullException.ThrowIfNull(mediaType);
+      ArgumentNullException.ThrowIfNull(bytes);
+      ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+      DomainError? refusal = RefusalFor(mediaType, bytes);
+      return refusal is null
+          ? Result.Success(new ImageReferencePart(path, mediaType))
+          : Result.Failure<ImageReferencePart>(refusal);
+    }
+
+    /// <summary>The typed refusal for a payload that may not enter the reference form, or
+    ///     null when it may. The cases are reported in order: empty, oversize, unsniffable,
+    ///     then a claim the bytes contradict.</summary>
+    private static DomainError? RefusalFor(string mediaType, byte[] bytes)
+    {
+      if (bytes.Length == 0)
+      {
+        return new DomainError("InvalidImagePayload", "The image carried no payload.");
+      }
+
+      if (bytes.Length > ImageLimits.MaxBytes)
+      {
+        return new DomainError("ImageTooLarge",
+            $"The image is {bytes.Length} bytes; the maximum is {ImageLimits.MaxBytes} bytes (20 MB).");
+      }
+
+      string? sniffed = ImageFormats.SniffMediaType(bytes);
+      return sniffed switch
+      {
+        null => new DomainError("UnsupportedImageFormat",
+            $"The image is neither PNG nor JPEG (the producer claimed '{mediaType}')."),
+        _ when !string.Equals(sniffed, mediaType, StringComparison.Ordinal) =>
+            new DomainError("ImageMediaTypeMismatch",
+                $"The image claims media type '{mediaType}' but its bytes are {sniffed}."),
+        _ => null,
+      };
+    }
   }
 #pragma warning restore CA1034 // Do not nest type
 }

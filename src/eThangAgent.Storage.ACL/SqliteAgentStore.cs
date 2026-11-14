@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
@@ -23,8 +24,14 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
   private const string UsageEventType = "usage";
 
   /// <summary>One persisted content part: the meta_json entry shape. Concrete by design -
-  ///     System.Text.Json cannot deserialize the abstract MessagePart.</summary>
-  internal sealed record MessageMetaPart(string MediaType, string Base64Data);
+  ///     System.Text.Json cannot deserialize the abstract MessagePart.
+  ///     <para>Exactly one payload field is populated and the unpopulated one is absent from
+  ///     the JSON: <see cref="Base64Data"/> for an inline image, <see cref="Path"/> for a
+  ///     reference to a stored image. A row written before references existed carries
+  ///     Base64Data alone and deserializes unchanged.</para></summary>
+  internal sealed record MessageMetaPart(string MediaType,
+      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Base64Data = null,
+      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Path = null);
 
   /// <summary>Message fields without a dedicated column, serialized into agent_messages.meta_json.
   ///     Parts (content parts such as tool-produced images) ride here as a nullable entry list;
@@ -42,17 +49,27 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
 
   private static MessageMetaPart ToMetaPart(MessagePart part) => part switch
   {
-    MessagePart.ImagePart image => new(image.MediaType, image.Base64Data),
+    MessagePart.ImagePart image => new(image.MediaType, Base64Data: image.Base64Data),
+    MessagePart.ImageReferencePart reference => new(reference.MediaType, Path: reference.Path),
     _ => throw new InvalidOperationException(
         $"message part type {part.GetType().Name} has no meta_json representation."),
   };
 
   /// <summary>Rebuilds conversation parts from their meta_json entries; empty stays null
-  ///     so parts-less messages keep the legacy shape.</summary>
+  ///     so parts-less messages keep the legacy shape. An entry carrying neither payload
+  ///     names no image and is a programmer error, never a silent drop.</summary>
   private static IReadOnlyList<MessagePart>? FromMetaParts(IReadOnlyList<MessageMetaPart>? entries)
       => entries is { Count: > 0 }
-          ? [.. entries.Select(e => (MessagePart)new MessagePart.ImagePart(e.MediaType, e.Base64Data))]
+          ? [.. entries.Select(FromMetaPart)]
           : null;
+
+  private static MessagePart FromMetaPart(MessageMetaPart entry) => entry switch
+  {
+    { Path: { } path } => new MessagePart.ImageReferencePart(path, entry.MediaType),
+    { Base64Data: { } base64Data } => new MessagePart.ImagePart(entry.MediaType, base64Data),
+    _ => throw new InvalidOperationException(
+        $"a meta_json part claiming media type '{entry.MediaType}' carries neither Base64Data nor Path."),
+  };
 
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
 
