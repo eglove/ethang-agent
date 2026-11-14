@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -45,27 +46,58 @@ internal partial class AgentView : UserControl
     // tunnel when the user has clicked into empty transcript space, not a TextBox.
     Focusable = true;
     DataContextChanged += OnDataContextChanged;
+
+    // Handlers on controls this view owns are wired ONCE, here: they die with the view, so
+    // they neither root it nor need re-wiring when the DataContext changes.
+    InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
+    InputBox.TextChanged += OnInputTextChanged;
+    InputBox.PropertyChanged += OnInputPropertyChanged;
+    InputBox.GotFocus += OnInputGotFocus;
+    InputBox.AddHandler(KeyDownEvent, OnInputPasteKey, RoutingStrategies.Tunnel);
+    AddHandler(KeyDownEvent, OnViewKeyDownTunnel, RoutingStrategies.Tunnel);
+    DragDrop.SetAllowDrop(this, true);
+    AddHandler(DragDrop.DropEvent, OnImageDrop);
   }
 
-  /// <summary>Re-wires event subscriptions to the incoming DataContext,
-  ///     unsubscribing the previous VM first (the tab-rebuild leak fix).</summary>
-  private void OnDataContextChanged(object? sender, EventArgs e)
+  /// <summary>Wires when the view arrives on screen. A view-model outlives the views that
+  ///     render it, so a subscription taken here must be released on the way out or the
+  ///     view-model keeps this whole visual tree alive.</summary>
+  protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
   {
-    RemoveHandler(DragDrop.DropEvent, OnImageDrop);
-    DragDrop.SetAllowDrop(this, false);
-    if (_wiredVm is not null)
-    {
-      _wiredVm.Transcript.Entries.CollectionChanged -= OnEntriesChanged;
-      _wiredVm.PropertyChanged -= OnVmPropertyChanged;
-      _wiredVm = null;
-    }
+    base.OnAttachedToVisualTree(e);
+    Wire();
+  }
 
-    // The spinner timer belongs to the wiring, not the view: stop the old one so a re-wire
-    // cannot leave a spinner running for a detached VM forever.
-    _statusTimer?.Stop();
+  /// <summary>Releases every subscription on the way out, which is what lets a detached view
+  ///     be collected while its view-model lives on.</summary>
+  protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+  {
+    Unwire();
+    base.OnDetachedFromVisualTree(e);
+  }
 
-    _restorePending = false;
-    TranscriptScroll.LayoutUpdated -= OnTranscriptLayoutUpdated;
+  /// <summary>Re-wires to the incoming DataContext, releasing the previous one first. A
+  ///     view instance may see several DataContexts (a recycled cell container), and the
+  ///     previous view-model must not keep a subscription into this view.</summary>
+  private void OnDataContextChanged(object? sender, EventArgs e) => Wire();
+
+  /// <summary>Subscribes to the DataContext in force. Idempotent: it releases whatever it
+  ///     held before, so an attach, a detach, and a DataContext change can all call it and
+  ///     the view ends up holding exactly one set of subscriptions or none.
+  ///     <para>EVERY SUBSCRIPTION HERE POINTS FROM THE VIEW-MODEL TO THIS VIEW, and a
+  ///     view-model outlives the views that render it. Nothing releases them when this view
+  ///     leaves the tree, so the view-model's event list alone kept every detached view - and
+  ///     the whole visual tree beneath it - reachable for the life of the session. Measured:
+  ///     five views bound to one live view-model and detached again were all still alive after
+  ///     collection, against one of five unbound views. That is the shape behind the shell's
+  ///     unbounded growth: the transcript is virtualized (24 realized entries at 301), so the
+  ///     retained views are not the transcript's length, they are the views themselves.</para>
+  ///     <para>Handlers on controls this view OWNS are wired once in the constructor instead:
+  ///     they cannot outlive the view, so they neither root it nor need re-wiring here.</para>
+  ///     </summary>
+  private void Wire()
+  {
+    Unwire();
     AgentSessionViewModel? vm = Vm;
     if (vm is null)
     {
@@ -75,10 +107,6 @@ internal partial class AgentView : UserControl
     _wiredVm = vm;
     vm.Transcript.Entries.CollectionChanged += OnEntriesChanged;
     vm.PropertyChanged += OnVmPropertyChanged;
-
-    // Issue #307 D6: the workbench rail, the splitter that sizes it, and the subagent
-    // accordion all moved to WorkspaceTabView. A cell is its own chat and nothing else,
-    // which is what lets every cell in a grid carry one.
 
     // Animated spinner parity with the terminal frame loop (~12 fps): an 80 ms timer
     // runs only while a turn is busy; Phase transitions reset the displayed state.
@@ -98,33 +126,6 @@ internal partial class AgentView : UserControl
       _statusTimer.Start();
     }
 
-    // Tunnel so Enter is seen before TextBox class handling consumes it.
-    InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
-
-    // Command-mode affordance: live as the user types — an input starting with '!'
-    // gets the amber command border and the shell watermark; clearing reverts.
-    InputBox.TextChanged += OnInputTextChanged;
-
-    // The caret is the popup's second input: moving it into or out of a token opens or
-    // closes the popup without any text changing. TextBox exposes no selection event, so the
-    // caret and selection properties are observed directly.
-    InputBox.PropertyChanged += OnInputPropertyChanged;
-
-    // The first '@' needs a file cache to search, so the enumeration starts when the input
-    // takes focus rather than at the first keystroke.
-    InputBox.GotFocus += OnInputGotFocus;
-
-    // Tunnel so Esc/End are seen no matter which control inside the view holds
-    // focus (input box, transcript).
-    AddHandler(KeyDownEvent, OnViewKeyDownTunnel, RoutingStrategies.Tunnel);
-
-    // Paste (issue #20): Ctrl+V on the input box attaches a clipboard image; plain
-    // text paste falls through to the TextBox's own handling.
-    InputBox.AddHandler(KeyDownEvent, OnInputPasteKey, RoutingStrategies.Tunnel);
-    // Drop (issue #20): image files dropped anywhere on the view stage as attachments.
-    DragDrop.SetAllowDrop(this, true);
-    AddHandler(DragDrop.DropEvent, OnImageDrop);
-
     // Reading-position restore: a transcript left unstuck elsewhere (tab switch)
     // gets its reading offset back; a stuck one re-pins to the bottom - both after
     // this fresh view's first real layout. The target is captured NOW, at attach,
@@ -134,6 +135,25 @@ internal partial class AgentView : UserControl
     _restoreOffset = vm.Transcript.Scroll.StuckToBottom ? -1 : vm.Transcript.Scroll.LastOffset;
     TranscriptScroll.LayoutUpdated += OnTranscriptLayoutUpdated;
     Dispatcher.UIThread.Post(ApplyPendingRestore, DispatcherPriority.Loaded);
+  }
+
+  /// <summary>Releases every subscription on the view-model and on the transcript's own
+  ///     controls, and stops the timer that would otherwise keep ticking for a view that is
+  ///     no longer on screen.</summary>
+  private void Unwire()
+  {
+    if (_wiredVm is not null)
+    {
+      _wiredVm.Transcript.Entries.CollectionChanged -= OnEntriesChanged;
+      _wiredVm.PropertyChanged -= OnVmPropertyChanged;
+      _wiredVm = null;
+    }
+
+    _statusTimer?.Stop();
+    _statusTimer = null;
+    _restorePending = false;
+    _scrollToEndQueued = false;
+    TranscriptScroll.LayoutUpdated -= OnTranscriptLayoutUpdated;
   }
 
   // Spinner timer, recreated per wiring; stops with the VM subscription on re-wire.
@@ -483,7 +503,7 @@ internal partial class AgentView : UserControl
 
   /// <summary>Feeds the popup from the caret: a move into a token opens it and a move out of
   ///     one closes it, with no text change involved.</summary>
-  private void OnInputPropertyChanged(object? sender, Avalonia.AvaloniaPropertyChangedEventArgs e)
+  private void OnInputPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
   {
     if (_suppressReferenceFeed
         || (e.Property != TextBox.CaretIndexProperty
