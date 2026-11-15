@@ -75,7 +75,7 @@ public partial class LanguagePromptViewModelTests
 
   /// <summary>A watcher the test announces on, so a change that adds a language is drivable
   ///     without touching the file system.</summary>
-  private sealed class ScriptedWatcher : IFileWatcher
+  private sealed class ScriptedWatcher : IFileWatcher, IFileWatcherSubscription
   {
     private readonly List<Func<FileChangeAnnouncement, Task>> _handlers = [];
 
@@ -364,7 +364,7 @@ public partial class LanguagePromptViewModelTests
   /// <summary>A session over the scripted seams, with a synchronous UI marshal so the
   ///     detection pass lands headless.</summary>
   private static AgentSessionViewModel Session(IWorkspaceLanguageDetector detector,
-      ILanguageServerInstaller installer, IFileWatcher watcher) =>
+      ILanguageServerInstaller installer, IFileWatcherSubscription watcher) =>
       new((command, ct, callbacks, onNotice) => Task.FromResult(Result.Success("ack")),
           new RootSessionLifecycle(new TestFixtures.StubStore()),
           AgentId.NewId(),

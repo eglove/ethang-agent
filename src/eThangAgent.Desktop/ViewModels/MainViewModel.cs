@@ -3124,7 +3124,10 @@ internal sealed partial class MainViewModel : ObservableObject
             LanguageServersRequested?.Invoke(this, languageId);
             return Task.CompletedTask;
           },
-          WorkspaceWatcher = session.Services.GetService<IFileWatcher>(),
+          // The SESSION'S OWN HOLD, never the watcher (issue #388): the container gives the hold
+          // back at teardown, and a view-model that named the shared watcher would keep a closed
+          // session's transcript reachable for as long as the next session over that root ran.
+          WorkspaceWatcher = session.WorkspaceWatcher,
           StoredImageResolver = StoredImageResolverOf(session),
           // Spec D6: the app runs NO agent work. A container built with the wire runtime
           // (every production session) resolves the channel here and every turn travels to

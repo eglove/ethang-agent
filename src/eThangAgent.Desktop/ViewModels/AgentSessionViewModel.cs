@@ -63,9 +63,12 @@ internal sealed record AgentSessionViewModelOptions
   public Func<string, Task>? LanguageServersPage { get; init; }
 
   /// <summary>The workspace's file watcher: a change that adds a language the workspace did
-  ///     not hold re-runs detection, so the prompt can name it. Null = detection runs once,
-  ///     at session start.</summary>
-  public IFileWatcher? WorkspaceWatcher { get; init; }
+  ///     not hold re-runs detection, so the prompt can name it. The watcher itself belongs to
+  ///     the container, which hands this view-model a SUBSCRIPTION rather than the watcher: the
+  ///     session gives its hold back at teardown (issue #388), so nothing here may reach the
+  ///     watcher, or a closed session's view-model would outlive its container.
+  ///     Null = detection runs once, at session start.</summary>
+  public IFileWatcherSubscription? WorkspaceWatcher { get; init; }
 
   /// <summary>Runs ! commands (user-side shell utilities). Null = the surface reports
   ///     commands unavailable.</summary>
@@ -781,7 +784,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     can never overwrite a later pass's answer with its own.</para>
   ///     <para>BEST EFFORT: detection walks the workspace off the UI thread, and a failure
   ///     leaves the prompt hidden rather than failing the session.</para></summary>
-  private void StartLanguagePrompt(IFileWatcher? watcher)
+  private void StartLanguagePrompt(IFileWatcherSubscription? watcher)
   {
     if (LanguagePrompt is null || _languageDetector is null || _languageInstaller is null)
     {

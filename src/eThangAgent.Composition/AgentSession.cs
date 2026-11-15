@@ -3,6 +3,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
+using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition;
@@ -28,6 +29,13 @@ public sealed record AgentSession(
     SessionModelPreferences? Preferences = null)
 {
   public string ModelId => Model.ModelId;
+
+  /// <summary>This session's hold on the workspace's shared watcher, when the host wired one:
+  ///     a subscription surface, not the watcher. Container services that need announcements
+  ///     subscribe through it, so every subscriber the session made is dropped when the
+  ///     container's hold goes back - a watcher the next session over the same root keeps
+  ///     running must not keep calling a closed session (issue #388).</summary>
+  public IFileWatcherSubscription? WorkspaceWatcher { get; init; }
 
   /// <summary>The session's rendered system prompt - the verbatim text every provider
   ///     call sends (skills bootstrap, persona, guides, configured session files).
@@ -93,7 +101,14 @@ public sealed record AgentSession(
   ///     host this session launched. Two callers can reach that act for one session - the
   ///     shell that retires a tab's cell, and the shell's app-wide shutdown - so the act is
   ///     idempotent here rather than repeated there: a second disposal is a no-op instead of a
-  ///     read through a disposed provider.</para></summary>
+  ///     read through a disposed provider.</para>
+  ///     <para>THE SINK IS RELEASED FIRST, while the provider is still alive to be asked for the
+  ///     carrier. The host UI attaches a closure that captures its session view-model and tab,
+  ///     so a container that keeps the sink keeps the whole surface behind it reachable - and,
+  ///     because the carrier lives inside the container, anything still holding a resolved
+  ///     service keeps the UI graph too. Disposing without releasing it left every closed
+  ///     session's container pointing at a shell that had forgotten it (issue #388).</para>
+  ///     </summary>
   /// <returns>True when this call performed the disposal, false when it had already run.</returns>
   public async Task<bool> TryDisposeContainerAsync()
   {
@@ -102,6 +117,8 @@ public sealed record AgentSession(
       return false;
     }
 
+    NoticeSink = null;
+    PendingNotices = [];
     await Services.DisposeAsync().ConfigureAwait(false);
     return true;
   }

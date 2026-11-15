@@ -20,6 +20,10 @@ public sealed class SessionNoticeSink
   ///     semantics: written by the shell on the UI thread, read from background paths.</summary>
   public Action<string>? Sink { get; set; }
 
+  /// <summary>Whether a UI is attached. False once the session that owned this container wrote
+  ///     through it, and false for a container nothing ever attached to.</summary>
+  public bool IsAttached => Sink is not null;
+
   /// <summary>Posts one notice, or drops it when nothing is attached (headless hosts).</summary>
   public void Post(string message)
   {

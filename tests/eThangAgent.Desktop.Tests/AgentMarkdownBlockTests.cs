@@ -406,6 +406,146 @@ public class AgentMarkdownBlockTests
     Assert.Equal("pending when the entry left", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
   }
 
+  /// <summary>A stream that SETTLES leaves no armed timer behind (issue #388). The coalescing
+  ///     window used to stay open for the life of the process once a block had streamed a single
+  ///     delta: every tick found nothing pending and kept ticking, and because the dispatcher
+  ///     roots an armed timer whose delegate targets the block, every block that had ever streamed
+  ///     stayed reachable - measured at 6,563 armed timers behind 2 live agents.</summary>
+  [AvaloniaFact]
+  public void A_Settled_Stream_Disarms_The_Coalescing_Window()
+  {
+    Window window = new() { Width = 400, Height = 300 };
+    AgentMarkdownBlock block = new()
+    {
+      MarkdownText = "start",
+      IsOpen = true,
+      ThrottleInterval = TimeSpan.FromSeconds(60),
+    };
+    window.Content = block;
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    block.MarkdownText = "streamed";
+    Dispatcher.UIThread.RunJobs();
+    Assert.True(block.IsThrottleArmed, "a streaming block opens the coalescing window");
+
+    // The stream ends. The first tick drains the delta that was pending and is PRODUCTIVE, so it
+    // keeps the window; the two idle ticks that follow it close the window. One idle tick is
+    // tolerated because a slow machine's tick can land between two deltas.
+    block.FlushPendingRender(); // productive: the pending delta renders
+    Assert.True(block.IsThrottleArmed, "a productive tick keeps the window open");
+    block.FlushPendingRender();
+    Assert.True(block.IsThrottleArmed, "one idle tick still belongs to a stream that may resume");
+    block.FlushPendingRender();
+    Assert.False(block.IsThrottleArmed, "a settled stream must not hold an armed timer");
+
+    // Closing the window renders nothing away, and the delta that resumes the stream reopens
+    // it AND coalesces: a slow stream must not start rebuilding per delta once its window has
+    // closed once.
+    Assert.Equal("streamed", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
+    block.MarkdownText = "resumed";
+    Dispatcher.UIThread.RunJobs();
+    Assert.True(block.IsThrottleArmed);
+    Assert.Equal("streamed", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
+    block.FlushPendingRender();
+    Assert.Equal("resumed", Assert.IsType<MarkdownViewer>(block.Content).Markdown);
+    // Three rebuilds: the first content, the drained "streamed" delta, the drained "resumed"
+    // delta. The reopen charged nothing, which is the point - a resume after a settled pause
+    // costs one rebuild per window, not one per delta.
+    Assert.Equal(3, block.RenderCount);
+    window.Close();
+  }
+
+  /// <summary>The same contract across a transcript's worth of blocks: each one streams, settles
+  ///     and STAYS in the tree, and none of them may be left holding a timer (issue #388). A block
+  ///     that never detached is exactly the case the detach guard could not reach.</summary>
+  [AvaloniaFact]
+  public void Settled_Streaming_Blocks_Hold_No_Armed_Timer()
+  {
+    const int Entries = 12;
+    Window window = new() { Width = 400, Height = 300 };
+    StackPanel panel = new();
+    window.Content = panel;
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    for (int i = 0; i < Entries; i++)
+    {
+      AgentMarkdownBlock block = new()
+      {
+        MarkdownText = "start",
+        IsOpen = true,
+        ThrottleInterval = TimeSpan.FromSeconds(60),
+      };
+      panel.Children.Add(block);
+      Dispatcher.UIThread.RunJobs();
+      block.MarkdownText = "a delta, so the window is open";
+      Dispatcher.UIThread.RunJobs();
+      Assert.True(block.IsThrottleArmed);
+
+      block.FlushPendingRender(); // productive: renders the delta
+      block.FlushPendingRender();
+      block.FlushPendingRender();
+      Assert.False(block.IsThrottleArmed,
+          $"entry {i} streamed and settled but still holds an armed timer");
+    }
+
+    Assert.Equal(Entries, panel.Children.Count); // every block is still attached and rendering
+    window.Close();
+  }
+
+  /// <summary>A block that streamed, SETTLED and was then dropped is collectible without ever
+  ///     detaching (issue #388). This is the case the detach guard could not reach: the transcript's
+  ///     blocks are recycled and rebuilt, and each abandoned one was kept alive by its own armed
+  ///     timer - measured at 6,627 retained blocks behind 2 live agents.</summary>
+  [AvaloniaFact]
+  public void A_Settled_Block_Is_Collectible_Without_Detaching()
+  {
+    const int Entries = 12;
+    Window window = new() { Width = 400, Height = 300 };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    List<WeakReference> settled = [];
+    for (int i = 0; i < Entries; i++)
+    {
+      settled.Add(StreamAndSettle(window));
+    }
+
+    window.Close();
+    int alive = LiveAfterCollection(settled);
+    Assert.True(alive < Entries / 4,
+        $"{alive} of {Entries} settled blocks are still reachable; a block whose stream has settled " +
+        "must not hold an armed timer that roots it");
+  }
+
+  /// <summary>Streams one delta into a block, settles it, and returns a probe for it. The block is
+  ///     only ever dropped by the caller reassigning the window's content.</summary>
+  private static WeakReference StreamAndSettle(Window window)
+  {
+    AgentMarkdownBlock block = new()
+    {
+      MarkdownText = "start",
+      IsOpen = true,
+      ThrottleInterval = TimeSpan.FromSeconds(60),
+    };
+    window.Content = block;
+    Dispatcher.UIThread.RunJobs();
+    block.MarkdownText = "a delta, so the window is open";
+    Dispatcher.UIThread.RunJobs();
+    Assert.True(block.IsThrottleArmed);
+
+    block.FlushPendingRender(); // productive
+    block.FlushPendingRender();
+    block.FlushPendingRender(); // idle twice: the stream has settled
+    Assert.False(block.IsThrottleArmed);
+
+    WeakReference probe = new(block);
+    window.Content = null;
+    Dispatcher.UIThread.RunJobs();
+    return probe;
+  }
+
   /// <summary>Twelve streamed entries, then the transcript moves on: nearly all of them must be
   ///     collectable. This is the shape the defect had - one retained block per block ever
   ///     rendered - so it fails against a control that leaves its window armed, and it asserts

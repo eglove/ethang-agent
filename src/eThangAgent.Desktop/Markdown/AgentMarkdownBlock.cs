@@ -45,10 +45,20 @@ internal class AgentMarkdownBlock : ContentControl
 
   private const double ReasoningOpacity = 0.7;
 
+  private const int IdleTicksToDisarm = 2;
+
   private MarkdownViewer? _viewer;
   private TextBlock? _plainBlock;
   private DispatcherTimer? _throttle;
   private bool _pending;
+
+  /// <summary>Consecutive ticks that found nothing pending: the stream has settled. Reset by
+  ///     every delta, because either kind of tick means the stream is still producing.</summary>
+  private int _idleTicks;
+
+  /// <summary>Whether this block has ever rendered content, so the FIRST content of a block can
+  ///     appear at once while a stream that resumes after a settled pause still coalesces.</summary>
+  private bool _hasRendered;
 
   /// <summary>Whether the coalescing window is currently armed. A detached block never is: the
   ///     dispatcher roots an armed timer and the timer's tick delegate targets this block, so an
@@ -147,25 +157,44 @@ internal class AgentMarkdownBlock : ContentControl
 
   /// <summary>Drains a coalesced pending render immediately; the throttle timer's tick calls
   ///     this, and tests call it to collapse the clock.
-  ///     <para>THE WINDOW STAYS OPEN ACROSS A FLUSH. Closing it here left the next delta to
-  ///     re-open it by rendering IMMEDIATELY, so a delta arriving just after a tick - the
-  ///     ordinary shape of a stream, and the certain shape of a slow machine whose tick lands
-  ///     between two deltas - rebuilt the whole document on that delta instead of coalescing it
-  ///     into the next window. The block then reported the newest text where the contract says
-  ///     the window's text is still showing, which is how a test that defers a render and
-  ///     asserts the old text saw the new one (issue #380). Only a close, a variant change, or
-  ///     a drag deferral ends the window: those are terminal, a flush is not.</para></summary>
+  ///     <para>THE WINDOW STAYS OPEN ACROSS A FLUSH OF PENDING CONTENT. Closing it there left the
+  ///     next delta to re-open it by rendering IMMEDIATELY, so a delta arriving just after a
+  ///     tick - the ordinary shape of a stream - rebuilt the whole document on that delta
+  ///     instead of coalescing it into the next window. The block then reported the newest text
+  ///     where the contract says the window's text is still showing, which is how a test that
+  ///     defers a render and asserts the old text saw the new one (issue #380).</para>
+  ///     <para>A FLUSH THAT FINDS NOTHING PENDING ENDS THE WINDOW once the stream has been idle
+  ///     for <see cref="IdleTicksToDisarm"/> consecutive ticks. Without that the window never
+  ///     closes: a single streamed delta armed a timer that ticked for the life of the process,
+  ///     and since the dispatcher roots an armed timer and the tick delegate targets this block,
+  ///     every block that had ever streamed kept itself, its viewer and its rendered tree
+  ///     reachable. One idle tick is tolerated so a slow machine whose tick lands between two
+  ///     deltas still coalesces the delta that follows it.</para></summary>
   public void FlushPendingRender()
   {
-    // A tick that finds nothing pending keeps its window running: the timer is the window, and
-    // stopping it here is what made the NEXT delta re-open the window with a render.
     if (!_pending)
     {
+      if (++_idleTicks >= IdleTicksToDisarm)
+      {
+        Disarm();
+      }
+
       return;
     }
 
+    _idleTicks = 0;
     _pending = false;
     RenderDeferred();
+  }
+
+  /// <summary>Ends the coalescing window: stops and drops the timer and clears the idle count, so
+  ///     the next delta opens a fresh window. Idempotent.</summary>
+  private void Disarm()
+  {
+    _throttle?.Stop();
+    _throttle = null;
+    _pending = false;
+    _idleTicks = 0;
   }
 
   /// <summary>Renders, unless a thumb inside this block is being dragged - in which case the render
@@ -196,14 +225,26 @@ internal class AgentMarkdownBlock : ContentControl
       return;
     }
 
-    if (_throttle is null)
+    // A delta is the stream producing, so it resets the idle count that would otherwise close
+    // the window underneath it.
+    _idleTicks = 0;
+    bool opening = _throttle is null;
+    if (opening)
     {
-      // First content (or first after a flush): render now, then open the
-      // coalescing window. Subsequent deltas inside the window only set _pending.
-      RenderDeferred();
       _throttle = new DispatcherTimer { Interval = ThrottleInterval };
       _throttle.Tick += (_, _) => FlushPendingRender();
       _throttle.Start();
+    }
+
+    // THE WINDOW IS REOPENED WITHOUT RENDERING, once the block has content: an idle window
+    // disarms, and a stream that resumes after the pause is exactly the slow stream the
+    // coalescing exists for - rendering on its first delta back would rebuild the whole
+    // document per delta, which is what the window was opened to prevent (issue #380). Only a
+    // block with nothing on screen yet renders at once, so the first content never waits a
+    // tick.
+    if (opening && !_hasRendered)
+    {
+      RenderDeferred();
     }
     else
     {
@@ -213,9 +254,7 @@ internal class AgentMarkdownBlock : ContentControl
 
   private void RenderNow()
   {
-    _throttle?.Stop();
-    _throttle = null;
-    _pending = false;
+    Disarm();
     if (Variant == AgentMarkdownVariant.Reasoning && IsOpen)
     {
       RenderPlain();
@@ -237,6 +276,7 @@ internal class AgentMarkdownBlock : ContentControl
   private void RenderMarkdown()
   {
     RenderCount++;
+    _hasRendered = true;
     MarkdownViewer viewer = Viewer();
     viewer.Opacity = Variant == AgentMarkdownVariant.Reasoning ? ReasoningOpacity : 1.0;
     // The offsets are captured BEFORE the markdown is replaced. This block reuses ONE viewer
@@ -311,9 +351,7 @@ internal class AgentMarkdownBlock : ContentControl
     }
 
     _renderDeferredByDrag = false;
-    _pending = false;
-    _throttle?.Stop();
-    _throttle = null;
+    Disarm();
     RenderMarkdown();
   }
 

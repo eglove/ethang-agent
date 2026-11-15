@@ -7,7 +7,13 @@ namespace eThangAgent.Composition;
 ///     one root share one watcher, and the watcher stops when the last of them gives its hold
 ///     back; a root nothing holds is forgotten.
 ///     <para>Acquiring a hold does not start the watcher: starting is the holder's decision
-///     (<see cref="WorkspaceWatcherLease.EnsureStarted"/>), and it is idempotent.</para></summary>
+///     (<see cref="WorkspaceWatcherLease.EnsureStarted"/>), and it is idempotent.</para>
+///     <para>A HOLD OWNS A SUBSCRIBER. Everything a session subscribes to the shared watcher is
+///     dropped when that session's hold goes back, so a closed session stops being called for a
+///     watcher the next session over the same root keeps running (issue #388). Without that the
+///     registration was a stake in nothing: <c>Holders</c> counted leases while the subscriber
+///     list kept every session that had ever subscribed, and a view-model lives in that list.</para>
+///     </summary>
 public static class WorkspaceWatcherRegistry
 {
   private static readonly Dictionary<string, Entry> Held = [with(StringComparer.OrdinalIgnoreCase)];
@@ -37,13 +43,15 @@ public static class WorkspaceWatcherRegistry
       }
 
       entry.Holders++;
-      return new WorkspaceWatcherLease(root, entry.Watcher, ReleaseAsync);
+      return new WorkspaceWatcherLease(entry.Watcher, owner => ReleaseAsync(owner, root, entry.Watcher));
     }
   }
 
-  /// <summary>Gives one hold back, stopping the watcher when it was the last. A release for a
-  ///     watcher this process no longer holds is a no-op.</summary>
-  private static async ValueTask ReleaseAsync(string root, WorkspaceFileWatcher watcher)
+  /// <summary>Gives one hold back, dropping that hold's subscriptions and stopping the watcher
+  ///     when it was the last. A release for a watcher this process no longer holds is a
+  ///     no-op.</summary>
+  private static async ValueTask ReleaseAsync(WorkspaceWatcherLease owner, string root,
+      WorkspaceFileWatcher watcher)
   {
     bool last;
     lock (Gate)
@@ -59,6 +67,10 @@ public static class WorkspaceWatcherRegistry
         _ = Held.Remove(root);
       }
     }
+
+    // The hold's own subscribers go whatever the count says: this session is closed either way,
+    // and a watcher the next session keeps running must not keep calling it.
+    owner.DropSubscriptions();
 
     if (last)
     {
@@ -79,19 +91,23 @@ public static class WorkspaceWatcherRegistry
 /// <summary>One container's hold on a workspace's shared watcher. Disposing it gives the hold
 ///     back; the last release stops the watcher.
 ///     <para>The lease does not own the watcher - the registry does, and every session over the
-///     same root holds the same instance - so a holder subscribes to it and never disposes it.</para>
+///     same root holds the same instance - so a holder subscribes through the lease and never
+///     disposes the watcher. The lease drops the subscriptions taken through it when it is
+///     released, which is what makes the hold a stake in the subscriber list and not only a
+///     count (issue #388).</para>
 ///     <para>Release is idempotent: a second release does not give back a hold already returned.
 ///     </para></summary>
-public sealed class WorkspaceWatcherLease : IAsyncDisposable
+public sealed class WorkspaceWatcherLease : IAsyncDisposable, IFileWatcherSubscription
 {
-  private readonly string _root;
-  private readonly Func<string, WorkspaceFileWatcher, ValueTask> _release;
+  // The root is not held: the release captures it, so the lease names no registry key.
+  private readonly Func<WorkspaceWatcherLease, ValueTask> _release;
+  private readonly List<IDisposable> _subscriptions = [];
+  private readonly Lock _subscriptionsGate = new();
   private int _released;
 
-  internal WorkspaceWatcherLease(string root, WorkspaceFileWatcher watcher,
-      Func<string, WorkspaceFileWatcher, ValueTask> release)
+  internal WorkspaceWatcherLease(WorkspaceFileWatcher watcher,
+      Func<WorkspaceWatcherLease, ValueTask> release)
   {
-    _root = root;
     Watcher = watcher;
     _release = release;
   }
@@ -102,14 +118,57 @@ public sealed class WorkspaceWatcherLease : IAsyncDisposable
   /// <summary>Starts the held watcher. Idempotent, and the only thing that begins a walk.</summary>
   public void EnsureStarted() => Watcher.Start();
 
+  /// <summary>Subscribes a handler to the held watcher. The subscription is dropped when this
+  ///     lease is released, even if the caller never disposed it, and subscribing on a released
+  ///     lease hands back a subscription that is already gone - a closed session is never called
+  ///     again.</summary>
+  public IDisposable Subscribe(Func<FileChangeAnnouncement, Task> handler)
+  {
+    IDisposable subscription = Watcher.Subscribe(handler);
+    lock (_subscriptionsGate)
+    {
+      // The release marks its intent under THIS lock, so a subscription is either recorded
+      // before the release sees it or refused after - never added to a lease already released.
+      if (_released == 0)
+      {
+        _subscriptions.Add(subscription);
+        return subscription;
+      }
+    }
+
+    subscription.Dispose();
+    return subscription;
+  }
+
+  /// <summary>Releases every subscription taken through this lease. Idempotent.</summary>
+  internal void DropSubscriptions()
+  {
+    IDisposable[] held;
+    lock (_subscriptionsGate)
+    {
+      held = [.. _subscriptions];
+      _subscriptions.Clear();
+    }
+
+    foreach (IDisposable subscription in held)
+    {
+      subscription.Dispose();
+    }
+  }
+
   /// <summary>Gives the hold back. The last release stops the watcher.</summary>
   public async ValueTask DisposeAsync()
   {
-    if (Interlocked.Exchange(ref _released, 1) != 0)
+    lock (_subscriptionsGate)
     {
-      return;
+      if (_released != 0)
+      {
+        return;
+      }
+
+      _released = 1;
     }
 
-    await _release(_root, Watcher).ConfigureAwait(false);
+    await _release(this).ConfigureAwait(false);
   }
 }

@@ -783,6 +783,11 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // so once, when it is opened. The sink is attached by the host UI after construction, so
       // they wait here rather than being posted into nothing.
       PendingNotices = pendingNotices,
+      // The session's own hold on the workspace's shared watcher (issue #388): resolved so the
+      // hold exists, and handed out as a SUBSCRIPTION so nothing outside the container names the
+      // watcher. A container whose host wired no watcher passes null, and its view-model runs
+      // its single detection pass.
+      WorkspaceWatcher = services.GetService<WorkspaceWatcherLease>(),
     };
   }
 }
