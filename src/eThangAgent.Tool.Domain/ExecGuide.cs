@@ -76,8 +76,21 @@ public static class ExecGuide
         Tools.Describe("read")
 
     An image a nested tool attaches (Tools.read_image, Tools.docx extract, Tools.pdf render,
-    a desktop screenshot) rides the exec result back to you as an image part, and the output
-    names how many arrived.
+    a desktop screenshot, Tools.compose_image) rides the exec result back to you as an image part,
+    and the output names how many arrived.
+
+    Drawing a picture locally — no model, no provider, no network:
+
+        Tools.compose_image(new { timeoutSeconds = 60, width = 1200, height = 630,
+            background = "#0C0E14", shapes = new object[] {
+                new { kind = "rectangle", x = 40, y = 40, width = 300, height = 160, fill = "#E65A3C" },
+                new { kind = "text", text = "hello", x = 40, y = 220, font_size = 36, color = "#FFFFFF" },
+            }});
+
+    Kinds: rectangle, rounded_rectangle, ellipse, line, polyline, text. A PNG lands at the
+    absolute path the annotation names. This is how a featured image, a diagram, or a chart is
+    produced when there is no image model to call — and the same document always renders the
+    same pixels.
 
     Durable state (claims, evidence, certification):
 

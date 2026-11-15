@@ -13,6 +13,7 @@
       "tests/eThangAgent.Desktop.Tests/eThangAgent.Desktop.Tests.csproj",
       "tests/eThangAgent.Documents.ACL.Tests/eThangAgent.Documents.ACL.Tests.csproj",
       "tests/eThangAgent.FileSystem.ACL.Tests/eThangAgent.FileSystem.ACL.Tests.csproj",
+      "tests/eThangAgent.ImageComposition.ACL.Tests/eThangAgent.ImageComposition.ACL.Tests.csproj",
       "tests/eThangAgent.Lsp.ACL.Tests/eThangAgent.Lsp.ACL.Tests.csproj",
       "tests/eThangAgent.Mcp.ACL.Tests/eThangAgent.Mcp.ACL.Tests.csproj",
       "tests/eThangAgent.Model.Domain.Tests/eThangAgent.Model.Domain.Tests.csproj",

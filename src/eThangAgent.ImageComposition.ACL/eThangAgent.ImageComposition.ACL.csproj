@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
+    <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The rasterizer. SkiaSharp is the same engine Avalonia draws the UI with, so the renderer
+         adds no second graphics stack; the Win32 native assets carry the binary. -->
+    <PackageReference Include="SkiaSharp" Version="4.156.1" />
+  </ItemGroup>
+</Project>

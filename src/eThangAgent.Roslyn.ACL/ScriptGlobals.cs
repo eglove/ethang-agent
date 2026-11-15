@@ -966,6 +966,7 @@ public sealed class ScriptTools
   public string sqlite_query(object? args = null) => Invoke("sqlite_query", args);
   public string context_edit(object? args = null) => Invoke("context_edit", args);
   public string cycle_check(object? args = null) => Invoke("cycle_check", args);
+  public string compose_image(object? args = null) => Invoke("compose_image", args);
   public string skill_list(object? args = null) => Invoke("skill_list", args);
   public string skill_view(object? args = null) => Invoke("skill_view", args);
   public string skill_search(object? args = null) => Invoke("skill_search", args);
