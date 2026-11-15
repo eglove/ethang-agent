@@ -300,8 +300,8 @@ public sealed class RootRunHost : IDisposable
     try
     {
       result = await handler
-          .Handle(new SendMessageCommand(request.Input, BuildImageParts(request)), callbacks,
-              text => emitter.Emit("notice", text), ct)
+          .Handle(new SendMessageCommand(request.Input, BuildImageParts(request),
+                  request.UserMessageId), callbacks, text => emitter.Emit("notice", text), ct)
           .ConfigureAwait(false);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)

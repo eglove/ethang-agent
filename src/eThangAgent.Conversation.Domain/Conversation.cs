@@ -73,12 +73,21 @@ public class Conversation(IEnumerable<Message>? seed = null)
     }
   }
 
-  public void AddUserMessage(string text, IReadOnlyList<MessagePart>? parts = null)
+  public void AddUserMessage(string text, IReadOnlyList<MessagePart>? parts = null,
+      string? userMessageId = null)
   {
-    Message message = new(Role.User, text, DateTimeOffset.UtcNow, Parts: NormalizeParts(Role.User, parts));
+    Message message = new(Role.User, text, DateTimeOffset.UtcNow,
+        Parts: NormalizeParts(Role.User, parts), UserMessageId: userMessageId);
     _messages.Add(message);
     NotifyAdded(message);
   }
+
+  /// <summary>True when this conversation already holds a user message carrying
+  ///     <paramref name="userMessageId"/>. A null or empty identity is never held: a sender
+  ///     that names no identity gets no deduplication.</summary>
+  public bool HoldsUserMessage(string? userMessageId) =>
+      !string.IsNullOrEmpty(userMessageId)
+      && _messages.Any(message => string.Equals(message.UserMessageId, userMessageId, StringComparison.Ordinal));
 
   public void AddAssistantMessage(string text, IReadOnlyList<MessagePart>? parts = null)
   {

@@ -49,7 +49,8 @@ public sealed class SqliteAgentStore(
   ///     position its part occupied. The message's own text is what says an image was there.</para>
   ///     </summary>
   internal sealed record MessageMeta(DateTimeOffset Timestamp, IReadOnlyList<ToolCall>? ToolCalls,
-      string? ToolCallId, IReadOnlyList<MessageMetaPart?>? Parts = null);
+      string? ToolCallId, IReadOnlyList<MessageMetaPart?>? Parts = null,
+      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? UserMessageId = null);
 
   /// <summary>Maps conversation parts onto the meta_json entry shape, persisting an image
   ///     payload as a FILE PLUS A POINTER.
@@ -318,7 +319,8 @@ public sealed class SqliteAgentStore(
       Add(command, "@role", message.Role.ToString());
       Add(command, "@content", ContentNamingStoredImages(message.Content, message.Parts, parts));
       Add(command, "@meta", JsonSerializer.Serialize(
-          new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, parts)));
+          new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, parts,
+              message.UserMessageId)));
       _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       await transaction.CommitAsync(ct).ConfigureAwait(false);
       return Result.Success(id.ToString());
@@ -378,7 +380,8 @@ public sealed class SqliteAgentStore(
             message.Parts, id.ToString(), ct).ConfigureAwait(false);
         Add(command, "@content", ContentNamingStoredImages(message.Content, message.Parts, parts));
         Add(command, "@meta", JsonSerializer.Serialize(
-            new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, parts)));
+            new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, parts,
+                message.UserMessageId)));
         _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       }
 
@@ -416,7 +419,8 @@ public sealed class SqliteAgentStore(
           meta.Timestamp,
           meta.ToolCalls,
           meta.ToolCallId,
-          Parts: FromMetaParts(meta.Parts)));
+          Parts: FromMetaParts(meta.Parts),
+          UserMessageId: meta.UserMessageId));
     }
     return Result.Success<IReadOnlyList<Message>>(messages);
   }
@@ -458,7 +462,8 @@ public sealed class SqliteAgentStore(
           meta.Timestamp,
           meta.ToolCalls,
           meta.ToolCallId,
-          Parts: FromMetaParts(meta.Parts)));
+          Parts: FromMetaParts(meta.Parts),
+          UserMessageId: meta.UserMessageId));
     }
 
     if (messages.Count == 0)

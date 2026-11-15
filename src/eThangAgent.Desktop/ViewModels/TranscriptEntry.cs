@@ -46,7 +46,8 @@ internal sealed record PendingImage(string Label, byte[] Bytes, string MediaType
 ///     <para><see cref="PendingId"/> is the inbox message identity the drain fact names;
 ///     empty for an ordinary (never pending) user message.</para></summary>
 internal sealed record UserMessageEntry(string Text, IReadOnlyList<TranscriptImage>? Images = null,
-    IReadOnlyList<string>? ImageLabels = null, bool Pending = false, Guid PendingId = default) : TranscriptEntry;
+    IReadOnlyList<string>? ImageLabels = null, bool Pending = false, Guid PendingId = default,
+    string? UserMessageId = null) : TranscriptEntry;
 
 internal sealed record AssistantTextEntry(string Text, bool IsOpen) : TranscriptEntry;
 

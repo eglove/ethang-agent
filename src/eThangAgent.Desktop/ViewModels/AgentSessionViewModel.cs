@@ -1709,7 +1709,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       ClearPendingImages();
     }
 
-    Transcript.AddUser(input, transcriptImages, transcriptImageLabels);
+    // ONE identity per SUBMIT, minted here and carried by every attempt: minting it inside
+    // the send loop would give a resend a fresh id and defeat the host's deduplication.
+    string userMessageId = Guid.NewGuid().ToString("N");
+    Transcript.AddUser(input, transcriptImages, transcriptImageLabels, userMessageId);
     Status.Phase = TurnPhase.Thinking;
     IsBusy = true;
     BeatRootActivity(RootTurnPhase.TurnStarted, "turn-start");
@@ -1723,7 +1726,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _pendingPreTurn.Clear();
 
     int messageCountBefore = _conversation.Messages.Count;
-    TurnFacts facts = new(input, imageParts, preTurn, cts.Token);
+    TurnFacts facts = new(input, imageParts, preTurn, userMessageId, cts.Token);
     Result<string>? result = await RunTurnAsync(facts).ConfigureAwait(true);
     if (result is null)
     {
@@ -1763,8 +1766,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       }
 
       // A model that refused or throttled this turn leaves the list and the same turn goes out
-      // again on what survives. Only a turn sent to the host can change which model serves it.
-      if (RootTurnChannel is not null && TryDropRefusingModel(attempt))
+      // again on what survives. This is a MODEL-LIST decision, not a transport one: it holds
+      // whether the turn ran in the host or in this process.
+      if (TryDropRefusingModel(attempt))
       {
         continue;
       }
@@ -1820,7 +1824,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     </summary>
   private Task<Result<string>> SendAttemptAsync(TurnFacts facts, StreamBridge bridge)
       => RootTurnChannel is { } channel
-          ? SendTurnToHostAsync(channel, facts.Input, facts.ImageParts, facts.PreTurn, bridge,
+          ? SendTurnToHostAsync(channel, facts, bridge,
               StreamObserver(facts), facts.Ct)
           : RunTurnInProcessAsync(facts.Input, facts.ImageParts, bridge, StreamObserver(facts),
               () => facts.Compacted = true, () => facts.Shrunk = true, facts.Ct);
@@ -1860,9 +1864,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     pre-turn mutations every request repeats, the turn's cancellation, and the flags
   ///     persistence and rendering read once the turn is over.</summary>
   private sealed class TurnFacts(string input, IReadOnlyList<MessagePart>? imageParts,
-      IReadOnlyList<RootTurnPreTurnMessage> preTurn, CancellationToken ct)
+      IReadOnlyList<RootTurnPreTurnMessage> preTurn, string userMessageId, CancellationToken ct)
   {
     public string Input { get; } = input;
+
+    /// <summary>This submit's identity for the user message, the same on every attempt.</summary>
+    public string UserMessageId { get; } = userMessageId;
 
     public IReadOnlyList<MessagePart>? ImageParts { get; } = imageParts;
 
@@ -1961,8 +1968,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     SUCCESSFUL transport turn carrying a failed turn outcome — the payload is the
   ///     answer the user must see. A failed Result is a transport-level fault and keeps its
   ///     own typed code.</para></summary>
-  private async Task<Result<string>> SendTurnToHostAsync(IRootTurnChannel channel, string input,
-      IReadOnlyList<MessagePart>? imageParts, IReadOnlyList<RootTurnPreTurnMessage> preTurn,
+  private async Task<Result<string>> SendTurnToHostAsync(IRootTurnChannel channel, TurnFacts facts,
       StreamBridge bridge, Action onStreamed, CancellationToken ct)
   {
     // A FRESH turn id and generation per turn: the wire runtime keys its settle matching on
@@ -1970,13 +1976,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // with the wrong payload.
     string turnId = Guid.NewGuid().ToString("N");
     _liveTurnId = turnId;
-    RootTurnRequest request = new(turnId, input, [])
+    RootTurnRequest request = new(turnId, facts.Input, [])
     {
-      Images = ToWireImages(imageParts),
+      Images = ToWireImages(facts.ImageParts),
       // The app's own pre-turn conversation mutations ride the request: the host is a
       // different process with its own conversation, so anything injected only here would
       // never reach the model.
-      PreTurn = [.. preTurn],
+      PreTurn = [.. facts.PreTurn],
       // The session's quoted-path grants ride every turn: the grant is made where the message
       // is parsed (here) and honoured where the tools resolve paths (the host), so a grant
       // that stayed in this process would leave the host refusing the quoted file.
@@ -1990,6 +1996,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // of the request while the preference the user picked keeps it. The carrier is built on
       // a COPY, so the session's own preferences are never rewritten by a drop.
       ModelPreferences = TurnModelPreferences(),
+      // The identity of the user message this turn delivers, so a resend after a host loss
+      // leaves exactly one copy in the host's conversation and in its store.
+      UserMessageId = facts.UserMessageId,
     };
     try
     {

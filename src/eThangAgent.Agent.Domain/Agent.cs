@@ -292,11 +292,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       TurnCallbacks? callbacks = null,
       IAgentInbox? inbox = null,
       IReadOnlyList<MessagePart>? imageParts = null,
+      string? userMessageId = null,
       CancellationToken ct = default)
   {
     try
     {
-      return await RunTurnAsync(text, callbacks, inbox, imageParts, ct).ConfigureAwait(false);
+      return await RunTurnAsync(text, callbacks, inbox, imageParts, userMessageId, ct)
+          .ConfigureAwait(false);
     }
     catch (OperationCanceledException)
     {
@@ -354,7 +356,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     its contract comment): drain, iterate model calls, execute tool calls, and
   ///     manage context pressure, until the model answers without tool calls.</summary>
   private async Task<Result<string>> RunTurnAsync(string text, TurnCallbacks? callbacks,
-      IAgentInbox? inbox, IReadOnlyList<MessagePart>? imageParts, CancellationToken ct)
+      IAgentInbox? inbox, IReadOnlyList<MessagePart>? imageParts, string? userMessageId,
+      CancellationToken ct)
   {
     LastTurnToolCalls = 0;
     ShrankThisTurn = false;
@@ -368,7 +371,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // render and one tool-definition read, reused by every iteration. See _turnPrefix.
     _turnPrefix = new RequestPrefix(_systemPrompt?.Build(), _tools.Definitions);
     _ = DrainInbox(inbox);
-    Conversation.AddUserMessage(text, imageParts);
+    // A turn whose input this conversation already holds is ALREADY DELIVERED: a resent
+    // turn after a host loss must leave exactly one copy, and the identity - never the
+    // text - is the key, because the same sentence typed twice is two messages.
+    if (!Conversation.HoldsUserMessage(userMessageId))
+    {
+      Conversation.AddUserMessage(text, imageParts, userMessageId);
+    }
     Beat();
     // No iteration cap by design: the loop runs until the model answers without
     // tool calls. Termination is the model's job — but cancellation is checked

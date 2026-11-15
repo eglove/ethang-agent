@@ -73,8 +73,8 @@ public class SendMessageCommandHandler(
       return Result.Failure<string>(new DomainError(Ag.TurnCancelledCode, RuntimeErrors.TurnCancelled));
     }
 
-    Result<string> result = await active.SendMessage(command.Text, callbacks, _inbox, command.ImageParts, ct)
-        .ConfigureAwait(false);
+    Result<string> result = await active.SendMessage(command.Text, callbacks, _inbox,
+        command.ImageParts, command.UserMessageId, ct).ConfigureAwait(false);
     if (!result.IsSuccess)
     {
       return result;

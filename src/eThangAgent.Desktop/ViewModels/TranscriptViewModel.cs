@@ -54,10 +54,10 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null,
   public IReadOnlyList<string> Notices => [.. Entries.OfType<NoticeEntry>().Select(e => e.Text)];
 
   public void AddUser(string text, IReadOnlyList<TranscriptImage>? images = null,
-      IReadOnlyList<string>? imageLabels = null)
+      IReadOnlyList<string>? imageLabels = null, string? userMessageId = null)
   {
     CloseOpen();
-    Entries.Add(new UserMessageEntry(text, images, imageLabels));
+    Entries.Add(new UserMessageEntry(text, images, imageLabels, UserMessageId: userMessageId));
   }
 
   /// <summary>Echoes one ACCEPTED steering message (issue #253 B3) and pins it below the

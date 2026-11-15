@@ -147,6 +147,17 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
   ///     string verbatim and NEVER interprets it; the host decodes it.</para></summary>
   public string? ModelPreferences { get; init; }
 
+  /// <summary>The IDENTITY of the user message this turn delivers, or null when the sender
+  ///     does not name one. The host treats it as the business key of the turn's input: a
+  ///     hydrated conversation that already holds a message with this identity has ALREADY
+  ///     received it, so a resent turn appends nothing.
+  ///     <para>WHY AN IDENTITY AND NOT THE TEXT: the same sentence typed twice in one session
+  ///     is two messages and must reach the model twice. Equality on text would silently drop
+  ///     the second one. Null is the ordinary case for a peer that has no identity to offer,
+  ///     and it keeps today's behaviour exactly - one append, no deduplication.</para></summary>
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? UserMessageId { get; init; }
+
   /// <summary>The idle window the APP will enforce on this turn, or null when the app
   ///     does not name one.
   ///     <para>WHY THE TURN CARRIES IT (2026-10-22): the app fails a turn whose host goes
@@ -168,6 +179,7 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
           && string.Equals(Input, other.Input, StringComparison.Ordinal)
           && Generation == other.Generation
           && string.Equals(ModelPreferences, other.ModelPreferences, StringComparison.Ordinal)
+          && string.Equals(UserMessageId, other.UserMessageId, StringComparison.Ordinal)
           && Nullable.Equals(IdleTimeout, other.IdleTimeout)
           && CollectionsEqual(other);
 
@@ -195,6 +207,7 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
     hash.Add(Input, StringComparer.Ordinal);
     hash.Add(Generation);
     hash.Add(ModelPreferences, StringComparer.Ordinal);
+    hash.Add(UserMessageId, StringComparer.Ordinal);
     hash.Add(IdleTimeout);
     foreach (string entry in Seed ?? [])
     {
