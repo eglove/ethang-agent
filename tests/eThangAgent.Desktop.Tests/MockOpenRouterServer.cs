@@ -22,6 +22,8 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   private readonly List<string> _requestBodies = [];
   private readonly string _responsesPath = responsesPath;
   private readonly List<string> _responsesRequestPaths = [];
+  private readonly Dictionary<string, Queue<int>> _modelStatuses = [];
+  private readonly Queue<int> _anyStatuses = new();
   private string? _catalogResponse;
   public string? EndpointsResponse { get; set; }
   public Task? CatalogGate { get; set; }
@@ -101,6 +103,45 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
     {
       _catalogResponse = catalogJson;
     }
+    return this;
+  }
+
+  /// <summary>Scripts one HTTP STATUS for the next request to <paramref name="model"/>, in
+  ///     order, so a test can make a model refuse (429, 401, 503) and then answer.
+  ///     <para>A status of 200 falls through to the ordinary scripted body, so a queue can mix
+  ///     failures and successes for one model.</para></summary>
+  public MockOpenRouterServer ReturnsStatusForModel(string model, params int[] statusCodes)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(model);
+    ArgumentNullException.ThrowIfNull(statusCodes);
+    lock (_gate)
+    {
+      if (!_modelStatuses.TryGetValue(model, out Queue<int>? queue))
+      {
+        queue = _modelStatuses[model] = new Queue<int>();
+      }
+
+      foreach (int status in statusCodes)
+      {
+        queue.Enqueue(status);
+      }
+    }
+
+    return this;
+  }
+
+  /// <summary>Scripts one HTTP STATUS for the next request whatever its model.</summary>
+  public MockOpenRouterServer ReturnsStatus(params int[] statusCodes)
+  {
+    ArgumentNullException.ThrowIfNull(statusCodes);
+    lock (_gate)
+    {
+      foreach (int status in statusCodes)
+      {
+        _anyStatuses.Enqueue(status);
+      }
+    }
+
     return this;
   }
 
@@ -278,6 +319,30 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   ///     for one of them is served to whichever asked first. A rule keyed on a fact the
   ///     session's own prompt carries answers each session with its own script whatever the
   ///     order.</para></summary>
+  /// <summary>The next scripted HTTP status for this request, or null when none is
+  ///     scripted. A model's own queue is consulted first, so a test can refuse one model
+  ///     while another answers.</summary>
+  private int? NextScriptedStatus(string requestBody)
+  {
+    string? model = TryGetRequestModel(requestBody);
+    lock (_gate)
+    {
+      int? forModel = DequeueModelStatus(model);
+      return forModel ?? DequeueAnyStatus();
+    }
+  }
+
+  /// <summary>This model's own scripted status, or null when it has none left.</summary>
+  private int? DequeueModelStatus(string? model) =>
+      model is not null
+      && _modelStatuses.TryGetValue(model, out Queue<int>? scripted)
+      && scripted.Count > 0
+          ? scripted.Dequeue()
+          : null;
+
+  /// <summary>The next status scripted for any model, or null when none is left.</summary>
+  private int? DequeueAnyStatus() => _anyStatuses.Count > 0 ? _anyStatuses.Dequeue() : null;
+
   private string NextScriptedBody(string requestBody)
   {
     string? model = TryGetRequestModel(requestBody);
@@ -451,6 +516,16 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
     try
     {
       await ApplyModelDelayAsync(requestBody).ConfigureAwait(false);
+      if (NextScriptedStatus(requestBody) is { } scriptedStatus and not 200)
+      {
+        ctx.Response.StatusCode = scriptedStatus;
+        ctx.Response.ContentType = "application/json";
+        byte[] error = Encoding.UTF8.GetBytes(
+            "{\"error\":{\"message\":\"scripted " + scriptedStatus + "\"}}");
+        await ctx.Response.OutputStream.WriteAsync(error, _cts.Token).ConfigureAwait(false);
+        return;
+      }
+
       string scriptedBody = NextScriptedBody(requestBody);
       ctx.Response.StatusCode = 200;
       await WriteScriptedBodyAsync(ctx, requestBody, scriptedBody).ConfigureAwait(false);

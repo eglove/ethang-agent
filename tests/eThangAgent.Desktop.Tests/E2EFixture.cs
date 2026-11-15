@@ -8,6 +8,7 @@ using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Lsp.ACL;
 using eThangAgent.ModelDomain;
+using eThangAgent.OpenRouter.ACL;
 using eThangAgent.Storage.ACL;
 using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
@@ -215,8 +216,13 @@ internal static class E2E
     ///     The harness composes the core container directly, so it opts into the
     ///     in-process runtime explicitly — production never does (every conversation
     ///     runs in its own host process).</summary>
+    /// <summary>Set before StartAsync to pin the PROVIDER's own retry policy. A test that
+    ///     counts attempts must pin this to one, or the provider's inner retries are counted
+    ///     as if they were the turn's.</summary>
+    internal RetryPolicy? ProviderRetry { get; set; }
+
     internal AgentSettings BuildSettings(bool computerUse = false) => new(
-        new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
+        new OpenRouterSettings("sk-or-test", Mock.BaseUrl) { Retry = ProviderRetry },
         new AgentRunOptions(null, 2),
         ComputerUse: computerUse);
 

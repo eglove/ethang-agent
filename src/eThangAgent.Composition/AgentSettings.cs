@@ -1,4 +1,5 @@
 using eThangAgent.AgentDomain;
+using eThangAgent.OpenRouter.ACL;
 
 namespace eThangAgent.Composition;
 
@@ -23,6 +24,11 @@ public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl, string? Man
   /// <summary>App-preference key the Desktop stores the (protected) OpenRouter
   ///     management key under.</summary>
   public const string ManagementKeyPreferenceKey = "openrouter_management_key";
+
+  /// <summary>The provider's OWN transient-failure retry policy, or null for the ACL's
+  ///     default. A test pins this to one attempt so that the attempts it counts are the
+  ///     turn's, not the provider's.</summary>
+  public RetryPolicy? Retry { get; init; }
 }
 
 /// <summary>Everything a host needs before building the core. ApiKeys may be null —

@@ -1704,7 +1704,10 @@ public static class AgentComposition
     {
       Providers.OpenRouter => services
           .AddSingleton(new OpenRouterConfiguration(apiKey ?? MissingKey(), settings.OpenRouter.BaseUrl,
-              ManagementKey: settings.OpenRouter.ManagementKey))
+              ManagementKey: settings.OpenRouter.ManagementKey)
+          {
+            Retry = settings.OpenRouter.Retry ?? RetryPolicy.Default,
+          })
           // The management key rides a LIVE carrier read at dispatch (the frozen
           // snapshot forced a session restart to pick a saved key up, 2026-10-08):
           // seeded from settings at build, pushed live by the host on save.
