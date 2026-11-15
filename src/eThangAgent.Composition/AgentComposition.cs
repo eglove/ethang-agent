@@ -7,6 +7,7 @@ using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Documents.ACL;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.ImageComposition.ACL;
 using eThangAgent.Mcp.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
@@ -157,7 +158,10 @@ public static class AgentComposition
         .AddSingleton<ISkillsShAccess, HttpSkillsShAccess>()
         .AddSingleton<IHtmlToMarkdown, HtmlAgilityMarkdownConverter>()
         .AddSingleton<IDocxAccess, DirectDocxAccess>()
-        .AddSingleton<IPdfAccess, DirectPdfAccess>();
+        .AddSingleton<IPdfAccess, DirectPdfAccess>()
+        // The local rasterizer behind the compose_image tool: a scene document rendered to PNG
+        // pixels inside this process. No provider, no model, no network.
+        .AddSingleton<IImageCompositionAccess, SkiaImageCompositionAccess>();
     return wired;
   }
 
@@ -223,6 +227,11 @@ public static class AgentComposition
           new FindFilesTool(ReadOnlyResolver(sp),
               sp.GetRequiredService<IFileSearchAccess>()),
           "Search the workspace for files by name pattern (Win32 glob: * and ?)."),
+      new AgentToolBinding(
+          new ComposeImageTool(sp.GetRequiredService<IImageCompositionAccess>(),
+              sp.GetRequiredService<IImageStore>(),
+              new SessionImageInputCapability(sp)),
+          "Draw an image from a list of shapes and save it as a PNG file."),
   ];
 
   /// <summary>The file-claim gate for edit/write: session-bound over the workspace's
@@ -1322,6 +1331,11 @@ public static class AgentComposition
                 SystemPrompt: sp.GetRequiredService<ISystemPromptProvider>(),
                 ContextCompactor: sp.GetRequiredService<DefaultContextCompactor>(),
                 TranscriptSink: sp.GetRequiredService<RootTranscriptSink>(),
+                // The session's one image store: a server-side image tool's artifact is
+                // persisted and NAMED by its absolute path, so the user sees the picture and
+                // the model can read_image it later. Without this hand-off the loop takes its
+                // null-store branch and writes nothing at all.
+                Images: sp.GetRequiredService<IImageStore>(),
                 EventLog: sp.GetRequiredService<IAgentEventLog>(),
                 // The root loop's mailbox facts (issue #253 B3): the drain naming which
                 // steering messages it consumed is what releases the app's pinned echo.
