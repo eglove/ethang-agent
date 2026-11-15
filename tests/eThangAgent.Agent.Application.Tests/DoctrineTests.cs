@@ -111,6 +111,7 @@ public sealed partial class DoctrineTests
         "src/eThangAgent.Composition/RemoteHostSupervisor.cs",
         "src/eThangAgent.ChildHost/Program.cs", // bounded accept-retry backoff
         "src/eThangAgent.OpenRouter.ACL/OpenRouterModelProvider.cs",
+        "src/eThangAgent.Agent.Domain/TurnRetryPolicy.cs", // the turn's transient-fault backoff, awaited through AgentOptions.TurnRetryDelay
         "src/eThangAgent.ComputerUse.ACL/BrokerSupervisor.cs", // ONE bounded restart backoff after a lost broker connection (transport/retry ACL)
         "src/eThangAgent.ComputerUse.ACL/NotReadyPolicy.cs", // production half of the INotReadyDelayer seam - the spec 1.3 cold-start backoff schedule
         "src/eThangAgent.ComputerUse.Host/ClipboardPaster.cs", // native broker process: bounded clipboard-sequence consumption poll
@@ -370,6 +371,7 @@ public sealed partial class DoctrineTests
         "DaemonHarness",
         "Avalonia.Headless",
         "using eThangAgent.ChildHost;",
+        "AttachAsync",
     ];
 
     // A test attribute, whatever the runner that supplies it: xUnit's Fact/Theory and the
