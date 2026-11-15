@@ -51,6 +51,12 @@ internal sealed class StreamWindowCoalescer(IStreamSink sink, double windowSecon
 
   public Task SystemMessageAsync(string text) => StructuralAsync(new UiStreamEvent.SystemMessage(text));
 
+  /// <summary>Structural: buffered text is delivered BEFORE the rewind reaches the sink, so
+  ///     the sink withdraws exactly what it was shown. Merging the rewind into the next
+  ///     content slice would let buffered text arrive after the withdrawal it should have
+  ///     preceded.</summary>
+  public Task RewindAsync() => StructuralAsync(new UiStreamEvent.Rewind());
+
   /// <summary>Delivers verbatim, bypassing the buffer. Part of <see cref="IStreamSink"/>
   ///     so coalescers and bridges can nest.</summary>
   public Task DeliverAsync(UiStreamEvent evt)

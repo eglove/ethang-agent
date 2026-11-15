@@ -71,6 +71,10 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   private nint _hostJob;
   private Process? Host { get; set; }
 
+  // Serializes attaches: two concurrent attaches would each see 'not connected' and each
+  // connect, which is the second-connection defect arriving by a different route.
+  private readonly SemaphoreSlim _attachGate = new(1, 1);
+
   public RemoteHostSupervisor(string conversationId, string scratchDirectory,
       AgentSettings settings, string databasePath, Action<string> reportNotice)
       : this(conversationId, scratchDirectory, settings, databasePath, reportNotice, DefaultHostExePath)
@@ -220,9 +224,48 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     // A caller who cancelled asked for NO work: refuse before launching, so a cancelled
     // attach never starts a host process that nothing will ever connect to.
     ct.ThrowIfCancellationRequested();
+    _ = await AttachCoreAsync(runtime, ct).ConfigureAwait(false);
+    return runtime.DeclaredLiveChildren;
+  }
+
+  /// <summary>The attach proper. ONE ATTACH PER LIVE CONNECTION, whatever the call count: a
+  ///     runtime already holding a live connection keeps it, so a second attach neither opens
+  ///     another host process nor replaces the connection a turn is using.
+  ///     <para>CALLS ARE SERIALIZED for the same reason: two concurrent attaches would both
+  ///     observe 'not connected' and both connect, which is the same second-connection defect
+  ///     arriving by a different route.</para></summary>
+  private async Task<NamedPipeChildTransport> AttachCoreAsync(RemoteAgentRuntime runtime, CancellationToken ct)
+  {
+    await _attachGate.WaitAsync(ct).ConfigureAwait(false);
+    try
+    {
+      NamedPipeChildTransport transport = await StartOrReuseAsync(runtime, ct).ConfigureAwait(false);
+      if (runtime.IsConnected)
+      {
+        return transport;
+      }
+
+      runtime.ReplaceTransport(transport);
+      _ = runtime.RunReceiveLoopAsync(CancellationToken.None);
+      return transport;
+    }
+    finally
+    {
+      _ = _attachGate.Release();
+    }
+  }
+
+  /// <summary>The connection under a live one, or a fresh connect when the runtime has none.
+  ///     A runtime that already holds a live connection is answered with it and nothing
+  ///     happens: no host is started, no transport is created, and no second pump begins.</summary>
+  private async Task<NamedPipeChildTransport> StartOrReuseAsync(RemoteAgentRuntime runtime, CancellationToken ct)
+  {
+    if (runtime.IsConnected && runtime.CurrentTransport is { IsClosed: false } live)
+    {
+      return live;
+    }
+
     NamedPipeChildTransport transport = await StartAndConnectAsync(ct).ConfigureAwait(false);
-    runtime.ReplaceTransport(transport);
-    _ = runtime.RunReceiveLoopAsync(CancellationToken.None);
 
     // The host declares its live set immediately on accepting the connection; give the
     // pump a bounded moment to observe it before callers repair orphans.
@@ -231,7 +274,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       await Task.Delay(TimeSpan.FromMilliseconds(20), ct).ConfigureAwait(false);
     }
 
-    return runtime.DeclaredLiveChildren;
+    return transport;
   }
 
   /// <summary>Launches this conversation's host and connects to it. The connect is
@@ -563,6 +606,10 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
 
   public async ValueTask DisposeAsync()
   {
+    // Released with the supervisor: the gate exists for this instance's attaches and nothing
+    // outlives it.
+    _attachGate.Dispose();
+
     // The reference is CLEARED before the process is touched (issue #287): a disposed
     // Process throws InvalidOperationException from HasExited, so a reference left
     // assigned turns every later read of HostProcessId - a public property whose whole

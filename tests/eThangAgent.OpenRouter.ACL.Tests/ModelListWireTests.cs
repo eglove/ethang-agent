@@ -183,7 +183,7 @@ public class ModelListWireTests
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error.Code);
+    Assert.Equal("ModelRejected", result.Error.Code);
     Assert.Contains(Refusal, result.Error.Message, StringComparison.Ordinal);
     // ONE REQUEST, UNAMBIGUOUSLY: a 400 is not retried (the identical request would fail
     // identically), so nothing else reached the provider on this turn.

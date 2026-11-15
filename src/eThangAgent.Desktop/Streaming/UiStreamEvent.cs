@@ -22,4 +22,9 @@ internal abstract record UiStreamEvent
   ///     prompts, compaction-failure notices). Loop-voice, unlike a transient host
   ///     notice — rendered as its own transcript entry kind.</summary>
   internal sealed record SystemMessage(string Text) : UiStreamEvent;
+
+  /// <summary>The text the current attempt streamed is withdrawn. Carries no payload: what
+  ///     is removed is whatever the transcript still holds open, which is the observer's
+  ///     state rather than the loop's.</summary>
+  internal sealed record Rewind() : UiStreamEvent;
 }

@@ -122,6 +122,24 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     }
   } = "";
 
+  /// <summary>The models this session can still be served by, most preferred first: the stored
+  ///     list minus every model a turn dropped. This is the list the next turn carries, while
+  ///     <see cref="ModelId"/> names whichever model actually served.</summary>
+  public IReadOnlyList<string> SurvivingModelIds
+  {
+    get;
+    set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(SurvivingModelIds));
+    }
+  } = [];
+
   /// <summary>The session's current reasoning effort as a display string — "Model default"
   ///     when no level is set. Updated by the effort picker and the shell's restore-on-open
   ///     (callers own the display-name vocabulary, <see cref="EffortLevels"/>).</summary>

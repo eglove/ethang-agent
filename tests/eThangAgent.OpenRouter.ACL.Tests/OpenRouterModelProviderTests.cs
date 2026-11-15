@@ -233,7 +233,7 @@ public class OpenRouterModelProviderTests
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error.Code);
+    Assert.Equal("ModelRejected", result.Error.Code);
     Assert.Contains("OpenRouter returned HTTP 400:", result.Error.Message, StringComparison.Ordinal);
     Assert.Contains(errorBody, result.Error.Message, StringComparison.Ordinal);
   }
@@ -271,7 +271,7 @@ public class OpenRouterModelProviderTests
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error.Code);
+    Assert.Equal("ModelRejected", result.Error.Code);
     Assert.Equal("OpenRouter returned HTTP 400.", result.Error.Message);
   }
 

@@ -518,6 +518,10 @@ public class AgentCellSteeringTests
     public void SendSessionResponse(string requestId, string? sessionId, string? errorCode, string? errorMessage)
         => throw new NotSupportedException("a cell never answers a session-request.");
 
+    // A cell addresses an agent, never a connection: nothing here is ever asked to reconnect.
+    public Task<Result<bool>> ReconnectAsync(CancellationToken ct = default)
+        => Task.FromResult(Result.Success(true));
+
     public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
         => throw new NotSupportedException("a cell never starts an agent.");
 

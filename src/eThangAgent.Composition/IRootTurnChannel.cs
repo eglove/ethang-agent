@@ -36,6 +36,18 @@ public interface IRootTurnChannel
   ///     its conversation, and persists a turn the user stopped. A stop button must do both.</summary>
   void InterruptRootTurn(string turnId);
 
+  /// <summary>Re-establishes this conversation's connection to its host after a
+  ///     transport-level failure, so the turn that failed <c>HostUnavailable</c> can be sent
+  ///     again. True when a connection is live as a result, false when the host could not be
+  ///     reached and nothing was sent.
+  ///     <para>IDEMPOTENT: a reconnect against a host that is already alive opens no second
+  ///     process and does not replace a live connection, so a caller may ask any number of
+  ///     times. A caller's own cancellation is a <see cref="Result{T}"/> failure, never an
+  ///     escaped exception: the turn loop reads this on a turn that is already failing.</para>
+  ///     </summary>
+  /// <param name="ct">The caller's stop. A cancelled reconnect asks for no work.</param>
+  Task<Result<bool>> ReconnectAsync(CancellationToken ct = default);
+
   /// <summary>Delivers one steering message to the LIVE root turn IN THE HOST (issue #253).
   ///     <para>WHY THE WIRE: the app's own container runs no agent work (spec D6), so its
   ///     steering inbox is a mailbox nothing drains — a message typed mid-turn was queued in
@@ -75,14 +87,56 @@ public interface IRootTurnChannel
 /// <summary>The production adapter: forwards to the conversation's wire runtime
 ///     (<see cref="RemoteAgentRuntime.SendRootTurnAsync"/>), which owns the turn identity,
 ///     the settle matching, and the idle/ceiling bounds.</summary>
-public sealed class RemoteRootTurnChannel(RemoteAgentRuntime runtime) : IRootTurnChannel
+public sealed class RemoteRootTurnChannel(RemoteAgentRuntime runtime,
+    Func<RemoteHostSupervisor>? supervisor = null) : IRootTurnChannel
 {
   private readonly RemoteAgentRuntime _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+
+  // The supervisor this runtime was attached through, or null when the container wired no
+  // reconnect path (a headless host, or a rig that only ever sends). Null makes a reconnect an
+  // honest failure rather than a second way to launch a host. Resolved per reconnect rather
+  // than held: the supervisor keys its pipe name on the conversation id, which is published
+  // after this port is constructed.
+  private readonly Func<RemoteHostSupervisor>? _supervisor = supervisor;
 
   /// <inheritdoc />
   public Task<Result<string>> SendRootTurnAsync(RootTurnRequest request, Action<RootTurnEvent> onEvent,
       CancellationToken ct = default)
       => _runtime.SendRootTurnAsync(request, onEvent, ct);
+
+  /// <inheritdoc />
+  public async Task<Result<bool>> ReconnectAsync(CancellationToken ct = default)
+  {
+    if (_supervisor is null)
+    {
+      return Result.Failure<bool>(new DomainError("HostUnavailable",
+          "this channel has no host supervisor to reconnect through."));
+    }
+
+    RemoteHostSupervisor attached = _supervisor();
+
+    if (ct.IsCancellationRequested)
+    {
+      return Result.Failure<bool>(new DomainError("TurnCancelled", "the turn was stopped."));
+    }
+
+    try
+    {
+      // The SAME runtime this channel was built over: a reconnect that resolved a second one
+      // would move the turn onto a connection the rest of this container knows nothing about.
+      _ = await attached.AttachAsync(_runtime, ct).ConfigureAwait(false);
+      return Result.Success(!_runtime.HostLost);
+    }
+    // Named decision (CA1031): every way an attach fails is a host this caller could not
+    // reach, and the turn loop reads that as a typed failure rather than a fault.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      return Result.Failure<bool>(new DomainError("HostUnavailable",
+          "the conversation host could not be reconnected: " + ex.Message));
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+  }
 
   /// <inheritdoc />
   public void InterruptRootTurn(string turnId) => _runtime.InterruptRootTurn(turnId);

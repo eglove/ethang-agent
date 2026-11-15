@@ -114,6 +114,11 @@ public sealed class NamedPipeChildTransport : IChildTransport, IAsyncDisposable
   public Task ConnectAsync(CancellationToken ct = default)
       => Task.CompletedTask; // connection happened at the factory
 
+  /// <summary>True once this transport has been torn down. The other half of
+  ///     <c>IsConnected</c>: a runtime left holding a disposed transport is not connected, and
+  ///     reusing it would send into a closed pipe.</summary>
+  public bool IsClosed => _closed;
+
   public async Task SendAsync(TransportEnvelope envelope, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(envelope);

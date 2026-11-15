@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 
 namespace eThangAgent.Transport.ACL;
@@ -29,13 +30,47 @@ public sealed record RootTurnToolResultPayload(string Name, string Status, strin
 
   /// <summary>Serializes one payload — the host's emission shape, and the shape tests
   ///     script. The one writer of the result shape, beside <see cref="Parse"/>'s one
-  ///     reader, so the wire vocabulary cannot drift between the two sides.</summary>
+  ///     reader, so the wire vocabulary cannot drift between the two sides.
+  /// <para>The result is held to <see cref="FramedPayloadBudget.MaxPayloadBytes"/> because
+  ///     the app and the host are joined by a frame seam that refuses a larger payload
+  ///     outright: text is shortened first (content, then summary, then title, to
+  ///     <see cref="FramedPayloadBudget.MaxTextBytes"/> together), and any image that still
+  ///     does not fit is dropped whole from the end, its count carried in the summary. The
+  ///     members are those of the record built here and no others, so every reader
+  ///     deserializes the same shape whether or not the budget ran. A payload within the
+  ///     budget is serialized from the values it arrived with, byte for byte.</para></summary>
   public static string Serialize(string name, string status, string? title, string summary, string content,
       IReadOnlyList<RootTurnImage>? images = null)
-      => JsonSerializer.Serialize(new RootTurnToolResultPayload(name, status, title, summary, content)
+  {
+    ArgumentNullException.ThrowIfNull(name);
+    ArgumentNullException.ThrowIfNull(status);
+    ArgumentNullException.ThrowIfNull(summary);
+    ArgumentNullException.ThrowIfNull(content);
+    (string framedContent, string framedSummary, string? framedTitle) =
+        FramedPayloadBudget.FrameText(content, summary, title);
+    IReadOnlyList<RootTurnImage> framed = images ?? [];
+    int kept = framed.Count;
+    while (true)
+    {
+      int dropped = framed.Count - kept;
+      string noticeSummary = FramedPayloadBudget.WithImageNotice(
+          framedContent, framedSummary, framedTitle, dropped);
+      // The measured string IS the result: a payload within the budget is serialized once,
+      // exactly as it was before the budget existed.
+      string json = JsonSerializer.Serialize(
+          new RootTurnToolResultPayload(name, status, framedTitle, noticeSummary, framedContent)
+          {
+            Images = [.. framed.Take(kept)],
+          });
+      if (kept == 0
+          || Encoding.UTF8.GetByteCount(json) <= FramedPayloadBudget.MaxPayloadBytes)
       {
-        Images = images ?? [],
-      });
+        return json;
+      }
+
+      kept--;
+    }
+  }
 
   /// <summary>Parses one JSON tool-result payload, or null when it does not decode,
   ///     names no tool, or carries an unknown status token. The one reader of the result

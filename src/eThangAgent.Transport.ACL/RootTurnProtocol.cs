@@ -232,7 +232,9 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
 ///     <see cref="RootTurnContextPayload"/> JSON object, so the status bar's CTX line
 ///     advances for a host-run turn exactly as it did in-process; `usage` carries one
 ///     recorded provider call's spend (issue #24) as a <see cref="RootTurnUsagePayload"/>
-///     JSON object, so the status bar's session cost advances the same way.
+///     JSON object, so the status bar's session cost advances the same way; `rewind` carries
+///     an EMPTY payload and means the text the failed attempt streamed is withdrawn before
+///     the retry streams its own.
 /// <para>PROTOCOL REQUIREMENT FOR HOST IMPLEMENTERS: <see cref="Generation"/> MUST be echoed
 ///     verbatim from the <see cref="RootTurnRequest"/> that produced the event. The app mints
 ///     a fresh generation per turn and delivers an event only when BOTH the turn id and the
@@ -252,11 +254,12 @@ public static class RootTurnProtocol
   ///     `progress` the liveness heartbeat, `session-request` the host's app-ward
   ///     request to start a NEW session (issue #234), and `context` the session's context
   ///     accounting (issue #255), and `usage` one recorded provider call's spend (issue
-  ///     #24); anything else is a protocol error, not a forward-compatible unknown.</summary>
+  ///     #24), and `rewind` the withdrawal of text a failed attempt streamed; anything
+  ///     else is a protocol error, not a forward-compatible unknown.</summary>
   public static readonly IReadOnlySet<string> EventKinds = new HashSet<string>(StringComparer.Ordinal)
   {
     "delta", "reasoning", "notice", "tool", "settled", "progress", "session-request", "context",
-    "usage",
+    "usage", "rewind",
   };
 
   public static string SerializeRequest(RootTurnRequest request)

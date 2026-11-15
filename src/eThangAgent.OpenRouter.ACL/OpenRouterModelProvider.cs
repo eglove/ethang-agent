@@ -15,6 +15,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 {
   private const string ProviderError = "ProviderError";
   private const string ContextWindowExceeded = "ContextWindowExceeded";
+  private const string ModelRejected = "ModelRejected";
   private const string RetentionUnavailable = "RetentionUnavailable";
 
   /// <summary>Substrings that identify a context-window overflow in an HTTP 400 body.
@@ -813,8 +814,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   {
     string? detail = await ErrorDetailAsync(response, ct).ConfigureAwait(false);
     return new AttemptOutcome(StatusFailure(response.StatusCode, detail),
-        Retryable: response.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
-            or >= HttpStatusCode.InternalServerError,
+        Retryable: IsRetryableStatus(response.StatusCode),
         RetryAfter: response.Headers.RetryAfter?.Delta);
   }
 
@@ -849,21 +849,29 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   /// <summary>Maps an HTTP status to its error result: 429 is a rate limit, 408 a
   ///     timeout, and a 400 whose body names the context-length fault is its own
   ///     failure — the agent loop, not the wire layer, decides what an overflow
-  ///     means (one forced compaction, one retry). Everything else is a
-  ///     ProviderError. Retry classification stays with the caller.</summary>
+  ///     means (one forced compaction, one retry). A 400 that names any other fault,
+  ///     a 401, 403 or 404 is the model's verdict on the request or on itself, so it
+  ///     carries ModelRejected. Everything else is a ProviderError.</summary>
   private static Result<ModelResponse> StatusFailure(HttpStatusCode statusCode, string? detail)
       => (int)statusCode switch
       {
         429 => Result.Failure<ModelResponse>(new DomainError("RateLimited",
-            "OpenRouter rate limit exceeded.")),
+            StatusDetail((int)statusCode, detail))),
         408 => Result.Failure<ModelResponse>(new DomainError("ProviderTimeout",
             "Request timed out.")),
-        // Retryable stays false here: the identical request would fail identically.
         400 when IsContextOverflow(detail) => Result.Failure<ModelResponse>(new DomainError(ContextWindowExceeded,
+            StatusDetail((int)statusCode, detail))),
+        400 or 401 or 403 or 404 => Result.Failure<ModelResponse>(new DomainError(ModelRejected,
             StatusDetail((int)statusCode, detail))),
         _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
             StatusDetail((int)statusCode, detail))),
       };
+
+  /// <summary>True for the statuses a repeat of the identical request could survive: 408,
+  ///     429 and any 5xx. A model verdict is not one of them.</summary>
+  private static bool IsRetryableStatus(HttpStatusCode statusCode)
+      => statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
+          or >= HttpStatusCode.InternalServerError;
 
   /// <summary>The failed request's message: the bare status when no body could be
   ///     read, the (capped) body otherwise.</summary>

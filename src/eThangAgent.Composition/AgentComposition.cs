@@ -1590,8 +1590,14 @@ public static class AgentComposition
           // Spec D6: the app-facing root-turn port. It rides the SAME runtime the
           // container's IAgentRuntime resolves, so a turn and the child operations share
           // one connection, one ownership set, and one set of bounds.
+          // THE SUPERVISOR RIDES ALONG so a reconnect is a reconnect: this is the only
+          // port that may reattach, and it does so through the one attach path that
+          // launches a host. It is resolved on the first reconnect, not here: resolving it
+          // eagerly would demand the published session id from every container that holds
+          // this port, including one that never reconnects.
           .AddSingleton<IRootTurnChannel>(sp => new RemoteRootTurnChannel(
-              sp.GetRequiredService<RemoteAgentRuntime>()));
+              sp.GetRequiredService<RemoteAgentRuntime>(),
+              () => sp.GetRequiredService<RemoteHostSupervisor>()));
   }
 
   /// <summary>The conversation this container serves: the persisted root session id. The

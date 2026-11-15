@@ -451,6 +451,22 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null,
     _openIndex = Append(new AssistantTextEntry(text, IsOpen: true));
   }
 
+  /// <summary>Withdraws the text the current attempt streamed: removes the entry at the open
+  ///     block index when it is an assistant-text or reasoning entry, and leaves every other
+  ///     entry alone. Committed tool cards, notices, closed entries and an earlier turn's
+  ///     finished answer are not open, so none of them is removable here.</summary>
+  public void RewindStreamedText()
+  {
+    if (_openIndex >= 0 && _openIndex < Entries.Count
+        && Entries[_openIndex] is AssistantTextEntry or ReasoningEntry)
+    {
+      Entries.RemoveAt(_openIndex);
+    }
+
+    _openIndex = -1;
+    _openReasoning = null;
+  }
+
   public void AppendReasoning(string text)
   {
     ArgumentNullException.ThrowIfNull(text);

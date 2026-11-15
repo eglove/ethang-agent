@@ -36,6 +36,16 @@ namespace eThangAgent.AgentDomain;
 ///     System message to the conversation mid-turn (length-truncation continuation
 ///     prompt, compaction-failure notice), so hosts can surface loop-voice decisions
 ///     live. Also used by the application handler for post-turn nudge lines.</param>
+/// <param name="OnStreamRewind">Invoked when a transient failure follows at least
+///     one content or reasoning delta of the CURRENT provider request: the text that
+///     request streamed is not the answer, so an observer withdraws it before the retry
+///     streams its own. It fires BEFORE any retry notice or retry wait.
+///     Null (no observer, or a provider that streamed nothing) keeps every wiring
+///     byte-identical.</param>
+/// <param name="OnStreamRetrying">Invoked when a transient provider failure is about to be
+///     retried: the attempt about to be made, its wait, and the failure's message. It fires
+///     AFTER any <see cref="OnStreamRewind"/> and BEFORE the wait, so an observer can
+///     withdraw first and then report. Null renders nothing and the retry still happens.</param>
 public sealed record TurnCallbacks(
     Action<string>? OnContentDelta = null,
     Action<string>? OnReasoningDelta = null,
@@ -46,4 +56,6 @@ public sealed record TurnCallbacks(
     Action<CompactionOutcome>? OnCompacted = null,
     Action? OnContextShrunk = null,
     Action<string>? OnSystemMessage = null,
-    Action<UsageRow>? OnUsageRecorded = null);
+    Action<UsageRow>? OnUsageRecorded = null,
+    Action? OnStreamRewind = null,
+    Action<int, TimeSpan, string>? OnStreamRetrying = null);

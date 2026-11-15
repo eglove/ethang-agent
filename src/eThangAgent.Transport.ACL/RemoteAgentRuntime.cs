@@ -73,6 +73,15 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   ///     connection, and so tests can assert that a recoverable failure did NOT tear it down.</summary>
   public bool HostLost => _hostLost;
 
+  /// <summary>True when this runtime holds a connected transport and the pump has not declared
+  ///     it lost. The one fact an attach consults before opening a second connection: a live
+  ///     connection is reused rather than replaced.</summary>
+  public bool IsConnected => Volatile.Read(ref _transport) is { IsClosed: false } && !_hostLost;
+
+  /// <summary>The transport this runtime is currently writing through, or null when it holds
+  ///     none. Exposed for the attach path, which hands the live one back untouched.</summary>
+  public NamedPipeChildTransport? CurrentTransport => Volatile.Read(ref _transport);
+
   private Guid[] _declaredLive = [];
   private long _sequence;
   private long _turnGeneration;
@@ -351,7 +360,8 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   ///     host settles the turn.
   /// <para>EVERY path settles the caller. The failures are typed and distinct:
   /// <c>InvalidTurnId</c> when the id is empty or already in flight, <c>HostUnavailable</c>
-  /// when there is no live connection or the frame cannot be put on the wire,
+  /// when there is no live connection, <c>RootTurnPayloadTooLarge</c> when the request's own
+  /// frame exceeds the framing limit (the connection survives that one),
   /// <c>TurnCancelled</c> when the caller cancelled, and <c>TurnUnaddressable</c> when the
   /// host goes SILENT for <see cref="RootTurnBudget.Idle"/>.</para>
   /// <para>Two bounds, and deliberately no third. A healthy turn may run for many minutes
@@ -400,92 +410,12 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 
     try
     {
-      // The SEND is bounded too: a peer that accepts and never reads blocks the write
-      // forever, so putting the frame on the wire must not be the one unbounded step.
-      //
-      // The bound is TurnBudget.Send, NOT the idle window: a slow-but-healthy host may take
-      // a long time to absorb a large frame, and since a lapsed write is CANCELLED — and a
-      // mid-frame cancellation costs the whole connection — judging the write by the silence
-      // window would drop a healthy connection for a frame it was still digesting.
-      //
-      // The token is passed to SendAsync. A named-pipe write DOES observe its token:
-      // cancelling it settles the write Canceled and releases the transport's single write
-      // gate. (An earlier version claimed a blocked pipe write "cannot be cancelled by ANY
-      // token" and tore the whole connection down on that false premise.)
-      using CancellationTokenSource sendTick = CancellationTokenSource.CreateLinkedTokenSource(ct);
-      sendTick.CancelAfter(TurnBudget.Send);
-      // The idle window rides the request: the host heartbeats inside it, so the window
-      // measures LIVENESS instead of busyness (2026-10-22). Without it a long tool call
-      // (an exec script, a subagent wait) produced no events at all, the app read the
-      // silence as a dead host, and failed a perfectly healthy turn.
-      Task send = transport.SendAsync(new TransportEnvelope("root-turn",
-          RootTurnProtocol.SerializeRequest(request with
-          {
-            Generation = generation,
-            IdleTimeout = TurnBudget.Idle,
-          }),
-          Interlocked.Increment(ref _sequence)), sendTick.Token);
-      try
-      {
-        await send.ConfigureAwait(false);
-      }
-      catch (TransportFrameInterruptedException)
-      {
-        // CONTROLLER RULING, both halves. The write was CANCELLED (so the transport's single
-        // write gate is released — that half is why round 4 was right), but the cancellation
-        // landed AFTER the frame header reached the wire, so the peer's frame stream is
-        // permanently desynchronized: it will never parse another frame, and every later
-        // frame written here is swallowed as this frame's payload. The connection is dead
-        // while HostLost would otherwise still report it alive.
-        //
-        // So: tear it down and complete every pending settle with a declared failure. A
-        // caller cancellation still reports TurnCancelled (it is the caller's doing), but
-        // the connection loss is real either way.
-        // SUPERSEDED-CONNECTION GUARD (mirrors the pump's check): this send was writing on
-        // `transport`; if a newer transport has been installed since, the failure belongs to a
-        // connection nobody uses any more, and acting on it would clobber the fresh
-        // connection's live state - the same re-attach race the pump guard closes, which this
-        // path reintroduced (measured 8/40 iterations tearing down a healthy re-attached host).
-        if (ReferenceEquals(Volatile.Read(ref _transport), transport))
-        {
-          MarkConnectionLost("a write was cancelled mid-frame; the peer's frame stream is "
-              + "desynchronized and the connection cannot be reused.");
-        }
-        ct.ThrowIfCancellationRequested();
-        return HostUnavailable("the root turn could not be put on the wire within "
-            + TurnBudget.Send + ": the host did not consume the frame in time and the "
-            + "interrupted write desynchronized the connection, which was closed; "
-            + "the session must be reopened to continue.");
-      }
-      catch (OperationCanceledException)
-      {
-        // Cancelled BEFORE any byte of the frame reached the wire (the header write is the
-        // only thing that can be interrupted without desynchronizing): the stream is intact
-        // and the gate is free, so this is a turn-level failure only.
-        //
-        // The diagnosis must be TRUE of both peers this fires for. A peer that reads nothing
-        // and a peer that reads too slowly to finish the frame are the same failure from
-        // here — this side cannot tell them apart, and it must not claim the peer "stopped
-        // consuming frames" when it is consuming them, just not fast enough. What IS true:
-        // the frame was not consumed inside the bound. The connection is still usable, and
-        // the message says so, because the caller's next move differs.
-        ct.ThrowIfCancellationRequested();
-        return HostUnavailable("the root turn could not be put on the wire within "
-            + TurnBudget.Send + ": the host did not consume the frame in time. The "
-            + "connection is still usable.");
-      }
-      Result<string> outcome = await AwaitSettleAsync(waiter, ct).ConfigureAwait(false);
-      if (!outcome.IsSuccess && IsAbandonment(outcome.Error))
-      {
-        // THE APP GAVE UP ON A TURN THE HOST IS STILL RUNNING (2026-10-22). The host
-        // holds its turn gate for the whole turn, so an abandoned turn blocks every
-        // LATER turn behind it - each one queued, silent, and failed the same way. That
-        // is what made the session unusable from the first error onward. The app must
-        // tell the host to stop the turn it is no longer waiting for.
-        InterruptRootTurn(request.TurnId);
-      }
-
-      return outcome;
+      // Two steps, each with its own failure answers: put the frame on the wire, then wait
+      // for the settle. The send is bounded by TurnBudget.Send and never by the idle window
+      // (see TrySendRootTurnAsync), because a lapsed write is CANCELLED and a cancellation
+      // that interrupts a frame costs the whole connection.
+      return await TrySendRootTurnAsync(request, generation, transport, ct).ConfigureAwait(false)
+          ?? await AwaitTurnOutcomeAsync(waiter, request.TurnId, ct).ConfigureAwait(false);
     }
     catch (OperationCanceledException)
     {
@@ -498,9 +428,12 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
     {
-      // Named decision (CA1031): the send path is the transport's fault boundary — ANY
-      // failure to put the frame on the wire is the declared HostUnavailable outcome.
-      return HostUnavailable("the root turn could not be put on the wire: " + ex.Message);
+      // A frame the seam refused for its own size is the request's failure, not the host's;
+      // every other failure to put the frame on the wire is the declared HostUnavailable
+      // outcome. Named decision (CA1031): the send path is the transport's fault boundary.
+      return ex is TransportFrameTooLargeException
+          ? PayloadTooLarge("the root turn could not be put on the wire: " + ex.Message)
+          : HostUnavailable("the root turn could not be put on the wire: " + ex.Message);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
     finally
@@ -549,6 +482,16 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   }
   private static Result<string> HostUnavailable(string message)
       => Result.Failure<string>(new DomainError("HostUnavailable", message));
+
+  /// <summary>A request the seam could not carry: the payload's own size is the failure, and the
+  ///     connection this runtime holds is untouched.</summary>
+  private static Result<string> PayloadTooLarge(string message)
+      => Result.Failure<string>(new DomainError(PayloadTooLargeCode, message));
+
+  /// <summary>The error code a turn reads when its own request frame is too large for the seam.
+  ///     The same name the host answers an unsendable event with, so one code covers the request
+  ///     direction and the event direction.</summary>
+  public const string PayloadTooLargeCode = "RootTurnPayloadTooLarge";
 
   /// <summary>True when a failed turn is one the app ABANDONED rather than one the host
   ///     refused: the idle bound ends the app's wait while the host may still be executing
@@ -856,6 +799,112 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     return await SendEnvelopeAsync("start", JsonSerializer.Serialize(command), id, ct).ConfigureAwait(false)
         ? Result.Success(id)
         : Result.Failure<AgentId>(new DomainError("HostUnavailable", "the child host refused the start."));
+  }
+
+  /// <summary>The attempt's outcome, or null when nothing went wrong and the settle is still
+  ///     worth waiting for.
+  ///     <para>THE THREE FAILURES HAVE THREE ANSWERS. A frame interrupted mid-write
+  ///     DESYNCHRONIZED the peer's frame stream and the connection ends with it. A frame
+  ///     refused for its own SIZE never reached the wire, so the connection survives and only
+  ///     this request failed. A cancellation that landed before any byte is the caller's, which
+  ///     reports <c>TurnCancelled</c>.</para></summary>
+  private async Task<Result<string>?> TrySendRootTurnAsync(RootTurnRequest request, long generation,
+      NamedPipeChildTransport transport, CancellationToken ct)
+  {
+    using CancellationTokenSource sendTick = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    sendTick.CancelAfter(TurnBudget.Send);
+    // The idle window rides the request: the host heartbeats inside it, so the window
+    // measures LIVENESS instead of busyness (2026-10-22). Without it a long tool call
+    // (an exec script, a subagent wait) produced no events at all, the app read the
+    // silence as a dead host, and failed a perfectly healthy turn.
+    Task send = transport.SendAsync(new TransportEnvelope("root-turn",
+        RootTurnProtocol.SerializeRequest(request with
+        {
+          Generation = generation,
+          IdleTimeout = TurnBudget.Idle,
+        }),
+        Interlocked.Increment(ref _sequence)), sendTick.Token);
+    try
+    {
+      await send.ConfigureAwait(false);
+      return null;
+    }
+    // THE REQUEST WAS NEVER WRITABLE, AND THE CONNECTION IS FINE. A frame refused for its
+    // own size carries no desynchronization: nothing reached the wire, so the transport and
+    // the session survive and only this request failed. Reported as the payload's own code
+    // so a caller can tell an unsendable request from a dead host. This arm is ordered
+    // BEFORE the closed-connection arms because the type is not a closed connection.
+    catch (TransportFrameTooLargeException tooLarge)
+    {
+      ct.ThrowIfCancellationRequested();
+      return PayloadTooLarge("the root turn could not be put on the wire: " + tooLarge.Message);
+    }
+    catch (TransportFrameInterruptedException)
+    {
+      // CONTROLLER RULING, both halves. The write was CANCELLED (so the transport's single
+      // write gate is released — that half is why round 4 was right), but the cancellation
+      // landed AFTER the frame header reached the wire, so the peer's frame stream is
+      // permanently desynchronized: it will never parse another frame, and every later
+      // frame written here is swallowed as this frame's payload. The connection is dead
+      // while HostLost would otherwise still report it alive.
+      //
+      // So: tear it down and complete every pending settle with a declared failure. A
+      // caller cancellation still reports TurnCancelled (it is the caller's doing), but
+      // the connection loss is real either way.
+      // SUPERSEDED-CONNECTION GUARD (mirrors the pump's check): this send was writing on
+      // `transport`; if a newer transport has been installed since, the failure belongs to a
+      // connection nobody uses any more, and acting on it would clobber the fresh
+      // connection's live state - the same re-attach race the pump guard closes, which this
+      // path reintroduced (measured 8/40 iterations tearing down a healthy re-attached host).
+      if (ReferenceEquals(Volatile.Read(ref _transport), transport))
+      {
+        MarkConnectionLost("a write was cancelled mid-frame; the peer's frame stream is "
+            + "desynchronized and the connection cannot be reused.");
+      }
+
+      ct.ThrowIfCancellationRequested();
+      return HostUnavailable("the root turn could not be put on the wire within "
+          + TurnBudget.Send + ": the host did not consume the frame in time and the "
+          + "interrupted write desynchronized the connection, which was closed; "
+          + "the session must be reopened to continue.");
+    }
+    catch (OperationCanceledException)
+    {
+      // Cancelled BEFORE any byte of the frame reached the wire (the header write is the
+      // only thing that can be interrupted without desynchronizing): the stream is intact
+      // and the gate is free, so this is a turn-level failure only.
+      //
+      // The diagnosis must be TRUE of both peers this fires for. A peer that reads nothing
+      // and a peer that reads too slowly to finish the frame are the same failure from
+      // here — this side cannot tell them apart, and it must not claim the peer "stopped
+      // consuming frames" when it is consuming them, just not fast enough. What IS true:
+      // the frame was not consumed inside the bound. The connection is still usable, and
+      // the message says so, because the caller's next move differs.
+      ct.ThrowIfCancellationRequested();
+      return HostUnavailable("the root turn could not be put on the wire within "
+          + TurnBudget.Send + ": the host did not consume the frame in time. The "
+          + "connection is still usable.");
+    }
+  }
+
+  /// <summary>Waits out one turn's settle under the idle bound. An abandoned turn releases the
+  ///     host side first, because the host holds its turn gate for the whole turn.
+  /// </summary>
+  private async Task<Result<string>> AwaitTurnOutcomeAsync(RootTurnWaiter waiter, string turnId,
+      CancellationToken ct)
+  {
+    Result<string> outcome = await AwaitSettleAsync(waiter, ct).ConfigureAwait(false);
+    if (!outcome.IsSuccess && IsAbandonment(outcome.Error))
+    {
+      // THE APP GAVE UP ON A TURN THE HOST IS STILL RUNNING (2026-10-22). The host
+      // holds its turn gate for the whole turn, so an abandoned turn blocks every
+      // LATER turn behind it - each one queued, silent, and failed the same way. That
+      // is what made the session unusable from the first error onward. The app must
+      // tell the host to stop the turn it is no longer waiting for.
+      InterruptRootTurn(turnId);
+    }
+
+    return outcome;
   }
 
   private async Task<bool> SendEnvelopeAsync(string kind, string json, AgentId id, CancellationToken ct)

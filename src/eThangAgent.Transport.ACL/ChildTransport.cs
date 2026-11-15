@@ -97,12 +97,62 @@ public sealed class TransportFrameInterruptedException : TransportClosedExceptio
   }
 }
 
+/// <summary>One frame was too large to write, and NOTHING was put on the wire for it: the write
+///     is refused before its header, so the stream and the connection are intact and the same
+///     transport can carry the next frame.
+/// <para>It derives from <see cref="IOException"/> and NOT from
+///     <see cref="TransportClosedException"/>, which is the distinction it exists for: a
+///     <c>catch (TransportClosedException)</c> site means 'the connection is gone', and this
+///     condition is the opposite — the connection survives and only this payload was
+///     unsendable. The frame's own size and the limit it exceeded travel on the exception so
+///     the answer can name both without re-measuring.</para></summary>
+public sealed class TransportFrameTooLargeException : IOException
+{
+  public TransportFrameTooLargeException()
+  {
+  }
+
+  public TransportFrameTooLargeException(string message)
+      : base(message)
+  {
+  }
+
+  public TransportFrameTooLargeException(string message, Exception innerException)
+      : base(message, innerException)
+  {
+  }
+
+  /// <summary>The size of the frame that was refused, in bytes, and the limit it exceeded.</summary>
+  public TransportFrameTooLargeException(string message, int frameBytes, int limitBytes)
+      : base(message)
+  {
+    FrameBytes = frameBytes;
+    LimitBytes = limitBytes;
+  }
+
+  /// <summary>The refused frame's serialized size in bytes, or 0 when the exception was built
+  ///     without a measurement.</summary>
+  public int FrameBytes { get; }
+
+  /// <summary>The framing limit the frame exceeded, in bytes, or 0 when the exception was built
+  ///     without a measurement.</summary>
+  public int LimitBytes { get; }
+}
+
 /// <summary>Length-prefixed JSON framing over any Stream (named pipes in production,
 ///     memory streams in tests). One envelope = one 4-byte little-endian length + UTF-8
 ///     payload. Oversize frames are rejected at the seam — never buffered blindly.</summary>
 public static class TransportFraming
 {
   public const int MaxFrameBytes = 4 * 1024 * 1024;
+
+  /// <summary>The size the given envelope would occupy as one frame, so a caller can decide
+  ///     before the write whether the frame is sendable at all.</summary>
+  public static int MeasureBytes(TransportEnvelope envelope)
+  {
+    ArgumentNullException.ThrowIfNull(envelope);
+    return JsonSerializer.SerializeToUtf8Bytes(envelope).Length;
+  }
 
   /// <summary>Writes one frame: a 4-byte little-endian length header, then the payload.
   /// <para>FRAME INTEGRITY IS THE WRITE'S CONTRACT. The header and the payload are two
@@ -123,9 +173,13 @@ public static class TransportFraming
     ArgumentNullException.ThrowIfNull(stream);
     ArgumentNullException.ThrowIfNull(envelope);
     byte[] payload = JsonSerializer.SerializeToUtf8Bytes(envelope);
+    // Refused BEFORE the header is written: nothing has reached the wire, so the stream stays
+    // framed from the peer's point of view and this side keeps the connection.
     if (payload.Length > MaxFrameBytes)
     {
-      throw new InvalidOperationException($"frame of {payload.Length} bytes exceeds the {MaxFrameBytes}-byte seam limit.");
+      throw new TransportFrameTooLargeException(
+          $"frame of {payload.Length} bytes exceeds the {MaxFrameBytes}-byte seam limit.",
+          payload.Length, MaxFrameBytes);
     }
 
     byte[] header = [.. BitConverter.GetBytes(payload.Length)];

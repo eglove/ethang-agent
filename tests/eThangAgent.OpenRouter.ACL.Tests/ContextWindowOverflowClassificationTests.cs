@@ -61,11 +61,14 @@ public class ContextWindowOverflowClassificationTests
     Assert.Contains(body, result.Error.Message, StringComparison.Ordinal);
   }
 
+  /// <summary>A 400 that names a fault other than the context-length one is the model's
+  ///     verdict on the request: it carries its own code, so the agent loop never mistakes it
+  ///     for a transient fault worth retrying.</summary>
   [Theory]
   [InlineData(/*lang=json,strict*/ """{"error":{"message":"Model not allowed"}}""")]
   [InlineData(/*lang=json,strict*/ """{"error":{"message":"Invalid max_output_tokens value"}}""")]
   [InlineData(/*lang=json,strict*/ """{"error":{"message":"The requested model returned a maximum completion length error"}}""")]
-  public async Task Other400_KeepsProviderError(string body)
+  public async Task Other400_CarriesModelRejected(string body)
   {
     OpenRouterModelProvider provider = Provider(() => BadRequest(body));
 
@@ -74,7 +77,7 @@ public class ContextWindowOverflowClassificationTests
         TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error.Code);
+    Assert.Equal("ModelRejected", result.Error.Code);
   }
 
   [Theory]

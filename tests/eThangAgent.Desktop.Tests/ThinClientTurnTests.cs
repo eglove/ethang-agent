@@ -554,6 +554,30 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
     _ = _firstSessionResponse.TrySetResult();
   }
 
+  /// <summary>Reconnects this host was asked for. The default host never loses its connection,
+  ///     so a reconnect is scripted only by a test that wants one.</summary>
+  public int Reconnects { get; private set; }
+
+  /// <summary>The verdict a reconnect answers with. Null = the host came back.</summary>
+  public DomainError? ReconnectRefusal { get; set; }
+
+  /// <summary>Runs BEFORE the reconnect answers, which is how a test makes the reconnected host
+  ///     serve the resent turn. Null = answer the reconnect at once.</summary>
+  public Action? AfterReconnect { get; set; }
+
+  /// <summary>When set, the turn fails with THIS before the scripted deltas become the answer:
+  ///     the transport-level failure a reconnect is for.</summary>
+  public Queue<DomainError> FailsBeforeSettling { get; } = new();
+
+  public Task<Result<bool>> ReconnectAsync(CancellationToken ct = default)
+  {
+    Reconnects++;
+    AfterReconnect?.Invoke();
+    return Task.FromResult(ReconnectRefusal is { } refusal
+        ? Result.Failure<bool>(refusal)
+        : Result.Success(true));
+  }
+
   public async Task<Result<string>> SendRootTurnAsync(RootTurnRequest request,
       Action<RootTurnEvent> onEvent, CancellationToken ct = default)
   {
@@ -562,6 +586,13 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
     LastRequest = request;
     TurnsSent++;
     _ = _started.TrySetResult();
+
+    // A scripted transport failure is spent before anything streams, which is the ordering a
+    // host that died under a turn produces: no delta, no settle.
+    if (FailsBeforeSettling.Count > 0 && FailWith is null)
+    {
+      return Result.Failure<string>(FailsBeforeSettling.Dequeue());
+    }
 
     if (HoldOpen)
     {

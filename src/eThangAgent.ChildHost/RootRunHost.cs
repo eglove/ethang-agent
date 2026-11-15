@@ -269,7 +269,7 @@ public sealed class RootRunHost : IDisposable
         // the chat showed no thinking at all for every host turn.
         OnReasoningDelta: text => emitter.Emit("reasoning", text),
         OnToolCall: (name, arguments, position, total) => emitter.Emit("tool",
-            "call " + name + " " + position + "/" + total + " " + arguments),
+            ToolCallPayload(name, arguments, position, total)),
         // The result payload is a JSON object (issue #245): the legacy text shape carried
         // only the summary line ("ok"), so the app's tool cards showed OK instead of what
         // the tool actually did. Name, status, the rich title, the summary, and the FULL
@@ -287,7 +287,14 @@ public sealed class RootRunHost : IDisposable
         // host-run turn. It fires after the row is persisted, so the displayed total can
         // never count a call the ledger dropped.
         OnUsageRecorded: row => emitter.Emit("usage", RootTurnUsagePayload.Serialize(row)),
-        OnSystemMessage: text => emitter.Emit("notice", text));
+        OnSystemMessage: text => emitter.Emit("notice", text),
+        // Text a failed attempt already streamed is withdrawn before the retry streams its
+        // own, so the transcript shows that answer once. Empty payload: what to withdraw is
+        // the app's own open block, not something this process can name.
+        OnStreamRewind: () => emitter.Emit("rewind", ""),
+        // One notice line per retry, emitted before the wait it names.
+        OnStreamRetrying: (attempt, delay, reason) =>
+            emitter.Emit("notice", TurnRetryPolicy.Describe(attempt, delay, reason)));
 
     Result<string> result;
     try
@@ -515,6 +522,20 @@ public sealed class RootRunHost : IDisposable
     return images.Count == 0
         ? null
         : [.. images.Select(image => new MessagePart.ImagePart(image.MediaType, image.Base64Data))];
+  }
+
+  /// <summary>One <c>tool</c> call payload: <c>call &lt;name&gt; &lt;n&gt;/&lt;total&gt;
+  ///     &lt;arguments&gt;</c>, the arguments shortened to
+  ///     <see cref="FramedPayloadBudget.MaxArgumentChars"/> characters with a marker naming
+  ///     the length they had. The position token is left intact, so the shape the app
+  ///     parses is the same whether or not the arguments were shortened.</summary>
+  private static string ToolCallPayload(string name, string arguments, int position, int total)
+  {
+    string kept = FramedPayloadBudget.TruncateArguments(arguments, FramedPayloadBudget.MaxArgumentChars);
+    string body = kept.Length == arguments.Length
+        ? kept
+        : kept + FramedPayloadBudget.TruncatedArgumentMarker(arguments.Length, kept.Length);
+    return "call " + name + " " + position + "/" + total + " " + body;
   }
 
   /// <summary>Converts a tool result's images to their wire form, or an empty list when

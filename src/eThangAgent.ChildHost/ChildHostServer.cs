@@ -16,6 +16,11 @@ namespace eThangAgent.ChildHost;
 ///     this host will ever have is gone.</summary>
 public sealed class ChildHostServer(string settingsPath, string databasePath)
 {
+  /// <summary>The error code a turn reads when one of its own frames is too large for the
+  ///     seam. Distinct from <c>RootTurnFault</c>: this names a payload the turn produced, not a
+  ///     fault it suffered.</summary>
+  public const string RootTurnPayloadTooLargeCode = "RootTurnPayloadTooLarge";
+
   private volatile NamedPipeChildTransport? _transport;
   private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _active = [];
 
@@ -442,12 +447,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // typed settle rather than silence. The generation is echoed verbatim - it is the
       // app's per-turn identity, and a settle that does not carry it back is dropped by
       // the client as stale (ruling 2).
-      await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(new RootTurnEvent(TurnId,
-          "settled",
+      _ = await SettleRootTurnWithAsync(TurnId,
           "Error [RootTurnUnavailable]: this conversation host is not bound to a root session"
           + (_rootHostFailure is null ? "." : " (" + _rootHostFailure + ")"),
-          Generation)))
-          .ConfigureAwait(false);
+          Generation).ConfigureAwait(false);
       return;
     }
 
@@ -462,8 +465,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // Named decision (CA1031): a malformed payload is a PEER fault. The turn id was
       // recoverable, so the turn is answered with a typed settle; letting the parse fault
       // escape would end ServeAsync and take the host - and every running child - with it.
-      await SendRootTurnEventAsync(new RootTurnEvent(TurnId, "settled",
-          "Error [InvalidRootTurn]: " + ex.Message, Generation)).ConfigureAwait(false);
+      _ = await SettleRootTurnWithAsync(TurnId, "Error [InvalidRootTurn]: " + ex.Message,
+          Generation).ConfigureAwait(false);
       return;
     }
 #pragma warning restore CA1031 // Do not catch general exception types
@@ -476,9 +479,9 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     _rootTurns[request.TurnId] = turnCts;
     try
     {
+      TurnSendFailure refusal = new();
       _ = await rootHost
-          .RunTurnAsync(request, evt => SendRootTurnEventAsync(evt).GetAwaiter().GetResult(),
-              turnCts.Token)
+          .RunTurnAsync(request, evt => EmitRootTurnEvent(evt, refusal), turnCts.Token)
           .ConfigureAwait(false);
       // The settled event already carried the outcome to the app; the Result is returned
       // for the caller's own logging and is deliberately not turned into a second envelope.
@@ -488,8 +491,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     {
       // Named decision (CA1031): the same isolation boundary the child path honors. A turn
       // that faults settles with the fault instead of escaping into the serve loop.
-      await SendRootTurnEventAsync(new RootTurnEvent(TurnId, "settled",
-          "Error [RootTurnFault]: " + HostFault.Describe(ex), Generation)).ConfigureAwait(false);
+      _ = await SettleRootTurnWithAsync(TurnId,
+          "Error [RootTurnFault]: " + HostFault.Describe(ex), Generation).ConfigureAwait(false);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
     finally
@@ -553,23 +556,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     return Task.FromResult(_rootHost);
   }
 
-  /// <summary>Puts one streamed root-turn event on the wire. The runner's callback is
-  ///     synchronous by contract (the loop fires deltas from arbitrary threads and never
-  ///     awaits the observer), so the write is awaited inline here: events reach the app in
-  ///     the order the turn produced them, and a failed write surfaces as the transport
-  ///     fault it is rather than vanishing into an unobserved task.
-  ///     <para>THE WRITE IS UNBOUNDED (fix round 2, finding 3 — the previous text claimed a
-  ///     bound the code never had). <see cref="SendAsync"/> passes NO cancellation token:
-  ///     <c>NamedPipeChildTransport.SendAsync</c> awaits its write gate with
-  ///     <c>CancellationToken.None</c> and frames with <c>CancellationToken.None</c>. A peer
-  ///     that stops reading therefore blocks this call indefinitely, and because it is
-  ///     awaited inline from the delta callback it stalls the provider's stream read and the
-  ///     turn with it. The consequence is stated rather than fixed: bounding this write needs
-  ///     a token threaded through the whole transport write path, which is a transport-level
-  ///     change, not a host-side one.</para></summary>
-  private async Task SendRootTurnEventAsync(RootTurnEvent evt)
-      => await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(evt)).ConfigureAwait(false);
-
   /// <summary>Reads the turn IDENTITY (id + generation) from a root-turn payload WITHOUT the
   ///     codec's strictness, so a malformed request can still be answered instead of leaving
   ///     its caller waiting. The generation defaults to 0 when absent; an empty turn id means
@@ -600,6 +586,25 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return (string.Empty, 0);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>The turn's outcome as one settled event, or null when the event could not be
+  ///     put on the wire for its own size.
+  ///     <para>AN ANSWERED OVERSIZE IS THE OUTCOME ITSELF: the event that could not travel is
+  ///     reported as <c>Error [RootTurnPayloadTooLarge]:</c>, so a turn whose wiring produced
+  ///     an unsendable payload reads as that named refusal instead of a host fault. If the
+  ///     replacement does not travel either, there is nothing left to answer with and the
+  ///     caller logs it.</para></summary>
+  private async Task<DomainError?> SettleRootTurnWithAsync(string turnId, string payload,
+      long generation)
+  {
+    DomainError? refusal = await SendRootTurnEventAsync(
+        new RootTurnEvent(turnId, "settled", payload, generation)).ConfigureAwait(false);
+    return refusal is { } tooLarge
+        && string.Equals(tooLarge.Code, RootTurnPayloadTooLargeCode, StringComparison.Ordinal)
+            ? await SendRootTurnEventAsync(new RootTurnEvent(turnId, "settled",
+                "Error [" + tooLarge.Code + "]: " + tooLarge.Message, generation)).ConfigureAwait(false)
+            : refusal;
   }
 
   /// <summary>Completes one pending session-request with the app's answer (issue #234).
@@ -1220,26 +1225,91 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     path instead of exiting cleanly - and an unobserved fault here would also fail a
   ///     child's settle for a reason the child had nothing to do with.</summary>
   private async Task SendAsync(string kind, string json)
+      => _ = await SendMeasuredAsync(kind, json).ConfigureAwait(false);
+
+  /// <summary>Sends one envelope, MEASURING it first. A frame larger than the seam admits is
+  ///     refused here, before any byte reaches the wire: a partial frame would desynchronize the
+  ///     peer's stream, and that connection is what every later turn needs. The failure comes
+  ///     back for a caller that can answer it; a send on a gone connection is logged and returns
+  ///     null, because no answer could travel.</summary>
+  private Task<DomainError?> SendMeasuredAsync(string kind, string json)
+  {
+    TransportEnvelope envelope = new(kind, json, Interlocked.Increment(ref _sequence));
+    int frameBytes = TransportFraming.MeasureBytes(envelope);
+    return frameBytes > TransportFraming.MaxFrameBytes
+        ? Task.FromResult<DomainError?>(PayloadTooLarge(frameBytes))
+        : WriteAsync(envelope);
+  }
+
+  /// <summary>The write itself.
+  ///     <para>THE WRITE IS UNBOUNDED. <see cref="SendAsync"/> passes NO cancellation token:
+  ///     a peer that stops reading blocks this call indefinitely, and because a root-turn event
+  ///     is awaited inline from the delta callback it stalls the provider's stream read and the
+  ///     turn with it. Bounding it needs a token threaded through the whole transport write
+  ///     path, which is a transport-level change, not a host-side one.</para></summary>
+  private async Task<DomainError?> WriteAsync(TransportEnvelope envelope)
   {
     NamedPipeChildTransport? transport = _transport;
     if (transport is null)
     {
-      return; // no app attached: the connection this host serves is gone
+      return null; // no app attached: the connection this host serves is gone
     }
 
-    long sequence = Interlocked.Increment(ref _sequence);
 #pragma warning disable CA1031 // Named decision: a dropped connection is the end of service, not a fault.
     try
     {
-      await transport.SendAsync(new TransportEnvelope(kind, json, sequence)).ConfigureAwait(false);
+      await transport.SendAsync(envelope).ConfigureAwait(false);
     }
     catch (Exception ex) when (ex is IOException or ObjectDisposedException or TransportClosedException)
     {
-      // The app is gone. The serve loop's next ReceiveAsync observes the same condition and
-      // returns, which is what makes the process exit.
       Console.Error.WriteLine("send-on-closed-connection: " + ex.Message);
     }
 #pragma warning restore CA1031
+    return null;
+  }
+
+  /// <summary>The answer a turn reads when one of its own frames is too large for the seam. The
+  ///     frame was never written, so the connection and the session survive it.</summary>
+  private static DomainError PayloadTooLarge(int frameBytes)
+      => new(RootTurnPayloadTooLargeCode,
+          "the " + frameBytes + "-byte frame this turn produced exceeds the "
+          + TransportFraming.MaxFrameBytes + "-byte seam limit; it was not sent, and the "
+          + "connection is intact.");
+
+  /// <summary>Sends one root-turn event and returns the failure the caller can ANSWER.</summary>
+  private Task<DomainError?> SendRootTurnEventAsync(RootTurnEvent evt)
+      => SendMeasuredAsync("root-turn-event", RootTurnProtocol.SerializeEvent(evt));
+
+  /// <summary>Puts one event of a live turn on the wire, holding the turn's answer to whichever
+  ///     frame its own size made unsendable.
+  ///     <para>A MID-TURN REFUSAL BECOMES THE TURN'S OUTCOME. The successful answer could not
+  ///     travel either (it is the same turn, the same payload shape), so the settle the app reads
+  ///     is the refusal that names the frame and the limit. The turn keeps running to its end,
+  ///     and the host keeps its gate, its settle loop and every later turn.</para></summary>
+  private void EmitRootTurnEvent(RootTurnEvent evt, TurnSendFailure refusal)
+  {
+    if (string.Equals(evt.Kind, "settled", StringComparison.Ordinal)
+        && refusal.Current is { } latched)
+    {
+      evt = evt with { Payload = "Error [" + latched.Code + "]: " + latched.Message };
+    }
+
+    if (SendRootTurnEventAsync(evt).GetAwaiter().GetResult() is { } failed)
+    {
+      refusal.Record(failed);
+    }
+  }
+
+  /// <summary>The one unsendable-by-size frame a turn produced, latched so the turn's answer can
+  ///     become that refusal. Written from the turn's own thread and the heartbeat's.</summary>
+  private sealed class TurnSendFailure
+  {
+    private DomainError? _refusal;
+
+    public DomainError? Current => Volatile.Read(ref _refusal);
+
+    public void Record(DomainError refusal)
+        => _ = Interlocked.CompareExchange(ref _refusal, refusal, null);
   }
 }
 

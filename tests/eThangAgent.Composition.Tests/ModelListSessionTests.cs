@@ -118,7 +118,7 @@ public class ModelListSessionTests
     Result<string> turn = await session.SendAsync("hi").ConfigureAwait(true);
 
     Assert.False(turn.IsSuccess, "a refused list must fail the turn, never serve another model");
-    Assert.Equal("ProviderError", turn.Error?.Code);
+    Assert.Equal("ModelRejected", turn.Error?.Code);
     Assert.Contains(Refusal, turn.Error!.Message, StringComparison.Ordinal);
     // The transcript keeps the provider's own words: a turn that dies on one must say why.
     Assert.Contains(session.Conversation.Messages,

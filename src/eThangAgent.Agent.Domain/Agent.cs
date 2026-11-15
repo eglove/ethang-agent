@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -107,6 +108,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IAgentEventLog? _eventLog = options?.EventLog;
   private readonly IUsagePriceSource? _usagePrices = options?.UsagePrices;
   private readonly string? _workspaceId = options?.WorkspaceId;
+  private readonly Func<TimeSpan, CancellationToken, Task>? _turnRetryDelay = options?.TurnRetryDelay;
   private readonly ToolRepeatGuard _repeatGuard = new();
   private readonly ReadFreshnessLedger _readLedger = new();
 
@@ -339,6 +341,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // as a notice; later ones only increment, so a persistently failing store is visible
     // without spamming the transcript once per provider call.
     public int UsageDrops { get; set; }
+    // Failed attempts this turn's CURRENT request has spent, and the total time those waits
+    // have taken: the two numbers TurnRetryPolicy bounds. Reset when a response arrives.
+    public int RetryAttempts { get; set; }
+    public TimeSpan RetrySlept { get; set; }
+    // Fragments the CURRENT request streamed. Cleared before each attempt; a non-zero count
+    // after a failure means the failed attempt's text reached an observer.
+    public int StreamedDeltas { get; set; }
   }
 
   /// <summary>The turn loop proper (everything <see cref="SendMessage"/> advertises in
@@ -379,10 +388,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // Stream-activity stamping: every fragment (content or reasoning) proves the
       // provider stream is alive. The stamp rides the option, not the turn callbacks,
       // so children get it without a UI surface. Null option: byte-identical legacy.
-      Action<string>? contentDelta = WrapStreamStamp(callbacks?.OnContentDelta, "content");
-      Action<string>? reasoningDelta = WrapStreamStamp(callbacks?.OnReasoningDelta, "reasoning");
-      Result<ModelResponse> result = await _provider.SendStreamingAsync(Config, request,
-          contentDelta, reasoningDelta, ct).ConfigureAwait(false);
+      // A transient fault retries the SAME request, so one iteration is one logical provider
+      // call however many attempts that takes.
+      Result<ModelResponse> result = await SendWithTransientRetryAsync(request, callbacks, state, ct)
+          .ConfigureAwait(false);
       if (!result.IsSuccess)
       {
         Result<string>? failure = await HandleProviderFailureAsync(result.Error, state, callbacks, ct)
@@ -469,7 +478,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // cannot tell a caller stop from a genuine timeout. Our own ct is the authority
     // for who cancelled — take the interruption path (repair + TurnCancelled), never
     // a "[turn failed] ProviderTimeout" line for the user's own stop.
-    if (ct.IsCancellationRequested)
+    if (ct.IsCancellationRequested || error.Code is TurnCancelledCode)
     {
       RepairInterruptedToolCalls();
       return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
@@ -1106,7 +1115,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private async Task<GuardOutcome> RunOneCallAsync(ToolCallRequest call, ITool? tool,
       TurnCallbacks? callbacks, CancellationToken ct)
   {
-    ToolResult toolResult = await ExecuteOneToolAsync(call, tool, ct).ConfigureAwait(false);
+    ToolResult toolResult = ToolResultBudget.Apply(
+        await ExecuteOneToolAsync(call, tool, ct).ConfigureAwait(false));
     Conversation.AddToolResult(call.Id, toolResult.Content, ToParts(toolResult.Images));
     ObserveShrinkSentinel(toolResult);
 
@@ -1331,6 +1341,108 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     string content = toolResult.Content;
     return content.Length > 80 ? content[..77] + "…" : content;
   }
+
+  /// <summary>ONE logical provider call: the request is sent, and a TRANSIENT failure retries
+  ///     the SAME request after the policy's wait, up to <see cref="TurnRetryPolicy.MaxAttempts"/>
+  ///     attempts and <see cref="TurnRetryPolicy.TotalBudget"/> of total waiting per turn. Text
+  ///     the failed attempt streamed is withdrawn before the retry notice and the wait, so an
+  ///     observer ends up showing the successful answer once.
+  ///     <para>NOTHING IS REWOUND IN THE CONVERSATION: a failed attempt appended no assistant
+  ///     message, so every attempt carries a byte-identical request. Body must build
+  ///     <paramref name="request"/> once, outside the retried call.</para>
+  ///     <para>A code that is not transient returns its failure untouched, to be handled exactly
+  ///     as it was. A cancellation during the wait surfaces as the turn's cancellation, never as
+  ///     a turn fault.</para></summary>
+  private async Task<Result<ModelResponse>> SendWithTransientRetryAsync(ModelRequest request,
+      TurnCallbacks? callbacks, TurnState state, CancellationToken ct)
+  {
+    Func<TimeSpan, CancellationToken, Task> wait = _turnRetryDelay ?? TurnRetryPolicy.SleepAsync;
+    while (true)
+    {
+      state.RetryAttempts++;
+      Result<ModelResponse> result = await StreamOnceAsync(request, callbacks, state, ct)
+          .ConfigureAwait(false);
+      TimeSpan delay = TurnRetryPolicy.ComputeDelay(state.RetryAttempts, Jitter());
+      if (result.IsSuccess
+          || !TurnRetryPolicy.IsTransient(result.Error.Code)
+          || !TurnRetryPolicy.AllowsRetry(state.RetryAttempts, state.RetrySlept, delay))
+      {
+        state.RetryAttempts = 0;
+        state.RetrySlept = TimeSpan.Zero;
+        return result;
+      }
+
+      WithdrawStreamedText(callbacks, state);
+      callbacks?.OnStreamRetrying?.Invoke(state.RetryAttempts + 1, delay, result.Error.Message);
+      Result<ModelResponse>? cancelled = await WaitAsync(wait, delay, ct).ConfigureAwait(false);
+      if (cancelled is { } stop)
+      {
+        return stop;
+      }
+
+      state.RetrySlept += delay;
+    }
+  }
+
+  /// <summary>One attempt's provider call, with both delta observers counting what the attempt
+  ///     streamed so the rewind decision can be made from the count.</summary>
+  private Task<Result<ModelResponse>> StreamOnceAsync(ModelRequest request, TurnCallbacks? callbacks,
+      TurnState state, CancellationToken ct)
+  {
+    state.StreamedDeltas = 0;
+    Action<string>? contentDelta =
+        WrapStreamStamp(CountDeltas(callbacks?.OnContentDelta, state), "content");
+    Action<string>? reasoningDelta =
+        WrapStreamStamp(CountDeltas(callbacks?.OnReasoningDelta, state), "reasoning");
+    return _provider.SendStreamingAsync(Config, request, contentDelta, reasoningDelta, ct);
+  }
+
+  /// <summary>Withdraws the text a failed attempt streamed: the retry carries the same request,
+  ///     so a prefix left in place would be followed by the retry's own text and the answer would
+  ///     read twice. A no-op when the attempt streamed nothing.</summary>
+  private static void WithdrawStreamedText(TurnCallbacks? callbacks, TurnState state)
+  {
+    if (state.StreamedDeltas == 0)
+    {
+      return;
+    }
+
+    callbacks?.OnStreamRewind?.Invoke();
+    state.StreamedDeltas = 0;
+  }
+
+  /// <summary>Waits out one retry delay. A cancelled wait IS the turn's cancellation: the
+  ///     conversation's unanswered calls are repaired and the caller stops, never a turn fault.
+  ///     Null means the wait completed.</summary>
+  private async Task<Result<ModelResponse>?> WaitAsync(
+      Func<TimeSpan, CancellationToken, Task> wait, TimeSpan delay, CancellationToken ct)
+  {
+    try
+    {
+      await wait(delay, ct).ConfigureAwait(false);
+      return null;
+    }
+    catch (OperationCanceledException)
+    {
+      RepairInterruptedToolCalls();
+      return Result.Failure<ModelResponse>(
+          new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
+    }
+  }
+
+  /// <summary>A jitter draw in [0, 1): the factor a wait is scaled by, 1x to 2x.</summary>
+  [SuppressMessage("Security", "CA5394:Do not use insecure randomness",
+      Justification = "The draw only decides how long a retry wait takes; it guards nothing.")]
+  private static double Jitter() => Random.Shared.NextDouble();
+
+  private static Action<string>? CountDeltas(Action<string>? turnCallback, TurnState state)
+      => turnCallback is { } forward
+          ? text =>
+          {
+            state.StreamedDeltas++;
+            forward(text);
+          }
+  : null;
 
   /// <summary>Composes the stream-fragment callback: the stamp fires first (liveness),
   ///     then the turn callback if present. Neither present means null — the provider

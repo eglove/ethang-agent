@@ -252,6 +252,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Action<string>? _statusModelUpdater;
   private readonly SessionModelPreferences? _modelPreferences;
 
+  /// <summary>The models this session has dropped: a refusing model is not tried again for the
+  ///     rest of the session, and its drop never reaches the stored preference.</summary>
+  private readonly SessionModelDrops _modelDrops = new();
+
   /// <summary>The usage ledger's read model (issue #24): the tab-open seed for the status
   ///     bar's session cost. Null = nothing to seed from (headless stubs).</summary>
   private readonly IUsageQueries? _usageQueries;
@@ -693,6 +697,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // is part of the selection, so it renders from the first frame rather than waiting for a
       // save that may never happen.
       BackupCountText = BackupCountText(ModelCountOf(_modelPreferences)),
+      // At construction nothing has been dropped, so this is the stored list.
+      SurvivingModelIds = [.. SurvivingModels()],
     };
     // The per-workspace prompt: the languages this repository holds and this machine
     // cannot serve, named once and installable from here. A workspace that needs nothing
@@ -1429,6 +1435,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // same order. The status bar names the HEAD, because entry 1 is the model that runs - a
     // backup that answered one turn never becomes the head.
     string chosen = modelIds[0];
+    // A picked list is the whole list again: every model a turn dropped returns.
+    _modelDrops.Clear();
     _modelPreferences.ModelIds = [.. modelIds];
     _modelPreferences.ModelVariant = variant;
     // Null means the caller stated no tier (a picker that only names a model), and the
@@ -1437,6 +1445,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _modelPreferences.Retention = retention ?? _modelPreferences.Retention;
     Status.ModelId = chosen;
     Status.BackupCountText = BackupCountText(modelIds.Count);
+    Status.SurvivingModelIds = [.. modelIds];
     // The status line names the routing the request will actually carry, by its bare name
     // ('Nitro', 'Floor') - the caption beneath the Routing dropdown explains what each one
     // trades. Standard renders as nothing: the default is not a decision the user made, and a
@@ -1464,6 +1473,74 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     2 => "· 1 backup",
     _ => $"· {modelCount - 1} backups",
   };
+
+  /// <summary>The model-preferences carrier this turn sends: the session's preferences with the
+  ///     surviving model list, or null when the session has no preferences to send.
+  ///     <para>The carrier is a copy, so the session's live preferences - the user's own list -
+  ///     are never rewritten by a drop.</para></summary>
+  private string? TurnModelPreferences()
+  {
+    if (_modelPreferences is null)
+    {
+      return null;
+    }
+
+    SessionModelPreferences sent = new();
+    sent.CopyFrom(_modelPreferences);
+    sent.ModelIds = [.. SurvivingModels()];
+    return SessionModelPreferencesJson.Serialize(sent);
+  }
+
+  /// <summary>The stored model list minus every model this session has dropped. A session with
+  ///     no stored list resolves to the one model it named at construction.</summary>
+  private IReadOnlyList<string> SurvivingModels()
+  {
+    IReadOnlyList<string> stored = _modelPreferences?.ModelIds is { Count: > 0 } named
+        ? named
+        : [SessionDefaultModelId];
+    return _modelDrops.Surviving(stored);
+  }
+
+  /// <summary>Drops the first surviving model when a turn failed a model-verdict code, and
+  ///     returns true when the same turn should go out again on what survives. The drop is
+  ///     stated in the transcript and reflected in the status bar. A session with one model left
+  ///     falls back to nothing, and every other failure code is left to the loop that owns it.
+  ///     </summary>
+  private bool TryDropRefusingModel(Result<string> result)
+  {
+    if (result.IsSuccess || !IsModelVerdict(result.Error.Code))
+    {
+      return false;
+    }
+
+    IReadOnlyList<string> surviving = SurvivingModels();
+    if (surviving.Count <= 1)
+    {
+      return false;
+    }
+
+    string refusing = surviving[0];
+    if (!_modelDrops.Drop(refusing))
+    {
+      return false;
+    }
+
+    Status.SurvivingModelIds = [.. SurvivingModels()];
+    Status.BackupCountText = BackupCountText(Status.SurvivingModelIds.Count);
+    Transcript.AddNotice(DropNotice(refusing, result.Error.Code, Status.SurvivingModelIds.Count));
+    return true;
+  }
+
+  /// <summary>True for the codes a MODEL returned rather than a fault a turn can outwait: a
+  ///     request refused on its merits, and a throttle.</summary>
+  private static bool IsModelVerdict(string code)
+      => code is "RateLimited" or "ModelRejected";
+
+  /// <summary>The transcript line a drop writes, naming the model, what it did, and how many
+  ///     models are left. One is singular: '1 model left'.</summary>
+  private static string DropNotice(string modelId, string code, int surviving) =>
+      $"{modelId} was {(code == "RateLimited" ? "rate limited" : "rejected")}; removed for "
+      + $"this session - {surviving} {(surviving == 1 ? "model" : "models")} left";
 
   /// <summary>The transcript notice a model change writes, naming the head, the backup count
   ///     when there is one, and the routing variant when one was committed.</summary>
@@ -1640,36 +1717,132 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     CancellationTokenSource cts = new();
     _turnCts = cts;
 
-    StreamBridge bridge = new(_streamSink, coalesce: true);
-    bridge.Start();
+    // The pre-turn mutations are read once, before the first attempt, so every request this
+    // turn sends carries the same ones.
+    IReadOnlyList<RootTurnPreTurnMessage> preTurn = [.. _pendingPreTurn];
+    _pendingPreTurn.Clear();
 
     int messageCountBefore = _conversation.Messages.Count;
-    bool sawStream = false;
-    bool compactedThisTurn = false;
-    bool shrunkThisTurn = false;
-    // Every streamed fragment is a root-turn fact (issue #301 D5): this is the clock the
-    // root supervisor reads, and it must advance while the model is producing text or the
-    // session would read as idle mid-answer.
-    void OnStreamed()
+    TurnFacts facts = new(input, imageParts, preTurn, cts.Token);
+    Result<string>? result = await RunTurnAsync(facts).ConfigureAwait(true);
+    if (result is null)
     {
-      sawStream = true;
-      BeatRootActivity(RootTurnPhase.Streamed, "stream");
+      return;
     }
 
-    Result<string> result = RootTurnChannel is { } channel
-        ? await SendTurnToHostAsync(channel, input, imageParts, bridge,
-            OnStreamed, cts.Token).ConfigureAwait(true)
-        : await RunTurnInProcessAsync(input, imageParts, bridge,
-            OnStreamed,
-            () => compactedThisTurn = true,
-            () => shrunkThisTurn = true, cts.Token).ConfigureAwait(true);
+    await PersistTurnAsync(messageCountBefore, result, facts.Compacted || facts.Shrunk);
+    RenderTurnOutcome(result, facts.SawStream);
+  }
 
-    // Close the channel so the pump can drain all buffered events.
-    bridge.MarkTurnComplete();
+  /// <summary>Runs the turn's attempts: one send, then a resend after each model-verdict failure
+  ///     while more than one model survives, and after each host loss while reconnects remain.
+  ///     <para>Null means an attempt's sink faulted. That is already a notice, and the turn has
+  ///     no outcome to persist or render.</para></summary>
+  private async Task<Result<string>?> RunTurnAsync(TurnFacts facts)
+  {
+    int reconnects = 0;
+    while (true)
+    {
+      // The turn is over when the user stops it between attempts, and nothing is rendered.
+      if (facts.Ct.IsCancellationRequested)
+      {
+        return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was stopped."));
+      }
 
+      // One bridge per attempt: a resend draws its own drain instead of appending into the
+      // failed attempt's coalescing window.
+      StreamBridge bridge = new(_streamSink, coalesce: true);
+      bridge.Start();
+      Result<string> attempt = await SendAttemptAsync(facts, bridge).ConfigureAwait(true);
+
+      // Close the channel so the pump can drain all buffered events.
+      bridge.MarkTurnComplete();
+      if (!await DrainAttemptAsync(bridge).ConfigureAwait(true))
+      {
+        return null;
+      }
+
+      // A model that refused or throttled this turn leaves the list and the same turn goes out
+      // again on what survives. Only a turn sent to the host can change which model serves it.
+      if (RootTurnChannel is not null && TryDropRefusingModel(attempt))
+      {
+        continue;
+      }
+
+      // A host that is gone is not this turn's fault, so the same turn goes out again over a
+      // fresh connection. The reconnects are bounded; once they are spent the transport's own
+      // failure is the turn's outcome, and it names how many reconnects were attempted.
+      if (!await ReconnectAsync(facts, attempt, reconnects).ConfigureAwait(true))
+      {
+        return NameReconnects(attempt, reconnects);
+      }
+
+      reconnects++;
+    }
+  }
+
+  /// <summary>The reconnects one turn may spend on a host that died under it.</summary>
+  private const int MaxHostReconnects = 2;
+
+  /// <summary>True when the receipt means the HOST is gone rather than the turn failing. Only
+  ///     <c>HostUnavailable</c> is a reconnect's business: a payload the seam refused, a stopped
+  ///     turn, and a silent host are all decisions the turn itself answers.</summary>
+  private static bool IsHostLoss(Result<string> attempt)
+      => !attempt.IsSuccess && string.Equals(attempt.Error.Code, "HostUnavailable", StringComparison.Ordinal);
+
+  /// <summary>Reconnects for one host loss, rendering one notice. False means the turn ends here:
+  ///     either the reconnects are spent or the host could not be reached again.</summary>
+  private async Task<bool> ReconnectAsync(TurnFacts facts, Result<string> attempt, int spent)
+  {
+    if (RootTurnChannel is not { } channel || !IsHostLoss(attempt) || spent >= MaxHostReconnects)
+    {
+      return false;
+    }
+
+    Result<bool> reconnected = await channel.ReconnectAsync(facts.Ct).ConfigureAwait(true);
+    Transcript.AddNotice(reconnected.IsSuccess
+        ? $"[host] reconnect {spent + 1} of {MaxHostReconnects}: the turn is being sent again."
+        : $"[host] reconnect {spent + 1} of {MaxHostReconnects} failed: {reconnected.Error.Message}");
+    return reconnected.IsSuccess;
+  }
+
+  /// <summary>The turn's failure line, naming the reconnects it spent. A failure the host
+  ///     connection never bore is returned untouched.</summary>
+  private static Result<string> NameReconnects(Result<string> attempt, int reconnects)
+      => attempt.Error is not { } failure || !IsHostLoss(attempt) || reconnects == 0
+          ? attempt
+          : Result.Failure<string>(new DomainError(failure.Code,
+              $"{failure.Message} ({reconnects} reconnect(s) attempted)"));
+
+  /// <summary>Sends ONE attempt: the host channel when the session has one, the in-process
+  ///     runtime otherwise. Everything an attempt needs is the turn's, so a resend sends exactly
+  ///     what the failed attempt sent, and its fragments travel through the bridge it was handed.
+  ///     </summary>
+  private Task<Result<string>> SendAttemptAsync(TurnFacts facts, StreamBridge bridge)
+      => RootTurnChannel is { } channel
+          ? SendTurnToHostAsync(channel, facts.Input, facts.ImageParts, facts.PreTurn, bridge,
+              StreamObserver(facts), facts.Ct)
+          : RunTurnInProcessAsync(facts.Input, facts.ImageParts, bridge, StreamObserver(facts),
+              () => facts.Compacted = true, () => facts.Shrunk = true, facts.Ct);
+
+  /// <summary>The attempt's stream observer: it records that this turn streamed text and beats the
+  ///     root activity clock, which must advance while the model produces text or the session
+  ///     would read as idle mid-answer.</summary>
+  private Action StreamObserver(TurnFacts facts) => () =>
+  {
+    facts.SawStream = true;
+    BeatRootActivity(RootTurnPhase.Streamed, "stream");
+  };
+
+  /// <summary>Awaits the attempt's bridge, so every fragment it produced has been applied. False
+  ///     means the sink faulted: the fault is already a notice, and the turn must not read as
+  ///     having produced an answer.</summary>
+  private async Task<bool> DrainAttemptAsync(StreamBridge bridge)
+  {
     try
     {
-      await bridge.DrainUntilIdleAsync();
+      await bridge.DrainUntilIdleAsync().ConfigureAwait(true);
+      return true;
     }
     // Named decision (CA1031): a sink fault must surface as an error notice —
     // the turn loop keeps running and the VM never crashes.
@@ -1678,17 +1851,43 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     {
       // Sink fault — surface as an error notice rather than crashing the VM.
       Transcript.AddNotice($"Error [StreamFault]: {ex.Message}");
-      return;
+      return false;
     }
 #pragma warning restore CA1031
+  }
 
-    await PersistTurnAsync(messageCountBefore, result, compactedThisTurn || shrunkThisTurn);
+  /// <summary>One turn's own facts, carried across its attempts: the input, the images and
+  ///     pre-turn mutations every request repeats, the turn's cancellation, and the flags
+  ///     persistence and rendering read once the turn is over.</summary>
+  private sealed class TurnFacts(string input, IReadOnlyList<MessagePart>? imageParts,
+      IReadOnlyList<RootTurnPreTurnMessage> preTurn, CancellationToken ct)
+  {
+    public string Input { get; } = input;
 
-    // Non-streaming fallback: if no deltas were delivered, show the final text as a notice.
-    // A HOST turn that streams partial text and then settles with an error payload is still
-    // a failure the user must see: the transport Result is a SUCCESS (the settle arrived),
-    // so the error is read from the payload — otherwise a truncated answer would render with
-    // no error at all, which the in-process path never did.
+    public IReadOnlyList<MessagePart>? ImageParts { get; } = imageParts;
+
+    public IReadOnlyList<RootTurnPreTurnMessage> PreTurn { get; } = preTurn;
+
+    public CancellationToken Ct { get; } = ct;
+
+    /// <summary>True once any attempt streamed a fragment.</summary>
+    public bool SawStream { get; set; }
+
+    /// <summary>True once an attempt compacted the conversation.</summary>
+    public bool Compacted { get; set; }
+
+    /// <summary>True once an attempt shrank the conversation.</summary>
+    public bool Shrunk { get; set; }
+  }
+
+  /// <summary>Writes the turn's outcome to the transcript: the typed failure line, the answer
+  ///     when nothing streamed it, or an error payload the host settled with.
+  ///     <para>A HOST turn that streams partial text and then settles with an error payload is
+  ///     still a failure the user must see: the transport Result is a SUCCESS (the settle
+  ///     arrived), so the error is read from the payload — otherwise a truncated answer would
+  ///     render with no error at all, which the in-process path never did.</para></summary>
+  private void RenderTurnOutcome(Result<string> result, bool sawStream)
+  {
     if (!result.IsSuccess)
     {
       Transcript.AddNotice($"Error [{result.Error.Code}]: {result.Error.Message}");
@@ -1738,7 +1937,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               OnToolCall: (name, args, index, count) => bridge.OnToolCall(name, args),
               OnToolResult: (name, summary, full, isError, rich) =>
                 bridge.OnToolResult(name, summary, full, isError, rich),
-              OnSystemMessage: bridge.OnSystemMessage),
+              OnSystemMessage: bridge.OnSystemMessage,
+              OnStreamRewind: bridge.OnStreamRewind,
+              OnStreamRetrying: (attempt, delay, reason) =>
+                bridge.OnNotice(TurnRetryPolicy.Describe(attempt, delay, reason))),
           onNotice: bridge.OnNotice).ConfigureAwait(true);
     }
     catch (OperationCanceledException)
@@ -1760,8 +1962,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     answer the user must see. A failed Result is a transport-level fault and keeps its
   ///     own typed code.</para></summary>
   private async Task<Result<string>> SendTurnToHostAsync(IRootTurnChannel channel, string input,
-      IReadOnlyList<MessagePart>? imageParts, StreamBridge bridge, Action onStreamed,
-      CancellationToken ct)
+      IReadOnlyList<MessagePart>? imageParts, IReadOnlyList<RootTurnPreTurnMessage> preTurn,
+      StreamBridge bridge, Action onStreamed, CancellationToken ct)
   {
     // A FRESH turn id and generation per turn: the wire runtime keys its settle matching on
     // both, so a reused id would let a timed-out predecessor's settle complete this turn
@@ -1774,7 +1976,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // The app's own pre-turn conversation mutations ride the request: the host is a
       // different process with its own conversation, so anything injected only here would
       // never reach the model.
-      PreTurn = [.. _pendingPreTurn],
+      PreTurn = [.. preTurn],
       // The session's quoted-path grants ride every turn: the grant is made where the message
       // is parsed (here) and honoured where the tools resolve paths (the host), so a grant
       // that stayed in this process would leave the host refusing the quoted file.
@@ -1783,11 +1985,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // travel never reached the serving model (2026-10-22 - every host turn served the
       // fallback while the status bar showed the user's pick). The carrier is opaque JSON;
       // the host decodes it onto its own preferences before resolving.
-      ModelPreferences = _modelPreferences is null
-          ? null
-          : SessionModelPreferencesJson.Serialize(_modelPreferences),
+      //
+      // THE SURVIVING LIST TRAVELS, NEVER THE STORED ONE: a model a turn dropped is left out
+      // of the request while the preference the user picked keeps it. The carrier is built on
+      // a COPY, so the session's own preferences are never rewritten by a drop.
+      ModelPreferences = TurnModelPreferences(),
     };
-    _pendingPreTurn.Clear();
     try
     {
       return await channel
@@ -1824,6 +2027,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         // in-process path renders. The host forwards them as their own wire kind.
         bridge.OnReasoningDelta(evt.Payload);
         break;
+      case "rewind":
+        // The failed attempt's text is withdrawn before the retry notice renders, so the
+        // retry line lands above nothing stale. An older host never sends this kind, so its
+        // absence keeps today's behaviour.
+        bridge.OnStreamRewind();
+        break;
       case "notice":
         bridge.OnNotice(evt.Payload);
         break;
@@ -1839,9 +2048,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       case "usage":
         ApplyUsageEvent(evt.Payload);
         break;
-      case "progress":
-        // The heartbeat proves the host is alive; it says nothing the transcript needs.
-        break;
       case "settled":
         // The settle's payload is the turn's answer (or its typed failure line); the
         // outcome is read from the channel's Result, so nothing is applied here beyond
@@ -1849,6 +2055,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         // the turn's finally block sets it too, so this is idempotent.
         Status.Phase = TurnPhase.Ready;
         break;
+      // `progress` is the liveness heartbeat: it proves the host is alive and says nothing
+      // the transcript needs. Any other kind is one this build does not know, which is the
+      // forward-compatibility rule the transports already follow.
       default:
         break;
     }
@@ -2146,6 +2355,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         }
 
         Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title, decoded);
+        break;
+      case UiStreamEvent.Rewind:
+        Transcript.RewindStreamedText();
         break;
       case UiStreamEvent.SystemMessage sm:
         // Same thread contract as notices (see below): bridge-delivered, applied on

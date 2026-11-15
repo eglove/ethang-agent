@@ -38,7 +38,10 @@ internal sealed record ScriptedOptions(
     // the prices it stamps. Null (the default) records nothing, so no `usage` event fires -
     // the shape every pre-existing test relies on.
     IAgentEventLog? EventLog = null,
-    IUsagePriceSource? UsagePrices = null);
+    IUsagePriceSource? UsagePrices = null,
+    // The tool's own fault: a rig whose single tool throws, so a turn escapes its own tool
+    // dispatch and the host's isolation catch is what answers it.
+    bool ToolFaults = false);
 
 #pragma warning disable CA1812 // Instantiated by the gate tests, not by this file.
 /// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
@@ -112,7 +115,7 @@ internal sealed class ScriptedRootHost : IDisposable
     ScriptedPark? park = options?.Park;
     Conversation conversation = new();
     IToolRegistry tools = options?.ToolCalls is { Count: > 0 }
-        ? new ScriptedToolRegistry(options.ToolResultContent ?? "")
+        ? new ScriptedToolRegistry(options.ToolResultContent ?? "", options.ToolFaults)
         : new EmptyToolRegistry();
     ScriptedProvider provider = new(answer, deltas, betweenDeltas, providerError, park?.BetweenDeltas,
         options ?? new ScriptedOptions());
@@ -188,20 +191,22 @@ internal sealed class ScriptedRootHost : IDisposable
   /// <summary>A registry whose one tool returns a FIXED content string: the tool-result
   /// forwarding tests need a tool whose output is distinguishable from the "ok"
   /// summary the legacy wire shape carried (issue #245).</summary>
-  private sealed class ScriptedToolRegistry(string content) : IToolRegistry
+  private sealed class ScriptedToolRegistry(string content, bool faults) : IToolRegistry
   {
     public ITool? Find(string name) => name == "probe"
-        ? new ProbeTool(content)
+        ? new ProbeTool(content, faults)
         : null;
 
     public IReadOnlyList<ToolDefinition> Definitions => [new ToolDefinition("probe", "probe", [])];
 
-    private sealed class ProbeTool(string content) : ITool
+    private sealed class ProbeTool(string content, bool faults) : ITool
     {
       public ToolDefinition Definition { get; } = new("probe", "probe", []);
 
       public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
-          => Task.FromResult(new ToolResult(content, false));
+          => faults
+              ? throw new InvalidOperationException("the probe tool faulted.")
+              : Task.FromResult(new ToolResult(content, false));
     }
   }
 
@@ -223,6 +228,14 @@ internal sealed class ScriptedRootHost : IDisposable
 
     /// <summary>How many provider calls have started.</summary>
     public int Calls => Volatile.Read(ref _calls);
+
+    /// <summary>The answer the next provider call completes with. Settable so a test can drive a
+    ///     second turn in the same session with a different answer.</summary>
+    public string Answer { get; set; } = answer;
+
+    /// <summary>The content fragments the next provider call streams, settable for the same
+    ///     reason.</summary>
+    public IReadOnlyList<string> Deltas { get; set; } = deltas;
 
     /// <summary>Every message list the model was handed, in call order — the observation a
     ///     concurrency test needs to prove EVERY turn saw the hydrated prefix.</summary>
@@ -272,9 +285,9 @@ internal sealed class ScriptedRootHost : IDisposable
         return Result.Failure<ModelResponse>(providerError);
       }
 
-      for (int index = 0; index < deltas.Count; index++)
+      for (int index = 0; index < Deltas.Count; index++)
       {
-        onContentDelta?.Invoke(deltas[index]);
+        onContentDelta?.Invoke(Deltas[index]);
         if (index == 0)
         {
           betweenDeltas?.Invoke();
@@ -300,7 +313,7 @@ internal sealed class ScriptedRootHost : IDisposable
 
       // The provider-scored usage (issue #255): the agent's accountant is the only
       // context source, so a scripted model that reports none produces no snapshot.
-      return Result.Success(new ModelResponse(answer, [], FinishReason.Stop, options.Usage));
+      return Result.Success(new ModelResponse(Answer, [], FinishReason.Stop, options.Usage));
     }
   }
 

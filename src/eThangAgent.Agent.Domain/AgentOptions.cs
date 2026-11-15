@@ -67,6 +67,11 @@ public sealed record AgentOptions
   ///     rather than being fabricated.</summary>
   public IUsagePriceSource? UsagePrices { get; init; }
 
+  /// <summary>The wait a retried transient provider failure takes. Null waits through
+  ///     <see cref="TurnRetryPolicy.SleepAsync"/>; a test substitutes a completed task so
+  ///     no clock time passes.</summary>
+  public Func<TimeSpan, CancellationToken, Task>? TurnRetryDelay { get; init; }
+
   /// <summary>The workspace this run's usage rows belong to (issue #23). One database
   ///     file serves many workspaces, so a row without it cannot be attributed to the
   ///     work that caused it. Null (legacy wiring) records no workspace: byte-identical

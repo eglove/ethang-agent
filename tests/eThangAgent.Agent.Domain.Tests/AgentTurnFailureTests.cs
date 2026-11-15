@@ -18,7 +18,8 @@ public class AgentTurnFailureTests
   {
     ScriptedModelProvider provider = new(
         Result.Failure<ModelResponse>(new DomainError("ProviderTimeout", "Request timed out.")));
-    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]),
+        new AgentOptions { TurnRetryDelay = (_, _) => Task.CompletedTask });
 
     Result<string> result = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
@@ -35,7 +36,8 @@ public class AgentTurnFailureTests
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "t", "{}")])),
         Result.Failure<ModelResponse>(new DomainError("ProviderTimeout", "Request timed out.")));
     Agent agent = new(provider, new Conversation(), DefaultConfig,
-        new ToolRegistry([new OkTool("t")]));
+        new ToolRegistry([new OkTool("t")]),
+        new AgentOptions { TurnRetryDelay = (_, _) => Task.CompletedTask });
 
     Result<string> result = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
@@ -50,7 +52,8 @@ public class AgentTurnFailureTests
   public async Task SuccessfulTurn_NoFailureLine()
   {
     ScriptedModelProvider provider = new(Result.Success(new ModelResponse("done", [])));
-    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]),
+        new AgentOptions { TurnRetryDelay = (_, _) => Task.CompletedTask });
 
     Result<string> result = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
@@ -66,7 +69,8 @@ public class AgentTurnFailureTests
     ScriptedModelProvider provider = new(
         Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "t", "{}")])));
     Agent agent = new(provider, new Conversation(), DefaultConfig,
-        new ToolRegistry([new OkTool("t")]));
+        new ToolRegistry([new OkTool("t")]),
+        new AgentOptions { TurnRetryDelay = (_, _) => Task.CompletedTask });
     using CancellationTokenSource cts = new();
     await cts.CancelAsync().ConfigureAwait(true);
 
@@ -82,7 +86,8 @@ public class AgentTurnFailureTests
   {
     ScriptedModelProvider provider = new(
         Result.Failure<ModelResponse>(new DomainError("ProviderTimeout", "Request timed out.")));
-    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]),
+        new AgentOptions { TurnRetryDelay = (_, _) => Task.CompletedTask });
     List<string> surfaced = [];
     TurnCallbacks callbacks = new(OnSystemMessage: line => surfaced.Add(line));
 
@@ -92,13 +97,20 @@ public class AgentTurnFailureTests
     Assert.StartsWith(Agent.TurnFailedPrefix, line, StringComparison.Ordinal);
   }
 
+  /// <summary>Replays the scripted responses in order and then repeats the LAST one, so a fade
+  ///     that the turn retries keeps failing every attempt. Written this way rather than as a
+  ///     queue-with-successful-tail on purpose: the turn's whole subject is which failure it
+  ///     cannot recover from.</summary>
   private sealed class ScriptedModelProvider(params Result<ModelResponse>[] responses) : IModelProvider
   {
-    private readonly Queue<Result<ModelResponse>> _responses = new(responses);
+    private readonly Result<ModelResponse>[] _responses = responses;
+    private int _next;
 
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
-        => Task.FromResult(_responses.Count > 0 ? _responses.Dequeue()
-            : Result.Success(new ModelResponse("fin", [])));
+    {
+      int index = Math.Min(_next++, _responses.Length - 1);
+      return Task.FromResult(_responses[index]);
+    }
   }
 
   private sealed class OkTool(string name) : ITool

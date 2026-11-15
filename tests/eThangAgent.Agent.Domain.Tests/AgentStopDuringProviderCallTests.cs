@@ -20,7 +20,8 @@ public class AgentStopDuringProviderCallTests
   {
     using CancellationTokenSource cts = new();
     ScriptedProvider provider = new(() => cts.CancelAsync());
-    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]),
+        new AgentOptions { TurnRetryDelay = (_, _) => Task.CompletedTask });
 
     Result<string> result = await agent.SendMessage("hi", ct: cts.Token);
 
@@ -36,7 +37,8 @@ public class AgentStopDuringProviderCallTests
     // The genuine-timeout path is unchanged: no ct fires, the failure line stays.
     ScriptedProvider provider = new(() => { },
         first: Result.Failure<ModelResponse>(new DomainError("ProviderTimeout", "Request timed out.")));
-    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]),
+        new AgentOptions { TurnRetryDelay = (_, _) => Task.CompletedTask });
 
     Result<string> result = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
