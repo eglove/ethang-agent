@@ -668,6 +668,10 @@ public static class AgentComposition
         // Domain reaches it through its own port, so it never references this assembly.
         .AddSingleton<IPlanStepOwnershipGate>(sp => new ChainStepOwnershipGate(
             sp.GetRequiredService<IChainStore>()))
+        // The structure lock (2026-11-16): a plan a chain is executing may have its step TEXT
+        // rewritten but not its step POSITIONS, because a chain binds to positions by number.
+        .AddSingleton<IPlanExecutionLock>(sp => new ChainPlanExecutionLock(
+            sp.GetRequiredService<IChainStore>()))
         // The brief (issue #302): the port is the Agent Domain's, so the renderer never learns
         // what a plan is; this adapter is the one place that knows both stores.
         .AddSingleton<IChainBriefSource>(sp => new CompositionChainBriefSource(
@@ -1140,7 +1144,10 @@ public static class AgentComposition
             // THE REVIEW WRITER (issue #320): plan.review records a verdict into the review
             // store through the chain's own service, so the record it writes is the one the
             // cursor reads. Null in a container that wired no chain machinery at all.
-            (draft, ct) => RecordReviewAsync(sp, draft, ct)));
+            (draft, ct) => RecordReviewAsync(sp, draft, ct),
+            // The structure lock (2026-11-16): inserting, moving, or removing a step under a
+            // running chain renumbers the positions its sessions are holding.
+            sp.GetRequiredService<IPlanExecutionLock>()));
   }
 
   /// <summary>The capability registry and its deferred factory - the deadlock-safe lazy resolution

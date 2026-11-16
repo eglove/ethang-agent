@@ -16,7 +16,8 @@ namespace eThangAgent.PlanDomain;
 ///     child's create/add stamps the owning ROOT session, never the child.</summary>
 public sealed class PlanCapabilityProvider(PlanService service, Func<string?> sessionId,
     IPlanCompletionGate? completionGate = null, IPlanStepOwnershipGate? ownershipGate = null,
-    Func<PlanReviewDraft, CancellationToken, Task<Result<PlanReview>>>? recordReview = null)
+    Func<PlanReviewDraft, CancellationToken, Task<Result<PlanReview>>>? recordReview = null,
+    IPlanExecutionLock? executionLock = null)
     : ICapabilityProvider
 {
   public const string ProviderId = "plan";
@@ -54,12 +55,16 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   ///     'your steps are unfinished' from 'this is not your step'.</summary>
   public const string StepNotAssignedCode = "ChainStepNotAssigned";
 
+  /// <summary>The refusal code for a structure edit to a plan a chain is executing.</summary>
+  public const string StructureLockedCode = "PlanStructureLocked";
+
   private static readonly HashSet<string> StepAllowed = [with(StringComparer.Ordinal), Title, Detail];
 
   private readonly PlanService _service = service ?? throw new ArgumentNullException(nameof(service));
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly IPlanCompletionGate? _completionGate = completionGate;
   private readonly IPlanStepOwnershipGate? _ownershipGate = ownershipGate;
+  private readonly IPlanExecutionLock? _executionLock = executionLock;
   private readonly Func<PlanReviewDraft, CancellationToken, Task<Result<PlanReview>>>? _recordReview = recordReview;
 
   public string Id => ProviderId;
@@ -234,6 +239,11 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       return Gutter(plan.Error);
     }
 
+    if (await StructureLockRefusalAsync(id).ConfigureAwait(false) is { } locked)
+    {
+      return locked;
+    }
+
     int expected = plan.Value.Version;
     Result<Plan> added = position is { } at
         ? await _service.InsertStepAsync(id, at, title, detail, expected, DateTimeOffset.UtcNow)
@@ -264,6 +274,11 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     if (!plan.IsSuccess)
     {
       return Gutter(plan.Error);
+    }
+
+    if (await StructureLockRefusalAsync(id).ConfigureAwait(false) is { } locked)
+    {
+      return locked;
     }
 
     int expected = plan.Value.Version;
@@ -395,6 +410,11 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     if (!plan.IsSuccess)
     {
       return Gutter(plan.Error);
+    }
+
+    if (await StructureLockRefusalAsync(id).ConfigureAwait(false) is { } locked)
+    {
+      return locked;
     }
 
     int expected = plan.Value.Version;
@@ -631,6 +651,23 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   /// <summary>Asks the ownership gate; null means 'proceed'. A provider with no gate wired
   ///     (a headless host, or a test that composes the provider directly) behaves exactly as
   ///     before - which is also the correct behaviour for a session outside any chain.</summary>
+  /// <summary>The refusal a STRUCTURE edit earns while a chain executes the plan, or null when
+  ///     the edit may proceed: inserting, moving, or removing a step renumbers the positions a
+  ///     chain's claims bind to. Rewriting a step's title or detail in place leaves every claim
+  ///     where it was, which is why <c>update-step</c> is not gated.</summary>
+  /// <param name="planId">The plan being edited.</param>
+  private async Task<CapabilityInvocationResult?> StructureLockRefusalAsync(int planId)
+  {
+    return _executionLock is null
+        || await _executionLock.ExecutingChainAsync(planId).ConfigureAwait(false) is not { } chainId
+        ? null
+        : CapabilityInvocationResult.Fail(
+            $"Error [{StructureLockedCode}]: chain #{chainId} is executing plan #{planId}, and its "
+            + "steps bind to the plan's step POSITIONS - inserting, moving, or removing one renumbers "
+            + "them underneath the sessions already holding them. Edit the step text in place "
+            + $"instead, or abandon chain #{chainId} and start a fresh chain from the corrected plan.");
+  }
+
   private async Task<PlanStepOwnership?> OwnershipRefusalAsync(int planId, int position)
   {
     return _ownershipGate is null || _sessionId() is not { } session
