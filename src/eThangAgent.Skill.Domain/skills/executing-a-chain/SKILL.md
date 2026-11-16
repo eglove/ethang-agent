@@ -8,6 +8,10 @@ description: Execute one assigned chain step and finish it so the harness advanc
 This carries the experiment and external-verdict legs of the scientific loop, one step at a time:
 your step is the experiment, and a review step is the external verdict you cannot self-grade.
 
+**If your step's role is not `implement`, read that section before anything else.** A `refine` step
+makes the plan executable and writes no code. A `review` step judges work that already exists and
+records a verdict. Both finish by marking their own step done, and what "done" means differs.
+
 **Core principle: the harness advances the chain, not you.** You were started for exactly one
 step of one plan. When you mark that step done, the harness closes this session and starts the
 next one. Nothing else decides whether the chain continues — not you, not a parent agent.
@@ -114,6 +118,27 @@ chain was created. If you believe a review step is missing, say so in your step'
 the transcript; the planning session can revise the plan and a human can start a new chain. Do not
 attempt to schedule the review yourself.
 
+## If your step is a review step
+
+You judge the work that came before you and record a verdict. You do not do that work, and you do
+not fix it — a reviewer that edits the work to make it pass has replaced the independent verdict
+with its own.
+
+Read the plan step you were assigned (it says what this review is for), then read what the preceding
+step actually produced. Judge spec compliance, correctness, and whether the done-claim is backed by
+a verification that actually ran.
+
+Record the verdict with `chain.judge`, then complete your step:
+
+```text
+chain.judge verdict=pass findings=[]
+chain.judge verdict=fail findings=[{"text":"<what is wrong>","citation":"<file, test, or step>"}]
+```
+
+Every finding needs a citation, because the fix session has to know where to look. A pass may carry
+none; a fail must carry at least one. Completing the step is what lets the harness act on it: a pass
+starts what follows, a fail reopens the judged step for a fix session.
+
 ## Working the step
 
 1. Read the brief and the standing contract. Retrieve the plan with `plan.show id=<planId>` and
@@ -136,6 +161,8 @@ attempt to schedule the review yourself.
 | "I'll mark it done and mention the gap in my summary" | The record is what the chain reads. A gap in prose is a gap nobody acts on. |
 | "This step is small, I'll also do the next one" | You may not mark another step done, and the harness will refuse it. One step, one session. |
 | "I need a reviewer, I'll start one" | There is no subagent surface. A review is a chain step assigned at creation. |
+| "I'm the reviewer, so I'll fix the bug and pass it" | Then the verdict is yours, not independent. Record the fail with a citation and let a fix session do the work. |
+| "My step says review, so I'll rewrite the plan" | That is the refine role. A reviewer judges implementation; it does not make the plan executable. |
 | "I'll start the next session myself" | Then the harness's cursor and your guess disagree, and the chain runs the step twice or skips one. |
 | "The ledger is bookkeeping, I'll write it at the end" | The ledger is what survives your session. A refutation written after it ends helps no one. |
 | "Parked is a failure, I should force it through" | Parked means waiting for a human. A chain that advances on a guess is the failure. |
@@ -143,7 +170,7 @@ attempt to schedule the review yourself.
 ## Related skills
 
 - `writing-plans` — the planning half: a plan becomes a chain only when someone says so.
-- `reviewing-plans` — the rubric a review step applies.
+- `reviewing-plans` — the rubric a plan review applies before a chain starts, which is not this.
 - `experiment-driven-development` — the loop's shape when a session runs several steps of a plan
   itself instead of one assigned step.
 - `verification-before-completion` — the evidence rule behind every done-claim.

@@ -78,7 +78,9 @@ Group the failures by what is broken, not by which file the test lives in:
 - "abort functionality" — a domain
 
 Each domain is a plan STEP. Fixing tool approval does not change the abort tests, so a reviewer can
-judge each step on its own — which is the test for whether the split is real.
+judge each step on its own — which is the test for whether the split is real. Where the whole group's
+merged result deserves one verdict, declare a single review step after the reconciler rather than
+one per member.
 
 ### 2. Write each step's detail for a stranger
 
@@ -100,7 +102,10 @@ chain.start id=<planId>
 ```
 
 One implementer step per domain, plus review steps where an independent verdict is worth the round
-trip. The harness starts step 1 and advances on each completion — you do not start the next one.
+trip. A review step after the group's reconciler judges the merged result; a review step INSIDE a
+group is refused, because a group's members settle together and the review would judge work that has
+not landed. The harness starts step 1 and advances on each completion — you do not start the next
+one.
 
 ### 4. Read the record, then integrate
 

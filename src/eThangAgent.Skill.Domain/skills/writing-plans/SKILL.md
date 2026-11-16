@@ -219,41 +219,44 @@ After saving the plan, offer the execution choice:
 **"Plan complete and stored as plan record `#<id>`. Two execution options:**
 
 **1. Chain (recommended)** — the harness starts a session per step and advances on each completion,
-with review steps where an independent verdict is worth the round trip.
+with `refine` steps where the plan needs making executable and `review` steps where an independent
+verdict on the implementation is worth the round trip.
 
 **2. Inline execution** — this session executes the steps itself with `executing-plans`, batching
 with checkpoints.
 
 **Which approach?"**
 
-### The plan review comes before implementation
+### Two roles serve the plan, and they do different jobs
 
-A plan written this way is reviewed by an independent session before anything is implemented. The
-planner's own confidence is not evidence that the plan is worth executing, and a step that states
-behavior instead of code is exactly the kind that reads as complete to its author and as vague to
-everyone else.
+A plan written this way is not ready the moment it is saved. Two roles stand between it and the
+work, and it matters which you use for what:
 
-The mechanism already exists: the chain's `review` role and its deny back-edge. `chain.start` takes
-a role per step, so the review is step 1 of the chain, not a pause inside a session:
+**`refine` makes the plan executable.** Its session reads the plan, resolves what is ambiguous, and
+sharpens each remaining step until it states what must be observably true. It returns no verdict and
+nothing comes back to it — it refines until the plan is ready and completes. Use it when your own
+plan is thin, which is the ordinary case:
 
 ```text
-chain.start id=<planId> steps=[{"position":1,"role":"review"},{"position":2,"role":"implement"}]
+chain.start id=<planId> steps=[{"position":1,"role":"refine"},{"position":2,"role":"implement"}]
 ```
 
-A `deny` verdict starts a fix session seeded with the findings and their citations, and the plan is
-revised before any implementer step runs; an `approve-with-conditions` carries its conditions into
-the next step's brief. The review follows `reviewing-plans`.
+**`review` judges the implementation.** It is not a plan review: it asks whether work that was built
+may stand, records pass or fail with cited findings, and either advances the chain or sends the judged
+step back for a fix. Use it after work worth judging.
 
-One review of the whole plan, before implementation. There is no per-phase pause inside a session
+A plan reviewed BEFORE anything is built is the stakeholder's judgment, recorded with `plan.review`
+and the `reviewing-plans` rubric — that is a decision you and the person directing the work make, not
+a chain step. The chain roles start after that decision.
+
+One refinement of the whole plan, before implementation. There is no per-phase pause inside a session
 and no checkpoint between steps — a step's session runs to its own completion.
-
-For inline execution the review happens the same way, in a session of its own, before the first
-step runs.
 
 **If a chain is chosen:**
 
 - **REQUIRED SUB-SKILL:** Use `experiment-driven-development`.
-- Convert with `chain.start`, naming each executable step and its role.
+- Convert with `chain.start`, naming each executable step and its role — `implement`, `refine`, or
+  `review`. A `refine` step first when the plan is thin, a `review` step after work worth judging.
 
 **If inline execution is chosen:**
 
@@ -265,4 +268,4 @@ step runs.
 - `executing-a-chain` — what each chain step's session follows.
 - `experiment-driven-development` — how a plan becomes a running chain.
 - `executing-plans` — inline execution in one session.
-- `reviewing-plans` — the verdict a review step records.
+- `reviewing-plans` — the rubric a plan review applies before a chain starts.

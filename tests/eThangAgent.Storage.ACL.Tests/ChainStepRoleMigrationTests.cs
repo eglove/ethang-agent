@@ -131,7 +131,7 @@ public sealed class ChainStepRoleMigrationTests : IDisposable
 
     string stepsSql = Scalar<string>(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='chain_steps';");
-    Assert.Contains("CHECK (role IN ('Implement', 'Refine'))", stepsSql, StringComparison.Ordinal);
+    Assert.Contains("CHECK (role IN ('Implement', 'Review', 'Refine'))", stepsSql, StringComparison.Ordinal);
     // The V23 status CHECK is carried forward verbatim, so that door stays closed.
     Assert.Contains("'Skipped'", stepsSql, StringComparison.Ordinal);
   }

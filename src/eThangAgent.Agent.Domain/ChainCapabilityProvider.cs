@@ -41,16 +41,12 @@ public sealed record ChainWorkspaceGit(IGitWorktreeAccess Worktrees, string Root
 ///     passes the session's persisted root id, and a child's create must stamp the owning
 ///     ROOT session rather than the child (the Plan provider's precedent).</param>
 /// <param name="clock">The clock the claim window is measured against.</param>
-/// <param name="workspaceGit">The git seam and the workspace directory it is asked of,
-///     or null when the host wired no git machinery.</param>
-/// <param name="recovery">The two actions that move a chain nothing else can move, or null when
-///     the host wired neither - a container with no shell cannot start a session, and an action
-///     that reported success while starting nothing would be the silent no-op these actions
-///     exist to remove.</param>
+/// <param name="hooks">The optional collaborators, or null when the host wired none of them.
+///     A record rather than more parameters: each is null-able and absent for a different
+///     reason, and a container with no shell wires none of them.</param>
 public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSource plans,
     IChainStartPort start, Func<string?> sessionId, TimeProvider clock,
-    ChainWorkspaceGit? workspaceGit = null,
-    ChainRecoveryActions? recovery = null)
+    ChainProviderHooks? hooks = null)
     : ICapabilityProvider
 {
   public const string ProviderId = "chain";
@@ -63,7 +59,8 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   ///     owns <c>create</c>, and the collision is a startup failure rather than a shadowing.
   ///     <c>start</c> is also the truer name: the action does not merely write a record, it
   ///     converts a plan into a chain AND starts step 1.</para></summary>
-  public static readonly string[] ActionNames = ["start", "resume-parked", "repair", "abandon"];
+  public static readonly string[] ActionNames =
+      ["start", "resume-parked", "repair", "abandon", "judge"];
 
   private const string IdParam = "id";
   private const string PlanIdParam = "planId";
@@ -74,6 +71,13 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private const string GroupParam = "group";
   private const string ImplementRole = "implement";
   private const string RefineRole = "refine";
+  private const string ReviewRole = "review";
+  private const string VerdictParam = "verdict";
+  private const string FindingsParam = "findings";
+  private const string TextParam = "text";
+  private const string CitationParam = "citation";
+  private const string PassVerdict = "pass";
+  private const string FailVerdict = "fail";
 
   private static readonly HashSet<string> StepAllowed =
       [with(StringComparer.Ordinal), PositionParam, RoleParam, GroupParam];
@@ -83,8 +87,9 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private readonly IChainStartPort _start = start ?? throw new ArgumentNullException(nameof(start));
   private readonly Func<string?> _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
   private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-  private readonly ChainWorkspaceGit? _workspaceGit = workspaceGit;
-  private readonly ChainRecoveryActions? _recovery = recovery;
+  private readonly ChainWorkspaceGit? _workspaceGit = hooks?.WorkspaceGit;
+  private readonly ChainRecoveryActions? _recovery = hooks?.Recovery;
+  private readonly ChainReviewService? _reviews = hooks?.Reviews;
 
   public string Id => ProviderId;
 
@@ -94,7 +99,9 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             """
             Converts an existing plan into a chain the HARNESS executes: it claims step 1, starts a session for it seeded with the rendered brief, and returns. No session decides when the next step begins - completing a step is what advances the chain.
             A plan does NOT become a chain on its own. This action is the explicit statement 'execute this', so a plan can stay a design artifact indefinitely.
-            'steps' names which plan steps execute and in what role. Only steps you name become chain steps, so design and informational steps are simply left out. Roles are exactly implement | refine; a step that names none is an implementer step. A role decides what a step's session is asked to do, never which model it runs on: every step's session runs on the model the workspace has selected.
+            'steps' names which plan steps execute and in what role. Only steps you name become chain steps, so design and informational steps are simply left out. Roles are exactly implement | refine | review; a step that names none is an implementer step. A role decides what a step's session is asked to do, never which model it runs on: every step's session runs on the model the workspace has selected.
+            A REFINE step makes the plan executable: it reads the plan, resolves what is ambiguous, and sharpens each remaining step until it states what must be observably true. It advances into implementation and returns no verdict.
+            A REVIEW step judges work that was already built: it records pass or fail with cited findings through chain.judge, and the harness acts on that verdict - a pass starts what follows, a fail reopens the judged step for a fix session seeded with the findings, and a step sent back three times parks the chain. A review step cannot fix what it reviews.
             'group' marks a step as a member of a parallel group: every member of one group starts at the same moment and runs in its own git worktree, and nothing after the group starts until every member has settled. A group needs at least two members, may not contain a refine step, and must be followed immediately by a step with no group - that next step is the RECONCILER, which merges the members' branches into the workspace checkout. The workspace must be a git repository to declare a group (ChainGroupNeedsRepository). Refusals: ChainGroupTooSmall, ChainGroupRefineMember, ChainGroupReconcilerMissing, ChainReconcilerNotAdjacent, ChainGroupNeedsRepository.
             Validation is total and refuses before anything is created: a plan with no executable step (ChainNoExecutableSteps), a position the plan does not have (ChainStepMissing), a position the plan already records Done or Skipped (ChainStepAlreadyDone), nothing left to execute (ChainNothingToExecute), one position declared with two roles (ChainStepRoleConflict), an unreadable plan (ChainPlanUnreadable). A session that is itself executing a chain step may not create a chain (ChainStepCannotCreateChain).
             Output contract:
@@ -103,7 +110,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             """,
             [
                 new ActionParameter(PlanIdParam, ActionParameterTypes.IntegerType, "Required. The plan to execute, >= 1."),
-                new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|refine, default implement), 'group' (optional parallel group id, >= 1) }]. Omit to execute every plan step that is NOT already Done or Skipped, as an implementer step. A settled position is never re-executed: naming one is refused with ChainStepAlreadyDone, and omitting 'steps' on a plan with nothing left is refused with ChainNothingToExecute."),
+                new ActionParameter(StepsParam, "Array", "Optional. The steps to execute: [{ 'position' (required, >= 1), 'role' (optional: implement|refine|review, default implement), 'group' (optional parallel group id, >= 1) }]. Omit to execute every plan step that is NOT already Done or Skipped, as an implementer step. A settled position is never re-executed: naming one is refused with ChainStepAlreadyDone, and omitting 'steps' on a plan with nothing left is refused with ChainNothingToExecute."),
             ],
             [PlanIdParam]),
       // THE ACTION IS 'resume-parked', NOT 'resume'. Capability action names are GLOBALLY
@@ -161,6 +168,21 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
                  new ActionParameter(ReasonParam, ActionParameterTypes.StringType, "Required. Why the work is being dropped; recorded on the chain."),
              ],
              [IdParam, ReasonParam]),
+      new("judge", "Record an implementation review's verdict on the work this step judges.",
+            """
+            A review step's verdict is the work: the harness reads the RECORD after this session closes, so a verdict written only in prose reaches nothing and the chain refuses to advance past the step.
+            verdict is exactly pass | fail. A pass advances the chain past this review step. A fail reopens the STEP THIS REVIEW JUDGES - the nearest preceding completed step - for a fix session seeded with your findings, so the work is redone rather than patched over. A step sent back three times parks the chain for a human: a disagreement that has survived three rounds is not going to be settled by a fourth.
+            findings is an array of { 'text' (what is wrong), 'citation' (a requirement id, file path, test name, or step position) }. Every finding needs a citation - a finding with none is refused, because the fix session has to know where to look. A pass may carry no findings; a fail must carry at least one, and a fail with none is refused when the step completes.
+            RECORD THE VERDICT BEFORE COMPLETING THE STEP. Completing first settles the step with no verdict on record, and the refusal names that.
+            Output contract:
+            [chain] recorded <pass|fail> review for chain #<id> (<n> finding(s)); COMPLETE YOUR STEP to let the chain act on it
+            Errors: InvalidActionInput (bad params), ReviewUnsupported (this host has no review store), ChainReviewNotAReviewStep (this session holds no review step, so its verdict moves no chain), UncitedFinding, ChainNotFound, StorageUnavailable.
+            """,
+            [
+                new ActionParameter(VerdictParam, ActionParameterTypes.StringType, "Required. Exactly pass|fail."),
+                new ActionParameter(FindingsParam, "Array", "Required. Findings: [{ 'text' (non-empty), 'citation' (non-empty: a requirement id, file path, test name, or step position) }]. An empty array is legal for a pass and refused for a fail."),
+            ],
+            [VerdictParam, FindingsParam]),
   ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(string actionName, string jsonArguments,
@@ -174,6 +196,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
         "resume-parked" => await ResumeAsync(jsonArguments).ConfigureAwait(false),
         "repair" => await RepairAsync(jsonArguments).ConfigureAwait(false),
         "abandon" => await AbandonAsync(jsonArguments).ConfigureAwait(false),
+        "judge" => await JudgeAsync(jsonArguments, ct).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
     }
@@ -227,6 +250,36 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
       ? CapabilityInvocationResult.Ok(string.Create(CultureInfo.InvariantCulture,
           $"[chain] abandoned #{id}: {reason}"))
       : Gutter(abandoned.Error);
+  }
+
+  /// <summary>Records a review step's verdict on the work it judges (see the action's own
+  ///     contract).
+  ///     <para>A PROVIDER WITH NO REVIEW STORE REFUSES BY NAME: reporting 'recorded' while
+  ///     keeping nothing would let the reviewer mark its step done and the chain advance on a
+  ///     verdict nobody stored.</para></summary>
+  /// <param name="json">The action's arguments.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<CapabilityInvocationResult> JudgeAsync(string json, CancellationToken ct)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json,
+        Allowed(VerdictParam, FindingsParam));
+    ChainReviewVerdict verdict = ReqVerdict(args);
+    List<ChainReviewFinding> findings = ReqFindings(args);
+    string? session = _sessionId();
+    if (_reviews is null || session is null)
+    {
+      return Gutter(new DomainError("ReviewUnsupported",
+          "this host cannot record a review, so no verdict was stored and the step is still open."));
+    }
+
+    Result<Chain> recorded = await _reviews
+        .RecordAsync(session, new ChainReviewRecord(verdict, findings), _clock.GetUtcNow(), ct)
+        .ConfigureAwait(false);
+    return recorded.IsSuccess
+      ? CapabilityInvocationResult.Ok(string.Create(CultureInfo.InvariantCulture,
+          $"[chain] recorded {verdict} review for chain #{recorded.Value.Id} "
+          + $"({findings.Count} finding(s)); COMPLETE YOUR STEP to let the chain act on it"))
+      : Gutter(recorded.Error);
   }
 
   private async Task<CapabilityInvocationResult> CreateAsync(string json, CancellationToken ct)
@@ -514,6 +567,69 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
         : throw new ChainInputException($"'{name}' is required and must be a non-empty string.");
   }
 
+  /// <summary>The verdict an implementation review recorded: exactly pass | fail.</summary>
+  /// <param name="args">The parsed arguments.</param>
+  private static ChainReviewVerdict ReqVerdict(Dictionary<string, JsonElement> args)
+  {
+    string token = ReqText(args, VerdictParam);
+    return token switch
+    {
+      PassVerdict => ChainReviewVerdict.Pass,
+      FailVerdict => ChainReviewVerdict.Fail,
+      _ => throw new ChainInputException(
+          $"'{VerdictParam}' must be exactly {PassVerdict}|{FailVerdict}."),
+    };
+  }
+
+  /// <summary>The findings a review carries: [{ 'text', 'citation' }], each both non-empty.
+  ///     <para>AN EMPTY ARRAY IS LEGAL and is what a clean pass looks like. A FAIL with no
+  ///     findings is refused later, by the policy that acts on it, because that refusal is about
+  ///     what makes a denial actionable rather than about the shape of the argument.</para></summary>
+  /// <param name="args">The parsed arguments.</param>
+  private static List<ChainReviewFinding> ReqFindings(Dictionary<string, JsonElement> args)
+  {
+    JsonElement element = args.TryGetValue(FindingsParam, out JsonElement given)
+        && given.ValueKind == JsonValueKind.Array
+            ? given
+            : throw new ChainInputException($"'{FindingsParam}' is required and must be an array of "
+                + $"{{ '{TextParam}', '{CitationParam}' }} objects.");
+    List<ChainReviewFinding> findings = [];
+    int index = 0;
+    foreach (JsonElement entry in element.EnumerateArray())
+    {
+      findings.Add(Finding(entry, index));
+      index++;
+    }
+
+    return findings;
+  }
+
+  /// <summary>One finding, refused by index when it is not an object with two non-empty strings.
+  ///     </summary>
+  /// <param name="entry">The array element.</param>
+  /// <param name="index">Its zero-based position, so a refusal names the one to fix.</param>
+  private static ChainReviewFinding Finding(JsonElement entry, int index)
+    => entry.ValueKind == JsonValueKind.Object
+      ? new ChainReviewFinding(EntryText(entry, TextParam, index),
+          EntryText(entry, CitationParam, index))
+      : throw new ChainInputException(
+          $"'{FindingsParam}[{index}]' must be an object with '{TextParam}' and '{CitationParam}'.");
+
+  /// <summary>One non-empty string field of a finding, refused by index.</summary>
+  /// <param name="entry">The finding object.</param>
+  /// <param name="name">The field name.</param>
+  /// <param name="index">Its zero-based position.</param>
+  private static string EntryText(JsonElement entry, string name, int index)
+  {
+    return entry.TryGetProperty(name, out JsonElement value)
+            && value.ValueKind == JsonValueKind.String
+            && value.GetString() is { } text
+            && !string.IsNullOrWhiteSpace(text)
+        ? text.Trim()
+        : throw new ChainInputException(
+            $"'{FindingsParam}[{index}].{name}' is required and must be a non-empty string.");
+  }
+
   private static Dictionary<string, JsonElement> ParseArgs(string json, HashSet<string> allowed)
   {
     JsonElement root;
@@ -699,8 +815,10 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
         null => Result.Success(ChainStepRole.Implement),
         ImplementRole => Result.Success(ChainStepRole.Implement),
         RefineRole => Result.Success(ChainStepRole.Refine),
+        ReviewRole => Result.Success(ChainStepRole.Review),
         _ => Result.Failure<ChainStepRole>(new DomainError("InvalidActionInput",
-            $"'{StepsParam}[{index}].{RoleParam}' must be exactly {ImplementRole}|{RefineRole}.")),
+            $"'{StepsParam}[{index}].{RoleParam}' must be exactly "
+            + $"{ImplementRole}|{RefineRole}|{ReviewRole}.")),
       };
 
   /// <summary>An optional non-empty string on a step object. A present-but-empty value is
@@ -739,3 +857,13 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
 public sealed record ChainRecoveryActions(
     Func<int, Task<CapabilityInvocationResult>> Resume,
     Func<int, Task<CapabilityInvocationResult>> Repair);
+
+/// <summary>The optional collaborators the chain provider can use, each absent for its own
+///     reason: a host with no git machinery has no <see cref="WorkspaceGit"/>, a host with no
+///     shell cannot start a session so it has no <see cref="Recovery"/>, and a host with no
+///     review store has no <see cref="Reviews"/>.</summary>
+/// <param name="WorkspaceGit">The git seam and the workspace directory it is asked of.</param>
+/// <param name="Recovery">The two actions that move a chain nothing else can move.</param>
+/// <param name="Reviews">Records and reads an implementation review.</param>
+public sealed record ChainProviderHooks(ChainWorkspaceGit? WorkspaceGit = null,
+    ChainRecoveryActions? Recovery = null, ChainReviewService? Reviews = null);

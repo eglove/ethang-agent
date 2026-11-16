@@ -184,8 +184,9 @@ public class ChainCapabilityProviderTests
     ChainService chains = new(store);
     return (new ChainCapabilityProvider(chains, new FakePlans(planSteps), start,
         () => "session-creator", new FixedClock(T0),
-        workspaceGit: new ChainWorkspaceGit(new FakeWorktrees(isRepository), "C:\\ws",
-            new FakeProvisioner())),
+        hooks: new ChainProviderHooks(
+            WorkspaceGit: new ChainWorkspaceGit(new FakeWorktrees(isRepository), "C:\\ws",
+                new FakeProvisioner()))),
         store, start);
   }
 
@@ -571,11 +572,12 @@ public class ChainCapabilityProviderTests
   {
     int? resumed = null;
     ChainCapabilityProvider provider = new(new ChainService(new FakeStore()), new FakePlans(1, 2),
-        new FakeStart(), () => "session-root", new FixedClock(T0), recovery: new ChainRecoveryActions(id =>
+        new FakeStart(), () => "session-root", new FixedClock(T0),
+        hooks: new ChainProviderHooks(Recovery: new ChainRecoveryActions(id =>
         {
           resumed = id;
           return Task.FromResult(CapabilityInvocationResult.Ok("[chain] resumed #4"));
-        }, _ => throw new NotSupportedException("this test does not repair")));
+        }, _ => throw new NotSupportedException("this test does not repair"))));
 
     CapabilityInvocationResult r = await provider.InvokeAsync("resume-parked",
         /*lang=json,strict*/"{ \"id\": 4 }", TestContext.Current.CancellationToken);

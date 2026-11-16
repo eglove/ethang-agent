@@ -47,12 +47,16 @@ public static class ChainContractRenderer
       "",
     ];
     AddCompletionEvidence(lines);
-    // THE COMPLETION RULE DIFFERS BY ROLE (issue #306), and this is where the STANDING rule
-    // lives — the brief states it once and a compaction can evict it, so a reviewer that read
-    // the right instruction only in its first message would drift back to finishing the work.
+    // THE COMPLETION RULE DIFFERS BY ROLE, and this is where the STANDING rule lives - the
+    // brief states it once and a compaction can evict it, so a session that read the right
+    // instruction only in its first message would drift back to finishing the work.
     if (contract.IsRefine)
     {
       AddRefine(lines, contract);
+    }
+    else if (contract.IsReview)
+    {
+      AddReview(lines, contract);
     }
     else
     {
@@ -106,6 +110,35 @@ public static class ChainContractRenderer
     lines.Add("If the plan cannot be made ready, say so plainly in the transcript and stop. The chain parks");
     lines.Add("rather than guessing, and a parked chain is something a human can act on.");
   }
+  /// <summary>The standing rule for a REVIEW step: judge the work and record a verdict, then mark
+  ///     the step done so the harness can act on it.
+  ///     <para>THE VERDICT IS THE WORK. A reviewer told only 'mark your step done' would leave the
+  ///     record with no verdict, and the cursor refuses to advance past a review step that
+  ///     recorded none - so this states the standing fact a compaction must not evict.</para>
+  ///     <para>IT CANNOT FIX WHAT IT REVIEWS, stated here as well as in the brief, because this is
+  ///     the copy that survives a long session.</para></summary>
+  private static void AddReview(List<string> lines, ChainContract contract)
+  {
+    lines.Add("## How the chain moves");
+    lines.Add("");
+    lines.Add($"Step {contract.Position} was assigned the REVIEW role: your job is to judge the work that");
+    lines.Add("came before you and record a verdict with `chain.judge` - a pass, or a fail with cited");
+    lines.Add("findings. You do not do that work, and you do not fix it: a reviewer that edits the work to");
+    lines.Add("make it pass has replaced the independent verdict with its own.");
+    lines.Add("");
+    lines.Add("Then mark this step done. That single write is the completion fact the harness reacts to,");
+    lines.Add("and it is the only step of this plan you may mark done. A pass starts what follows; a fail");
+    lines.Add("reopens the judged step for a fix session seeded with your findings; a step sent back three");
+    lines.Add("times parks the chain for a human rather than looping.");
+    lines.Add("");
+    lines.Add("Your done-claim is backed by the recorded verdict. A review step that completes with no");
+    lines.Add("verdict recorded is refused, because a chain that advanced past it would have acted on");
+    lines.Add("nothing.");
+    lines.Add("");
+    lines.Add("If you cannot reach a verdict, say so plainly in the transcript and stop. The chain parks");
+    lines.Add("rather than guessing, and a parked chain is something a human can act on.");
+  }
+
   /// <summary>The completion rule, stated as a rule rather than as a command: the command
   ///     itself is the brief's, and repeating it here would give the session two copies of an
   ///     argument list that a plan revision could make stale.</summary>

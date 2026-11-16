@@ -118,11 +118,16 @@ public static class ChainBriefRenderer
     AddSiblings(lines, facts);
     AddReconciler(lines, facts);
     AddCompletionEvidence(lines);
-    // THE ONE BRANCH ON ROLE (issue #306): a reviewer is not asked to finish the work, because
-    // a reviewer told to mark the step done would finish it instead of judging it.
+    // THE ONE BRANCH ON ROLE: each role owes a different completion contract, and handing a
+    // session the wrong one makes it do the wrong job - a reviewer told to mark the step done
+    // would finish the work instead of judging it.
     if (facts.IsRefine)
     {
       AddRefine(lines, facts);
+    }
+    else if (facts.IsReview)
+    {
+      AddReview(lines, facts);
     }
     else
     {
@@ -209,8 +214,9 @@ public static class ChainBriefRenderer
     lines.Add("## How to merge");
     lines.Add("");
     lines.Add("Merge each branch in the order listed. A conflict is yours to resolve: resolve it, then record");
-    lines.Add("what you resolved and why in your outcome before you mark this step done. The review step");
-    lines.Add("after you judges the merged result, so an unexplained resolution has nothing behind it.");
+    lines.Add("what you resolved and why in your outcome before you mark this step done. A review step after");
+    lines.Add("you judges the merged result, so an unexplained resolution has nothing behind it - and if no");
+    lines.Add("review step follows, nothing does, so say plainly what you decided.");
     if (reconciliation.FailedPositions.Count > 0)
     {
       lines.Add("");
@@ -257,7 +263,61 @@ public static class ChainBriefRenderer
     lines.Add("code you are declaring finished, and the gate refuses a claim that predates the change.");
   }
 
-  /// <summary>How a REFINE step runs (issue #313 D7): it makes the plan executable, then
+  /// <summary>How a REVIEW step runs: it judges work that was already done, records a verdict,
+  ///     and lets the harness act on it.
+  ///     <para>WHY THIS IS NOT <see cref="AddCompletion"/>: a reviewer told to mark its step done
+  ///     and nothing else would finish the work instead of judging it. Its done-claim is backed by
+  ///     the verdict it recorded, and the cursor reads that record - not this transcript - because
+  ///     the session closes the moment the step completes.</para>
+  ///     <para>IT CANNOT FIX WHAT IT REVIEWS. A reviewer that edits the work to make it pass has
+  ///     replaced the independent verdict with its own, which is the one thing the role exists to
+  ///     prevent. A failure is a verdict and a set of cited findings; the fix is a separate
+  ///     session's job.</para></summary>
+  /// <param name="lines">The brief being built.</param>
+  /// <param name="facts">The gathered facts.</param>
+  private static void AddReview(List<string> lines, ChainBriefFacts facts)
+  {
+    lines.Add("");
+    lines.Add("## You are the REVIEWER for this step");
+    lines.Add("");
+    lines.Add($"Step {facts.AssignedPosition} was assigned the review role, so your job is to JUDGE the");
+    lines.Add("work that came before you and record a verdict. You do not do that work, and you do not fix it.");
+    lines.Add("");
+    lines.Add("## What to judge");
+    lines.Add("");
+    lines.Add("Read the plan step you were assigned: it states what this review is for. Then read what the");
+    lines.Add("preceding step actually did - the files, the tests, the diff - and decide whether it satisfies");
+    lines.Add("what the plan says must be observably true.");
+    lines.Add("");
+    lines.Add("- **Spec compliance.** Every requirement in the judged step's detail is present, and nothing");
+    lines.Add("  extra was added on its own initiative.");
+    lines.Add("- **Correctness.** The tests assert the behaviour rather than merely passing, and the change fits");
+    lines.Add("  the code around it.");
+    lines.Add("- **Evidence.** A done-claim is backed by a verification that actually ran. A green run from");
+    lines.Add("  before the last change proves nothing about the code as it stands.");
+    lines.Add("");
+    lines.Add("## Record your verdict, then complete");
+    lines.Add("");
+    lines.Add("A verdict is recorded with `chain.judge`, not written in prose:");
+    lines.Add("");
+    lines.Add("    chain.judge verdict=pass findings=[]");
+    lines.Add("    chain.judge verdict=fail findings=[{\"text\":\"<what is wrong>\",\"citation\":\"<file, test, or step>\"}]");
+    lines.Add("");
+    lines.Add("Every finding needs a citation: a finding that cites nothing is refused, because the fix");
+    lines.Add("session has to know where to look. A `pass` may carry no findings; a `fail` must carry at");
+    lines.Add("least one, or the session sent back would be told it failed with nothing to act on.");
+    lines.Add("");
+    lines.Add("Then mark this step done:");
+    lines.Add("");
+    lines.Add($"    plan.update-step id={facts.PlanId} position={facts.AssignedPosition} status=Done");
+    lines.Add("");
+    lines.Add("That is the ONLY step you may mark done. Completing it is what lets the harness act on your");
+    lines.Add("verdict: a pass starts what follows, and a fail reopens the judged step for a fix session");
+    lines.Add("seeded with your findings. A step that has been sent back three times parks the chain for a");
+    lines.Add("human rather than looping.");
+  }
+
+  /// <summary>How a REFINE step runs: it makes the plan executable, then
   ///     advances into implementation.
   ///     <para>WHY THIS IS NOT <see cref="AddCompletion"/>: a refine step's work is ON THE PLAN,
   ///     not on the workspace. Handed the implementer's contract it would start building the

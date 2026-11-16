@@ -78,7 +78,7 @@ public sealed class SqliteChainReviewTelemetrySource(AppDatabase database, strin
   ///     <c>ChainReviewVerdictParityTests</c>, so decoding the stored token here cannot invent a
   ///     fourth spelling — an unknown token reads as null and is SKIPPED, never defaulted to
   ///     approve.</para></summary>
-  private static ChainReviewVerdict? Verdict(string stored)
+  private static PlanReviewTelemetryVerdict? Verdict(string stored)
   {
     Result<PlanReviewVerdict> decoded = PlanReviewVerdictCodec.Decode(stored);
     return decoded.IsSuccess ? Mirror(decoded.Value) : null;
@@ -86,11 +86,11 @@ public sealed class SqliteChainReviewTelemetrySource(AppDatabase database, strin
 
   /// <summary>The plan verdict as the chain's mirror. Exhaustive, so a new verdict cannot be
   ///     added without deciding what the chain does with it.</summary>
-  private static ChainReviewVerdict? Mirror(PlanReviewVerdict plan) => plan switch
+  private static PlanReviewTelemetryVerdict? Mirror(PlanReviewVerdict plan) => plan switch
   {
-    PlanReviewVerdict.Approve => ChainReviewVerdict.Approve,
-    PlanReviewVerdict.Deny => ChainReviewVerdict.Deny,
-    PlanReviewVerdict.ApproveWithConditions => ChainReviewVerdict.ApproveWithConditions,
+    PlanReviewVerdict.Approve => PlanReviewTelemetryVerdict.Approve,
+    PlanReviewVerdict.Deny => PlanReviewTelemetryVerdict.Deny,
+    PlanReviewVerdict.ApproveWithConditions => PlanReviewTelemetryVerdict.ApproveWithConditions,
     _ => null,
   };
 }

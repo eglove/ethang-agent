@@ -201,10 +201,10 @@ public class ChainTelemetryTests
   public void ReviewDenyRate_IsABand_AndReportsTheFloorAsWellAsTheCeiling()
   {
     ChainTelemetryReviewFacts reviews = new(
-        [new ChainTelemetryReview(7, 1, ChainReviewVerdict.Approve)],
+        [new ChainTelemetryReview(7, 1, PlanReviewTelemetryVerdict.Approve)],
         new Dictionary<int, int> { [7] = 1 });
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Refine))],
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))],
         DefaultLimits() with { ReviewDenyShareMin = 0.15m }, reviews));
 
     ChainTelemetryMetric deny = Metric(report, "review-deny-share");
@@ -213,6 +213,22 @@ public class ChainTelemetryTests
     // a clean pass. This is the criterion a one-sided ceiling would miss.
     Assert.True(deny.Breached);
     Assert.Contains("in [0.15, 0.5]", deny.Threshold, StringComparison.Ordinal);
+  }
+
+  /// <summary>A REFINE STEP IS NOT A REVIEW STEP. The two roles coexist, and counting the refiner
+  ///     would report every refining chain as a reviewer that recorded nothing - the false alarm
+  ///     that made the two roles look like one.</summary>
+  [Fact]
+  public void ReviewDenyRate_IgnoresARefineStep()
+  {
+    ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Refine))]));
+
+    Assert.Null(Metric(report, "review-deny-share").Value);
+    Assert.Contains("no review step", Metric(report, "review-deny-share").Detail,
+        StringComparison.Ordinal);
+    Assert.DoesNotContain(report.Notes,
+        note => note.Contains("NO verdict was recorded", StringComparison.Ordinal));
   }
 
   [Fact]
@@ -230,7 +246,7 @@ public class ChainTelemetryTests
   public void ReviewStepsWithNoRecordedVerdict_GetANote_NamingTheSilentDiscardShape()
   {
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
-        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Refine))]));
+        [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Review))]));
 
     // A reviewer that did the work and recorded nothing is a DEFECT, not an absence, and the
     // report distinguishes the two.
@@ -243,8 +259,8 @@ public class ChainTelemetryTests
   public void PlanChangedAfterDeny_ComparesTheJudgedVersionAgainstThePlansCurrentOne()
   {
     ChainTelemetryReviewFacts reviews = new(
-        [new ChainTelemetryReview(7, 1, ChainReviewVerdict.Deny),
-         new ChainTelemetryReview(7, 2, ChainReviewVerdict.Deny)],
+        [new ChainTelemetryReview(7, 1, PlanReviewTelemetryVerdict.Deny),
+         new ChainTelemetryReview(7, 2, PlanReviewTelemetryVerdict.Deny)],
         new Dictionary<int, int> { [7] = 3 });
     ChainTelemetryReport report = ChainTelemetry.Compute(Inputs(
         [Chain(1, ChainStatus.Completed, null, Step(1, ChainStepStatus.Done, role: ChainStepRole.Refine))],
@@ -379,7 +395,7 @@ public class ChainTelemetryTests
     ],
         baseline: new ChainTelemetryBaseline(100, 80, 3600d, 0.10m, 20),
         reviews: new ChainTelemetryReviewFacts(
-            [new ChainTelemetryReview(7, 1, ChainReviewVerdict.Deny)],
+            [new ChainTelemetryReview(7, 1, PlanReviewTelemetryVerdict.Deny)],
             new Dictionary<int, int> { [7] = 2 }));
 
     // The acceptance criterion that makes the report checkable: two runs over the same rows

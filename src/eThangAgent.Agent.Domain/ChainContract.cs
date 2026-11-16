@@ -36,6 +36,9 @@ public sealed record ChainContract(int ChainId, int PlanId, int Position, string
   [System.Text.Json.Serialization.JsonIgnore]
   public bool IsRefine => EffectiveRole.IsRefine;
 
+  /// <summary>True when this step's session judges work rather than doing it.</summary>
+  public bool IsReview => EffectiveRole.IsReview;
+
   /// <summary>The contract for a chain step's gathered brief facts.
   ///     <para>THE ONE DERIVATION SITE: the brief (#302) and the contract (#311) both come from
   ///     <see cref="ChainBriefFacts"/>, so the ledger key and the plan id are the same values in

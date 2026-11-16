@@ -9,6 +9,10 @@ This carries the experiment and external-verdict legs of the scientific loop: ea
 an experiment run by a fresh session, and a review step is an external verdict the implementer
 cannot self-grade.
 
+**Two roles do the non-implementation work, and they are not the same job.** A `refine` step makes
+the PLAN executable. A `review` step judges the IMPLEMENTATION and returns pass or fail. A plan is
+made ready by one and judged as built by the other, so neither can stand in for the other.
+
 Execute a plan as a CHAIN: the plan goes in the database, `chain.start` converts it, and the
 harness runs one session per step. The plan, the ledger, the briefs, and the outcomes live in the
 database — the record is the work.
@@ -133,12 +137,25 @@ step as an implementer step.
 
 ```text
 chain.start id=<planId>
-chain.start id=<planId> steps=[{"position":1,"role":"implement"},{"position":2,"role":"review"}]
+chain.start id=<planId> steps=[{"position":1,"role":"refine"},{"position":2,"role":"implement"},{"position":3,"role":"review"}]
 ```
 
-The role vocabulary is exactly `implement | review`. A step that names none is an implementer step.
-A role decides what the step's session is asked to do, never which model it runs on: every session
-runs on the model the workspace has selected, so there is no model to name and none to choose.
+The role vocabulary is exactly `implement | refine | review`. A step that names none is an
+implementer step. A role decides what the step's session is asked to do, never which model it runs
+on: every session runs on the model the workspace has selected, so there is no model to name and
+none to choose.
+
+**`refine` makes the plan executable.** It reads the plan, resolves what is ambiguous, and sharpens
+each remaining step until it states what must be observably true. It returns no verdict and nothing
+comes back to it: it refines until it believes the plan is ready, completes, and the chain advances
+into implementation. Put it first when the plan is thin.
+
+**`review` judges the implementation.** It reads the work a step produced and records pass or fail
+with cited findings through `chain.judge`. A pass advances the chain. A fail reopens the judged step
+for a fix session seeded with the findings. A step sent back three times parks the chain, because a
+disagreement that survived three rounds is not going to be settled by a fourth. Put it after work
+worth judging, and never in a parallel group - a group's members settle together, so a review
+inside one would judge work that has not landed.
 
 Creation validates before anything starts and refuses with a named code rather than producing a
 chain that cannot run: `ChainNoExecutableSteps` (an empty chain that immediately reports `Completed`
@@ -209,16 +226,15 @@ continue, and no model writes a handoff prompt.
 status; the chain record says which step is claimed, by which session, and how many attempts it has
 spent. Do not poll a running session's transcript to infer progress — the record is the fact.
 
-**A review step judges before the chain moves.** Its session records a verdict with `plan.review`
-— approve, deny, or approve-with-conditions, with four rubric scores and findings that each cite a
-requirement id or a step position. The cursor reads that verdict: an approve advances, a deny
-reopens the judged step for a fix session seeded with the findings, and approve-with-conditions
-carries its conditions into the next step's brief. A reviewer that fixes what it reviews has
-replaced the independent verdict with its own.
+**A review step judges before the chain moves.** Its session records a verdict with `chain.judge` —
+pass or fail, with findings that each cite a requirement id, a file path, a test name, or a step
+position. The cursor reads that verdict: a pass advances, a fail reopens the judged step for a fix
+session seeded with the findings. A reviewer that fixes what it reviews has replaced the independent
+verdict with its own.
 
-**A denial is capped.** Each step carries its own review round-trip counter, separate from its retry
-counter, capped at three. Past the cap the chain PARKS rather than looping — a third denial of the
-same work means the plan is wrong, not that a fourth session will succeed.
+**A fail is capped.** Each step carries its own review round-trip counter, separate from its retry
+counter, capped at three. Past the cap the chain PARKS rather than looping — a third fail of the same
+work means the plan is wrong, not that a fourth session will succeed.
 
 ## When the chain stops
 
@@ -274,6 +290,7 @@ the code and run the tests, and no step detail reaches for them.
 | "I'll write a handoff prompt so the next session knows what happened" | The brief is rendered from the record. A model-written handoff is a summary of a summary, and it drifts. |
 | "Close enough on spec compliance" | A reviewer's spec gap is not done. Fix it, or hit the review cap and let the chain park. |
 | "I'll fix it myself instead of reopening the step" | Fixing outside the chain skips the review that was the point of the step. |
+| "refine and review are both 'a second look'" | They are different jobs on different artifacts. Refine edits the plan before implementation; review judges implementation and can send it back. A refiner cannot fail work and a reviewer cannot rewrite the plan. |
 | "One more round will converge" | Past the cap, rounds do not converge — the failure is structural. The chain parks. |
 | "The reviewer will just find something new anyway" | A scoped re-review verifies fixes; it cannot wander. New findings on untouched code go to the ledger, not the loop. |
 | "This finding is obviously wrong, I'll drop it" | Rule on it and record the ruling. Silent discards are forbidden. |
@@ -285,6 +302,6 @@ the code and run the tests, and no step detail reaches for them.
 
 - `writing-plans` — how the plan is written, and what its step details must carry.
 - `executing-a-chain` — the skill a chain step's own session follows.
-- `reviewing-plans` — the rubric and verdict contract a review step applies.
+- `reviewing-plans` — the rubric a PLAN review applies, before a chain starts.
 - `requesting-code-review` — the review a single session requests of its own change.
 - `finishing-a-development-branch` — merging once the chain has completed.

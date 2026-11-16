@@ -102,7 +102,6 @@ public sealed class ChainBriefService(IChainBriefSource source)
         briefChain.Value.Predecessors,
         ChainLedgerSlug.KeyFor(briefChain.Value.Title),
         null,
-        false,
         true);
     Result<ChainBrief> brief = ChainBriefRenderer.Render(facts);
     return brief.IsSuccess
@@ -128,10 +127,9 @@ public sealed class ChainBriefService(IChainBriefSource source)
       return Result.Failure<ChainBriefFacts>(plan.Error);
     }
 
-    // NO SKILL CATALOG IS READ. The rubric was the reviewer's, and the reviewer is gone: a
-    // refiner works from the plan's own goal, so a refine step costs exactly what an implement
-    // step does.
-    return Result.Success(Facts(assignment, chain.Value, plan.Value, false));
+    // NO SKILL CATALOG IS READ. A refine step works from the plan's own goal and a review step
+    // judges what the plan says must be true, so both cost exactly what an implement step does.
+    return Result.Success(Facts(assignment, chain.Value, plan.Value));
   }
 
   /// <summary>The role this brief is for (issue #306): the ASSIGNMENT's when the launcher read
@@ -148,8 +146,11 @@ public sealed class ChainBriefService(IChainBriefSource source)
   /// <summary>Assembles the fact record. The ledger key is DERIVED from the chain's title
   ///     rather than stored, so the brief and the system prompt (#311) cannot disagree about
   ///     where a chain's ledger lives.</summary>
+  /// <param name="assignment">The step this brief is for.</param>
+  /// <param name="chain">The chain as the record stands.</param>
+  /// <param name="plan">The plan the chain executes.</param>
   private static ChainBriefFacts Facts(ChainStepAssignment assignment, ChainBriefChain chain,
-      ChainBriefPlan plan, bool rubricAvailable) =>
+      ChainBriefPlan plan) =>
       new(chain.ChainId,
           chain.Title,
           plan.PlanId,
@@ -159,8 +160,7 @@ public sealed class ChainBriefService(IChainBriefSource source)
           plan.Steps,
           chain.Predecessors,
           ChainLedgerSlug.KeyFor(chain.Title),
-          RoleOf(chain, assignment),
-          rubricAvailable)
+          RoleOf(chain, assignment))
       {
         Siblings = Siblings(chain, plan, assignment.Position),
         Reconciliation = chain.Reconciliation,

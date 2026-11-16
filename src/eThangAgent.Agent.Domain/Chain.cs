@@ -331,6 +331,26 @@ public sealed record Chain(
     return ReplaceStep(index, Steps[index].Retry(sessionId, now), now);
   }
 
+  /// <summary>Reopens the DONE step at <paramref name="position"/> on a reviewer's denial: the
+  ///     review back-edge's aggregate mutation.
+  ///     <para>THE RETRY COUNTER IS UNTOUCHED and the REVIEW counter increments - see
+  ///     <see cref="ChainStep.Reopen"/>, which owns the reasoning. The chain simply delegates, so
+  ///     the rule has one home.</para>
+  ///     <para>A PARKED CHAIN STAYS PARKED. Reopening a step is not the same act as resuming a
+  ///     chain: the park was a human's to clear, and a back-edge that silently un-parked it would
+  ///     restart work nobody asked to restart.</para></summary>
+  /// <param name="position">The 1-based step position to reopen.</param>
+  /// <param name="outcome">What the review recorded, so the step says why it is open again.</param>
+  /// <param name="actor">Who reopened it.</param>
+  /// <param name="now">The clock.</param>
+  public Chain ReopenStep(int position, ChainActor actor, string? outcome, DateTimeOffset now)
+  {
+    EnsureMutable();
+    ArgumentNullException.ThrowIfNull(actor);
+    int index = IndexOf(position);
+    return ReplaceStep(index, Steps[index].Reopen(actor, outcome), now);
+  }
+
   /// <summary>The nearest PRECEDING step a later conclusion supersedes: the work a refutation
   ///     recorded by the step at <paramref name="position"/> is about.
   ///     <para>WHY THE NEAREST PRECEDING STEP AND NOT A DECLARED PAIRING: chain steps are

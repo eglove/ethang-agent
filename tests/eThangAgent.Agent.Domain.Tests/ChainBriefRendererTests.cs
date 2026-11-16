@@ -14,7 +14,6 @@ public sealed class ChainBriefRendererTests
       IReadOnlyList<ChainBriefPredecessor>? predecessors = null,
       string goal = "Make the dashboard tell the truth about what it did.",
       ChainStepRole? role = null,
-      bool rubric = false,
       IReadOnlyList<ChainBriefSibling>? siblings = null) =>
       new(ChainId: 7,
           ChainTitle: "2026-08-24-dashboard-truth",
@@ -29,8 +28,7 @@ public sealed class ChainBriefRendererTests
           ],
           Predecessors: predecessors ?? [],
           LedgerKey: "sci.dashboard-truth/ledger",
-          Role: role,
-          RefineRubricAvailable: rubric)
+          Role: role)
       {
         Siblings = siblings ?? [],
       };
@@ -201,11 +199,11 @@ public sealed class ChainBriefRendererTests
   [Fact]
   public void Render_ForARefineStep_ReturnsNoVerdictAndAppliesNoRubric()
   {
-    // THE ROLE THAT WEDGED CHAINS IS GONE. A refiner that returned a verdict would need the
-    // back-edge a denial required, and a rubric would be a second thing to satisfy before the
-    // plan could be made ready.
+    // A REFINER IS NOT A REVIEWER. It makes the plan executable and returns no verdict, so its
+    // brief must not carry the verdict machinery - asking a refiner for a verdict would be the
+    // two roles collapsed into one again.
     ChainBrief brief = ChainBriefRenderer.Render(
-        Facts(role: ChainStepRole.Refine, rubric: true)).Value!;
+        Facts(role: ChainStepRole.Refine)).Value!;
 
     Assert.DoesNotContain("plan.review", brief.Content, StringComparison.Ordinal);
     Assert.DoesNotContain("verdict:", brief.Content, StringComparison.Ordinal);

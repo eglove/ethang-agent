@@ -1,21 +1,18 @@
 namespace eThangAgent.AgentDomain;
 
-/// <summary>What a chain step's session is FOR (issue #313 D7). The vocabulary is exactly two
-///     members: <see cref="Implement"/> and <see cref="Refine"/>.
-///     <para>REFINE REPLACED REVIEW, and the reason is what a reviewer could not do. A reviewer
-///     judged work that had already been done and returned a verdict; a denial then had to be
-///     enacted, which meant reopening a settled step, spending a round-trip budget, and - when
-///     the budget ran out - parking the chain for a human. Every one of those was machinery for
-///     a decision the stakeholder had already made before the chain started.</para>
-///     <para>THE STAKEHOLDER'S REVIEW IS THE GATE BEFORE A CHAIN STARTS, not a step inside it.
-///     A plan is reviewed while it is still a plan, by the person who decided it should be done.
-///     What a chain needs instead is a step that makes the plan EXECUTABLE: it reads the plan,
-///     resolves what is ambiguous, sharpens the steps that are not yet checkable, and then
-///     advances into implementation. That is technical work on the plan, and it is the model's.
-///     </para>
+/// <summary>What a chain step's session is FOR. The vocabulary is exactly three members:
+///     <see cref="Implement"/>, <see cref="Review"/>, and <see cref="Refine"/>.
+///     <para>TWO NON-IMPLEMENTATION ROLES, AND THEY DO DIFFERENT JOBS. <see cref="Refine"/>
+///     works on the PLAN: it reads the plan, takes a second opinion on it, resolves what is
+///     ambiguous, and sharpens each remaining step until it states what must be observably
+///     true. <see cref="Review"/> works on the IMPLEMENTATION: it judges work that has already
+///     been done, returns a verdict, and either advances the chain or sends the judged step
+///     back with the findings that make it fixable. A plan is made executable by one and
+///     judged as built by the other, so neither can stand in for the other.</para>
 ///     <para>ROLES ARE ASSIGNED, NOT EMERGENT (parent #299 D15). An assigned role is checkable
-///     and an emergent one is not: there is a role on the record, a brief that differs per role,
-///     and a completion contract that differs per role.</para>
+///     and an emergent one is not: there is a role on the record, a verdict the cursor reads
+///     for a review step, a brief that differs per role, and a completion contract that differs
+///     per role.</para>
 ///     <para>A ROLE CARRIES NO MODEL. A step's session runs on whatever model the workspace has
 ///     selected, exactly as every other session does; the role decides what the session is
 ///     asked to do, never which model is asked to do it.</para></summary>
@@ -24,12 +21,16 @@ public enum ChainStepRoleKind
   /// <summary>This step's session changes the workspace: it is the work.</summary>
   Implement,
 
+  /// <summary>This step's session judges another step's implementation and returns a verdict
+  ///     the cursor acts on: pass advances, fail sends the judged step back.</summary>
+  Review,
+
   /// <summary>This step's session makes the plan executable and then advances: it refines the
   ///     plan's remaining steps rather than implementing them.</summary>
   Refine,
 }
 
-/// <summary>A chain step's assigned role (issue #313 D7): the kind, and nothing else.
+/// <summary>A chain step's assigned role: the kind, and nothing else.
 ///     <para>IMMUTABLE AND TOTAL. Every chain step has a role - there is no 'unassigned'
 ///     state, because a step whose role nobody declared is a step nobody can start
 ///     correctly. <see cref="Implement"/> is the default the creation call applies when a
@@ -43,11 +44,18 @@ public sealed record ChainStepRole(ChainStepRoleKind Kind)
   /// <summary>The implementer role: the default for a step that names none.</summary>
   public static ChainStepRole Implement { get; } = new(ChainStepRoleKind.Implement);
 
-  /// <summary>The refine role.</summary>
+  /// <summary>The reviewer role: the role whose brief asks for a verdict on the work.</summary>
+  public static ChainStepRole Review { get; } = new(ChainStepRoleKind.Review);
+
+  /// <summary>The refine role: the role whose brief asks for the plan to be made executable.
+  ///     </summary>
   public static ChainStepRole Refine { get; } = new(ChainStepRoleKind.Refine);
 
-  /// <summary>True for a refine step: the role whose brief asks for the plan to be made
-  ///     executable rather than for the work.</summary>
+  /// <summary>True for a review step: the step that judges work and returns a verdict.</summary>
+  public bool IsReview => Kind == ChainStepRoleKind.Review;
+
+  /// <summary>True for a refine step: the step whose work is ON THE PLAN rather than on the
+  ///     workspace.</summary>
   public bool IsRefine => Kind == ChainStepRoleKind.Refine;
 
   /// <summary>The stored role name. The enum member name, so a CHECK constraint and a
@@ -57,23 +65,23 @@ public sealed record ChainStepRole(ChainStepRoleKind Kind)
   /// <summary>Reads a persisted role. STRICT: only a DEFINED enum member parses, so a
   ///     corrupt column is reported rather than silently read as an implementer - a step
   ///     whose role nobody can name is worse than a named failure.
-  ///     <para><c>Enum.TryParse</c> alone is not enough: it accepts a numeric string ('5')
-  ///     and yields an UNDEFINED member, which would smuggle a value outside the enum into
-  ///     the domain (the <c>SqliteChainStore</c> status rule, applied here for the same
-  ///     reason).</para>
-  ///     <para>THE RETIRED SPELLING IS NOT ACCEPTED. A row that still says 'Review' was written
-  ///     before the role changed, and the migration that renamed the vocabulary rewrites it; a
-  ///     decoder that also accepted 'Review' would let the two spellings coexist forever and
-  ///     make 'which role is this' a question with two answers.</para></summary>
+  ///     <para><c>Enum.TryParse</c> alone is not enough: it accepts a numeric string, and once
+  ///     that number names a defined member it smuggles a role nobody wrote into the domain.
+  ///     The stored encoding is the member NAME, so the name is what must round-trip.</para>
+  ///     </summary>
   /// <param name="encoded">The stored role name.</param>
   /// <param name="role">The decoded role, or null.</param>
   public static bool TryDecode(string? encoded,
       [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ChainStepRole? role)
   {
     role = null;
+    // THE ENCODING IS THE MEMBER NAME, so the name is what must come back: a numeric string
+    // ('2') parses to a DEFINED member and would be silently accepted as a role nobody wrote,
+    // which is the smuggle the strictness exists to refuse.
     if (string.IsNullOrWhiteSpace(encoded)
         || !Enum.TryParse(encoded, ignoreCase: false, out ChainStepRoleKind kind)
-        || !Enum.IsDefined(kind))
+        || !Enum.IsDefined(kind)
+        || !string.Equals(kind.ToString(), encoded, StringComparison.Ordinal))
     {
       return false;
     }

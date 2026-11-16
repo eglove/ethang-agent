@@ -13,8 +13,13 @@ check against self-grading.
 ## How a review happens here
 
 A review is an INDEPENDENT SESSION that judges your work. In a chain, that is a step assigned the
-review role when the chain was created — the harness starts it, it records a verdict, and the cursor
-reads that verdict. You do not schedule it and you do not dispatch it.
+`review` role when the chain was created — the harness starts it, it records a verdict, and the
+cursor acts on that verdict. You do not schedule it and you do not dispatch it.
+
+**A review judges implementation, not a plan.** It looks at work that already exists and answers one
+question: may this stand? Plan work is a different role — `refine` — which makes a plan executable
+before anything is built. Do not confuse the two: a refiner returns no verdict, and a reviewer does
+not rewrite the plan.
 
 **There is no reviewer subagent.** A session cannot start one, and it cannot review itself into an
 external verdict. If your work needs an independent verdict and no review step exists, say so — the
@@ -35,38 +40,34 @@ planning session can revise the plan, and a human can start a new chain that inc
 ## What the reviewer receives
 
 The reviewer's brief is rendered by the harness from the plan record. It names the step, the plan's
-goal, the chain's ledger key, and the rubric — and it never includes your session's history. A
-reviewer that reads your reasoning inherits your framing, which is the self-grading the external
+goal, the chain's ledger key, and the step it judges — and it never includes your session's history.
+A reviewer that reads your reasoning inherits your framing, which is the self-grading the external
 verdict exists to prevent.
-
-The reviewer loads `reviewing-plans` and applies its rubric: four scored dimensions (requirement
-coverage, testability, blast radius, step design) and findings that each cite a requirement id or a
-step position.
 
 ## What the reviewer returns
 
-A verdict recorded with `plan.review` — not prose in a transcript:
+A verdict recorded with `chain.judge` — not prose in a transcript:
 
 ```text
-verdict: approve | deny | approve-with-conditions
-scores:  requirement-coverage, testability, blast-radius, step-design (each 1-5, with a reason)
-findings: one per finding, each citing a requirement id or a step position
+verdict: pass | fail
+findings: [{text: <what is wrong>, citation: <requirement id, file, test, or step position>}]
 ```
 
 | Verdict | What happens |
 | --- | --- |
-| `approve` | The chain advances; the plan executes as written. |
-| `deny` | The judged step reopens for a fix session seeded with the findings and their citations. |
-| `approve-with-conditions` | Both: the chain advances, and the conditions travel into the next step's brief. |
+| `pass` | The chain advances past the review step and runs what follows. |
+| `fail` | The judged step reopens for a fix session seeded with the findings and their citations. |
 
-A denial is capped at three round trips per step. Past the cap the chain parks rather than looping:
-a third denial of the same work means the plan is wrong, not that a fourth session will succeed.
+A fail is capped at three round trips per step, counted on the step being reopened rather than on
+one reviewer. Past the cap the chain parks rather than looping: a third fail of the same work means
+the disagreement needs a human, not a fourth round.
 
 ## If you are the reviewer
 
-Load `reviewing-plans` and follow it. Two rules that matter most:
+Two rules that matter most:
 
-- **Never read the planner's session history.** Judge the plan, the requirements, and the rubric.
+- **Never read the implementer's session history.** Judge the work, the plan's requirement, and the
+  evidence that the work runs.
 - **Never fix what you review.** A reviewer that edits the work to make it pass has replaced the
   independent verdict with its own.
 
@@ -96,6 +97,8 @@ it works, and record the ruling in the ledger.
 
 ## Related skills
 
-- `reviewing-plans` — the rubric and verdict contract.
+- `reviewing-plans` — the rubric for a PLAN review, which is a different judgment entirely.
 - `receiving-code-review` — what to do with feedback you get.
 - `executing-a-chain` — the step whose completion a verdict gates.
+
+---

@@ -155,6 +155,22 @@ public sealed class ChainService(IChainStore store)
     => MutateAsync(id, chain => chain.ReleaseStep(position, actor, now), now,
         (_, _) => StepChanged?.Invoke(new ChainStepChanged(id, position, "pending", actor, now)), ct);
 
+  /// <summary>Reopens a DONE step on a reviewer's denial: the review back-edge's write.
+  ///     <para>THE RETRY COUNTER IS UNTOUCHED and the REVIEW counter increments - see
+  ///     <see cref="ChainStep.Reopen"/>, which owns the reasoning. The step-change event reports
+  ///     <c>pending</c>, so a surface watching the stream sees the step become available again.
+  ///     </para></summary>
+  /// <param name="id">The chain id.</param>
+  /// <param name="position">The 1-based step position to reopen.</param>
+  /// <param name="actor">Who reopened it.</param>
+  /// <param name="outcome">What the review recorded, so the step says why it is open again.</param>
+  /// <param name="now">The clock.</param>
+  /// <param name="ct">Cancellation.</param>
+  public Task<Result<Chain>> ReopenStepAsync(int id, int position, ChainActor actor,
+      string? outcome, DateTimeOffset now, CancellationToken ct = default)
+    => MutateAsync(id, chain => chain.ReopenStep(position, actor, outcome, now), now,
+        (_, _) => StepChanged?.Invoke(new ChainStepChanged(id, position, "pending", actor, now)), ct);
+
   /// <summary>Marks a step INVALIDATED by a refutation, keeping its status (issue #304 D5).
   ///     <para>The step-change event reports <c>invalidated</c>, so a surface watching the stream
   ///     sees the marker appear without diffing the record.</para></summary>

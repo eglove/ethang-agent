@@ -102,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 45;
+  public const int LatestSchemaVersion = 46;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -154,6 +154,7 @@ public sealed class AppDatabase
     (43, ApplyV43),
     (44, ApplyV44),
     (45, ApplyV45),
+    (46, ApplyV46),
   ];
 
   private void Migrate()
@@ -432,6 +433,96 @@ public sealed class AppDatabase
         "ALTER TABLE watchdog_events ADD COLUMN last_seen_at TEXT NULL;");
     Execute(connection, "CREATE INDEX IF NOT EXISTS ix_watchdog_events_coalescing ON watchdog_events (agent_id, kind, detail);");
     Execute(connection, "UPDATE watchdog_events SET last_seen_at = created_at WHERE last_seen_at IS NULL;");
+  }
+
+  /// <summary>V46 restores the REVIEW role beside REFINE, and gives an implementation review
+  ///     a record of its own.
+  ///     <para>THE ROLE SET IS WIDENED BY REBUILDING <c>chain_steps</c>, because SQLite cannot
+  ///     alter a CHECK constraint. Every existing row keeps its role; nothing is relabelled. V42
+  ///     rewrote historical 'Review' rows to 'Refine' and those stay as they are — history is
+  ///     what the record says, not something this migration revisits.</para>
+  ///     <para>WHY <c>chain_reviews</c> IS A SEPARATE TABLE: a plan review judges a plan VERSION
+  ///     before implementation, and an implementation review judges WORK THAT WAS BUILT. They
+  ///     answer different questions about different artifacts, and storing both in
+  ///     <c>plan_reviews</c> is what let one be argued into the other. Each has its own row, its
+  ///     own reader, and its own meaning.</para>
+  ///     <para>CONDITIONAL ON <c>chain_steps</c> EXISTING, because a migration runs against every
+  ///     historical shape of this database.</para></summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV46(SqliteConnection connection)
+  {
+    if (TableExists(connection, "chain_steps"))
+    {
+      Execute(connection, "PRAGMA foreign_keys = OFF;");
+      try
+      {
+        string rebuild = """
+            CREATE TABLE chain_steps_v46 (
+                chain_id INTEGER NOT NULL REFERENCES chains(id),
+                position INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('Pending', 'Running', 'Done', 'Failed', 'Skipped', 'Parked')),
+                session_id TEXT,
+                attempts INTEGER NOT NULL,
+                outcome TEXT,
+                actor TEXT NOT NULL,
+                claimed_at TEXT,
+                completed_at TEXT,
+                role TEXT NOT NULL DEFAULT 'Implement' CHECK (role IN ('Implement', 'Review', 'Refine')),
+                review_attempts INTEGER NOT NULL DEFAULT 0 CHECK (review_attempts >= 0),
+                invalidated_by TEXT,
+                group_id INTEGER,
+                worktree_path TEXT,
+                worktree_branch TEXT,
+                PRIMARY KEY (chain_id, position)
+            );
+            INSERT INTO chain_steps_v46 (chain_id, position, status, session_id, attempts, outcome,
+                actor, claimed_at, completed_at, role, review_attempts, invalidated_by, group_id,
+                worktree_path, worktree_branch)
+                SELECT chain_id, position, status, session_id, attempts, outcome, actor,
+                    claimed_at, completed_at, role,
+                    CASE WHEN column_exists THEN review_attempts ELSE 0 END,
+                    invalidated_by, group_id, worktree_path, worktree_branch
+                FROM chain_steps;
+            DROP TABLE chain_steps;
+            ALTER TABLE chain_steps_v46 RENAME TO chain_steps;
+            """;
+        rebuild = rebuild.Replace("CASE WHEN column_exists THEN review_attempts ELSE 0 END",
+            ColumnExists(connection, "chain_steps", "review_attempts") ? "review_attempts" : "0",
+            StringComparison.Ordinal);
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        // The string is assembled from this file's own literals: no user input reaches it.
+#pragma warning disable CA2100
+        command.CommandText = rebuild;
+#pragma warning restore CA2100
+        _ = command.ExecuteNonQuery();
+        transaction.Commit();
+      }
+      finally
+      {
+        Execute(connection, "PRAGMA foreign_keys = ON;");
+      }
+
+      // THE REBUILD LEAVES THE OLD TABLE'S PAGES FREE, and V43/V44 already reclaimed this file
+      // once. Without this the file grows by the freed pages on every upgrade and the space
+      // never returns - the opposite of what the strip migrations exist to guarantee. VACUUM
+      // cannot run inside a transaction, so it is the last thing this step does.
+      Execute(connection, "VACUUM;");
+    }
+
+    Execute(connection, """
+        CREATE TABLE IF NOT EXISTS chain_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chain_id INTEGER NOT NULL REFERENCES chains(id),
+            judged_position INTEGER NOT NULL,
+            reviewer_session_id TEXT NOT NULL,
+            verdict TEXT NOT NULL CHECK (verdict IN ('Pass', 'Fail')),
+            findings_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_chain_reviews_chain ON chain_reviews (chain_id, judged_position, id);
+        """);
   }
 
   /// <summary>V9 adds watchdog_events: the append-only audit trail of watchdog decisions
@@ -1001,6 +1092,22 @@ public sealed class AppDatabase
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@name;";
     _ = command.Parameters.AddWithValue("@name", table);
+    return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+  }
+
+  /// <summary>True when <paramref name="column"/> exists on <paramref name="table"/>. A rebuild
+  ///     that copies a column must ask, because it also runs against shapes that predate it.
+  ///     </summary>
+  private static bool ColumnExists(SqliteConnection connection, string table, string column)
+  {
+    using SqliteCommand command = connection.CreateCommand();
+    // table_info reports the column NAME in a result row, so the table is matched against the
+    // schema listing rather than interpolated into the statement.
+#pragma warning disable CA2100, S2077
+    command.CommandText = "SELECT COUNT(*) FROM pragma_table_info(@table) WHERE name = @name;";
+#pragma warning restore CA2100, S2077
+    _ = command.Parameters.AddWithValue("@table", table);
+    _ = command.Parameters.AddWithValue("@name", column);
     return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
   }
 

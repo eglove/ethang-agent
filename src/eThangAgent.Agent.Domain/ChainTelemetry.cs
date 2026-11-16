@@ -173,13 +173,16 @@ public static class ChainTelemetry
   ///     <para>BOTH ARE ABSENT WHEN THERE IS NOTHING TO MEASURE, and the report distinguishes the
   ///     two absences: no review STEP in scope means reviews are not part of how these chains
   ///     run, while review steps with no recorded verdict is the silent-discard shape #320
-  ///     closed — a reviewer that did the work and recorded nothing. The second gets a NOTE,
-  ///     because it is a defect rather than an absence.</para></summary>
+  ///     closed - a reviewer that did the work and recorded nothing. The second gets a NOTE,
+  ///     because it is a defect rather than an absence.</para>
+  ///     <para>A REFINE STEP IS NOT A REVIEW STEP and is not counted here: it makes the plan
+  ///     executable and records no verdict, so counting it would report every refining chain as a
+  ///     silent discard.</para></summary>
   private static IReadOnlyList<ChainTelemetryMetric> ReviewRate(
       IReadOnlyList<ChainTelemetryStep> steps, ChainTelemetryReviewFacts reviews,
       ChainTelemetryThresholds limits)
   {
-    int reviewSteps = steps.Count(step => step.Role.IsRefine);
+    int reviewSteps = steps.Count(step => step.Role.IsReview);
     List<ChainTelemetryReview> recorded = [.. reviews.Reviews];
     bool measurable = reviewSteps > 0 && recorded.Count > 0;
     int denials = recorded.Count(review => review.IsDenial);
@@ -390,7 +393,7 @@ public static class ChainTelemetry
   private static void AddReviewNote(List<string> notes, IReadOnlyList<ChainTelemetryStep> steps,
       ChainTelemetryReviewFacts reviews)
   {
-    int reviewSteps = steps.Count(step => step.Role.IsRefine);
+    int reviewSteps = steps.Count(step => step.Role.IsReview);
     if (reviewSteps > 0 && reviews.Reviews.Count == 0)
     {
       notes.Add($"{reviewSteps} review step(s) exist but NO verdict was recorded: the deny rate "

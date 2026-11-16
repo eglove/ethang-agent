@@ -686,6 +686,13 @@ public static class AgentComposition
             sp.GetRequiredService<IGitQueryAccess>(),
             sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<ChainBriefService>()
+        // THE REVIEW RECORD: a review step's verdict lives in its own table, and this is the
+        // writer the advance reads back. Registered beside the store it writes to rather than
+        // as a separate adapter, because the port's implementation IS the table.
+        .AddSingleton<IChainReviewSource>(sp => new SqliteChainReviewStore(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<ChainReviewService>()
 
         // The plan-to-execution transition (issue #313): the plan port the creation action
         // validates against, and the session-start port it launches step 1 through. The start
@@ -711,20 +718,23 @@ public static class AgentComposition
             sp.GetRequiredService<IChainStartPort>(),
             () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
             TimeProvider.System,
-            // A group runs its members in worktrees, so creation asks the same git seam the
-            // advance provisions them through whether the workspace is a repository at all.
-            new ChainWorkspaceGit(sp.GetRequiredService<IGitWorktreeAccess>(),
-                sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
-                // A group member's checkout is made by the same provisioner the advance uses,
-                // because creation starts a group's members itself.
-                sp.GetRequiredService<IWorktreeProvisioner>()),
-            // THE TWO EXITS FROM A CHAIN NOTHING ELSE CAN MOVE (issues #303, #313): resume a
-            // parked one, repair a stuck one. Both delegate to their service, which starts a
-            // session through the launch port above - the Agent Domain cannot start one itself,
-            // so the work is delegated rather than re-derived.
-            new ChainRecoveryActions(
-                chainId => ResumeChainAsync(sp, chainId),
-                chainId => RepairChainAsync(sp, chainId))));
+            new ChainProviderHooks(
+                // A group runs its members in worktrees, so creation asks the same git seam the
+                // advance provisions them through whether the workspace is a repository at all.
+                WorkspaceGit: new ChainWorkspaceGit(sp.GetRequiredService<IGitWorktreeAccess>(),
+                    sp.GetRequiredService<IWorkspaceContext>().WorkspaceRoot,
+                    // A group member's checkout is made by the same provisioner the advance uses,
+                    // because creation starts a group's members itself.
+                    sp.GetRequiredService<IWorktreeProvisioner>()),
+                // THE TWO EXITS FROM A CHAIN NOTHING ELSE CAN MOVE (issues #303, #313): resume a
+                // parked one, repair a stuck one. Both delegate to their service, which starts a
+                // session through the launch port above - the Agent Domain cannot start one
+                // itself, so the work is delegated rather than re-derived.
+                Recovery: new ChainRecoveryActions(
+                    chainId => ResumeChainAsync(sp, chainId),
+                    chainId => RepairChainAsync(sp, chainId)),
+                // A review step records its verdict through this, and the advance reads it back.
+                Reviews: sp.GetRequiredService<ChainReviewService>())));
   }
 
   /// <summary>The <c>chain.repair</c> action's work: repair a chain that cannot move on its own,

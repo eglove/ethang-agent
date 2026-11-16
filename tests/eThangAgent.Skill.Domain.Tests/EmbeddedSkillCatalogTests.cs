@@ -172,6 +172,64 @@ public class EmbeddedSkillCatalogTests
     Assert.Contains("Do not write to", body, StringComparison.Ordinal);
   }
 
+  /// <summary>The chain's two non-implementation roles are DISTINCT jobs, and the skill that names
+  ///     them says so: refine makes a plan executable and returns no verdict, review judges built
+  ///     work and returns a pass or a fail. Collapsing them into one word is what deleted the
+  ///     review role, and a skill that describes only one of them leaves a session unable to tell
+  ///     which it holds.
+  ///     <para>THE SCOPING IS THE POINT: a body-wide search would pass with the distinction stated
+  ///     anywhere, including in a paragraph about something else.</para></summary>
+  [Fact]
+  public async Task TheChainSkill_DistinguishesRefineFromReview()
+  {
+    Result<SkillDefinition> r = await _catalog.GetAsync("experiment-driven-development",
+        ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    string body = r.Value.Body;
+
+    string roles = Section(body, "### Choosing which steps execute, and their roles");
+    Assert.Contains("implement | refine | review", roles, StringComparison.Ordinal);
+    Assert.Contains("`refine` makes the plan executable", roles, StringComparison.Ordinal);
+    Assert.Contains("`review` judges the implementation", roles, StringComparison.Ordinal);
+    // Refine returns nothing; review does. The two sentences that make the roles distinguishable.
+    Assert.Contains("returns no verdict", roles, StringComparison.Ordinal);
+    Assert.Contains("chain.judge", roles, StringComparison.Ordinal);
+    // The retired spelling must not appear as a role vocabulary anywhere in the skill.
+    Assert.DoesNotContain("implement | review", body, StringComparison.Ordinal);
+  }
+
+  /// <summary>The reviewer's own skill states a verdict a reviewer can actually record: the
+  ///     implementation review is pass or fail, and the tool it names is the one that exists.
+  ///     <para>A SKILL THAT NAMES A RETIRED TOOL is worse than a silent one: the session follows
+  ///     it and the call fails.</para></summary>
+  [Fact]
+  public async Task TheCodeReviewSkill_RecordsPassOrFailThroughTheToolThatExists()
+  {
+    Result<SkillDefinition> r = await _catalog.GetAsync("requesting-code-review",
+        ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    string body = r.Value.Body;
+
+    Assert.Contains("verdict: pass | fail", body, StringComparison.Ordinal);
+    Assert.Contains("`chain.judge`", body, StringComparison.Ordinal);
+    // The plan-review tool records a PLAN verdict, which is a different judgment.
+    Assert.Contains("Plan work is a different role", body, StringComparison.Ordinal);
+    Assert.DoesNotContain("deny", body, StringComparison.Ordinal);
+    Assert.DoesNotContain("approve-with-conditions", body, StringComparison.Ordinal);
+  }
+
+  /// <summary>The refine role's own skill is not the reviewer's: a refine step returns no verdict,
+  ///     and this is the negative that keeps the two from merging again.</summary>
+  [Fact]
+  public async Task TheChainSkill_KeepsAReviewStepOutOfAParallelGroup()
+  {
+    Result<SkillDefinition> r = await _catalog.GetAsync("dispatching-parallel-agents",
+        ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+
+    Assert.Contains("a review step INSIDE a\ngroup is refused", r.Value.Body, StringComparison.Ordinal);
+  }
+
   /// <summary>The text of one <c>##</c> section, from its heading to the next one, so an
   ///     assertion cannot be satisfied by prose in another section.</summary>
   private static string Section(string body, string heading)

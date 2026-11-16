@@ -72,12 +72,11 @@ public sealed record ChainBriefReconciliation(
 /// <param name="Predecessors">The chain steps that already ran, in position order.</param>
 
 /// <param name="LedgerKey">Where the chain's ledger lives, already resolved from the slug.</param>
-/// <param name="Role">The role assigned to this step's session (issue #306): implement or
-///     review. The brief branches on it, because a reviewer told to mark its step done is a
-///     reviewer that will finish the work instead of judging it. Null means implement.</param>
-/// <param name="RefineRubricAvailable">Whether the <c>writing-plans</c> skill (#217) is
-///     installed in this session's catalog. A reviewer must be told which rubric to apply, and
-///     the honest answer when there is none is to say so rather than to invent one.</param>
+/// <param name="Role">The role assigned to this step's session: implement, review, or refine.
+///     The brief branches on it, because each role owes a different completion contract - a
+///     reviewer that was told to finish the work would finish it instead of judging it, and a
+///     refiner told the same would implement the plan instead of making it executable. Null means
+///     implement.</param>
 /// <param name="IsFinal">Whether this brief is for the FINAL agent: the chain is complete, so
 ///     there is no assigned step and no completion contract. The final agent summarizes the
 ///     work done and hands control back to the user.</param>
@@ -92,7 +91,6 @@ public sealed record ChainBriefFacts(
     IReadOnlyList<ChainBriefPredecessor> Predecessors,
     string LedgerKey,
     ChainStepRole? Role = null,
-    bool RefineRubricAvailable = false,
     bool IsFinal = false)
 {
   /// <summary>The plan step this session was assigned, or null when the plan no longer has
@@ -107,11 +105,15 @@ public sealed record ChainBriefFacts(
   [System.Text.Json.Serialization.JsonIgnore]
   public ChainStepRole EffectiveRole => Role ?? ChainStepRole.Implement;
 
-  /// <summary>True when this step's session JUDGES work rather than doing it (issue #306).
-  ///     <para>THE ONE BRANCH THE BRIEF MAKES ON ROLE. Everything else about a step — its
-  ///     position, its title, its detail, the plan's goal, the predecessors, the gate — is the
-  ///     same fact whether a session is implementing or reviewing. What differs is what
-  ///     "finished" means, and that is the whole of the difference.</para></summary>
+  /// <summary>True when this step's session JUDGES work rather than doing it.</summary>
+  public bool IsReview => EffectiveRole.IsReview;
+
+  /// <summary>True when this step's session makes the PLAN executable rather than doing the
+  ///     work.</summary>
+  /// <para>THE ONE BRANCH THE BRIEF MAKES ON ROLE. Everything else about a step - its position,
+  ///     its title, its detail, the plan's goal, the predecessors, the gate - is the same fact
+  ///     whatever the role. What differs is what "finished" means, and that is the whole of the
+  ///     difference.</para>
   public bool IsRefine => EffectiveRole.IsRefine;
 
   /// <summary>The other members of this step's group, in position order, so a member knows

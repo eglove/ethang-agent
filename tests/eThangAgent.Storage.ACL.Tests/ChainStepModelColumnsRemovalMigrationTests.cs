@@ -122,14 +122,19 @@ public sealed class ChainStepModelColumnsRemovalMigrationTests : IDisposable
 
     _ = new AppDatabase(_dbPath);
 
-    // THE ROLE IS REWRITTEN BY V42: the row said 'Review' in V36 and the vocabulary moved on,
-    // so a migrated database reads 'Refine' - the value the current CHECK constraint allows.
+    // THE ROLE IS STILL WHAT V42 REWROTE IT TO. V46 restores the review ROLE but never
+    // relabels a historical row: the record is what was written, not what a later change would
+    // prefer it to have been.
     Assert.Equal("Refine", Scalar<string>("SELECT role FROM chain_steps WHERE position=2;"));
     Assert.Equal("Done", Scalar<string>("SELECT status FROM chain_steps WHERE position=2;"));
     Assert.Equal("judged", Scalar<string>("SELECT outcome FROM chain_steps WHERE position=2;"));
-    // V42 DROPS review_attempts with the round-trip budget it counted, so the column is gone.
-    Assert.Equal(0L, Scalar<long>(
+    // V46 RESTORES review_attempts, because the round-trip budget it counts exists again. The old
+    // row carried 3 and V42 dropped it with the column, so the restored column starts at 0 and
+    // that history is deliberately not recovered.
+    Assert.Equal(1L, Scalar<long>(
         "SELECT COUNT(*) FROM pragma_table_info('chain_steps') WHERE name='review_attempts';"));
+    Assert.Equal(0L, Scalar<long>(
+        "SELECT review_attempts FROM chain_steps WHERE position=2;"));
   }
 
   [Fact]
@@ -140,8 +145,9 @@ public sealed class ChainStepModelColumnsRemovalMigrationTests : IDisposable
 
     string stepsSql = Scalar<string>(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='chain_steps';");
-    // V42 RENAMED THE VOCABULARY, so the closed set a migrated database carries is the new one.
-    Assert.Contains("CHECK (role IN ('Implement', 'Refine'))", stepsSql, StringComparison.Ordinal);
+    // V42 RENAMED THE VOCABULARY and V46 widened it, so the closed set a migrated database
+    // carries is the one with all three roles: an implementation review is a role again.
+    Assert.Contains("CHECK (role IN ('Implement', 'Review', 'Refine'))", stepsSql, StringComparison.Ordinal);
     Assert.Contains("'Skipped'", stepsSql, StringComparison.Ordinal);
   }
 

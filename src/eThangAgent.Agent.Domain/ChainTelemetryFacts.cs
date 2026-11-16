@@ -10,7 +10,7 @@ namespace eThangAgent.AgentDomain;
 ///     the stakeholder, before a chain starts — so the verdict is still a fact the record
 ///     holds and the report still measures. What is gone is the chain step that used to judge
 ///     work already done.</para></summary>
-public enum ChainReviewVerdict
+public enum PlanReviewTelemetryVerdict
 {
   /// <summary>The work may advance.</summary>
   Approve,
@@ -49,12 +49,12 @@ public sealed record ChainTelemetrySessionCost(string SessionId, decimal? Cost, 
 /// <param name="PlanId">The plan the verdict judged.</param>
 /// <param name="PlanVersion">The exact version it judged.</param>
 /// <param name="Verdict">What the reviewer concluded.</param>
-public sealed record ChainTelemetryReview(int PlanId, int PlanVersion, ChainReviewVerdict Verdict)
+public sealed record ChainTelemetryReview(int PlanId, int PlanVersion, PlanReviewTelemetryVerdict Verdict)
 {
   /// <summary>True when the reviewer said no. Approve-with-conditions is NOT a denial — it lets
   ///     the work advance and carries its conditions forward, which is the distinction the
   ///     verdict type exists to express.</summary>
-  public bool IsDenial => Verdict == ChainReviewVerdict.Deny;
+  public bool IsDenial => Verdict == PlanReviewTelemetryVerdict.Deny;
 }
 
 /// <summary>The review rows plus the fact that makes 'did the deny change anything' answerable
