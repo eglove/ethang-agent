@@ -1,9 +1,9 @@
 namespace eThangAgent.ModelDomain.Tests;
 
-/// <summary>The four routing variants the model domain offers (Standard, Nitro, Floor,
-///     Cache Floor): the one model-selection decision the picker still asks. Three travel as
-///     MODEL-ID SUFFIXES the provider itself routes on; Cache Floor has no suffix and rides the
-///     request body instead.
+/// <summary>The five routing variants the model domain offers (Standard, Nitro, Floor,
+///     Cache Floor, Cheapest): the one model-selection decision the picker still asks. Three
+///     travel as MODEL-ID SUFFIXES the provider itself routes on; Cache Floor and Cheapest have
+///     no suffix and ride the request body instead.
 ///     <para>WHY THE ID AND NOT A ROUTING OBJECT: OpenRouter documents <c>:nitro</c> and
 ///     <c>:floor</c> as suffixes on the model id - "Append :nitro to any model ID" - and the
 ///     suffix is what sorts the endpoint pool by throughput (admitting priority-tier
@@ -98,7 +98,34 @@ public class ModelVariantTests
   public void All_OffersCacheFloorAfterFloor()
       => Assert.Equal(
           [ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor, ModelVariant.CacheFloor],
+          ModelVariants.All.Take(4));
+
+  [Fact]
+  public void All_OffersCheapestLast()
+      => Assert.Equal(
+          [ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor, ModelVariant.CacheFloor,
+              ModelVariant.Cheapest],
           ModelVariants.All);
+
+  [Fact]
+  public void Cheapest_HasNoWireSuffix_BecauseTheProviderDocumentsNone()
+      => Assert.Equal(string.Empty, ModelVariants.Suffix(ModelVariant.Cheapest));
+
+  [Fact]
+  public void Cheapest_ApplyTo_LeavesTheModelIdBare()
+      => Assert.Equal("alpha/model", ModelVariants.ApplyTo(ModelVariant.Cheapest, "alpha/model"));
+
+  [Fact]
+  public void Cheapest_ApplyTo_StripsAPreviousVariantRatherThanStacking()
+      => Assert.Equal("alpha/model", ModelVariants.ApplyTo(ModelVariant.Cheapest, "alpha/model:nitro"));
+
+  [Fact]
+  public void Cheapest_IsDescribedAsCheapest()
+      => Assert.Equal("Cheapest", ModelVariants.Describe(ModelVariant.Cheapest));
+
+  [Fact]
+  public void FromModelId_NeverReadsCheapest_ItHasNoSuffix()
+      => Assert.Equal(ModelVariant.Standard, ModelVariants.FromModelId("alpha/model"));
 
   [Fact]
   public void FromModelId_NeverReadsCacheFloor_ItHasNoSuffix()

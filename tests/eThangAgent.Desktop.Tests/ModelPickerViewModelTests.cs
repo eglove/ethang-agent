@@ -429,7 +429,8 @@ public class ModelPickerViewModelTests
     ModelPickerViewModel vm = CreateVm([Entry()]);
 
     Assert.Equal(
-        [ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor, ModelVariant.CacheFloor],
+        [ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor, ModelVariant.CacheFloor,
+            ModelVariant.Cheapest],
         vm.VariantOptions.Select(o => o.Variant));
   }
 

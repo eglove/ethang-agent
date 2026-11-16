@@ -1765,11 +1765,15 @@ public static class AgentComposition
     return providerName switch
     {
       Providers.OpenRouter => services
+          // The usage ledger rides along so the Cheapest variant can price its order at this
+          // workspace's measured shape. Optional at the seam, so a container that wires no ledger
+          // still builds a provider and the variant prices at the documented default.
           .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
               sp.GetRequiredService<OpenRouterConfiguration>(),
               sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
               sp.GetRequiredService<IModelCatalog>(),
-              sp.GetRequiredService<OpenRouterApiKeyCarrier>()))
+              sp.GetRequiredService<OpenRouterApiKeyCarrier>(),
+              sp.GetRequiredService<IUsageQueries>()))
           // Management API client (the 'openrouter_management' tool's seam): the SAME
           // named HttpClient (attribution + timeouts) and the SAME configuration - the
           // management key rides OpenRouterConfiguration.ManagementKey.

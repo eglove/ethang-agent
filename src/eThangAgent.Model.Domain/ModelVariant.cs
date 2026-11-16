@@ -1,17 +1,17 @@
 namespace eThangAgent.ModelDomain;
 
-/// <summary>The four routing variants the model domain offers. Three are expressed as a SUFFIX
+/// <summary>The five routing variants the model domain offers. Three are expressed as a SUFFIX
 ///     on the model id rather than as a routing object (see
 ///     <see href="https://openrouter.ai/docs/guides/routing/model-variants/overview"/>);
-///     <see cref="CacheFloor"/> has no documented suffix and travels on the request
-///     body as a <c>provider.order</c> list instead.
+///     <see cref="CacheFloor"/> and <see cref="Cheapest"/> have no documented suffix and travel
+///     on the request body as a <c>provider.order</c> list instead.
 ///     <para>WHY THIS REPLACES THE PROVIDER PICKER: the provider/endpoint surface asked the
 ///     user to compare dozens of rows on price, latency, uptime, and cache economics before a
 ///     single turn ran — a decision the harness had already measured and could rank. What the
 ///     user actually wants to say is the one thing measurement cannot infer: <em>give me speed
 ///     when it matters</em> or <em>give me the floor price</em>. OpenRouter publishes exactly
-///     those intents as routing variants, so the decision collapses to four choices — three
-///     carried in the model id itself and Cache Floor carried in the request body.</para>
+///     those intents as routing variants, so the decision collapses to a short list — three
+///     carried in the model id itself and the orders carried in the request body.</para>
 ///     <para>THE SUFFIX IS PURE ROUTING, NOT A PROVIDER PIN: <c>:nitro</c> sorts the model's
 ///     whole eligible pool by throughput and admits priority-tier endpoints; <c>:floor</c>
 ///     sorts by price and admits flex-tier endpoints. Neither narrows the pool to one
@@ -40,6 +40,13 @@ public enum ModelVariant
   ///     <c>provider.order</c> list rather than on the model id (see
   ///     <see cref="ModelVariants.Suffix"/>).</summary>
   CacheFloor,
+
+  /// <summary><c>Cheapest</c> — orders the model's endpoints by total cost per input token at
+  ///     this workspace's measured usage: the advertised input, output and cache-read rates
+  ///     combined with a cache-hit rate and an output/input ratio. Like
+  ///     <see cref="CacheFloor"/> it has no suffix and travels on the request body as a
+  ///     <c>provider.order</c> list.</summary>
+  Cheapest,
 }
 
 /// <summary>The variant's wire syntax and presentation, kept as PURE functions beside the enum
@@ -60,20 +67,23 @@ public static class ModelVariants
   private const string FloorSuffix = ":floor";
 
   /// <summary>The variants in the order the picker offers them: the default first, then the
-  ///     three the user actually chooses between.</summary>
+  ///     variants the user actually chooses between.</summary>
   public static IReadOnlyList<ModelVariant> All { get; } =
-      [ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor, ModelVariant.CacheFloor];
+      [ModelVariant.Standard, ModelVariant.Nitro, ModelVariant.Floor, ModelVariant.CacheFloor,
+          ModelVariant.Cheapest];
 
   /// <summary>The suffix OpenRouter documents for this variant: empty for
-  ///     <see cref="ModelVariant.Standard"/> and <see cref="ModelVariant.CacheFloor"/>, whose wire
-  ///     forms are the bare model id. Cache Floor has no documented suffix, so it travels on the
-  ///     request body instead.</summary>
+  ///     <see cref="ModelVariant.Standard"/>, <see cref="ModelVariant.CacheFloor"/> and
+  ///     <see cref="ModelVariant.Cheapest"/>, whose wire forms are the bare model id. Neither
+  ///     order variant has a documented suffix, so both travel on the request body instead.
+  ///     </summary>
   public static string Suffix(ModelVariant variant) => variant switch
   {
     ModelVariant.Standard => string.Empty,
     ModelVariant.Nitro => NitroSuffix,
     ModelVariant.Floor => FloorSuffix,
     ModelVariant.CacheFloor => string.Empty,
+    ModelVariant.Cheapest => string.Empty,
     _ => throw Unhandled(variant),
   };
 
@@ -105,14 +115,16 @@ public static class ModelVariants
       ModelVariant.Nitro => modelId[..^NitroSuffix.Length],
       ModelVariant.Floor => modelId[..^FloorSuffix.Length],
       ModelVariant.CacheFloor => modelId,
+      ModelVariant.Cheapest => modelId,
       _ => modelId,
     };
   }
 
   /// <summary>The variant an id carries, or <see cref="ModelVariant.Standard"/> when it
   ///     carries none. Only a TRAILING documented suffix counts.
-  ///     <para>NO ARM FOR <see cref="ModelVariant.CacheFloor"/>: it has no suffix, so no model id
-  ///     can carry it and a Cache Floor id reads back as Standard — the final arm covers it.</para>
+  ///     <para>NO ARM FOR <see cref="ModelVariant.CacheFloor"/> OR <see cref="ModelVariant.Cheapest"/>:
+  ///     neither has a suffix, so no model id can carry one and such an id reads back as
+  ///     Standard — the final arm covers both.</para>
   ///     </summary>
   public static ModelVariant FromModelId(string modelId)
   {
@@ -126,7 +138,7 @@ public static class ModelVariants
   }
 
   /// <summary>The dropdown label AND the status-line name: the variant's bare name.
-  ///     <para>DELIBERATELY SHORT. The control that offers these four choices carries the
+  ///     <para>DELIBERATELY SHORT. The control that offers these choices carries the
   ///     explanation underneath it, so repeating the tradeoff in every row and in the status
   ///     bar only lengthened the decision without adding to it.</para></summary>
   public static string Describe(ModelVariant variant) => variant switch
@@ -135,6 +147,7 @@ public static class ModelVariants
     ModelVariant.Nitro => "Nitro",
     ModelVariant.Floor => "Floor",
     ModelVariant.CacheFloor => "Cache Floor",
+    ModelVariant.Cheapest => "Cheapest",
     _ => throw Unhandled(variant),
   };
 

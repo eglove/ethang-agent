@@ -11,7 +11,8 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     Func<TimeSpan, CancellationToken, Task>? delay = null,
     Func<double>? jitter = null,
     IModelCatalog? catalog = null,
-    OpenRouterApiKeyCarrier? keySource = null) : IModelProvider
+    OpenRouterApiKeyCarrier? keySource = null,
+    IUsageQueries? usageQueries = null) : IModelProvider
 {
   private const string ProviderError = "ProviderError";
   private const string ContextWindowExceeded = "ContextWindowExceeded";
@@ -54,6 +55,33 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 
   /// <summary>The live key carrier, or null when the caller wired none.</summary>
   private readonly OpenRouterApiKeyCarrier? _keySource = keySource;
+
+  /// <summary>The usage ledger the Cheapest order prices at, or null when the caller wired
+  ///     none. OPTIONAL ON PURPOSE: the variant then prices at the documented default shape
+  ///     instead of failing a turn over a missing seam.</summary>
+  private readonly IUsageQueries? _usageQueries = usageQueries;
+
+  /// <summary>The workspace whose history the Cheapest order measures, or null when the caller
+  ///     wired none. A performance query needs a scope, so an absent id leaves the model and
+  ///     default rungs to answer.
+  ///     <para>AN INIT MEMBER RATHER THAN A CONSTRUCTOR PARAMETER, following the
+  ///     <see cref="ModelProviderEntry.Variant"/> precedent: the constructor keeps its shape for
+  ///     every existing caller, and a provider built without it prices at the rungs that need no
+  ///     ledger rather than failing.</para></summary>
+  public string? WorkspaceId { get; init; }
+
+  /// <summary>Guards the Cheapest resolution cache below.</summary>
+  private readonly Lock _cheapestGate = new();
+
+  /// <summary>The last Cheapest order resolved, with the model and workspace it was resolved
+  ///     for. The workspace shape costs hundreds of milliseconds over a large ledger and the
+  ///     order changes only as the catalog or the ledger does, so it is computed once per
+  ///     model and workspace and reused for every later turn of the same conversation.
+  ///     </summary>
+  private IReadOnlyList<string> _cheapestOrder = [];
+  private string? _cheapestModel;
+  private string? _cheapestWorkspace;
+  private bool _cheapestCached;
 
   /// <summary>The key this request presents: the carrier's live value when one is set, the
   ///     configuration's snapshot otherwise.</summary>
@@ -284,14 +312,16 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   }
 
   /// <summary>Writes the body's <c>provider</c> object: the retention restriction the session's
-  ///     tier states, and the Cache Floor order when that variant was chosen.
+  ///     tier states, and the order the chosen variant asks for.
   ///     <para>ONE OBJECT, TWO FACTS: the provider block is a single member of the body, so the
   ///     restriction and the order are assembled here rather than each writing the key and
-  ///     overwriting the other.</para></summary>
+  ///     overwriting the other. A retention restriction that writes <c>only</c> therefore
+  ///     composes with an order that writes <c>order</c>: the first narrows the pool and the
+  ///     second prefers within it.</para></summary>
   private async Task<DomainError?> ApplyProviderRoutingAsync(Dictionary<string, object?> bodyDict,
       ModelConfig config, CancellationToken ct)
   {
-    Dictionary<string, object?>? provider = await CacheFloorProviderAsync(config, ct).ConfigureAwait(false);
+    Dictionary<string, object?>? provider = await OrderProviderAsync(config, ct).ConfigureAwait(false);
     if (RetentionPolicies.IsEnforced(config.Retention))
     {
       provider ??= [];
@@ -402,6 +432,146 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       => $"No endpoint serves {modelId} under the {RetentionPolicies.DisplayName(policy)} "
           + "retention tier, and this session enforces that tier. Pick a model that offers one "
           + "in Model Settings, or loosen the retention setting there.";
+
+  /// <summary>The provider block the chosen variant asks for: the Cache Floor order, or the
+  ///     Cheapest order. Null for every other variant, and whenever the catalog does not
+  ///     justify an order.
+  ///     <para>ONE DISPATCH, TWO ORDERS: both variants express the same wire shape - an ordered
+  ///     endpoint list with fallbacks allowed - so the choice of which order to compute is made
+  ///     once here rather than by two callers of the body builder.</para></summary>
+  private Task<Dictionary<string, object?>?> OrderProviderAsync(ModelConfig config, CancellationToken ct)
+      => config.Variant switch
+      {
+        ModelVariant.Standard => NoOrder,
+        ModelVariant.Nitro => NoOrder,
+        ModelVariant.Floor => NoOrder,
+        ModelVariant.CacheFloor => CacheFloorProviderAsync(config, ct),
+        ModelVariant.Cheapest => CheapestProviderAsync(config, ct),
+        _ => NoOrder,
+      };
+
+  /// <summary>The answer for a variant that carries no order: the provider's own routing.
+  ///     </summary>
+  private static Task<Dictionary<string, object?>?> NoOrder =>
+      Task.FromResult<Dictionary<string, object?>?>(null);
+
+  /// <summary>The Cheapest order as a provider block: the model's priced endpoints ordered by
+  ///     total cost per input token at this workspace's measured usage, with fallbacks allowed
+  ///     so an unavailable endpoint falls through instead of failing the turn.
+  ///     <para>THE SHAPE IS RESOLVED BEFORE THE ORDER IS COMPUTED, through the four-rung
+  ///     evidence chain: this endpoint, this model, the workspace median, then the documented
+  ///     default. The report is bound to its endpoints first, because the storage ACL records
+  ///     the provider stamp the rows carry and leaves the endpoint null - an unbound report
+  ///     answers no endpoint rung at all.</para>
+  ///     <para>DEGRADES TO NO ORDER when the catalog is unwired, the read fails, or no endpoint
+  ///     advertises both an input and an output price: an order naming nothing, or naming an
+  ///     endpoint whose cost is unknown, is a routing instruction the catalog never justified.
+  ///     </para>
+  ///     <para>THE ORDER IS CACHED PER MODEL AND WORKSPACE: the workspace shape is an aggregate
+  ///     over the whole ledger and costs hundreds of milliseconds, so a per-turn query would be
+  ///     paid on every request of a conversation. A cached order is reused only when both the
+  ///     model and the workspace match, so switching either resolves afresh.</para></summary>
+  private async Task<Dictionary<string, object?>?> CheapestProviderAsync(ModelConfig config,
+      CancellationToken ct)
+  {
+    if (config.Variant != ModelVariant.Cheapest || _catalog is null)
+    {
+      return null;
+    }
+
+    string baseModel = ModelVariants.BaseOf(config.ModelId);
+    IReadOnlyList<string> slugs = await CheapestSlugsAsync(baseModel, ct).ConfigureAwait(false);
+    return slugs.Count == 0
+        ? null
+        : new Dictionary<string, object?>
+        {
+          ["order"] = slugs,
+          ["allow_fallbacks"] = true,
+        };
+  }
+
+  /// <summary>The Cheapest order for one model, from the cache when it was already resolved for
+  ///     this model and workspace and afresh otherwise.</summary>
+  private async Task<IReadOnlyList<string>> CheapestSlugsAsync(string baseModel, CancellationToken ct)
+  {
+    lock (_cheapestGate)
+    {
+      if (_cheapestCached
+          && string.Equals(_cheapestModel, baseModel, StringComparison.Ordinal)
+          && string.Equals(_cheapestWorkspace, WorkspaceId, StringComparison.Ordinal))
+      {
+        return _cheapestOrder;
+      }
+    }
+
+    IReadOnlyList<string> resolved = await ResolveCheapestSlugsAsync(baseModel, ct).ConfigureAwait(false);
+    lock (_cheapestGate)
+    {
+      _cheapestOrder = resolved;
+      _cheapestModel = baseModel;
+      _cheapestWorkspace = WorkspaceId;
+      _cheapestCached = true;
+    }
+
+    return resolved;
+  }
+
+  /// <summary>Resolves the usage shape and returns the endpoint slugs it orders, or an empty
+  ///     list when the catalog does not justify an order. Nothing here fails a turn: an
+  ///     unwired, failing, or empty query falls through the evidence chain to the documented
+  ///     default, and a catalog that names no priced endpoint degrades to no order.</summary>
+  private async Task<IReadOnlyList<string>> ResolveCheapestSlugsAsync(string baseModel, CancellationToken ct)
+  {
+    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog!.GetAsync(ct).ConfigureAwait(false);
+    if (!entries.IsSuccess)
+    {
+      return [];
+    }
+
+    IReadOnlyList<ModelProviderEntry> rows = [.. entries.Value.Where(e => e.ModelId == baseModel)];
+    CostShapeAssumption assumption = CheapestShapeSource.Resolve(
+        await BoundReportAsync(rows, ct).ConfigureAwait(false),
+        await WorkspaceShapeAsync(ct).ConfigureAwait(false),
+        baseModel,
+        endpointSlug: null);
+
+    // ONLY A PRICED ENDPOINT IS RANKED. CheapestOrder keeps an unknown-cost row in the list it
+    // returns, which is right for a surface that must show every endpoint - but an order names
+    // endpoints the provider should prefer, and an endpoint whose cost is unknown was never
+    // shown to be cheaper than any other.
+    IReadOnlyList<ModelProviderEntry> priced = [.. rows.Where(row => CheapestCost.Unit(row, assumption.Shape) is not null)];
+    return priced.Count == 0 ? [] : CheapestOrder.For(priced, assumption.Shape).Slugs;
+  }
+
+  /// <summary>The usage report bound to its endpoints, or null when no usage query is wired,
+  ///     no workspace is known, or the read failed. Null is an answer: the chain falls through
+  ///     to the rungs that do not need the ledger.</summary>
+  private async Task<ProviderPerformanceReport?> BoundReportAsync(
+      IReadOnlyList<ModelProviderEntry> rows, CancellationToken ct)
+  {
+    if (_usageQueries is null || WorkspaceId is null)
+    {
+      return null;
+    }
+
+    Result<ProviderPerformanceReport> report = await _usageQueries
+        .ProviderPerformanceAsync(ProviderPerformanceRequest.ForWorkspace(WorkspaceId), ct)
+        .ConfigureAwait(false);
+    return report.IsSuccess ? report.Value.BindEndpoints(rows) : null;
+  }
+
+  /// <summary>The ledger's median shape, or null when no usage query is wired or the read
+  ///     failed. Null is an answer: the chain falls through to the documented default.</summary>
+  private async Task<CostShape?> WorkspaceShapeAsync(CancellationToken ct)
+  {
+    if (_usageQueries is null)
+    {
+      return null;
+    }
+
+    Result<CostShape?> shape = await _usageQueries.WorkspaceShapeAsync(ct).ConfigureAwait(false);
+    return shape.IsSuccess ? shape.Value : null;
+  }
 
   /// <summary>The Cache Floor order as a provider block: the model's endpoints sorted by
   ///     advertised cache-read price, cheapest first, with fallbacks allowed so an unavailable
