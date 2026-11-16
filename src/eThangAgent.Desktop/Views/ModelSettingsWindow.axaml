@@ -97,6 +97,11 @@
                     DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
           <TextBlock x:Name="VariantCaptionLine" Text="{Binding ModelSection.VariantCaption}" FontSize="11" Opacity="0.6"
                      TextWrapping="Wrap"/>
+          <!-- What the CHEAPEST order is and what it can justify, for the model that runs. It is
+               absent on the other four variants, which carry no cost projection. -->
+          <TextBlock x:Name="CheapestSentenceLine" Text="{Binding ModelSection.CheapestSentence}" FontSize="11"
+                     Opacity="0.8" TextWrapping="Wrap"
+                     IsVisible="{Binding ModelSection.CheapestSentence, Converter={x:Static ObjectConverters.IsNotNull}}"/>
           <!-- The retention tier: the second, INDEPENDENT axis of the model decision. The
                dropdown above says which tradeoff to prefer; this says which endpoints are
                admissible at all. It opens on the strict tier and only an explicit loosening

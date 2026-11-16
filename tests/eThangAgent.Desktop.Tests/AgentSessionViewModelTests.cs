@@ -282,6 +282,25 @@ public class AgentSessionViewModelTests
   }
 
   [Fact]
+  public void ACheapestSession_NamesTheVariantOnTheStatusLineAndInTheNotice()
+  {
+    // B3: the status line and the transcript notice already render Describe(served), so a session
+    // committed to Cheapest reads 'with Cheapest' with no new string - and the bar names the same
+    // tradeoff the dropdown offered, which is what lets the user tell what the turn carries.
+    SessionModelPreferences preferences = new();
+    AgentSessionViewModel vm = new(
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
+
+    vm.ApplyModelChoice(["alpha/model"], ModelVariant.Cheapest);
+
+    Assert.Equal("Cheapest", vm.Status.ServingVariant);
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Equal("Model set to alpha/model with Cheapest; applies from the next turn.", notice.Text);
+  }
+
+  [Fact]
   public void AnEmptyList_IsRefused_AndLeavesTheSelectionAlone()
   {
     // There is no 'no model' state to return to: the picker cannot empty the list and the domain

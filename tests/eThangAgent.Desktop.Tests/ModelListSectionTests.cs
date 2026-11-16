@@ -154,7 +154,8 @@ public class ModelListSectionTests
     [
       "SelectedModelList", "ModelSearchBox", "ModelList", "AddModelButton",
       "MoveUpButton", "MoveDownButton", "RemoveModelButton",
-      "VariantBox", "VariantCaptionLine", "RetentionBox", "RetentionCaptionLine", "LoadErrorLine",
+      "VariantBox", "VariantCaptionLine", "CheapestSentenceLine", "RetentionBox",
+      "RetentionCaptionLine", "LoadErrorLine",
     ];
     List<string> missing = [.. required.Where(name => window.FindControl<Control>(name) is null)];
     bool scrollable = window.GetVisualDescendants().OfType<ScrollViewer>().Any();

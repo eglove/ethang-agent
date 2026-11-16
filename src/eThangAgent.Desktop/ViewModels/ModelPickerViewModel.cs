@@ -78,12 +78,30 @@ internal sealed record RetentionOption(string DisplayName, RetentionPolicy Polic
 ///     dropdown.</param>
 /// <param name="CurrentRetention">The session's live retention tier, to pre-select in the
 ///     dropdown. Defaults to the strict tier, which is what an unstated policy means.</param>
+/// <param name="LoadCheapestEvidence">Reads the usage evidence the Cheapest sentence is built
+///     from, or null when no ledger is reachable. Null is an answer, not a fault: the sentence
+///     then states the documented default rung rather than inventing a measurement.</param>
 internal sealed record ModelSectionSeams(
     Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> LoadCatalog,
     IReadOnlyList<string>? CurrentModelIds = null,
     Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? RefreshCatalog = null,
     ModelVariant? CurrentVariant = null,
-    RetentionPolicy CurrentRetention = RetentionPolicy.ZeroDataRetention);
+    RetentionPolicy CurrentRetention = RetentionPolicy.ZeroDataRetention,
+    Func<CancellationToken, Task<CheapestEvidence>>? LoadCheapestEvidence = null);
+
+/// <summary>The usage evidence a Cheapest projection prices at: the ledger's per-provider
+///     report and the workspace's median shape, either of which may be absent.
+///     <para>EVIDENCE, NOT A VERDICT: the rung that answers and the order that follows are
+///     resolved from these by the section itself, so the seam carries what was measured and
+///     never a pre-decided sentence.</para></summary>
+/// <param name="Report">The ledger's per-provider report, or null when none could be read.
+///     It is bound to the catalog by the consumer, which is what makes the endpoint rung
+///     answerable.</param>
+/// <param name="WorkspaceShape">The ledger's median shape, or null when no model in it
+///     qualifies.</param>
+internal sealed record CheapestEvidence(
+    ProviderPerformanceReport? Report,
+    CostShape? WorkspaceShape);
 
 /// <summary>View-model behind the model section: the ORDERED selection (entry 1 runs, the rest are
 ///     ordered backups), the catalog search that feeds additions, and the routing-variant and
@@ -101,10 +119,12 @@ internal sealed record ModelSectionSeams(
 internal sealed partial class ModelPickerViewModel : ObservableObject
 {
   private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> _loadCatalog;
+  private readonly Func<CancellationToken, Task<CheapestEvidence>>? _loadCheapestEvidence;
   private readonly List<string> _modelIds;
   private IReadOnlyList<ModelPickerRow> ModelRows { get; set; } = [];
   private IReadOnlyList<ModelPickerRow> FilteredRowsList { get; set; } = [];
   private Dictionary<string, IReadOnlyList<ModelProviderEntry>> _endpointsByModel = [];
+  private CheapestEvidence? _cheapestEvidence;
   private bool _loaded;
 
 
@@ -160,6 +180,100 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     ItemsSource (see <see cref="FilteredRows"/>).</summary>
   partial void OnSearchTextChanged(string value) => RebuildFilteredRows();
 
+  /// <summary>What the Cheapest order is and what it can justify, for the model that runs - or
+  ///     null when the section is not on Cheapest, because the other four variants carry no
+  ///     projection to explain.
+  ///     <para>EVERY FORM NAMES THE RUNG THAT ANSWERED, including the fragile one, because the
+  ///     break-even rate only means something at the shape it was solved at.</para>
+  ///     <para>THE RANKING COMES FROM THE SAME TWO DOMAIN CALLS THE REQUEST PATH MAKES
+  ///     (<see cref="CheapestShapeSource.Resolve"/> then <see cref="CheapestOrder.For"/>), so
+  ///     the sentence describes the order the turn sends.</para></summary>
+  public string? CheapestSentence
+  {
+    get
+    {
+      if (SelectedVariantOption.Variant != ModelVariant.Cheapest)
+      {
+        return null;
+      }
+
+      string modelId = _modelIds.Count > 0 ? _modelIds[0] : string.Empty;
+      IReadOnlyList<ModelProviderEntry> rows = PricedEndpointsOf(modelId);
+      if (rows.Count == 0)
+      {
+        return CheapestCouldNotResolve;
+      }
+
+      // The endpoint rung is asked for the model's OWN cheapest endpoint, because that is the
+      // endpoint an order would name first - so the sentence describes the figure the choice
+      // actually rests on rather than a model-wide blend of it.
+      CostShapeAssumption assumption = CheapestShapeSource.Resolve(
+          _cheapestEvidence?.Report?.BindEndpoints(rows), _cheapestEvidence?.WorkspaceShape, modelId,
+          CheapestOrder.For(rows, CostShapeAssumption.Fallback.Shape).WinnerSlug);
+      CheapestRanking ranking = CheapestOrder.For(rows, assumption.Shape);
+      return ranking.WinnerSlug is { } winner
+          ? Sentence(ranking, winner, assumption)
+          : CheapestCouldNotResolve;
+    }
+  }
+
+  /// <summary>The sentence for a model whose order could not be computed at all: no catalog row
+  ///     for it, or none advertising the prices an order needs. It states what happens instead
+  ///     of naming an endpoint nothing justified.</summary>
+  private const string CheapestCouldNotResolve =
+      "Cheapest could not be resolved for this model, so the provider's own routing applies.";
+
+  /// <summary>The sentence for an order that was computed: the winner, the evidence it rests
+  ///     on, and - when the winner does not dominate the runner-up - the hit rate at which the
+  ///     choice turns over.
+  ///     <para>A FRAGILE WINNER NAMES BOTH ENDPOINTS AND THE TURNING POINT: the answer then
+  ///     depends on usage, and naming only the winner would state it as unconditional.</para>
+  ///     </summary>
+  private static string Sentence(CheapestRanking ranking, string winner, CostShapeAssumption assumption)
+      => (ranking, winner) switch
+      {
+        ({ IsFragile: false }, _) => $"Cheapest is {winner}. {RungClause(assumption)} {winner} is cheapest at every hit rate.",
+        ({ BreakEvenHitRate: { } breakEven, RunnerUpSlug: { } runnerUp }, _) =>
+            $"Cheapest is {winner}, but only above {PercentText(breakEven)} cache-hit rate. "
+                + $"Below that, {runnerUp} is cheaper.",
+        _ => $"Cheapest is {winner}. {RungClause(assumption)} Whether it stays cheapest depends on "
+            + "this workspace's cache-hit rate.",
+      };
+
+  /// <summary>The evidence clause: the rung that answered and its figures, or - for the
+  ///     documented default - the fact that nothing has been measured.
+  ///     <para>THE DEFAULT RUNG STATES THAT NOTHING WAS MEASURED rather than quoting a figure,
+  ///     the rule <see cref="ProviderPerformanceText"/> applies to an unmeasured value.</para>
+  ///     </summary>
+  private static string RungClause(CostShapeAssumption assumption)
+      => assumption.Source == ShapeSource.Default
+          ? $"Nothing has been measured yet, so this uses the default {PercentText(assumption.Shape.HitRate)} "
+              + "cache-hit rate;"
+          : $"This {RungClauseSubject(assumption.Source)} measured {PercentText(assumption.Shape.HitRate)} "
+              + $"cache hits and {RatioText(assumption.Shape.OutputPerInputRatio)} output per input token, and";
+
+  /// <summary>The noun a rung's clause is about: the endpoint, the model, or the workspace whose
+  ///     median answered.</summary>
+  private static string RungClauseSubject(ShapeSource source) => source switch
+  {
+    ShapeSource.Endpoint => "endpoint",
+    ShapeSource.Model => "model",
+    ShapeSource.Workspace => "workspace",
+    ShapeSource.Default => "workspace",
+    _ => "workspace",
+  };
+
+  /// <summary>A rate as a percentage with at most one decimal place, invariant culture, so 0.715
+  ///     renders as 71.5% and a documented 0.5 renders as 50% - the form
+  ///     <see cref="CostShapeAssumption.Describe"/> already uses, so the two surfaces state the
+  ///     same figure the same way.</summary>
+  private static string PercentText(decimal rate)
+      => (rate * 100m).ToString("0.#", CultureInfo.InvariantCulture) + "%";
+
+  /// <summary>The output/input ratio at up to six decimal places, invariant culture.</summary>
+  private static string RatioText(decimal ratio)
+      => ratio.ToString("0.######", CultureInfo.InvariantCulture);
+
   /// <summary>The catalog row under the search box: the SOURCE of additions, never itself the
   ///     decision. It keeps its own selection when a model is added, so several can be added in
   ///     a row.</summary>
@@ -186,6 +300,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     committed, rather than silently resetting a nitro session to standard on the next
   ///     save.</para></summary>
   [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(CheapestSentence))]
   public partial VariantOption SelectedVariantOption { get; set; }
 
   /// <summary>What this session allows the provider to keep of its prompts.
@@ -231,13 +346,17 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 
   /// <summary>The explanation rendered UNDERNEATH the dropdown, and the reason the rows
   ///     themselves are bare names: it states what each variant actually trades and costs, so the
-  ///     dropdown is never a mystery box without lengthening every row and the status bar.</summary>
+  ///     dropdown is never a mystery box without lengthening every row and the status bar.
+  ///     <para>ONE STATIC STRING FOR EVERY OPTION: it does not change with the selection.
+  ///     </para></summary>
   public static string VariantCaption => "Nitro admits priority-tier endpoints (billed at priority "
       + "rates) and sorts by throughput; Floor admits flex-tier endpoints (billed at their "
       + "discounted rate) and sorts by price. Cache Floor admits flex-tier endpoints too, but "
       + "orders them by advertised cache-read price, so a session whose prompts are cached "
-      + "heavily prefers the cheapest cache reads. Billing always follows the tier that actually "
-      + "served, and the usage ledger records the prices it served at.";
+      + "heavily prefers the cheapest cache reads. Cheapest orders them by total cost at this "
+      + "workspace's measured usage — input, output and cache-read rates together — and says so "
+      + "when the choice depends on a high cache-hit rate. Billing always follows the tier that "
+      + "actually served, and the usage ledger records the prices it served at.";
 
   /// <param name="loadCatalog">Loads the open session's provider catalog (UI thread escape
   ///     handled here - the delegate itself may block on HTTP).</param>
@@ -247,13 +366,17 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     pre-selects Standard).</param>
   /// <param name="currentRetention">The session's live retention tier to pre-select.
   ///     Defaults to the strict tier, which is what an unstated policy means.</param>
+  /// <param name="loadCheapestEvidence">Reads the usage evidence the Cheapest sentence is
+  ///     built from, or null when no ledger is reachable.</param>
   public ModelPickerViewModel(
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> loadCatalog,
       IReadOnlyList<string> currentModelIds,
       ModelVariant? currentVariant = null,
-      RetentionPolicy currentRetention = RetentionPolicy.ZeroDataRetention)
+      RetentionPolicy currentRetention = RetentionPolicy.ZeroDataRetention,
+      Func<CancellationToken, Task<CheapestEvidence>>? loadCheapestEvidence = null)
   {
     _loadCatalog = loadCatalog ?? throw new ArgumentNullException(nameof(loadCatalog));
+    _loadCheapestEvidence = loadCheapestEvidence;
     _modelIds =
     [
       .. (currentModelIds ?? [])
@@ -316,6 +439,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       // Pre-select the head of the session's live list, when the catalog lists it.
       SelectedRow = FilteredRows.FirstOrDefault(r => r.ModelId == _modelIds.FirstOrDefault());
       RenderSelectedModels();
+      await LoadCheapestEvidenceAsync();
     }
     catch (Exception ex)
     {
@@ -326,6 +450,39 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       IsLoading = false;
     }
 #pragma warning restore CA1031
+  }
+
+  /// <summary>Reads the usage evidence the Cheapest sentence prices at, and announces it.
+  ///     <para>A LEDGER THAT CANNOT BE READ LEAVES THE EVIDENCE ABSENT, and the sentence then
+  ///     states the documented default rung.</para>
+  ///     <para>THE EVIDENCE IS READ AFTER THE CATALOG, because the endpoint rung answers only
+  ///     against bound catalog rows.</para></summary>
+  private async Task LoadCheapestEvidenceAsync()
+  {
+    if (_loadCheapestEvidence is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): a ledger fault must land as absent evidence, never escape - the
+    // fire-and-forget caller cannot observe it.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      Task<CheapestEvidence> scheduled;
+      using (ExecutionContext.SuppressFlow())
+      {
+        scheduled = Task.Run(() => _loadCheapestEvidence(CancellationToken.None));
+      }
+
+      _cheapestEvidence = await scheduled;
+    }
+    catch (Exception)
+    {
+      _cheapestEvidence = null;
+    }
+#pragma warning restore CA1031
+    OnPropertyChanged(nameof(CheapestSentence));
   }
 
   /// <summary>Applies a catalog refresh (the settings dialog's revalidation join): the rows are
@@ -522,6 +679,15 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
         .FirstOrDefault();
     return (priced ?? endpoints[0]).ContextLength;
   }
+
+  /// <summary>The model's endpoints an order can name and price: a routable slug and a known
+  ///     input and output rate. A row whose cost is unknown is left out rather than ranked
+  ///     last, because unknown was never shown to be cheaper.
+  ///     <para>EMPTY MEANS THE ORDER COULD NOT BE RESOLVED, and the sentence says the provider's
+  ///     own routing applies.</para></summary>
+  private IReadOnlyList<ModelProviderEntry> PricedEndpointsOf(string modelId)
+      => [.. EndpointsOf(modelId).Where(entry => entry.Variant.Slug is { Length: > 0 }
+          && CheapestCost.Unit(entry, CostShapeAssumption.Fallback.Shape) is not null)];
 
   /// <summary>Every catalog row for one model id, keyed on the BASE id so a stored id carrying a
   ///     routing-variant suffix finds the same endpoints its base model does. Empty when the

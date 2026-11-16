@@ -781,7 +781,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       => seams is null
           ? null
           : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelIds ?? [], seams.CurrentVariant,
-              seams.CurrentRetention);
+              seams.CurrentRetention, seams.LoadCheapestEvidence);
 
   /// <summary>Prefills the summary picker from the persisted level: the matching
   ///     row when the level is known, the provider-default row otherwise. Kept out

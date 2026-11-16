@@ -534,4 +534,179 @@ public class ModelPickerViewModelTests
   [Fact]
   public void ABlankSeedEntry_IsNotMadeARow()
       => Assert.Empty(CreateVm([Entry()], ["  "]).SelectedModels);
-}
+
+  // ── the Cheapest variant: what it trades, and what its order can justify ──
+
+  private const string CheapestModel = "deepseek/deepseek-v4.1-flash";
+
+  /// <summary>One catalog row for a NAMED endpoint, priced per token as the catalog advertises.
+  ///     </summary>
+  private static ModelProviderEntry Endpoint(string slug, decimal input, decimal cacheRead, decimal output)
+      => new(CheapestModel, slug.Split('/')[0], input, cacheRead, output, 200_000, 8192,
+          SupportsToolUse: true, SupportsVision: false, SupportsTextOutput: true,
+          IntelligenceScore: null, CodingScore: null, AgenticScore: null, LatencyMs: null,
+          ThroughputTokensPerSec: null, Description: null)
+      {
+        Variant = new EndpointVariant(slug),
+      };
+
+  /// <summary>The two endpoints of the model this feature was measured on: Wafer is cheaper at a
+  ///     low cache-hit rate and River at a high one, so the choice between them is exactly the
+  ///     fragile case the sentence exists to state.</summary>
+  private static ModelProviderEntry[] WaferAndRiver() =>
+  [
+    Endpoint("wafer/fp8", 5.1e-8m, 1.8e-8m, 5.67e-7m),
+    Endpoint("river/fp8", 9.6e-8m, 1.92e-9m, 3.84e-7m),
+  ];
+
+  /// <summary>A ledger report for the model that clears the evidence floor at the workspace
+  ///     median shape: 90.13% cache hits and 0.007284 output per input token.</summary>
+  private static ProviderPerformanceReport ModelRungReport() => new(
+      UsageScope.Workspace, 0.9013m, 1_000_000_000L, 901_300_000L, 40, 0,
+      [
+        new ProviderPerformance(CheapestModel, "wafer", null, null, null, null, 0, 0, 0, 0, 40,
+            1_000_000_000L, 901_300_000L)
+        {
+          OutputTokens = 7_284_000L,
+        },
+      ]);
+
+  /// <summary>A model picker on Cheapest with the given evidence, loaded against the given
+  ///     catalog.</summary>
+  private static async Task<ModelPickerViewModel> CheapestVmAsync(
+      IReadOnlyList<ModelProviderEntry> entries, CheapestEvidence? evidence)
+  {
+    ModelPickerViewModel vm = new(_ => Task.FromResult(Result.Success(entries)), [CheapestModel],
+        ModelVariant.Cheapest,
+        loadCheapestEvidence: _ => Task.FromResult(evidence ?? new CheapestEvidence(null, null)));
+    await vm.LoadAsync().ConfigureAwait(true);
+    return vm;
+  }
+
+  [Fact]
+  public void VariantCaption_NamesCheapestAndWhatItTrades()
+  {
+    // The caption is ONE static string stating what every option trades, so Cheapest's sentence
+    // is appended to it rather than replacing what Cache Floor's says.
+    string caption = ModelPickerViewModel.VariantCaption;
+
+    Assert.Contains("Cheapest orders them by total cost at this workspace's measured usage", caption,
+        StringComparison.Ordinal);
+    Assert.Contains("input, output and cache-read rates together", caption, StringComparison.Ordinal);
+    Assert.Contains("depends on a high cache-hit rate", caption, StringComparison.Ordinal);
+  }
+
+  [Theory]
+  [InlineData(ModelVariant.Standard)]
+  [InlineData(ModelVariant.Nitro)]
+  [InlineData(ModelVariant.Floor)]
+  [InlineData(ModelVariant.CacheFloor)]
+  public void CheapestSentence_IsAbsentOnTheOtherFourVariants(ModelVariant variant)
+  {
+    // The other four carry no cost projection to explain, and an empty line under the caption
+    // would read as a missing measurement.
+    ModelPickerViewModel vm = CreateVm([Entry()], [Model], variant);
+
+    Assert.Null(vm.CheapestSentence);
+  }
+
+  [Fact]
+  public async Task CheapestSentence_NamesTheWinnerAndTheRunnerUpAtTheBreakEvenRate()
+  {
+    // E2: at the model's measured shape River wins (0.014003 against Wafer's 0.025387 USD per 1M
+    // input tokens) but does not dominate - Wafer is cheaper on the input rate - so the choice
+    // turns over at a 71.5% cache-hit rate and the sentence names both endpoints and that rate.
+    ModelPickerViewModel vm = await CheapestVmAsync(WaferAndRiver(),
+        new CheapestEvidence(ModelRungReport(), new CostShape(0.9013m, 0.007284m))).ConfigureAwait(true);
+
+    Assert.Equal("Cheapest is river/fp8, but only above 71.5% cache-hit rate. Below that, "
+        + "wafer/fp8 is cheaper.", vm.CheapestSentence);
+  }
+
+  [Fact]
+  public async Task CheapestSentence_RendersTheRateWithOneDecimalPlace_InvariantCulture()
+  {
+    // 0.7149 must read 71.5%, never 71,5% (a comma locale) and never 0.715 (the raw rate).
+    ModelPickerViewModel vm = await CheapestVmAsync(WaferAndRiver(),
+        new CheapestEvidence(ModelRungReport(), new CostShape(0.9013m, 0.007284m))).ConfigureAwait(true);
+
+    string sentence = vm.CheapestSentence!;
+    Assert.Contains("71.5%", sentence, StringComparison.Ordinal);
+    Assert.DoesNotContain("71,5", sentence, StringComparison.Ordinal);
+    Assert.DoesNotContain("0.715", sentence, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task CheapestSentence_NamesTheEndpointAndItsMeasurement_WhenTheEndpointRungAnswered()
+  {
+    // E3: a winner that DOMINATES the runner-up is cheapest at every hit rate, so no estimate is
+    // needed - and the sentence still names the rung that answered, because a projection built on
+    // an unstated assumption is the failure this feature removes.
+    ModelProviderEntry[] dominant =
+    [
+      Endpoint("river/fp8", 1e-7m, 1e-8m, 2e-7m),
+      Endpoint("wafer/fp8", 2e-7m, 3e-8m, 4e-7m),
+    ];
+    // The row is stamped with the ENDPOINT slug, which is what BindEndpoints keys on: a row
+    // stamped with a bare provider name binds to nothing and falls to the model rung.
+    ProviderPerformanceReport report = new(
+        UsageScope.Workspace, 0.9013m, 1_000_000_000L, 901_300_000L, 40, 0,
+        [
+          new ProviderPerformance(CheapestModel, "river/fp8", null, null, null, null, 0, 0, 0, 0, 40,
+              1_000_000_000L, 901_300_000L)
+          {
+            OutputTokens = 7_463_000L,
+          },
+        ]);
+    ModelPickerViewModel vm = await CheapestVmAsync(dominant, new CheapestEvidence(report, null))
+        .ConfigureAwait(true);
+
+    Assert.Equal("Cheapest is river/fp8. This endpoint measured 90.1% cache hits and 0.007463 "
+        + "output per input token, and river/fp8 is cheapest at every hit rate.", vm.CheapestSentence);
+  }
+
+  [Fact]
+  public async Task CheapestSentence_StatesTheDefaultRung_WhenNothingWasMeasured()
+  {
+    // A rung that did not answer says so in its own words rather than quoting a measurement it
+    // does not have - the rule ProviderPerformanceText already applies to an unmeasured figure.
+    ModelProviderEntry[] dominant =
+    [
+      Endpoint("river/fp8", 1e-7m, 1e-8m, 2e-7m),
+      Endpoint("wafer/fp8", 2e-7m, 3e-8m, 4e-7m),
+    ];
+    ModelPickerViewModel vm = await CheapestVmAsync(dominant, new CheapestEvidence(null, null))
+        .ConfigureAwait(true);
+
+    Assert.Equal("Cheapest is river/fp8. Nothing has been measured yet, so this uses the default "
+        + "50% cache-hit rate; river/fp8 is cheapest at every hit rate.", vm.CheapestSentence);
+  }
+
+  [Fact]
+  public async Task CheapestSentence_SaysTheOrderCouldNotBeResolved_WhenTheCatalogReadFailed()
+  {
+    // E4: no catalog row means no endpoint to name, so the sentence states that the provider's
+    // own routing applies instead of inventing a winner.
+    ModelPickerViewModel vm = new(
+        _ => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
+            new DomainError("CatalogDown", "boom"))),
+        [CheapestModel], ModelVariant.Cheapest,
+        loadCheapestEvidence: _ => Task.FromResult(new CheapestEvidence(null, null)));
+    await vm.LoadAsync().ConfigureAwait(true);
+
+    Assert.Equal("Cheapest could not be resolved for this model, so the provider's own routing "
+        + "applies.", vm.CheapestSentence);
+  }
+
+  [Fact]
+  public async Task CheapestSentence_IsAbsentAgain_WhenTheUserMovesOffCheapest()
+  {
+    ModelPickerViewModel vm = await CheapestVmAsync(WaferAndRiver(),
+        new CheapestEvidence(ModelRungReport(), null)).ConfigureAwait(true);
+    Assert.NotNull(vm.CheapestSentence);
+
+    vm.SelectedVariantOption = vm.VariantOptions.First(option => option.Variant == ModelVariant.Standard);
+
+    Assert.Null(vm.CheapestSentence);
+  }
+};

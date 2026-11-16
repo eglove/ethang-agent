@@ -128,6 +128,20 @@ public class ModelVariantTests
       => Assert.Equal(ModelVariant.Standard, ModelVariants.FromModelId("alpha/model"));
 
   [Fact]
+  public void Cheapest_IsNamedOnTheStatusLineByItsBareName()
+  {
+    // The status line and the transcript notice both render Describe(served), so a Cheapest
+    // session reads 'with Cheapest' with no new string. This pins that the name the bar shows is
+    // the same one the dropdown offers - a variant whose two surfaces disagreed would leave the
+    // user unable to tell which tradeoff the turn actually carries.
+    string described = ModelVariants.Describe(ModelVariant.Cheapest);
+
+    Assert.Equal("Cheapest", described);
+    Assert.Equal(ModelVariants.Describe(ModelVariant.Cheapest), described);
+    Assert.Contains(described, ModelVariants.All.Select(ModelVariants.Describe));
+  }
+
+  [Fact]
   public void FromModelId_NeverReadsCacheFloor_ItHasNoSuffix()
       => Assert.Equal(ModelVariant.Standard, ModelVariants.FromModelId("alpha/model"));
 

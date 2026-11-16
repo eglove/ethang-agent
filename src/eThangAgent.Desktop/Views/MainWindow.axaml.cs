@@ -218,15 +218,15 @@ internal partial class MainWindow : Window
       return; // host composed the session without model preferences — nothing to edit
     }
 
-    // The model section's seams are bundled: the catalog load and its revalidation join, and
-    // the session's committed choice to pre-select. A host with no catalog loader supplies no
-    // section at all. The ledger's observed-performance loader is gone with the provider level -
-    // nothing renders per-endpoint comparison now, so wiring it would be a database query with
-    // no consumer.
+    // The model section's seams are bundled: the catalog load and its revalidation join, the
+    // session's committed choice to pre-select, and the usage evidence the Cheapest sentence is
+    // priced at. A host with no catalog loader supplies no section at all, and a tab with no
+    // ledger supplies no evidence - the sentence then states the documented default rung.
     ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
         ? new ModelSectionSeams(loadCatalog, preferences.ModelIds,
             _vm.SelectedTabCatalogRefresher, preferences.ModelVariant,
-            preferences.Retention ?? RetentionPolicy.ZeroDataRetention)
+            preferences.Retention ?? RetentionPolicy.ZeroDataRetention,
+            CheapestEvidenceLoader(tab))
         : null;
     ModelSettingsViewModel vm = new(
         preferences,
@@ -236,6 +236,33 @@ internal partial class MainWindow : Window
         modelSection);
     ModelSettingsWindow dialog = new(vm);
     _ = await dialog.ShowDialog<ModelSettingsSnapshot?>(this);
+  }
+
+  /// <summary>The Cheapest sentence's evidence for one tab: the ledger's per-provider report and
+  ///     the workspace's median shape, or null when the tab has no ledger or no workspace to
+  ///     scope it by.
+  ///     <para>THE TWO READS ARE INDEPENDENT: a report that fails still leaves the workspace shape
+  ///     available.</para></summary>
+  private static Func<CancellationToken, Task<CheapestEvidence>>? CheapestEvidenceLoader(
+      AgentTabViewModel tab)
+  {
+    IUsageQueries? usage = tab.Container.Services.GetService<IUsageQueries>();
+    string? workspaceId = tab.WorkspaceId;
+    return usage is null || workspaceId is null
+        ? null
+        : ct => ReadCheapestEvidenceAsync(usage, workspaceId, ct);
+  }
+
+  /// <summary>One tab's evidence, read off the UI thread: the workspace's per-provider report and
+  ///     its median shape, each absent rather than fatal when its query fails.</summary>
+  private static async Task<CheapestEvidence> ReadCheapestEvidenceAsync(IUsageQueries usage,
+      string workspaceId, CancellationToken ct)
+  {
+    Result<ProviderPerformanceReport> report = await usage
+        .ProviderPerformanceAsync(ProviderPerformanceRequest.ForWorkspace(workspaceId), ct)
+        .ConfigureAwait(false);
+    Result<CostShape?> shape = await usage.WorkspaceShapeAsync(ct).ConfigureAwait(false);
+    return new CheapestEvidence(report.ValueOrNull, shape.ValueOrNull);
   }
 
   /// <summary>Shows the MCP servers dialog (issue #106) over the selected tab's
