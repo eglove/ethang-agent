@@ -96,6 +96,66 @@ public class SessionModelDropTests
         session.Transcript.Notices[^1], StringComparer.Ordinal);
   }
 
+  /// <summary>A turn that ran in the conversation host fails as a SUCCESS whose payload is the
+  ///     typed failure line, and that is the shape the product runs: a drop that read only a
+  ///     failed Result would never fire for a host turn.</summary>
+  [Fact]
+  public async Task AModelThatSettledAsAFailureLine_IsDroppedAndTheTurnIsResent()
+  {
+    SessionModelPreferences preferences = new() { ModelIds = [A, B] };
+    ScriptedTurnChannel host = new();
+    _ = host.SettlesFailure(A, "RateLimited").Answers(B, "hi there");
+    AgentSessionViewModel session = Session(host, preferences);
+
+    await session.SubmitAsync("hi").ConfigureAwait(true);
+
+    Assert.Equal(2, host.Sends);
+    Assert.Equal([B], ModelsOf(host.Requests[1]));
+    Assert.Contains($"{A} was rate limited; removed for this session - 1 model left",
+        session.Transcript.Notices, StringComparer.Ordinal);
+    Assert.Equal([B], session.Status.SurvivingModelIds);
+    Assert.Contains("hi there", session.Transcript.AssistantText, StringComparison.Ordinal);
+  }
+
+  /// <summary>An answer that merely begins with the word 'Error' is an answer, never a verdict:
+  ///     the settled line is read for its code, and a payload without one drops nothing.</summary>
+  [Fact]
+  public async Task AnAnswerBeginningWithError_IsNotAModelVerdict()
+  {
+    SessionModelPreferences preferences = new() { ModelIds = [A, B] };
+    ScriptedTurnChannel host = new();
+    _ = host.Settles(A, "Error handling is what this turn is about").Answers(B, "never served");
+    AgentSessionViewModel session = Session(host, preferences);
+
+    await session.SubmitAsync("hi").ConfigureAwait(true);
+
+    Assert.Equal(1, host.Sends);
+    Assert.Equal([A, B], session.Status.SurvivingModelIds);
+    Assert.DoesNotContain(session.Transcript.Notices, n => n.Contains("removed for this session",
+        StringComparison.Ordinal));
+  }
+
+  /// <summary>A verdict with nothing behind it ends the turn, and the line names the spent list
+  ///     before the provider's own text so a throttle is not read as a passing fault.</summary>
+  [Fact]
+  public async Task WithOneModelLeft_TheSpentListIsNamed()
+  {
+    SessionModelPreferences preferences = new() { ModelIds = [A] };
+    ScriptedTurnChannel host = new();
+    _ = host.SettlesFailure(A, "RateLimited");
+    AgentSessionViewModel session = Session(host, preferences);
+
+    await session.SubmitAsync("hi").ConfigureAwait(true);
+
+    Assert.Equal(1, host.Sends);
+    Assert.Contains($"{A} was rate limited and no other model is left to serve this turn - "
+        + "pick another model in Model Settings.",
+        session.Transcript.Notices, StringComparer.Ordinal);
+    // The provider's own line still follows it: the detail is never lost.
+    Assert.Contains("Error [RateLimited]: the model RateLimited the request.",
+        session.Transcript.Notices, StringComparer.Ordinal);
+  }
+
   [Fact]
   public async Task ATransientFailure_NeverDropsAModel()
   {
@@ -244,6 +304,7 @@ internal sealed class ScriptedTurnChannel : IRootTurnChannel
   private readonly Queue<(string? Answer, DomainError? Refusal)> _script = new();
   private readonly Dictionary<string, DomainError> _refusals = [with(StringComparer.Ordinal)];
   private readonly Dictionary<string, string> _answerText = [with(StringComparer.Ordinal)];
+  private readonly Dictionary<string, string> _settledFailures = [with(StringComparer.Ordinal)];
 
   /// <summary>Every request this host received, in send order.</summary>
   public List<RootTurnRequest> Requests { get; } = [];
@@ -263,6 +324,22 @@ internal sealed class ScriptedTurnChannel : IRootTurnChannel
   public ScriptedTurnChannel Answers(string modelId, string answer)
   {
     _answerText[modelId] = answer;
+    return this;
+  }
+
+  /// <summary>Scripts the model a request names FIRST to fail ONCE the way a conversation host
+  ///     reports it: a SUCCESSFUL transport turn whose payload is the typed failure line.</summary>
+  public ScriptedTurnChannel SettlesFailure(string modelId, string code)
+  {
+    _settledFailures[modelId] = $"Error [{code}]: the model {code} the request.";
+    return this;
+  }
+
+  /// <summary>Scripts the model a request names FIRST to settle with <paramref name="payload"/>,
+  ///     whatever it says.</summary>
+  public ScriptedTurnChannel Settles(string modelId, string payload)
+  {
+    _settledFailures[modelId] = payload;
     return this;
   }
 
@@ -287,7 +364,23 @@ internal sealed class ScriptedTurnChannel : IRootTurnChannel
     }
 
     string head = HeadModelOf(request);
-    return RefusalOf(head) ?? AnswerOf(head, request, onEvent);
+    return RefusalOf(head) ?? SettledFailureOf(head, request, onEvent)
+        ?? AnswerOf(head, request, onEvent);
+  }
+
+  /// <summary>The payload this model settles with instead of answering, or null when the test
+  ///     scripted none. A settled payload is a SUCCESS on the wire, which is the shape a host
+  ///     turn's failure arrives in.</summary>
+  private Result<string>? SettledFailureOf(string head, RootTurnRequest request,
+      Action<RootTurnEvent> onEvent)
+  {
+    if (!_settledFailures.Remove(head, out string? payload))
+    {
+      return null;
+    }
+
+    onEvent(new RootTurnEvent(request.TurnId, "settled", payload, request.Generation));
+    return Result.Success(payload);
   }
 
   /// <summary>The verdict this model refuses with, or null when the test scripted none.</summary>

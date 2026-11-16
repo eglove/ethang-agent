@@ -1508,10 +1508,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     returns true when the same turn should go out again on what survives. The drop is
   ///     stated in the transcript and reflected in the status bar. A session with one model left
   ///     falls back to nothing, and every other failure code is left to the loop that owns it.
+  ///     <para>THE VERDICT IS READ FROM EITHER SHAPE AN ATTEMPT CAN RETURN. A turn run in this
+  ///     process fails with a typed Result; a turn run in the conversation host settles as a
+  ///     SUCCESS whose payload is the typed failure line, so reading only the Result would leave
+  ///     every host turn undroppable — the model that refused would keep serving.</para>
   ///     </summary>
   private bool TryDropRefusingModel(Result<string> result)
   {
-    if (result.IsSuccess || !IsModelVerdict(result.Error.Code))
+    if (VerdictCodeOf(result) is not { } code)
     {
       return false;
     }
@@ -1530,20 +1534,36 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     Status.SurvivingModelIds = [.. SurvivingModels()];
     Status.BackupCountText = BackupCountText(Status.SurvivingModelIds.Count);
-    Transcript.AddNotice(DropNotice(refusing, result.Error.Code, Status.SurvivingModelIds.Count));
+    Transcript.AddNotice(DropNotice(refusing, code, Status.SurvivingModelIds.Count));
     return true;
   }
 
-  /// <summary>True for the codes a MODEL returned rather than a fault a turn can outwait: a
-  ///     request refused on its merits, and a throttle.</summary>
-  private static bool IsModelVerdict(string code)
-      => code is "RateLimited" or "ModelRejected";
+  /// <summary>The model-verdict code an attempt failed with, or null when the attempt did not
+  ///     fail that way. A success carries a verdict only when its payload IS the typed failure
+  ///     line; an answer that merely begins with the word 'Error' is an answer
+  ///     (<see cref="IsErrorSettle"/>).</summary>
+  private static string? VerdictCodeOf(Result<string> attempt)
+  {
+    string? code = attempt.IsSuccess ? ErrorCodeOf(attempt.Value) : attempt.Error.Code;
+    return code is not null && TurnRetryPolicy.IsModelVerdict(code) ? code : null;
+  }
 
   /// <summary>The transcript line a drop writes, naming the model, what it did, and how many
   ///     models are left. One is singular: '1 model left'.</summary>
   private static string DropNotice(string modelId, string code, int surviving) =>
-      $"{modelId} was {(code == "RateLimited" ? "rate limited" : "rejected")}; removed for "
+      $"{modelId} was {VerdictPhrase(code)}; removed for "
       + $"this session - {surviving} {(surviving == 1 ? "model" : "models")} left";
+
+  /// <summary>The transcript line a spent list writes: the last model's verdict, and the one act
+  ///     that resolves it. The provider's own failure line follows it, so the fault's detail is
+  ///     never lost.</summary>
+  private static string ExhaustedNotice(string code, IReadOnlyList<string> surviving) =>
+      $"{surviving[0]} was {VerdictPhrase(code)} and no other model is left to serve this turn - "
+      + "pick another model in Model Settings.";
+
+  /// <summary>What a model-verdict code did, in the user's words.</summary>
+  private static string VerdictPhrase(string code)
+      => code == "RateLimited" ? "rate limited" : "rejected";
 
   /// <summary>The transcript notice a model change writes, naming the head, the backup count
   ///     when there is one, and the routing variant when one was committed.</summary>
@@ -1774,6 +1794,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       if (TryDropRefusingModel(attempt))
       {
         continue;
+      }
+
+      // A model verdict with nothing left to fall back to ends the turn, and the line says so
+      // before the provider's own text: the attempt stops here, so the user needs to know the
+      // list is spent rather than read a bare throttle as a passing fault.
+      if (VerdictCodeOf(attempt) is { } spent)
+      {
+        Transcript.AddNotice(ExhaustedNotice(spent, SurvivingModels()));
       }
 
       // A host that is gone is not this turn's fault, so the same turn goes out again over a
@@ -2107,6 +2135,22 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private static bool IsErrorSettle(string payload)
       => payload.StartsWith("Error [", StringComparison.Ordinal)
           && payload.Contains("]: ", StringComparison.Ordinal);
+
+  /// <summary>The code a settled failure line carries, or null when the payload is not one. The
+  ///     line's shape is <c>Error [&lt;code&gt;]: &lt;message&gt;</c>, so the code is what sits
+  ///     between the opening bracket and the delimiter.</summary>
+  private static string? ErrorCodeOf(string payload)
+  {
+    const string Prefix = "Error [";
+    const string Delimiter = "]: ";
+    if (!payload.StartsWith(Prefix, StringComparison.Ordinal))
+    {
+      return null;
+    }
+
+    int end = payload.IndexOf(Delimiter, Prefix.Length, StringComparison.Ordinal);
+    return end <= Prefix.Length ? null : payload[Prefix.Length..end];
+  }
 
   /// <summary>Converts the turn's attached image parts to their wire form, or an empty list
   ///     when the turn carries none.</summary>
