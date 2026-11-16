@@ -1,0 +1,1705 @@
+{
+  "Shape": { "HitRate": 0.9013, "OutputPerInputRatio": 0.007284 },
+  "CapturedAt": "2026-11-16",
+  "Source": "the workspace's openrouter catalog cache (model_catalog_cache, provider 'openrouter|https://openrouter.ai/api/v1/models'), trimmed to the three advertised rates and the endpoint tag for every model carrying two or more priced endpoints",
+  "Models": [
+    { "ModelId": "amazon/nova-2-lite-v1", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.0000003, "CacheRead": null, "Output": 0.0000025 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000003, "CacheRead": null, "Output": 0.0000025 }
+    ] },
+    { "ModelId": "amazon/nova-lite-v1", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.00000006, "CacheRead": null, "Output": 0.00000024 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.00000006, "CacheRead": null, "Output": 0.00000024 }
+    ] },
+    { "ModelId": "amazon/nova-micro-v1", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000000035, "CacheRead": null, "Output": 0.00000014 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.000000035, "CacheRead": null, "Output": 0.00000014 }
+    ] },
+    { "ModelId": "amazon/nova-pro-v1", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.0000008, "CacheRead": null, "Output": 0.0000032 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000008, "CacheRead": null, "Output": 0.0000032 }
+    ] },
+    { "ModelId": "anthropic/claude-fable-5", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "anthropic", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "azure", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "claude-on-aws", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "google-vertex/europe", "Input": 0.000011, "CacheRead": 0.0000011, "Output": 0.000055 },
+      { "Slug": "google-vertex/global", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "google-vertex/us", "Input": 0.000011, "CacheRead": 0.0000011, "Output": 0.000055 }
+    ] },
+    { "ModelId": "anthropic/claude-fable-5.1", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.00001, "CacheRead": 0.00000025, "Output": 0.00005 },
+      { "Slug": "anthropic", "Input": 0.00001, "CacheRead": 0.00000025, "Output": 0.00005 },
+      { "Slug": "azure", "Input": 0.00001, "CacheRead": 0.00000025, "Output": 0.00005 },
+      { "Slug": "google-vertex/global", "Input": 0.00001, "CacheRead": 0.00000025, "Output": 0.00005 },
+      { "Slug": "google-vertex/us", "Input": 0.000011, "CacheRead": 0.000000275, "Output": 0.000055 }
+    ] },
+    { "ModelId": "anthropic/claude-fable-5.2", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000008, "CacheRead": 0.0000002, "Output": 0.00004 },
+      { "Slug": "anthropic", "Input": 0.000008, "CacheRead": 0.0000002, "Output": 0.00004 },
+      { "Slug": "anthropic/fast", "Input": 0.000016, "CacheRead": 0.0000004, "Output": 0.00008 },
+      { "Slug": "azure", "Input": 0.000008, "CacheRead": 0.0000002, "Output": 0.00004 },
+      { "Slug": "google-vertex/global", "Input": 0.000008, "CacheRead": 0.0000002, "Output": 0.00004 }
+    ] },
+    { "ModelId": "anthropic/claude-haiku-4.5", "Endpoints": [
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000011, "CacheRead": 0.00000011, "Output": 0.0000055 },
+      { "Slug": "amazon-bedrock/global", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000005 },
+      { "Slug": "amazon-bedrock/us", "Input": 0.0000011, "CacheRead": 0.00000011, "Output": 0.0000055 },
+      { "Slug": "anthropic", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000005 },
+      { "Slug": "azure/global", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000005 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000011, "CacheRead": 0.00000011, "Output": 0.0000055 },
+      { "Slug": "google-vertex/global", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000005 },
+      { "Slug": "google-vertex/us-east5", "Input": 0.0000011, "CacheRead": 0.00000011, "Output": 0.0000055 }
+    ] },
+    { "ModelId": "anthropic/claude-haiku-5.5", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "anthropic", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "azure/global", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "azure/us", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "claude-on-aws", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "google-vertex/europe", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "google-vertex/global", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "google-vertex/us", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 }
+    ] },
+    { "ModelId": "anthropic/claude-opus-4.5", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "anthropic", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "azure/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "claude-on-aws", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "google-vertex/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 }
+    ] },
+    { "ModelId": "anthropic/claude-opus-4.6", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "anthropic", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "azure/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "claude-on-aws", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "google-vertex/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 }
+    ] },
+    { "ModelId": "anthropic/claude-opus-4.7", "Endpoints": [
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "amazon-bedrock/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "anthropic", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "azure/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "claude-on-aws", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "google-vertex/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "google-vertex/us", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 }
+    ] },
+    { "ModelId": "anthropic/claude-opus-4.8", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "amazon-bedrock/us", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "anthropic", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "anthropic/fast", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "azure/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "azure/us", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "claude-on-aws", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "google-vertex/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "google-vertex/us", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 }
+    ] },
+    { "ModelId": "anthropic/claude-opus-5", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "anthropic", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "anthropic/fast", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "azure/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "azure/us", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "claude-on-aws", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 },
+      { "Slug": "google-vertex/global", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "google-vertex/us", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.0000275 }
+    ] },
+    { "ModelId": "anthropic/claude-opus-5.5", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000044, "CacheRead": 0.00000022, "Output": 0.000022 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000044, "CacheRead": 0.00000022, "Output": 0.000022 },
+      { "Slug": "anthropic", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "anthropic/fast", "Input": 0.000008, "CacheRead": 0.0000004, "Output": 0.00004 },
+      { "Slug": "azure/global", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "azure/us", "Input": 0.0000044, "CacheRead": 0.00000022, "Output": 0.000022 },
+      { "Slug": "claude-on-aws", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000044, "CacheRead": 0.00000022, "Output": 0.000022 },
+      { "Slug": "google-vertex/global", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "google-vertex/us", "Input": 0.0000044, "CacheRead": 0.00000022, "Output": 0.000022 }
+    ] },
+    { "ModelId": "anthropic/claude-sonnet-4.5", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000033, "CacheRead": 0.00000033, "Output": 0.0000165 },
+      { "Slug": "anthropic", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "azure/global", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "claude-on-aws", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "google-vertex/global", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "google-vertex/us-east5", "Input": 0.0000033, "CacheRead": 0.00000033, "Output": 0.0000165 }
+    ] },
+    { "ModelId": "anthropic/claude-sonnet-4.6", "Endpoints": [
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000033, "CacheRead": 0.00000033, "Output": 0.0000165 },
+      { "Slug": "amazon-bedrock/global", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "amazon-bedrock/us", "Input": 0.0000033, "CacheRead": 0.00000033, "Output": 0.0000165 },
+      { "Slug": "anthropic", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "azure/global", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "claude-on-aws", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000033, "CacheRead": 0.00000033, "Output": 0.0000165 },
+      { "Slug": "google-vertex/global", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "google-vertex/us-east5", "Input": 0.0000033, "CacheRead": 0.00000033, "Output": 0.0000165 }
+    ] },
+    { "ModelId": "anthropic/claude-sonnet-5", "Endpoints": [
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "amazon-bedrock/global", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "anthropic", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "azure/global", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "azure/us", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "claude-on-aws", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "google-vertex/global", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "google-vertex/us", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 }
+    ] },
+    { "ModelId": "anthropic/claude-sonnet-5.5", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "anthropic", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "azure/global", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "azure/us", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "claude-on-aws", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "google-vertex/europe", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "google-vertex/global", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "google-vertex/us", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 }
+    ] },
+    { "ModelId": "deepseek/deepseek-chat", "Endpoints": [
+      { "Slug": "deepinfra/fp4", "Input": 0.00000032, "CacheRead": null, "Output": 0.00000089 },
+      { "Slug": "deepinfra/fp4/flex", "Input": 0.000000256, "CacheRead": null, "Output": 0.000000712 },
+      { "Slug": "streamlake", "Input": 0.0000002574, "CacheRead": null, "Output": 0.0000010287 }
+    ] },
+    { "ModelId": "deepseek/deepseek-chat-v3-0324", "Endpoints": [
+      { "Slug": "gmicloud/fp8", "Input": 0.00000029, "CacheRead": 0.00000011, "Output": 0.00000114 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000025, "CacheRead": 0.00000011, "Output": 0.000001 }
+    ] },
+    { "ModelId": "deepseek/deepseek-chat-v3.1", "Endpoints": [
+      { "Slug": "coreweave/fp8", "Input": 0.0000005, "CacheRead": 0.0000002, "Output": 0.0000015 },
+      { "Slug": "deepinfra/fp4", "Input": 0.00000025, "CacheRead": 0.00000013, "Output": 0.00000095 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000027, "CacheRead": 0.00000013, "Output": 0.000001 }
+    ] },
+    { "ModelId": "deepseek/deepseek-r1-0528", "Endpoints": [
+      { "Slug": "deepinfra/fp4", "Input": 0.0000005, "CacheRead": 0.00000035, "Output": 0.00000215 },
+      { "Slug": "siliconflow/fp8", "Input": 0.0000005, "CacheRead": 0.00000035, "Output": 0.00000218 },
+      { "Slug": "streamlake", "Input": 0.000000571, "CacheRead": 0.00000035, "Output": 0.000002286 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v3.2", "Endpoints": [
+      { "Slug": "atlas-cloud/fp8", "Input": 0.00000026, "CacheRead": 0.00000013, "Output": 0.00000038 },
+      { "Slug": "baidu/fp8", "Input": 0.00000028, "CacheRead": 0.000000028, "Output": 0.00000042 },
+      { "Slug": "deepinfra/fp4", "Input": 0.00000026, "CacheRead": 0.00000013, "Output": 0.00000038 },
+      { "Slug": "digitalocean", "Input": 0.0000003, "CacheRead": 0.00000009, "Output": 0.00000096 },
+      { "Slug": "gmicloud/fp8", "Input": 0.0000002088, "CacheRead": 0.0000000216, "Output": 0.0000003096 },
+      { "Slug": "siliconflow/fp8", "Input": 0.000000259, "CacheRead": 0.00000014, "Output": 0.0000008 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4-flash", "Endpoints": [
+      { "Slug": "atlas-cloud/fp4", "Input": 0.00000014, "CacheRead": 0.000000028, "Output": 0.00000028 },
+      { "Slug": "azure/us", "Input": 0.00000021, "CacheRead": 0.000000031, "Output": 0.00000056 },
+      { "Slug": "baidu/fp8", "Input": 0.00000004998, "CacheRead": 0.000000009996, "Output": 0.00000009996 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000009, "CacheRead": 0.000000018, "Output": 0.00000018 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000072, "CacheRead": 0.0000000144, "Output": 0.000000144 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.000000135, "CacheRead": 0.000000027, "Output": 0.00000027 },
+      { "Slug": "fireworks", "Input": 0.000000105, "CacheRead": 0.000000021, "Output": 0.00000021 },
+      { "Slug": "gmicloud/fp8", "Input": 0.000000091, "CacheRead": 0.0000000182, "Output": 0.000000182 },
+      { "Slug": "mancer/fp8", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000005 },
+      { "Slug": "parasail/fp8", "Input": 0.00000014, "CacheRead": 0.00000007, "Output": 0.00000028 },
+      { "Slug": "relace/fp4", "Input": 0.00000005, "CacheRead": 0.00000005, "Output": 0.00000045 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000013, "CacheRead": 0.000000028, "Output": 0.00000028 },
+      { "Slug": "streamlake/fp8", "Input": 0.00000007, "CacheRead": 0.000000014, "Output": 0.00000014 },
+      { "Slug": "venice", "Input": 0.0000000966, "CacheRead": 0.0000000196, "Output": 0.0000001925 },
+      { "Slug": "wafer/mxfp4", "Input": 0.00000012, "CacheRead": 0.000000024, "Output": 0.00000017 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4-flash-0731", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.000000352, "CacheRead": 0.0000000352, "Output": 0.000001056 },
+      { "Slug": "alibaba/us-east-1", "Input": 0.000000374, "CacheRead": 0.0000000374, "Output": 0.000001122 },
+      { "Slug": "atlas-cloud/fp4", "Input": 0.00000044, "CacheRead": 0.000000028, "Output": 0.00000132 },
+      { "Slug": "baidu/fp8", "Input": 0.00000044, "CacheRead": 0.000000014, "Output": 0.00000132 },
+      { "Slug": "baseten/fp32", "Input": 0.00000013, "CacheRead": 0.000000028, "Output": 0.00000026 },
+      { "Slug": "baseten/fp8", "Input": 0.00000013, "CacheRead": 0.000000028, "Output": 0.00000026 },
+      { "Slug": "chutes/fp8", "Input": 0.00000044, "CacheRead": 0.000000044, "Output": 0.00000132 },
+      { "Slug": "cloudflare", "Input": 0.00000044, "CacheRead": 0.000000014, "Output": 0.00000132 },
+      { "Slug": "cohere/fp8", "Input": 0.00000014, "CacheRead": 0.00000007, "Output": 0.00000028 },
+      { "Slug": "coreweave/fp8", "Input": 0.00000013, "CacheRead": 0.00000005, "Output": 0.00000027 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000006, "CacheRead": 0.000000015, "Output": 0.00000018 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000048, "CacheRead": 0.000000012, "Output": 0.000000144 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000009, "CacheRead": 0.0000000225, "Output": 0.00000027 },
+      { "Slug": "digitalocean", "Input": 0.000000119, "CacheRead": 0.0000000238, "Output": 0.000000238 },
+      { "Slug": "gmicloud/fp8", "Input": 0.000000286, "CacheRead": 0.0000000091, "Output": 0.000000858 },
+      { "Slug": "inceptron/fp4", "Input": 0.00000013, "CacheRead": 0.000000027, "Output": 0.000000495 },
+      { "Slug": "mancer/fp8", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000005 },
+      { "Slug": "novita/fp8", "Input": 0.0000004092, "CacheRead": 0.00000002604, "Output": 0.0000012276 },
+      { "Slug": "parasail/fp8", "Input": 0.00000014, "CacheRead": 0.00000005, "Output": 0.00000028 },
+      { "Slug": "primeintellect/fp4", "Input": 0.00000044, "CacheRead": 0.000000014, "Output": 0.00000132 },
+      { "Slug": "reka", "Input": 0.0000001, "CacheRead": 0.00000006, "Output": 0.00000042 },
+      { "Slug": "relace/fp4", "Input": 0.00000007, "CacheRead": 0.000000014, "Output": 0.00000014 },
+      { "Slug": "sail-research/fp4", "Input": 0.00000015, "CacheRead": 0.000000042, "Output": 0.0000003 },
+      { "Slug": "sail-research/us", "Input": 0.00000015, "CacheRead": 0.000000042, "Output": 0.0000003 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000022, "CacheRead": 0.000000028, "Output": 0.00000066 },
+      { "Slug": "streamlake/fp8", "Input": 0.000000088, "CacheRead": 0.0000000028, "Output": 0.000000264 },
+      { "Slug": "venice", "Input": 0.00000013, "CacheRead": 0.000000028, "Output": 0.00000026 },
+      { "Slug": "wafer/fast", "Input": 0.00000013, "CacheRead": 0.000000125, "Output": 0.00000023 },
+      { "Slug": "wafer/us", "Input": 0.0000000434, "CacheRead": 0.000000035, "Output": 0.0000003 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4-flash-vision-exp", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.0000002156, "CacheRead": 0.00000000686, "Output": 0.0000006468 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000017248, "CacheRead": 0.000000005488, "Output": 0.00000051744 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.0000003234, "CacheRead": 0.00000001029, "Output": 0.0000009702 },
+      { "Slug": "gmicloud/fp8", "Input": 0.00000044, "CacheRead": 0.000000014, "Output": 0.00000132 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4-pro", "Endpoints": [
+      { "Slug": "alibaba/fp8", "Input": 0.000001416, "CacheRead": 0.000000118, "Output": 0.000002832 },
+      { "Slug": "alibaba/fp8/us-east-1", "Input": 0.00000156, "CacheRead": 0.00000013, "Output": 0.00000312 },
+      { "Slug": "atlas-cloud/fp4", "Input": 0.00000168, "CacheRead": 0.00000013, "Output": 0.00000338 },
+      { "Slug": "azure/us", "Input": 0.00000191, "CacheRead": 0.00000016, "Output": 0.00000383 },
+      { "Slug": "baidu/fp8", "Input": 0.0000008957, "CacheRead": 0.0000000742, "Output": 0.0000017914 },
+      { "Slug": "deepinfra/fp8", "Input": 0.0000013, "CacheRead": 0.0000001, "Output": 0.0000026 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000104, "CacheRead": 0.00000008, "Output": 0.00000208 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000195, "CacheRead": 0.00000015, "Output": 0.0000039 },
+      { "Slug": "digitalocean", "Input": 0.000001044, "CacheRead": 0.0000002088, "Output": 0.000002088 },
+      { "Slug": "gmicloud/fp8", "Input": 0.000000957, "CacheRead": 0.00000007975, "Output": 0.000001914 },
+      { "Slug": "novita/fp8", "Input": 0.0000016, "CacheRead": 0.000000135, "Output": 0.0000032 },
+      { "Slug": "relace/fp4", "Input": 0.0000009, "CacheRead": 0.00000025, "Output": 0.0000015 },
+      { "Slug": "siliconflow/fp8", "Input": 0.000001, "CacheRead": 0.000000135, "Output": 0.0000015 },
+      { "Slug": "streamlake/fp8", "Input": 0.000000894012, "CacheRead": 0.000000074501, "Output": 0.000001788024 },
+      { "Slug": "venice", "Input": 0.00000165, "CacheRead": 0.00000033, "Output": 0.000003301 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4-pro-0813", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.000001122, "CacheRead": 0.0000001122, "Output": 0.000003366 },
+      { "Slug": "alibaba/us-east-1", "Input": 0.00000132, "CacheRead": 0.000000132, "Output": 0.00000396 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.00000132, "CacheRead": 0.000000132, "Output": 0.00000396 },
+      { "Slug": "baidu/fp8", "Input": 0.00000131868, "CacheRead": 0.000000041958, "Output": 0.00000395604 },
+      { "Slug": "baseten/fp4", "Input": 0.00000132, "CacheRead": 0.000000132, "Output": 0.00000396 },
+      { "Slug": "cloudflare", "Input": 0.00000132, "CacheRead": 0.000000044, "Output": 0.00000396 },
+      { "Slug": "coreweave/fp8", "Input": 0.00000131, "CacheRead": 0.000000044, "Output": 0.00000396 },
+      { "Slug": "deepinfra/fp8", "Input": 0.0000013, "CacheRead": 0.0000001, "Output": 0.0000026 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000104, "CacheRead": 0.00000008, "Output": 0.00000208 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000195, "CacheRead": 0.00000015, "Output": 0.0000039 },
+      { "Slug": "deepseek", "Input": 0.00000066, "CacheRead": 0.000000022, "Output": 0.00000198 },
+      { "Slug": "digitalocean", "Input": 0.00000132, "CacheRead": 0.000000044, "Output": 0.00000396 },
+      { "Slug": "gmicloud/fp8", "Input": 0.000001056, "CacheRead": 0.0000000352, "Output": 0.000003168 },
+      { "Slug": "nebius/fp8", "Input": 0.00000132, "CacheRead": 0.00000004, "Output": 0.00000396 },
+      { "Slug": "novita/fp8", "Input": 0.00000099, "CacheRead": 0.000000033, "Output": 0.00000297 },
+      { "Slug": "parasail/fast", "Input": 0.00000198, "CacheRead": 0.000000066, "Output": 0.00000594 },
+      { "Slug": "parasail/fp8", "Input": 0.00000132, "CacheRead": 0.000000044, "Output": 0.00000396 },
+      { "Slug": "relace/fp4", "Input": 0.0000000999, "CacheRead": 0.0000000999, "Output": 0.000008 },
+      { "Slug": "sail-research/fp4", "Input": 0.00000135, "CacheRead": 0.000000195, "Output": 0.0000024 },
+      { "Slug": "sail-research/us", "Input": 0.00000135, "CacheRead": 0.000000195, "Output": 0.0000024 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000132, "CacheRead": 0.000000044, "Output": 0.00000396 },
+      { "Slug": "streamlake", "Input": 0.00000066, "CacheRead": 0.000000022, "Output": 0.00000198 },
+      { "Slug": "together", "Input": 0.00000132, "CacheRead": 0.00000013, "Output": 0.00000396 },
+      { "Slug": "venice", "Input": 0.00000165, "CacheRead": 0.000000165, "Output": 0.00000495 },
+      { "Slug": "wafer/mxfp4", "Input": 0.000000285, "CacheRead": 0.000000284, "Output": 0.0000043 },
+      { "Slug": "wafer/us", "Input": 0.000000111, "CacheRead": 0.000000097, "Output": 0.00000444 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4.1-flash", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000021, "CacheRead": 0.0000000042, "Output": 0.00000084 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.000000135, "CacheRead": 0.0000000135, "Output": 0.00000054 },
+      { "Slug": "baidu/fp8", "Input": 0.0000000507, "CacheRead": 0.000000001014, "Output": 0.0000002028 },
+      { "Slug": "baseten", "Input": 0.0000003, "CacheRead": 0.000000007, "Output": 0.0000012 },
+      { "Slug": "baseten/us", "Input": 0.0000003, "CacheRead": 0.000000007, "Output": 0.0000012 },
+      { "Slug": "cohere/fp8", "Input": 0.000000195, "CacheRead": 0.000000003, "Output": 0.00000066 },
+      { "Slug": "coreweave/fp8", "Input": 0.00000013, "CacheRead": 0.000000002, "Output": 0.00000065 },
+      { "Slug": "crusoe/fp8", "Input": 0.00000029, "CacheRead": 0.000000007, "Output": 0.0000012 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000014, "CacheRead": 0.0000000042, "Output": 0.00000042 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000112, "CacheRead": 0.00000000336, "Output": 0.000000336 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000021, "CacheRead": 0.0000000063, "Output": 0.00000063 },
+      { "Slug": "digitalocean", "Input": 0.000000225, "CacheRead": 0.000000006, "Output": 0.0000009 },
+      { "Slug": "fireworks", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "fireworks/spot", "Input": 0.00000021, "CacheRead": 0.0000000042, "Output": 0.00000084 },
+      { "Slug": "fireworks/us", "Input": 0.00000045, "CacheRead": 0.000000009, "Output": 0.0000018 },
+      { "Slug": "gmicloud/fp8", "Input": 0.00000018, "CacheRead": 0.0000000036, "Output": 0.00000072 },
+      { "Slug": "google-vertex/global", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.0000012 },
+      { "Slug": "inference-net/fp8", "Input": 0.000000103, "CacheRead": 0.000000008, "Output": 0.0000006 },
+      { "Slug": "inference-net/us", "Input": 0.000000103, "CacheRead": 0.000000008, "Output": 0.0000006 },
+      { "Slug": "makora/fp8", "Input": 0.00000026, "CacheRead": 0.0000000058, "Output": 0.00000117 },
+      { "Slug": "mancer/fp8", "Input": 0.0000002125, "CacheRead": 0.00000005, "Output": 0.00000075 },
+      { "Slug": "modal", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.0000012 },
+      { "Slug": "novita/fp8", "Input": 0.000000195, "CacheRead": 0.0000000039, "Output": 0.00000078 },
+      { "Slug": "open-inference/fp4", "Input": 0.00000007, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "parasail/fast", "Input": 0.00000045, "CacheRead": 0.000000009, "Output": 0.0000018 },
+      { "Slug": "parasail/fp8", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "reka", "Input": 0.00000012, "CacheRead": 0.000000008, "Output": 0.00000064 },
+      { "Slug": "relace/fp4", "Input": 0.00000012, "CacheRead": 0.000000003, "Output": 0.0000005 },
+      { "Slug": "river", "Input": 0.000000096, "CacheRead": 0.00000000192, "Output": 0.000000384 },
+      { "Slug": "siliconflow/fp8", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "streamlake/fp8", "Input": 0.000000147, "CacheRead": 0.00000000294, "Output": 0.000000588 },
+      { "Slug": "together", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "venice/fp8", "Input": 0.0000003, "CacheRead": 0.0000000075, "Output": 0.0000012 },
+      { "Slug": "venice/ultrafast", "Input": 0.000003, "CacheRead": 0.00000006, "Output": 0.000012 },
+      { "Slug": "wafer/mxfp4", "Input": 0.00000019, "CacheRead": 0.000000012, "Output": 0.00000065 },
+      { "Slug": "wafer/us", "Input": 0.000000051, "CacheRead": 0.000000018, "Output": 0.000000567 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4.1-flash-1017", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000021, "CacheRead": 0.0000000042, "Output": 0.00000084 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.000000195, "CacheRead": 0.0000000039, "Output": 0.00000078 },
+      { "Slug": "baidu/fp8", "Input": 0.0000001498, "CacheRead": 0.00000000321, "Output": 0.00000060455 },
+      { "Slug": "baseten", "Input": 0.0000003, "CacheRead": 0.000000007, "Output": 0.0000012 },
+      { "Slug": "baseten/fast", "Input": 0.0000006, "CacheRead": 0.000000014, "Output": 0.0000024 },
+      { "Slug": "cloudflare", "Input": 0.0000001, "CacheRead": 0.000000003, "Output": 0.0000006 },
+      { "Slug": "cohere/fp8", "Input": 0.00000015, "CacheRead": 0.000000003, "Output": 0.0000005 },
+      { "Slug": "coreweave/fp8", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "crusoe/fp8", "Input": 0.00000029, "CacheRead": 0.000000007, "Output": 0.0000012 },
+      { "Slug": "deepinfra/fp8", "Input": 0.000000098, "CacheRead": 0.00000000294, "Output": 0.000000294 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.0000000784, "CacheRead": 0.000000002352, "Output": 0.0000002352 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.000000147, "CacheRead": 0.00000000441, "Output": 0.000000441 },
+      { "Slug": "deepseek", "Input": 0.00000015, "CacheRead": 0.000000003, "Output": 0.0000006 },
+      { "Slug": "dekallm", "Input": 0.00000018, "CacheRead": 0.000000006, "Output": 0.00000068 },
+      { "Slug": "digitalocean", "Input": 0.00000018, "CacheRead": 0.000000006, "Output": 0.00000072 },
+      { "Slug": "fireworks", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "fireworks/spot", "Input": 0.00000021, "CacheRead": 0.0000000042, "Output": 0.00000084 },
+      { "Slug": "fireworks/us", "Input": 0.00000045, "CacheRead": 0.000000009, "Output": 0.0000018 },
+      { "Slug": "gmicloud/fp8", "Input": 0.00000018, "CacheRead": 0.0000000036, "Output": 0.00000072 },
+      { "Slug": "inference-net/fp8", "Input": 0.00000008, "CacheRead": 0.000000008, "Output": 0.000000605 },
+      { "Slug": "inference-net/us", "Input": 0.00000008, "CacheRead": 0.000000008, "Output": 0.000000605 },
+      { "Slug": "ionstream", "Input": 0.00000021, "CacheRead": 0.0000000105, "Output": 0.00000062 },
+      { "Slug": "ionstream/flex", "Input": 0.0000000775, "CacheRead": 0.000000002325, "Output": 0.0000002325 },
+      { "Slug": "makora/fp8", "Input": 0.00000015, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "mistral/fp8", "Input": 0.0000003, "CacheRead": 0.000000007, "Output": 0.0000012 },
+      { "Slug": "modal", "Input": 0.00000025, "CacheRead": 0.000000005, "Output": 0.000001 },
+      { "Slug": "morph/fp8", "Input": 0.00000007, "CacheRead": 0.000000006, "Output": 0.000000624 },
+      { "Slug": "near-ai", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "nebius/fp8", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "novita/fp8", "Input": 0.000000165, "CacheRead": 0.0000000033, "Output": 0.00000066 },
+      { "Slug": "open-inference/fp4", "Input": 0.00000007, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "parasail/fp8", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "particle-ai/us", "Input": 0.00000006, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "particle-ai/us/flex", "Input": 0.00000003, "CacheRead": 0.000000015, "Output": 0.00000025 },
+      { "Slug": "primalabs", "Input": 0.00000024, "CacheRead": 0.0000000048, "Output": 0.00000096 },
+      { "Slug": "primeintellect", "Input": 0.00000004368, "CacheRead": 0.0000000024, "Output": 0.0000007 },
+      { "Slug": "relace/fp4", "Input": 0.00000012, "CacheRead": 0.000000003, "Output": 0.0000005 },
+      { "Slug": "river", "Input": 0.0000000864, "CacheRead": 0.000000001728, "Output": 0.0000003456 },
+      { "Slug": "sail-research/fp4", "Input": 0.00000005, "CacheRead": 0.000000007, "Output": 0.0000001 },
+      { "Slug": "sail-research/fp4/us", "Input": 0.00000007, "CacheRead": 0.000000007, "Output": 0.0000001 },
+      { "Slug": "siliconflow/fp8", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.00000055 },
+      { "Slug": "stepfun/fp8", "Input": 0.000000105, "CacheRead": 0.0000000021, "Output": 0.00000042 },
+      { "Slug": "streamlake/fp8", "Input": 0.000000111, "CacheRead": 0.00000000222, "Output": 0.000000444 },
+      { "Slug": "together", "Input": 0.0000003, "CacheRead": 0.000000006, "Output": 0.0000012 },
+      { "Slug": "venice/fp8", "Input": 0.0000003, "CacheRead": 0.0000000075, "Output": 0.0000012 },
+      { "Slug": "wafer/mxfp4", "Input": 0.000000079, "CacheRead": 0.0000000079, "Output": 0.0000005 },
+      { "Slug": "wafer/us", "Input": 0.000000036, "CacheRead": 0.00000001, "Output": 0.0000005 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4.1-flash-1017:batch", "Endpoints": [
+      { "Slug": "morph/fp8", "Input": 0.000000035, "CacheRead": 0.000000003, "Output": 0.000000312 },
+      { "Slug": "sail-research/fp4", "Input": 0.00000005, "CacheRead": 0.000000004, "Output": 0.00000015 },
+      { "Slug": "together", "Input": 0.00000015, "CacheRead": 0.000000003, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "deepseek/deepseek-v4.1-flash:batch", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.000000112, "CacheRead": 0.00000000336, "Output": 0.000000336 },
+      { "Slug": "together", "Input": 0.00000015, "CacheRead": 0.000000003, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "google/gemini-2.5-flash", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.0000025 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.00000125 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000054, "CacheRead": 0.000000054, "Output": 0.0000045 }
+    ] },
+    { "ModelId": "google/gemini-2.5-flash-lite", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000004 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.00000005, "CacheRead": 0.000000005, "Output": 0.0000002 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000018, "CacheRead": 0.000000018, "Output": 0.00000072 }
+    ] },
+    { "ModelId": "google/gemini-2.5-pro", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.00000125, "CacheRead": 0.000000125, "Output": 0.00001 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000000625, "CacheRead": 0.0000000625, "Output": 0.000005 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000225, "CacheRead": 0.000000225, "Output": 0.000018 }
+    ] },
+    { "ModelId": "google/gemini-2.5-pro-preview", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.00000125, "CacheRead": 0.000000125, "Output": 0.00001 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000000625, "CacheRead": 0.0000000625, "Output": 0.000005 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000225, "CacheRead": 0.000000225, "Output": 0.000018 }
+    ] },
+    { "ModelId": "google/gemini-3-flash-preview", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.0000005, "CacheRead": 0.00000005, "Output": 0.000003 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.00000025, "CacheRead": 0.000000025, "Output": 0.0000015 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.0000009, "CacheRead": 0.00000009, "Output": 0.0000054 },
+      { "Slug": "google-vertex/global", "Input": 0.0000005, "CacheRead": 0.00000005, "Output": 0.000003 },
+      { "Slug": "google-vertex/global/flex", "Input": 0.00000025, "CacheRead": 0.000000025, "Output": 0.0000015 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.0000009, "CacheRead": 0.00000009, "Output": 0.0000054 }
+    ] },
+    { "ModelId": "google/gemini-3-pro-image", "Endpoints": [
+      { "Slug": "google-ai-studio/global", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 },
+      { "Slug": "google-vertex/global", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 }
+    ] },
+    { "ModelId": "google/gemini-3-pro-image-preview", "Endpoints": [
+      { "Slug": "google-ai-studio/global", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 },
+      { "Slug": "google-ai-studio/global/flex", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000006 }
+    ] },
+    { "ModelId": "google/gemini-3.1-flash-image", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.0000005, "CacheRead": null, "Output": 0.000003 },
+      { "Slug": "google-vertex/global", "Input": 0.0000005, "CacheRead": null, "Output": 0.000003 },
+      { "Slug": "google-vertex/us", "Input": 0.00000055, "CacheRead": null, "Output": 0.0000033 }
+    ] },
+    { "ModelId": "google/gemini-3.1-flash-lite", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.00000025, "CacheRead": 0.000000025, "Output": 0.0000015 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000000125, "CacheRead": 0.0000000125, "Output": 0.00000075 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000045, "CacheRead": 0.000000045, "Output": 0.0000027 },
+      { "Slug": "google-vertex/eu", "Input": 0.000000275, "CacheRead": 0.0000000275, "Output": 0.00000165 },
+      { "Slug": "google-vertex/global", "Input": 0.00000025, "CacheRead": 0.000000025, "Output": 0.0000015 },
+      { "Slug": "google-vertex/global/flex", "Input": 0.000000125, "CacheRead": 0.0000000125, "Output": 0.00000075 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.00000045, "CacheRead": 0.000000045, "Output": 0.0000027 },
+      { "Slug": "google-vertex/us", "Input": 0.000000275, "CacheRead": 0.0000000275, "Output": 0.00000165 }
+    ] },
+    { "ModelId": "google/gemini-3.1-flash-lite-image", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.00000025, "CacheRead": null, "Output": 0.0000015 },
+      { "Slug": "google-vertex/global", "Input": 0.00000025, "CacheRead": null, "Output": 0.0000015 }
+    ] },
+    { "ModelId": "google/gemini-3.1-flash-lite-preview", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.00000025, "CacheRead": 0.000000025, "Output": 0.0000015 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000000125, "CacheRead": 0.0000000125, "Output": 0.00000075 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000045, "CacheRead": 0.000000045, "Output": 0.0000027 }
+    ] },
+    { "ModelId": "google/gemini-3.1-pro-preview", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000006 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.0000036, "CacheRead": 0.00000036, "Output": 0.0000216 },
+      { "Slug": "google-vertex/global", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 },
+      { "Slug": "google-vertex/global/flex", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000006 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.0000036, "CacheRead": 0.00000036, "Output": 0.0000216 }
+    ] },
+    { "ModelId": "google/gemini-3.5-flash", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.0000015, "CacheRead": 0.00000015, "Output": 0.000009 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.0000045 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.0000027, "CacheRead": 0.00000027, "Output": 0.0000162 },
+      { "Slug": "google-vertex/global", "Input": 0.0000015, "CacheRead": 0.00000015, "Output": 0.000009 },
+      { "Slug": "google-vertex/global/flex", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.0000045 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.0000027, "CacheRead": 0.00000027, "Output": 0.0000162 },
+      { "Slug": "google-vertex/us", "Input": 0.00000165, "CacheRead": 0.000000165, "Output": 0.0000099 }
+    ] },
+    { "ModelId": "google/gemini-3.5-flash-lite", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.0000025 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.00000125 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000054, "CacheRead": 0.000000054, "Output": 0.0000045 },
+      { "Slug": "google-vertex/eu", "Input": 0.00000033, "CacheRead": 0.000000033, "Output": 0.00000275 },
+      { "Slug": "google-vertex/global", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.0000025 },
+      { "Slug": "google-vertex/global/flex", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.00000125 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.00000054, "CacheRead": 0.000000054, "Output": 0.0000045 },
+      { "Slug": "google-vertex/us", "Input": 0.00000033, "CacheRead": 0.000000033, "Output": 0.00000275 }
+    ] },
+    { "ModelId": "google/gemini-3.6-flash", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.00000375 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000000375, "CacheRead": 0.0000000375, "Output": 0.000001875 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000135, "CacheRead": 0.000000135, "Output": 0.00000675 },
+      { "Slug": "google-vertex/global", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.00000375 },
+      { "Slug": "google-vertex/global/flex", "Input": 0.000000375, "CacheRead": 0.0000000375, "Output": 0.000001875 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.00000135, "CacheRead": 0.000000135, "Output": 0.00000675 },
+      { "Slug": "google-vertex/us", "Input": 0.000000825, "CacheRead": 0.0000000825, "Output": 0.000004125 }
+    ] },
+    { "ModelId": "google/gemini-3.7-flash", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.00000375 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000000375, "CacheRead": 0.0000000375, "Output": 0.000001875 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000135, "CacheRead": 0.000000135, "Output": 0.00000675 },
+      { "Slug": "google-vertex/global", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.00000375 },
+      { "Slug": "google-vertex/global/flex", "Input": 0.000000375, "CacheRead": 0.0000000375, "Output": 0.000001875 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.00000135, "CacheRead": 0.000000135, "Output": 0.00000675 },
+      { "Slug": "google-vertex/us", "Input": 0.000000825, "CacheRead": 0.0000000825, "Output": 0.000004125 }
+    ] },
+    { "ModelId": "google/gemini-3.8-flash", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.00000375 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000000375, "CacheRead": 0.0000000375, "Output": 0.000001875 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.00000135, "CacheRead": 0.000000135, "Output": 0.00000675 },
+      { "Slug": "google-vertex/global", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.00000375 },
+      { "Slug": "google-vertex/global/flex", "Input": 0.000000375, "CacheRead": 0.0000000375, "Output": 0.000001875 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.00000135, "CacheRead": 0.000000135, "Output": 0.00000675 },
+      { "Slug": "google-vertex/us", "Input": 0.000000825, "CacheRead": 0.0000000825, "Output": 0.000004125 }
+    ] },
+    { "ModelId": "google/gemini-4-argon", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000001, "CacheRead": 0.00000005, "Output": 0.000005 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.0000036, "CacheRead": 0.00000018, "Output": 0.000018 },
+      { "Slug": "google-vertex/global", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.0000036, "CacheRead": 0.00000018, "Output": 0.000018 },
+      { "Slug": "google-vertex/us", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 }
+    ] },
+    { "ModelId": "google/gemini-4-carbon", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.000001, "CacheRead": 0.00000005, "Output": 0.000005 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.0000036, "CacheRead": 0.00000018, "Output": 0.000018 },
+      { "Slug": "google-vertex/eu", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "google-vertex/global", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.0000036, "CacheRead": 0.00000018, "Output": 0.000018 },
+      { "Slug": "google-vertex/us", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 }
+    ] },
+    { "ModelId": "google/gemini-4-hydrogen", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.0000015, "CacheRead": 0.000000075, "Output": 0.0000075 },
+      { "Slug": "google-ai-studio/flex", "Input": 0.00000075, "CacheRead": 0.0000000375, "Output": 0.00000375 },
+      { "Slug": "google-ai-studio/priority", "Input": 0.0000027, "CacheRead": 0.000000135, "Output": 0.0000135 },
+      { "Slug": "google-vertex/eu", "Input": 0.00000165, "CacheRead": 0.0000000825, "Output": 0.00000825 },
+      { "Slug": "google-vertex/global", "Input": 0.0000015, "CacheRead": 0.000000075, "Output": 0.0000075 },
+      { "Slug": "google-vertex/global/priority", "Input": 0.0000027, "CacheRead": 0.000000135, "Output": 0.0000135 },
+      { "Slug": "google-vertex/us", "Input": 0.00000165, "CacheRead": 0.0000000825, "Output": 0.00000825 }
+    ] },
+    { "ModelId": "google/gemini-nano-banana-2.1", "Endpoints": [
+      { "Slug": "google-ai-studio", "Input": 0.0000015, "CacheRead": null, "Output": 0.0000075 },
+      { "Slug": "google-vertex/global", "Input": 0.0000015, "CacheRead": null, "Output": 0.0000075 }
+    ] },
+    { "ModelId": "google/gemma-3-12b-it", "Endpoints": [
+      { "Slug": "deepinfra/bf16", "Input": 0.00000005, "CacheRead": null, "Output": 0.00000015 },
+      { "Slug": "deepinfra/bf16/flex", "Input": 0.00000004, "CacheRead": null, "Output": 0.00000012 },
+      { "Slug": "deepinfra/bf16/priority", "Input": 0.000000075, "CacheRead": null, "Output": 0.000000225 },
+      { "Slug": "nextbit/int4", "Input": 0.000000075, "CacheRead": 0.00000005, "Output": 0.00000015 }
+    ] },
+    { "ModelId": "google/gemma-3-27b-it", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000008, "CacheRead": 0.00000004, "Output": 0.00000016 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000064, "CacheRead": 0.00000004, "Output": 0.000000128 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000012, "CacheRead": 0.00000004, "Output": 0.00000024 },
+      { "Slug": "nebius/fp8", "Input": 0.0000001, "CacheRead": 0.00000004, "Output": 0.0000003 },
+      { "Slug": "nextbit/fp8", "Input": 0.00000008, "CacheRead": 0.00000004, "Output": 0.00000035 },
+      { "Slug": "parasail/fp8", "Input": 0.00000008, "CacheRead": 0.00000004, "Output": 0.00000045 }
+    ] },
+    { "ModelId": "google/gemma-3-4b-it", "Endpoints": [
+      { "Slug": "deepinfra/bf16", "Input": 0.00000005, "CacheRead": null, "Output": 0.0000001 },
+      { "Slug": "deepinfra/bf16/flex", "Input": 0.00000004, "CacheRead": null, "Output": 0.00000008 },
+      { "Slug": "deepinfra/bf16/priority", "Input": 0.000000075, "CacheRead": null, "Output": 0.00000015 },
+      { "Slug": "parasail/bf16", "Input": 0.00000004, "CacheRead": 0.00000002, "Output": 0.00000005 }
+    ] },
+    { "ModelId": "google/gemma-4-26b-a4b-it", "Endpoints": [
+      { "Slug": "akashml/fp4", "Input": 0.00000007, "CacheRead": 0.000000046, "Output": 0.00000024 },
+      { "Slug": "cloudflare", "Input": 0.0000001, "CacheRead": 0.00000005, "Output": 0.0000003 },
+      { "Slug": "coreweave/bf16", "Input": 0.0000001, "CacheRead": 0.00000005, "Output": 0.0000003 },
+      { "Slug": "darkbloom", "Input": 0.00000004, "CacheRead": 0.00000001, "Output": 0.00000015 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000007, "CacheRead": 0.00000005, "Output": 0.00000034 },
+      { "Slug": "dekallm/bf16", "Input": 0.00000006, "CacheRead": 0.00000004, "Output": 0.00000033 },
+      { "Slug": "google-vertex/global", "Input": 0.00000015, "CacheRead": 0.00000005, "Output": 0.0000006 },
+      { "Slug": "io-net/bf16", "Input": 0.000000067, "CacheRead": 0.000000039, "Output": 0.00000029 },
+      { "Slug": "makora", "Input": 0.00000009, "CacheRead": 0.000000049, "Output": 0.00000028 },
+      { "Slug": "nextbit/bf16", "Input": 0.00000009, "CacheRead": 0.00000005, "Output": 0.0000003 },
+      { "Slug": "novita/bf16", "Input": 0.00000013, "CacheRead": 0.00000005, "Output": 0.0000004 },
+      { "Slug": "parasail/bf16", "Input": 0.00000013, "CacheRead": 0.00000005, "Output": 0.0000004 },
+      { "Slug": "primeintellect/bf16", "Input": 0.000000061, "CacheRead": 0.000000031, "Output": 0.000000184 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000014, "CacheRead": 0.00000005, "Output": 0.0000004 },
+      { "Slug": "venice/bf16", "Input": 0.00000013, "CacheRead": 0.00000005, "Output": 0.0000004 }
+    ] },
+    { "ModelId": "google/gemma-4-31b-it", "Endpoints": [
+      { "Slug": "chutes/fp4", "Input": 0.00000012, "CacheRead": 0.000000012, "Output": 0.00000037 },
+      { "Slug": "coreweave/fp4", "Input": 0.0000001, "CacheRead": 0.0000001, "Output": 0.00000034 },
+      { "Slug": "crusoe/bf16", "Input": 0.00000014, "CacheRead": 0.00000014, "Output": 0.0000004 },
+      { "Slug": "deepinfra/fp8", "Input": 0.0000002, "CacheRead": null, "Output": 0.0000004 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000016, "CacheRead": null, "Output": 0.00000032 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.0000003, "CacheRead": null, "Output": 0.0000006 },
+      { "Slug": "deepinfra/turbo", "Input": 0.000000135, "CacheRead": 0.000000075, "Output": 0.00000051 },
+      { "Slug": "friendli", "Input": 0.00000014, "CacheRead": null, "Output": 0.0000004 },
+      { "Slug": "kt", "Input": 0.0000001, "CacheRead": 0.0000001, "Output": 0.00000034 },
+      { "Slug": "modal", "Input": 0.00000034, "CacheRead": 0.0000001, "Output": 0.0000001 },
+      { "Slug": "nextbit/fp4", "Input": 0.00000015, "CacheRead": 0.00000006, "Output": 0.0000004 },
+      { "Slug": "novita/bf16", "Input": 0.00000014, "CacheRead": null, "Output": 0.0000004 },
+      { "Slug": "parasail/fp8", "Input": 0.00000015, "CacheRead": 0.00000006, "Output": 0.0000004 },
+      { "Slug": "primeintellect/fp4", "Input": 0.0000002, "CacheRead": 0.0000001, "Output": 0.000000335 },
+      { "Slug": "sambanova", "Input": 0.00000038, "CacheRead": null, "Output": 0.00000115 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000075, "CacheRead": 0.00000025, "Output": 0.000001 },
+      { "Slug": "venice/fp4", "Input": 0.00000012, "CacheRead": 0.00000009, "Output": 0.00000036 }
+    ] },
+    { "ModelId": "gryphe/mythomax-l2-13b", "Endpoints": [
+      { "Slug": "mancer/fp8", "Input": 0.0000003, "CacheRead": 0.0000002, "Output": 0.0000005 },
+      { "Slug": "parasail/fp16", "Input": 0.00000008, "CacheRead": null, "Output": 0.00000011 }
+    ] },
+    { "ModelId": "ibm-granite/granite-4.2-8b", "Endpoints": [
+      { "Slug": "coreweave/bf16", "Input": 0.00000006, "CacheRead": 0.000000015, "Output": 0.00000015 },
+      { "Slug": "deepinfra/bf16", "Input": 0.00000006, "CacheRead": 0.000000015, "Output": 0.00000025 }
+    ] },
+    { "ModelId": "inclusionai/ling-3.0-flash", "Endpoints": [
+      { "Slug": "deepinfra/fp4", "Input": 0.00000006, "CacheRead": 0.000000012, "Output": 0.00000018 },
+      { "Slug": "novita", "Input": 0.000000021, "CacheRead": 0.0000000042, "Output": 0.000000063 }
+    ] },
+    { "ModelId": "inference-net/schematron-v2-small", "Endpoints": [
+      { "Slug": "inference-net/bf16", "Input": 0.00000005, "CacheRead": 0.00000005, "Output": 0.00000023 },
+      { "Slug": "inference-net/us", "Input": 0.00000005, "CacheRead": 0.00000005, "Output": 0.00000023 }
+    ] },
+    { "ModelId": "inference-net/schematron-v2-turbo", "Endpoints": [
+      { "Slug": "inference-net/bf16", "Input": 0.00000003, "CacheRead": 0.00000003, "Output": 0.00000015 },
+      { "Slug": "inference-net/us", "Input": 0.00000003, "CacheRead": 0.00000003, "Output": 0.00000015 }
+    ] },
+    { "ModelId": "meta-llama/llama-3.1-8b-instruct", "Endpoints": [
+      { "Slug": "cloudflare/fp8", "Input": 0.000000152, "CacheRead": null, "Output": 0.000000287 },
+      { "Slug": "coreweave/bf16", "Input": 0.00000022, "CacheRead": 0.00000022, "Output": 0.00000022 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000002, "CacheRead": null, "Output": 0.00000004 },
+      { "Slug": "groq", "Input": 0.00000005, "CacheRead": 0.000000025, "Output": 0.00000008 }
+    ] },
+    { "ModelId": "meta-llama/llama-3.2-3b-instruct", "Endpoints": [
+      { "Slug": "cloudflare", "Input": 0.0000000509, "CacheRead": null, "Output": 0.000000335 },
+      { "Slug": "parasail/bf16", "Input": 0.00000005, "CacheRead": null, "Output": 0.00000033 }
+    ] },
+    { "ModelId": "meta-llama/llama-3.3-70b-instruct", "Endpoints": [
+      { "Slug": "akashml/fp8", "Input": 0.0000002, "CacheRead": 0.0000001, "Output": 0.00000052 },
+      { "Slug": "cloudflare/fp8", "Input": 0.000000293, "CacheRead": 0.00000071, "Output": 0.000002253 },
+      { "Slug": "coreweave/fp16", "Input": 0.00000071, "CacheRead": 0.00000071, "Output": 0.00000071 },
+      { "Slug": "deepinfra/turbo", "Input": 0.0000001, "CacheRead": 0.00000071, "Output": 0.00000032 },
+      { "Slug": "google-vertex", "Input": 0.00000072, "CacheRead": 0.00000071, "Output": 0.00000072 },
+      { "Slug": "google-vertex/us-central1", "Input": 0.00000072, "CacheRead": 0.00000071, "Output": 0.00000072 },
+      { "Slug": "groq", "Input": 0.00000059, "CacheRead": 0.000000295, "Output": 0.00000079 },
+      { "Slug": "parasail/fp8", "Input": 0.00000022, "CacheRead": 0.00000011, "Output": 0.0000005 },
+      { "Slug": "sambanova-turbo", "Input": 0.0000006, "CacheRead": 0.00000071, "Output": 0.0000012 }
+    ] },
+    { "ModelId": "meta-llama/llama-4-maverick", "Endpoints": [
+      { "Slug": "google-vertex/us-east5", "Input": 0.00000035, "CacheRead": 0.00000017, "Output": 0.00000115 },
+      { "Slug": "parasail/fp8", "Input": 0.00000035, "CacheRead": 0.00000017, "Output": 0.000001 }
+    ] },
+    { "ModelId": "meta-llama/llama-4-scout", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.0000001, "CacheRead": null, "Output": 0.0000003 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000008, "CacheRead": null, "Output": 0.00000024 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000015, "CacheRead": null, "Output": 0.00000045 },
+      { "Slug": "google-vertex/us-east5", "Input": 0.00000025, "CacheRead": null, "Output": 0.0000007 }
+    ] },
+    { "ModelId": "meta-llama/llama-guard-4-12b", "Endpoints": [
+      { "Slug": "deepinfra/bf16", "Input": 0.00000018, "CacheRead": null, "Output": 0.00000018 },
+      { "Slug": "deepinfra/bf16/flex", "Input": 0.000000144, "CacheRead": null, "Output": 0.000000144 },
+      { "Slug": "deepinfra/bf16/priority", "Input": 0.00000027, "CacheRead": null, "Output": 0.00000027 }
+    ] },
+    { "ModelId": "meta/muse-ember", "Endpoints": [
+      { "Slug": "google-vertex/global", "Input": 0.0000001, "CacheRead": 0.000000004, "Output": 0.0000005 },
+      { "Slug": "meta", "Input": 0.0000001, "CacheRead": 0.000000004, "Output": 0.0000005 }
+    ] },
+    { "ModelId": "meta/muse-glimmer-30b", "Endpoints": [
+      { "Slug": "deepinfra/bf16", "Input": 0.0000003, "CacheRead": 0.00000004, "Output": 0.0000012 },
+      { "Slug": "together", "Input": 0.00000035, "CacheRead": 0.00000004, "Output": 0.0000015 }
+    ] },
+    { "ModelId": "meta/muse-spark-1.3", "Endpoints": [
+      { "Slug": "google-vertex/global", "Input": 0.00000125, "CacheRead": 0.00000015, "Output": 0.00000425 },
+      { "Slug": "meta", "Input": 0.00000125, "CacheRead": 0.00000015, "Output": 0.00000425 }
+    ] },
+    { "ModelId": "meta/muse-spark-open", "Endpoints": [
+      { "Slug": "baseten/fp4", "Input": 0.00000125, "CacheRead": 0.00000015, "Output": 0.00000425 },
+      { "Slug": "fireworks", "Input": 0.00000125, "CacheRead": 0.00000015, "Output": 0.00000425 },
+      { "Slug": "modal", "Input": 0.00000125, "CacheRead": 0.00000015, "Output": 0.00000425 },
+      { "Slug": "nebius/fp4", "Input": 0.00000125, "CacheRead": 0.00000015, "Output": 0.00000425 },
+      { "Slug": "together", "Input": 0.00000125, "CacheRead": 0.00000015, "Output": 0.00000425 }
+    ] },
+    { "ModelId": "meta/muse-wonder", "Endpoints": [
+      { "Slug": "google-vertex/global", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "meta", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 }
+    ] },
+    { "ModelId": "microsoft/phi-4", "Endpoints": [
+      { "Slug": "deepinfra/bf16", "Input": 0.00000007, "CacheRead": null, "Output": 0.00000014 },
+      { "Slug": "deepinfra/bf16/flex", "Input": 0.000000056, "CacheRead": null, "Output": 0.000000112 }
+    ] },
+    { "ModelId": "minimax/minimax-m2.5", "Endpoints": [
+      { "Slug": "atlas-cloud/fp8", "Input": 0.000000295, "CacheRead": 0.00000006, "Output": 0.0000012 },
+      { "Slug": "digitalocean", "Input": 0.0000003, "CacheRead": 0.00000006, "Output": 0.0000012 },
+      { "Slug": "gmicloud/fp8", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.0000012 },
+      { "Slug": "venice", "Input": 0.00000027, "CacheRead": 0.00000003, "Output": 0.00000095 }
+    ] },
+    { "ModelId": "minimax/minimax-m2.7", "Endpoints": [
+      { "Slug": "gmicloud/fp8", "Input": 0.00000021, "CacheRead": 0.000000042, "Output": 0.00000084 },
+      { "Slug": "groq", "Input": 0.0000006, "CacheRead": 0.000000042, "Output": 0.0000018 }
+    ] },
+    { "ModelId": "minimax/minimax-m3", "Endpoints": [
+      { "Slug": "coreweave/fp4", "Input": 0.00000023, "CacheRead": 0.00000005, "Output": 0.00000096 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000028, "CacheRead": 0.000000056, "Output": 0.0000011 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000224, "CacheRead": 0.0000000448, "Output": 0.00000088 },
+      { "Slug": "gmicloud/fp8", "Input": 0.00000024, "CacheRead": 0.000000048, "Output": 0.00000096 },
+      { "Slug": "minimax", "Input": 0.0000003, "CacheRead": 0.00000006, "Output": 0.0000012 },
+      { "Slug": "parasail/fast", "Input": 0.00000045, "CacheRead": 0.00000009, "Output": 0.0000018 },
+      { "Slug": "parasail/fp8", "Input": 0.0000003, "CacheRead": 0.00000006, "Output": 0.0000012 },
+      { "Slug": "venice/fp8", "Input": 0.0000003, "CacheRead": 0.00000006, "Output": 0.0000012 }
+    ] },
+    { "ModelId": "minimax/minimax-m3.1-flash", "Endpoints": [
+      { "Slug": "digitalocean", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "fireworks", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "gmicloud/fp8", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "inferact-vllm/nvfp4", "Input": 0.000000075, "CacheRead": 0.0000000075, "Output": 0.0000003 },
+      { "Slug": "inference-net/fp4", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "inference-net/fp4/us", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "minimax", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "nebius/fp4", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "parasail/fp8", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "sambanova", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "streamlake/fp8", "Input": 0.000000135, "CacheRead": 0.0000000135, "Output": 0.00000054 },
+      { "Slug": "together", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 },
+      { "Slug": "wafer/nvfp4", "Input": 0.000000135, "CacheRead": 0.0000000135, "Output": 0.00000054 }
+    ] },
+    { "ModelId": "mistralai/codestral-2508", "Endpoints": [
+      { "Slug": "mistral", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.0000009 },
+      { "Slug": "mistral/eu", "Input": 0.00000033, "CacheRead": 0.000000033, "Output": 0.00000099 }
+    ] },
+    { "ModelId": "mistralai/ministral-14b-2512", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000022, "CacheRead": 0.000000022, "Output": 0.00000022 },
+      { "Slug": "mistral/zdr", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.0000002 }
+    ] },
+    { "ModelId": "mistralai/ministral-3b-2512", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000011 },
+      { "Slug": "mistral/zdr", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000001 }
+    ] },
+    { "ModelId": "mistralai/ministral-8b-2512", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.000000165, "CacheRead": 0.0000000165, "Output": 0.000000165 },
+      { "Slug": "mistral/zdr", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.00000015 }
+    ] },
+    { "ModelId": "mistralai/mistral-large", "Endpoints": [
+      { "Slug": "mistral", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000006 },
+      { "Slug": "mistral/eu", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.0000066 }
+    ] },
+    { "ModelId": "mistralai/mistral-large-2407", "Endpoints": [
+      { "Slug": "mistral", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000006 },
+      { "Slug": "mistral/eu", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.0000066 },
+      { "Slug": "mistral/zdr", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000006 }
+    ] },
+    { "ModelId": "mistralai/mistral-large-2512", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000055, "CacheRead": 0.000000055, "Output": 0.00000165 },
+      { "Slug": "mistral/zdr", "Input": 0.0000005, "CacheRead": 0.00000005, "Output": 0.0000015 }
+    ] },
+    { "ModelId": "mistralai/mistral-large-4-0", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000077, "CacheRead": 0.000000077, "Output": 0.00000231 },
+      { "Slug": "mistral/zdr", "Input": 0.0000007, "CacheRead": 0.00000007, "Output": 0.0000021 }
+    ] },
+    { "ModelId": "mistralai/mistral-medium-3", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000044, "CacheRead": 0.000000044, "Output": 0.0000022 },
+      { "Slug": "mistral/zdr", "Input": 0.0000004, "CacheRead": 0.00000004, "Output": 0.000002 }
+    ] },
+    { "ModelId": "mistralai/mistral-medium-3-5", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000165, "CacheRead": null, "Output": 0.00000825 },
+      { "Slug": "mistral/zdr", "Input": 0.0000015, "CacheRead": null, "Output": 0.0000075 }
+    ] },
+    { "ModelId": "mistralai/mistral-medium-3.1", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000044, "CacheRead": 0.000000044, "Output": 0.0000022 },
+      { "Slug": "mistral/zdr", "Input": 0.0000004, "CacheRead": 0.00000004, "Output": 0.000002 }
+    ] },
+    { "ModelId": "mistralai/mistral-nemo", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.000000029, "CacheRead": null, "Output": 0.00000003 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.0000000232, "CacheRead": null, "Output": 0.000000024 },
+      { "Slug": "dekallm/fp8", "Input": 0.000000018, "CacheRead": null, "Output": 0.00000003 },
+      { "Slug": "io-net/fp16", "Input": 0.00000001656, "CacheRead": 0.0000000108, "Output": 0.0000000216 },
+      { "Slug": "mistral/eu", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.00000015 },
+      { "Slug": "parasail/fp8", "Input": 0.00000003, "CacheRead": null, "Output": 0.00000003 }
+    ] },
+    { "ModelId": "mistralai/mistral-saba", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000022, "CacheRead": 0.000000022, "Output": 0.00000066 },
+      { "Slug": "mistral/zdr", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "mistralai/mistral-small-24b-instruct-2501", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000005, "CacheRead": null, "Output": 0.00000008 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000004, "CacheRead": null, "Output": 0.000000064 }
+    ] },
+    { "ModelId": "mistralai/mistral-small-2603", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.000000165, "CacheRead": 0.0000000165, "Output": 0.00000066 },
+      { "Slug": "mistral/us", "Input": 0.000000165, "CacheRead": 0.0000000165, "Output": 0.00000066 },
+      { "Slug": "mistral/zdr", "Input": 0.00000015, "CacheRead": 0.000000015, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "mistralai/mistral-small-3.2-24b-instruct", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.000000075, "CacheRead": 0.00000001, "Output": 0.0000002 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000006, "CacheRead": 0.00000001, "Output": 0.00000016 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.0000001125, "CacheRead": 0.00000001, "Output": 0.0000003 },
+      { "Slug": "mistral/eu", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000003 },
+      { "Slug": "parasail/bf16", "Input": 0.00000009, "CacheRead": 0.00000005, "Output": 0.0000003 },
+      { "Slug": "venice/fp8", "Input": 0.00000009375, "CacheRead": 0.00000001, "Output": 0.00000025 }
+    ] },
+    { "ModelId": "mistralai/mixtral-8x22b-instruct", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.0000066 },
+      { "Slug": "mistral/zdr", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000006 }
+    ] },
+    { "ModelId": "mistralai/voxtral-small-24b-2507", "Endpoints": [
+      { "Slug": "mistral/eu", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000033 },
+      { "Slug": "mistral/zdr", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000003 }
+    ] },
+    { "ModelId": "moonshotai/kimi-k2.5", "Endpoints": [
+      { "Slug": "amazon-bedrock/us-east-2", "Input": 0.0000006, "CacheRead": 0.00000015, "Output": 0.000003 },
+      { "Slug": "atlas-cloud/int4", "Input": 0.00000049, "CacheRead": 0.0000002, "Output": 0.0000025 },
+      { "Slug": "novita", "Input": 0.00000057, "CacheRead": 0.000000095, "Output": 0.00000285 },
+      { "Slug": "siliconflow/int4", "Input": 0.0000005, "CacheRead": 0.00000015, "Output": 0.0000025 },
+      { "Slug": "venice", "Input": 0.000000532, "CacheRead": 0.000000209, "Output": 0.000003325 }
+    ] },
+    { "ModelId": "moonshotai/kimi-k2.6", "Endpoints": [
+      { "Slug": "atlas-cloud/int4", "Input": 0.00000095, "CacheRead": 0.00000016, "Output": 0.000004 },
+      { "Slug": "baidu/fp4", "Input": 0.0000003895, "CacheRead": 0.0000000656, "Output": 0.00000164 },
+      { "Slug": "chutes/int4", "Input": 0.00000039, "CacheRead": 0.000000039, "Output": 0.0000018 },
+      { "Slug": "cloudflare", "Input": 0.00000095, "CacheRead": 0.00000016, "Output": 0.000004 },
+      { "Slug": "coreweave/fp4", "Input": 0.00000065, "CacheRead": 0.00000015, "Output": 0.00000341 },
+      { "Slug": "crusoe/bf16", "Input": 0.0000007, "CacheRead": 0.00000035, "Output": 0.0000035 },
+      { "Slug": "deepinfra/fp4", "Input": 0.00000075, "CacheRead": 0.00000015, "Output": 0.0000035 },
+      { "Slug": "deepinfra/fp4/flex", "Input": 0.0000006, "CacheRead": 0.00000012, "Output": 0.0000028 },
+      { "Slug": "deepinfra/fp4/priority", "Input": 0.000001125, "CacheRead": 0.000000225, "Output": 0.00000525 },
+      { "Slug": "digitalocean", "Input": 0.00000057, "CacheRead": 0.000000114, "Output": 0.0000024 },
+      { "Slug": "inceptron/int4", "Input": 0.0000007985, "CacheRead": 0.00000019, "Output": 0.00000375 },
+      { "Slug": "moonshotai", "Input": 0.00000095, "CacheRead": 0.00000016, "Output": 0.000004 },
+      { "Slug": "novita", "Input": 0.0000008, "CacheRead": 0.00000016, "Output": 0.0000034 },
+      { "Slug": "parasail/int4", "Input": 0.00000075, "CacheRead": 0.00000016, "Output": 0.0000035 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000077, "CacheRead": 0.00000014, "Output": 0.0000034 },
+      { "Slug": "streamlake/fp8", "Input": 0.0000005985, "CacheRead": 0.0000001008, "Output": 0.00000252 },
+      { "Slug": "venice/int4", "Input": 0.00000075, "CacheRead": 0.00000016, "Output": 0.0000035 }
+    ] },
+    { "ModelId": "moonshotai/kimi-k2.7-code", "Endpoints": [
+      { "Slug": "alibaba/fp8", "Input": 0.00000095, "CacheRead": 0.00000019, "Output": 0.000004 },
+      { "Slug": "cloudflare", "Input": 0.00000095, "CacheRead": 0.00000019, "Output": 0.000004 },
+      { "Slug": "coreweave/int4", "Input": 0.0000006, "CacheRead": 0.00000012, "Output": 0.000003 },
+      { "Slug": "gmicloud/fp8", "Input": 0.00000095, "CacheRead": 0.00000019, "Output": 0.000004 },
+      { "Slug": "inceptron/int4", "Input": 0.0000006, "CacheRead": 0.00000016, "Output": 0.0000035 },
+      { "Slug": "moonshotai", "Input": 0.00000095, "CacheRead": 0.00000019, "Output": 0.000004 },
+      { "Slug": "moonshotai/highspeed", "Input": 0.0000019, "CacheRead": 0.00000038, "Output": 0.000008 },
+      { "Slug": "novita/int4", "Input": 0.000000912, "CacheRead": 0.0000001824, "Output": 0.00000384 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000085916, "CacheRead": 0.00000017993, "Output": 0.0000038 },
+      { "Slug": "streamlake", "Input": 0.0000007125, "CacheRead": 0.0000001425, "Output": 0.000003 },
+      { "Slug": "venice/int4", "Input": 0.00000075, "CacheRead": 0.00000016, "Output": 0.0000035 }
+    ] },
+    { "ModelId": "moonshotai/kimi-k3", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000345, "CacheRead": 0.000000345, "Output": 0.00001725 },
+      { "Slug": "amazon-bedrock/us-east-2", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "baseten/fp8", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "chutes/mxfp4", "Input": 0.00000185, "CacheRead": 0.000000185, "Output": 0.0000095 },
+      { "Slug": "deepinfra/mxfp4", "Input": 0.00000285, "CacheRead": 0.000000285, "Output": 0.00001425 },
+      { "Slug": "digitalocean", "Input": 0.00000255, "CacheRead": 0.000000255, "Output": 0.00001295 },
+      { "Slug": "fireworks", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "fireworks/fast", "Input": 0.0000045, "CacheRead": 0.00000045, "Output": 0.0000225 },
+      { "Slug": "fireworks/us", "Input": 0.0000045, "CacheRead": 0.00000045, "Output": 0.0000225 },
+      { "Slug": "inference-net/fast", "Input": 0.00000045, "CacheRead": 0.000000315, "Output": 0.000018 },
+      { "Slug": "inference-net/fp4", "Input": 0.000000234, "CacheRead": 0.000000204, "Output": 0.000015 },
+      { "Slug": "inference-net/us", "Input": 0.000000234, "CacheRead": 0.000000204, "Output": 0.000015 },
+      { "Slug": "inference-net/us/fast", "Input": 0.00000045, "CacheRead": 0.000000315, "Output": 0.000018 },
+      { "Slug": "io-net/fp4", "Input": 0.0000021, "CacheRead": 0.00000021, "Output": 0.000014 },
+      { "Slug": "kt", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "makora/fp4", "Input": 0.000001, "CacheRead": 0.00000035, "Output": 0.000016 },
+      { "Slug": "modal/mxfp4", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "moonshotai", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "nebius/fp4", "Input": 0.000003, "CacheRead": 0.000000182, "Output": 0.000015 },
+      { "Slug": "parasail/fast", "Input": 0.0000045, "CacheRead": 0.00000045, "Output": 0.0000225 },
+      { "Slug": "parasail/fp4", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "pareto-alpha/us", "Input": 0.000001, "CacheRead": 0.000000225, "Output": 0.00001125 },
+      { "Slug": "relace/fp4", "Input": 0.0000001824, "CacheRead": 0.00000018, "Output": 0.0000110055 },
+      { "Slug": "river", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "together", "Input": 0.000003, "CacheRead": 0.0000003, "Output": 0.000015 },
+      { "Slug": "wafer", "Input": 0.000000192, "CacheRead": 0.000000182, "Output": 0.000016 },
+      { "Slug": "wafer/fast", "Input": 0.000000153, "CacheRead": 0.000000152, "Output": 0.000016 },
+      { "Slug": "wafer/us", "Input": 0.000000276, "CacheRead": 0.00000013, "Output": 0.0000096 }
+    ] },
+    { "ModelId": "moonshotai/kimi-k3.1-pro", "Endpoints": [
+      { "Slug": "akashml/fp4", "Input": 0.00000175, "CacheRead": 0.00000018, "Output": 0.00001 },
+      { "Slug": "alibaba", "Input": 0.0000023, "CacheRead": 0.00000023, "Output": 0.0000115 },
+      { "Slug": "decart/mxfp4", "Input": 0.00000122, "CacheRead": 0.000000122, "Output": 0.0000061 },
+      { "Slug": "deepinfra/bf16", "Input": 0.0000019, "CacheRead": 0.00000019, "Output": 0.0000095 },
+      { "Slug": "digitalocean", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "fireworks", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "inference-net/fast", "Input": 0.0000027, "CacheRead": 0.00000027, "Output": 0.0000135 },
+      { "Slug": "inference-net/mxfp4", "Input": 0.0000018, "CacheRead": 0.00000018, "Output": 0.000009 },
+      { "Slug": "inference-net/mxfp4/us", "Input": 0.0000018, "CacheRead": 0.00000018, "Output": 0.000009 },
+      { "Slug": "inference-net/us/fast", "Input": 0.0000027, "CacheRead": 0.00000027, "Output": 0.0000135 },
+      { "Slug": "modal/mxfp4", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "moonshotai/highspeed", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "moonshotai/mxfp4", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "morph/fp8", "Input": 0.00000071, "CacheRead": 0.000000226, "Output": 0.000010648 },
+      { "Slug": "nebius/fp4", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "parasail/fp4", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "primalabs/mxfp4", "Input": 0.0000027, "CacheRead": 0.00000027, "Output": 0.0000135 },
+      { "Slug": "relace/fp4", "Input": 0.0000002403, "CacheRead": 0.0000002, "Output": 0.0000084023 },
+      { "Slug": "river", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "sail-research/fp4", "Input": 0.0000014025, "CacheRead": 0.000000187, "Output": 0.00000935 },
+      { "Slug": "sail-research/fp4/us", "Input": 0.0000010425, "CacheRead": 0.000000187, "Output": 0.00000935 },
+      { "Slug": "together", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "wafer/mxfp4", "Input": 0.0000018, "CacheRead": 0.00000018, "Output": 0.000009 },
+      { "Slug": "wafer/us", "Input": 0.000000253, "CacheRead": 0.00000018, "Output": 0.0000088 }
+    ] },
+    { "ModelId": "nvidia/nemotron-3-super-120b-a12b", "Endpoints": [
+      { "Slug": "deepinfra/bf16", "Input": 0.000000075, "CacheRead": null, "Output": 0.0000004 },
+      { "Slug": "deepinfra/bf16/flex", "Input": 0.00000006, "CacheRead": null, "Output": 0.00000032 },
+      { "Slug": "deepinfra/bf16/priority", "Input": 0.0000001125, "CacheRead": null, "Output": 0.0000006 },
+      { "Slug": "dekallm/fp8", "Input": 0.00000008, "CacheRead": null, "Output": 0.00000045 }
+    ] },
+    { "ModelId": "nvidia/nemotron-3-ultra-550b-a55b", "Endpoints": [
+      { "Slug": "baseten/fp4/us", "Input": 0.0000006, "CacheRead": 0.00000012, "Output": 0.0000024 },
+      { "Slug": "deepinfra/fp4", "Input": 0.0000005, "CacheRead": 0.0000001, "Output": 0.0000022 },
+      { "Slug": "deepinfra/fp4/flex", "Input": 0.0000004, "CacheRead": 0.00000008, "Output": 0.00000176 },
+      { "Slug": "deepinfra/fp4/priority", "Input": 0.00000075, "CacheRead": 0.00000015, "Output": 0.0000033 },
+      { "Slug": "kt", "Input": 0.0000005, "CacheRead": 0.0000001, "Output": 0.0000022 },
+      { "Slug": "venice/fp8", "Input": 0.000000625, "CacheRead": 0.0000001875, "Output": 0.000003125 }
+    ] },
+    { "ModelId": "nvidia/nemotron-3.5-lightning", "Endpoints": [
+      { "Slug": "coreweave/bf16", "Input": 0.00000007, "CacheRead": 0.00000004, "Output": 0.0000002 },
+      { "Slug": "darkbloom/int4", "Input": 0.000000025, "CacheRead": 0.0000000125, "Output": 0.00000012 },
+      { "Slug": "deepinfra/bf16", "Input": 0.00000006, "CacheRead": 0.00000003, "Output": 0.00000016 },
+      { "Slug": "fireworks", "Input": 0.00000005, "CacheRead": 0.00000001, "Output": 0.0000002 }
+    ] },
+    { "ModelId": "nvidia/nemotron-3.5-super-vl", "Endpoints": [
+      { "Slug": "baseten/fp4", "Input": 0.0000002, "CacheRead": 0.00000004, "Output": 0.0000005 },
+      { "Slug": "coreweave/nvfp4", "Input": 0.00000015, "CacheRead": 0.00000002, "Output": 0.00000047 },
+      { "Slug": "crusoe/bf16", "Input": 0.0000001, "CacheRead": 0.00000008, "Output": 0.0000004 },
+      { "Slug": "darkbloom/nvfp4", "Input": 0.00000006, "CacheRead": 0.00000001, "Output": 0.00000035 },
+      { "Slug": "deepinfra/fp4", "Input": 0.00000015, "CacheRead": 0.00000002, "Output": 0.0000005 },
+      { "Slug": "io-net/nvfp4", "Input": 0.00000009, "CacheRead": 0.000000012, "Output": 0.0000003 },
+      { "Slug": "nebius/fp4", "Input": 0.0000003, "CacheRead": 0.00000006, "Output": 0.0000009 },
+      { "Slug": "primeintellect/nvfp4", "Input": 0.00000015, "CacheRead": 0.00000002, "Output": 0.0000005 },
+      { "Slug": "together", "Input": 0.00000015, "CacheRead": 0.00000002, "Output": 0.0000005 },
+      { "Slug": "venice/fp4", "Input": 0.0000002, "CacheRead": 0.00000004, "Output": 0.0000005 }
+    ] },
+    { "ModelId": "openai/gpt-4.1", "Endpoints": [
+      { "Slug": "azure", "Input": 0.000002, "CacheRead": 0.0000005, "Output": 0.000008 },
+      { "Slug": "azure/swedencentral", "Input": 0.0000022, "CacheRead": 0.00000055, "Output": 0.0000088 },
+      { "Slug": "openai", "Input": 0.000002, "CacheRead": 0.0000005, "Output": 0.000008 }
+    ] },
+    { "ModelId": "openai/gpt-4.1-mini", "Endpoints": [
+      { "Slug": "azure", "Input": 0.0000004, "CacheRead": 0.0000001, "Output": 0.0000016 },
+      { "Slug": "azure/swedencentral", "Input": 0.00000044, "CacheRead": 0.00000011, "Output": 0.00000176 },
+      { "Slug": "openai", "Input": 0.0000004, "CacheRead": 0.0000001, "Output": 0.0000016 }
+    ] },
+    { "ModelId": "openai/gpt-4.1-nano", "Endpoints": [
+      { "Slug": "azure", "Input": 0.0000001, "CacheRead": 0.00000003, "Output": 0.0000004 },
+      { "Slug": "azure/swedencentral", "Input": 0.00000011, "CacheRead": 0.000000033, "Output": 0.00000044 }
+    ] },
+    { "ModelId": "openai/gpt-4o", "Endpoints": [
+      { "Slug": "azure", "Input": 0.0000025, "CacheRead": 0.00000125, "Output": 0.00001 },
+      { "Slug": "openai", "Input": 0.0000025, "CacheRead": 0.00000125, "Output": 0.00001 }
+    ] },
+    { "ModelId": "openai/gpt-4o-2024-08-06", "Endpoints": [
+      { "Slug": "azure", "Input": 0.0000025, "CacheRead": 0.00000125, "Output": 0.00001 },
+      { "Slug": "openai", "Input": 0.0000025, "CacheRead": 0.00000125, "Output": 0.00001 }
+    ] },
+    { "ModelId": "openai/gpt-4o-mini", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000006 },
+      { "Slug": "azure/swedencentral", "Input": 0.000000165, "CacheRead": 0.0000000825, "Output": 0.00000066 },
+      { "Slug": "openai", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "openai/gpt-5", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00000125, "CacheRead": 0.000000125, "Output": 0.00001 },
+      { "Slug": "azure/swedencentral", "Input": 0.000001375, "CacheRead": 0.0000001375, "Output": 0.000011 },
+      { "Slug": "openai/default", "Input": 0.00000125, "CacheRead": 0.000000125, "Output": 0.00001 }
+    ] },
+    { "ModelId": "openai/gpt-5-mini", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00000025, "CacheRead": 0.00000003, "Output": 0.000002 },
+      { "Slug": "azure/swedencentral", "Input": 0.000000275, "CacheRead": 0.000000033, "Output": 0.0000022 },
+      { "Slug": "openai", "Input": 0.00000025, "CacheRead": 0.000000025, "Output": 0.000002 },
+      { "Slug": "openai/flex", "Input": 0.000000125, "CacheRead": 0.0000000125, "Output": 0.000001 }
+    ] },
+    { "ModelId": "openai/gpt-5-nano", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00000005, "CacheRead": 0.00000001, "Output": 0.0000004 },
+      { "Slug": "azure/swedencentral", "Input": 0.000000055, "CacheRead": 0.000000011, "Output": 0.00000044 },
+      { "Slug": "openai", "Input": 0.00000005, "CacheRead": 0.000000005, "Output": 0.0000004 },
+      { "Slug": "openai/flex", "Input": 0.000000025, "CacheRead": 0.0000000025, "Output": 0.0000002 }
+    ] },
+    { "ModelId": "openai/gpt-5.1", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00000125, "CacheRead": 0.00000013, "Output": 0.00001 },
+      { "Slug": "azure/swedencentral", "Input": 0.000001375, "CacheRead": 0.000000143, "Output": 0.000011 },
+      { "Slug": "openai", "Input": 0.00000125, "CacheRead": 0.000000125, "Output": 0.00001 },
+      { "Slug": "openai/fast", "Input": 0.0000025, "CacheRead": 0.00000025, "Output": 0.00002 },
+      { "Slug": "openai/flex", "Input": 0.000000625, "CacheRead": 0.0000000625, "Output": 0.000005 }
+    ] },
+    { "ModelId": "openai/gpt-5.2", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00000175, "CacheRead": 0.000000175, "Output": 0.000014 },
+      { "Slug": "openai", "Input": 0.00000175, "CacheRead": 0.000000175, "Output": 0.000014 },
+      { "Slug": "openai/fast", "Input": 0.0000035, "CacheRead": 0.00000035, "Output": 0.000028 },
+      { "Slug": "openai/flex", "Input": 0.000000875, "CacheRead": 0.0000000875, "Output": 0.000007 }
+    ] },
+    { "ModelId": "openai/gpt-5.3-codex", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00000175, "CacheRead": 0.000000175, "Output": 0.000014 },
+      { "Slug": "openai", "Input": 0.00000175, "CacheRead": 0.000000175, "Output": 0.000014 },
+      { "Slug": "openai/fast", "Input": 0.0000035, "CacheRead": 0.00000035, "Output": 0.000028 }
+    ] },
+    { "ModelId": "openai/gpt-5.4", "Endpoints": [
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.00000275, "CacheRead": 0.000000275, "Output": 0.0000165 },
+      { "Slug": "azure", "Input": 0.0000025, "CacheRead": 0.00000025, "Output": 0.000015 },
+      { "Slug": "azure/eu", "Input": 0.00000275, "CacheRead": 0.000000275, "Output": 0.0000165 },
+      { "Slug": "azure/us", "Input": 0.00000275, "CacheRead": 0.000000275, "Output": 0.0000165 },
+      { "Slug": "openai", "Input": 0.0000025, "CacheRead": 0.00000025, "Output": 0.000015 },
+      { "Slug": "openai/fast", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.00003 },
+      { "Slug": "openai/flex", "Input": 0.00000125, "CacheRead": 0.000000125, "Output": 0.0000075 }
+    ] },
+    { "ModelId": "openai/gpt-5.4-mini", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.0000045 },
+      { "Slug": "azure/us", "Input": 0.000000825, "CacheRead": 0.0000000825, "Output": 0.00000495 },
+      { "Slug": "openai", "Input": 0.00000075, "CacheRead": 0.000000075, "Output": 0.0000045 },
+      { "Slug": "openai/fast", "Input": 0.0000015, "CacheRead": 0.00000015, "Output": 0.000009 },
+      { "Slug": "openai/flex", "Input": 0.000000375, "CacheRead": 0.0000000375, "Output": 0.00000225 }
+    ] },
+    { "ModelId": "openai/gpt-5.4-nano", "Endpoints": [
+      { "Slug": "azure", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.00000125 },
+      { "Slug": "azure/us", "Input": 0.00000022, "CacheRead": 0.000000022, "Output": 0.000001375 },
+      { "Slug": "openai", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.00000125 },
+      { "Slug": "openai/flex", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.000000625 }
+    ] },
+    { "ModelId": "openai/gpt-5.4-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00003, "CacheRead": null, "Output": 0.00018 },
+      { "Slug": "openai", "Input": 0.00003, "CacheRead": null, "Output": 0.00018 }
+    ] },
+    { "ModelId": "openai/gpt-5.5", "Endpoints": [
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.000033 },
+      { "Slug": "azure", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.00003 },
+      { "Slug": "azure/eu", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.000033 },
+      { "Slug": "azure/us", "Input": 0.0000055, "CacheRead": 0.00000055, "Output": 0.000033 },
+      { "Slug": "openai", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.00003 },
+      { "Slug": "openai/fast", "Input": 0.0000125, "CacheRead": 0.00000125, "Output": 0.000075 },
+      { "Slug": "openai/flex", "Input": 0.0000025, "CacheRead": 0.00000025, "Output": 0.000015 }
+    ] },
+    { "ModelId": "openai/gpt-5.5-pro", "Endpoints": [
+      { "Slug": "openai", "Input": 0.00003, "CacheRead": null, "Output": 0.00018 },
+      { "Slug": "openai/flex", "Input": 0.000015, "CacheRead": null, "Output": 0.00009 }
+    ] },
+    { "ModelId": "openai/gpt-5.6-luna", "Endpoints": [
+      { "Slug": "amazon-bedrock/global", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.0000012 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.00000022, "CacheRead": 0.000000022, "Output": 0.00000132 },
+      { "Slug": "azure", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.0000012 },
+      { "Slug": "azure/eu", "Input": 0.00000022, "CacheRead": 0.000000022, "Output": 0.00000132 },
+      { "Slug": "azure/us", "Input": 0.00000022, "CacheRead": 0.000000022, "Output": 0.00000132 },
+      { "Slug": "openai", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.0000012 },
+      { "Slug": "openai/fast", "Input": 0.0000004, "CacheRead": 0.00000004, "Output": 0.0000024 },
+      { "Slug": "openai/flex", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "openai/gpt-5.6-luna-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.0000012 },
+      { "Slug": "azure/eu", "Input": 0.00000022, "CacheRead": 0.000000022, "Output": 0.00000132 },
+      { "Slug": "openai", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.0000012 },
+      { "Slug": "openai/fast", "Input": 0.0000004, "CacheRead": 0.00000004, "Output": 0.0000024 },
+      { "Slug": "openai/flex", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "openai/gpt-5.6-sol", "Endpoints": [
+      { "Slug": "amazon-bedrock/global", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.00002 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000044, "CacheRead": 0.00000044, "Output": 0.000022 },
+      { "Slug": "azure", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.00002 },
+      { "Slug": "azure/eu", "Input": 0.0000044, "CacheRead": 0.00000044, "Output": 0.000022 },
+      { "Slug": "azure/us", "Input": 0.0000044, "CacheRead": 0.00000044, "Output": 0.000022 },
+      { "Slug": "openai", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.00002 },
+      { "Slug": "openai/fast", "Input": 0.000008, "CacheRead": 0.0000008, "Output": 0.00004 },
+      { "Slug": "openai/flex", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 }
+    ] },
+    { "ModelId": "openai/gpt-5.6-sol-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.00002 },
+      { "Slug": "azure/eu", "Input": 0.0000044, "CacheRead": 0.00000044, "Output": 0.000022 },
+      { "Slug": "openai", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.00002 },
+      { "Slug": "openai/fast", "Input": 0.000008, "CacheRead": 0.0000008, "Output": 0.00004 },
+      { "Slug": "openai/flex", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 }
+    ] },
+    { "ModelId": "openai/gpt-5.6-terra", "Endpoints": [
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.0000132 },
+      { "Slug": "azure", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 },
+      { "Slug": "azure/eu", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.0000132 },
+      { "Slug": "azure/us", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.0000132 },
+      { "Slug": "openai", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 },
+      { "Slug": "openai/fast", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.000024 },
+      { "Slug": "openai/flex", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000006 }
+    ] },
+    { "ModelId": "openai/gpt-5.6-terra-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 },
+      { "Slug": "azure/eu", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.0000132 },
+      { "Slug": "openai", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.000012 },
+      { "Slug": "openai/fast", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.000024 },
+      { "Slug": "openai/flex", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000006 }
+    ] },
+    { "ModelId": "openai/gpt-6-astra", "Endpoints": [
+      { "Slug": "amazon-bedrock/global", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "amazon-bedrock/us-west-2", "Input": 0.000011, "CacheRead": 0.0000011, "Output": 0.000055 },
+      { "Slug": "azure", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "azure/us", "Input": 0.000011, "CacheRead": 0.0000011, "Output": 0.000055 },
+      { "Slug": "openai", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "openai/fast", "Input": 0.00002, "CacheRead": 0.000002, "Output": 0.0001 },
+      { "Slug": "openai/flex", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "openai/ultrafast", "Input": 0.00006, "CacheRead": 0.000006, "Output": 0.0003 }
+    ] },
+    { "ModelId": "openai/gpt-6-astra-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "azure/us", "Input": 0.000011, "CacheRead": 0.0000011, "Output": 0.000055 },
+      { "Slug": "openai", "Input": 0.00001, "CacheRead": 0.000001, "Output": 0.00005 },
+      { "Slug": "openai/fast", "Input": 0.00002, "CacheRead": 0.000002, "Output": 0.0001 },
+      { "Slug": "openai/flex", "Input": 0.000005, "CacheRead": 0.0000005, "Output": 0.000025 },
+      { "Slug": "openai/ultrafast", "Input": 0.00006, "CacheRead": 0.000006, "Output": 0.0003 }
+    ] },
+    { "ModelId": "openai/gpt-6-luna", "Endpoints": [
+      { "Slug": "amazon-bedrock/global", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "azure", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "azure/eu", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "azure/us", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "openai", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "openai/fast", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.000001 },
+      { "Slug": "openai/flex", "Input": 0.00000005, "CacheRead": 0.000000005, "Output": 0.00000025 }
+    ] },
+    { "ModelId": "openai/gpt-6-luna-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "azure/eu", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "azure/us", "Input": 0.00000011, "CacheRead": 0.000000011, "Output": 0.00000055 },
+      { "Slug": "openai", "Input": 0.0000001, "CacheRead": 0.00000001, "Output": 0.0000005 },
+      { "Slug": "openai/fast", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.000001 },
+      { "Slug": "openai/flex", "Input": 0.00000005, "CacheRead": 0.000000005, "Output": 0.00000025 }
+    ] },
+    { "ModelId": "openai/gpt-6-sol", "Endpoints": [
+      { "Slug": "amazon-bedrock/global", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "azure", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "azure/eu", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "azure/us", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "openai", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "openai/fast", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.00002 },
+      { "Slug": "openai/flex", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000005 }
+    ] },
+    { "ModelId": "openai/gpt-6-sol-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "azure/eu", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "azure/us", "Input": 0.0000022, "CacheRead": 0.00000022, "Output": 0.000011 },
+      { "Slug": "openai", "Input": 0.000002, "CacheRead": 0.0000002, "Output": 0.00001 },
+      { "Slug": "openai/fast", "Input": 0.000004, "CacheRead": 0.0000004, "Output": 0.00002 },
+      { "Slug": "openai/flex", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.000005 }
+    ] },
+    { "ModelId": "openai/gpt-6.1-sol", "Endpoints": [
+      { "Slug": "amazon-bedrock/global", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "azure", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "azure/eu", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "azure/us", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "openai", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "openai/fast", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "openai/flex", "Input": 0.000001, "CacheRead": 0.00000005, "Output": 0.000005 },
+      { "Slug": "openai/ultrafast", "Input": 0.000012, "CacheRead": 0.0000006, "Output": 0.00006 }
+    ] },
+    { "ModelId": "openai/gpt-6.1-sol-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "azure/eu", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "azure/us", "Input": 0.0000022, "CacheRead": 0.00000011, "Output": 0.000011 },
+      { "Slug": "openai", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "openai/fast", "Input": 0.000004, "CacheRead": 0.0000002, "Output": 0.00002 },
+      { "Slug": "openai/flex", "Input": 0.000001, "CacheRead": 0.00000005, "Output": 0.000005 },
+      { "Slug": "openai/ultrafast", "Input": 0.000012, "CacheRead": 0.0000006, "Output": 0.00006 }
+    ] },
+    { "ModelId": "openai/gpt-6.1-terra", "Endpoints": [
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.0000011, "CacheRead": 0.000000055, "Output": 0.0000055 },
+      { "Slug": "azure", "Input": 0.000001, "CacheRead": 0.00000005, "Output": 0.000005 },
+      { "Slug": "azure/eu", "Input": 0.0000012, "CacheRead": 0.00000006, "Output": 0.000006 },
+      { "Slug": "azure/us", "Input": 0.0000011, "CacheRead": 0.000000055, "Output": 0.0000055 },
+      { "Slug": "openai", "Input": 0.000001, "CacheRead": 0.00000005, "Output": 0.000005 },
+      { "Slug": "openai/fast", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "openai/flex", "Input": 0.0000005, "CacheRead": 0.000000025, "Output": 0.0000025 }
+    ] },
+    { "ModelId": "openai/gpt-6.1-terra-pro", "Endpoints": [
+      { "Slug": "azure", "Input": 0.000001, "CacheRead": 0.00000005, "Output": 0.000005 },
+      { "Slug": "azure/eu", "Input": 0.0000012, "CacheRead": 0.00000006, "Output": 0.000006 },
+      { "Slug": "azure/us", "Input": 0.0000011, "CacheRead": 0.000000055, "Output": 0.0000055 },
+      { "Slug": "openai", "Input": 0.000001, "CacheRead": 0.00000005, "Output": 0.000005 },
+      { "Slug": "openai/fast", "Input": 0.000002, "CacheRead": 0.0000001, "Output": 0.00001 },
+      { "Slug": "openai/flex", "Input": 0.0000005, "CacheRead": 0.000000025, "Output": 0.0000025 }
+    ] },
+    { "ModelId": "openai/gpt-oss-120b", "Endpoints": [
+      { "Slug": "akashml/fp4", "Input": 0.00000003, "CacheRead": 0.00000003, "Output": 0.000000187 },
+      { "Slug": "amazon-bedrock", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000006 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000006 },
+      { "Slug": "baseten/fp4", "Input": 0.0000001, "CacheRead": 0.0000001, "Output": 0.0000005 },
+      { "Slug": "baseten/fp4/us", "Input": 0.0000001, "CacheRead": 0.0000001, "Output": 0.0000005 },
+      { "Slug": "cerebras/fp16", "Input": 0.00000035, "CacheRead": 0.00000035, "Output": 0.00000075 },
+      { "Slug": "coreweave/fp4", "Input": 0.00000003, "CacheRead": 0.00000003, "Output": 0.00000017 },
+      { "Slug": "crusoe/bf16", "Input": 0.00000005, "CacheRead": 0.00000005, "Output": 0.00000025 },
+      { "Slug": "deepinfra/bf16", "Input": 0.000000037, "CacheRead": 0.0000000185, "Output": 0.00000017 },
+      { "Slug": "dekallm/bf16", "Input": 0.00000003, "CacheRead": 0.00000003, "Output": 0.00000018 },
+      { "Slug": "digitalocean", "Input": 0.00000006, "CacheRead": 0.000000012, "Output": 0.00000042 },
+      { "Slug": "google-vertex/global", "Input": 0.00000009, "CacheRead": 0.000000075, "Output": 0.00000036 },
+      { "Slug": "groq", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000006 },
+      { "Slug": "mancer/fp8", "Input": 0.00000007, "CacheRead": 0.00000007, "Output": 0.00000025 },
+      { "Slug": "near-ai/fp4", "Input": 0.00000003, "CacheRead": 0.000000015, "Output": 0.00000015 },
+      { "Slug": "nebius/fp4", "Input": 0.00000015, "CacheRead": 0.0000001, "Output": 0.0000006 },
+      { "Slug": "parasail/fast", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.00000075 },
+      { "Slug": "parasail/fp4", "Input": 0.0000001, "CacheRead": 0.000000055, "Output": 0.00000075 },
+      { "Slug": "primeintellect/fp4", "Input": 0.000000043, "CacheRead": 0.000000038, "Output": 0.000000091 },
+      { "Slug": "sail-research/fp4", "Input": 0.00000006, "CacheRead": 0.00000003, "Output": 0.0000004 },
+      { "Slug": "sambanova", "Input": 0.00000014, "CacheRead": 0.000000075, "Output": 0.00000095 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000006 },
+      { "Slug": "together", "Input": 0.00000015, "CacheRead": 0.000000075, "Output": 0.0000006 },
+      { "Slug": "venice/int4", "Input": 0.00000003, "CacheRead": 0.00000003, "Output": 0.00000015 }
+    ] },
+    { "ModelId": "openai/gpt-oss-20b", "Endpoints": [
+      { "Slug": "akashml/fp4", "Input": 0.000000018, "CacheRead": 0.000000009, "Output": 0.00000009 },
+      { "Slug": "amazon-bedrock", "Input": 0.00000007, "CacheRead": 0.0000000375, "Output": 0.00000015 },
+      { "Slug": "amazon-bedrock/eu-west-1", "Input": 0.00000007, "CacheRead": 0.0000000375, "Output": 0.00000015 },
+      { "Slug": "coreweave/fp4", "Input": 0.00000003, "CacheRead": 0.00000003, "Output": 0.00000013 },
+      { "Slug": "darkbloom/fp8", "Input": 0.000000018, "CacheRead": 0.000000009, "Output": 0.00000009 },
+      { "Slug": "deepinfra/bf16", "Input": 0.00000003, "CacheRead": 0.0000000375, "Output": 0.00000014 },
+      { "Slug": "deepinfra/bf16/flex", "Input": 0.000000024, "CacheRead": 0.0000000375, "Output": 0.000000112 },
+      { "Slug": "dekallm/bf16", "Input": 0.000000029, "CacheRead": 0.000000029, "Output": 0.00000014 },
+      { "Slug": "groq", "Input": 0.000000075, "CacheRead": 0.0000000375, "Output": 0.0000003 },
+      { "Slug": "parasail/fp4", "Input": 0.00000003, "CacheRead": 0.00000002, "Output": 0.00000015 },
+      { "Slug": "primeintellect/fp4", "Input": 0.00000002, "CacheRead": 0.000000018, "Output": 0.00000003 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000004, "CacheRead": 0.0000000375, "Output": 0.00000018 }
+    ] },
+    { "ModelId": "qwen/qwen-2.5-72b-instruct", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000036, "CacheRead": null, "Output": 0.0000004 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000288, "CacheRead": null, "Output": 0.00000032 }
+    ] },
+    { "ModelId": "qwen/qwen3-14b", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000012, "CacheRead": null, "Output": 0.00000024 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000096, "CacheRead": null, "Output": 0.000000192 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000018, "CacheRead": null, "Output": 0.00000036 },
+      { "Slug": "nextbit/int4", "Input": 0.0000001, "CacheRead": null, "Output": 0.00000022 }
+    ] },
+    { "ModelId": "qwen/qwen3-235b-a22b-2507", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000009, "CacheRead": 0.00000005, "Output": 0.00000055 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000072, "CacheRead": 0.00000005, "Output": 0.00000044 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.000000135, "CacheRead": 0.00000005, "Output": 0.000000825 },
+      { "Slug": "nebius/fp8", "Input": 0.0000002, "CacheRead": 0.00000005, "Output": 0.0000006 },
+      { "Slug": "parasail/fp8", "Input": 0.00000014, "CacheRead": 0.00000005, "Output": 0.0000008 },
+      { "Slug": "venice/fp8", "Input": 0.00000015, "CacheRead": 0.00000005, "Output": 0.00000075 }
+    ] },
+    { "ModelId": "qwen/qwen3-30b-a3b", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000012, "CacheRead": null, "Output": 0.0000005 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000096, "CacheRead": null, "Output": 0.0000004 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000018, "CacheRead": null, "Output": 0.00000075 }
+    ] },
+    { "ModelId": "qwen/qwen3-30b-a3b-instruct-2507", "Endpoints": [
+      { "Slug": "dekallm", "Input": 0.00000009, "CacheRead": 0.0000001, "Output": 0.0000003 },
+      { "Slug": "nebius/fp8", "Input": 0.0000001, "CacheRead": 0.0000001, "Output": 0.0000003 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000009, "CacheRead": 0.0000001, "Output": 0.0000003 }
+    ] },
+    { "ModelId": "qwen/qwen3-32b", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000008, "CacheRead": null, "Output": 0.00000028 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000064, "CacheRead": null, "Output": 0.000000224 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000012, "CacheRead": null, "Output": 0.00000042 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000014, "CacheRead": null, "Output": 0.00000057 },
+      { "Slug": "tenstorrent/fp8", "Input": 0.00000014, "CacheRead": 0.00000009, "Output": 0.0000004 }
+    ] },
+    { "ModelId": "qwen/qwen3-coder", "Endpoints": [
+      { "Slug": "deepinfra/turbo", "Input": 0.0000003, "CacheRead": 0.0000001, "Output": 0.000001 },
+      { "Slug": "venice/fp8", "Input": 0.00000035, "CacheRead": 0.00000004, "Output": 0.0000015 }
+    ] },
+    { "ModelId": "qwen/qwen3-next-80b-a3b-instruct", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000009, "CacheRead": null, "Output": 0.0000011 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000072, "CacheRead": null, "Output": 0.00000088 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.000000135, "CacheRead": null, "Output": 0.00000165 },
+      { "Slug": "parasail/fp8", "Input": 0.0000001, "CacheRead": 0.00000007, "Output": 0.0000011 }
+    ] },
+    { "ModelId": "qwen/qwen3-vl-235b-a22b-instruct", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.0000002, "CacheRead": 0.00000011, "Output": 0.00000088 },
+      { "Slug": "parasail/fp8", "Input": 0.00000021, "CacheRead": 0.0000001, "Output": 0.0000019 },
+      { "Slug": "venice/fp8", "Input": 0.00000021, "CacheRead": 0.0000001, "Output": 0.0000019 }
+    ] },
+    { "ModelId": "qwen/qwen3-vl-30b-a3b-instruct", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000015, "CacheRead": null, "Output": 0.0000006 },
+      { "Slug": "novita/bf16", "Input": 0.0000002, "CacheRead": null, "Output": 0.0000007 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000029, "CacheRead": null, "Output": 0.000001 }
+    ] },
+    { "ModelId": "qwen/qwen3.5-122b-a10b", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000026, "CacheRead": null, "Output": 0.00000208 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.0000003, "CacheRead": 0.0000003, "Output": 0.0000024 },
+      { "Slug": "novita/bf16", "Input": 0.0000004, "CacheRead": null, "Output": 0.0000032 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000026, "CacheRead": null, "Output": 0.00000208 }
+    ] },
+    { "ModelId": "qwen/qwen3.5-27b", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.000000195, "CacheRead": null, "Output": 0.00000156 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.00000027, "CacheRead": 0.00000027, "Output": 0.00000216 },
+      { "Slug": "chutes/fp8", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.00000175 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000026, "CacheRead": null, "Output": 0.0000026 },
+      { "Slug": "novita/bf16", "Input": 0.0000003, "CacheRead": null, "Output": 0.0000024 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000025, "CacheRead": null, "Output": 0.000002 }
+    ] },
+    { "ModelId": "qwen/qwen3.5-35b-a3b", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.0000001625, "CacheRead": 0.00000005, "Output": 0.0000013 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.000000225, "CacheRead": 0.000000225, "Output": 0.0000018 },
+      { "Slug": "darkbloom/fp4", "Input": 0.000000065, "CacheRead": 0.0000000325, "Output": 0.00000075 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000014, "CacheRead": 0.00000005, "Output": 0.000001 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000112, "CacheRead": 0.00000004, "Output": 0.0000008 },
+      { "Slug": "parasail/fp8", "Input": 0.00000015, "CacheRead": 0.00000005, "Output": 0.000001 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000024, "CacheRead": 0.00000015, "Output": 0.0000018 },
+      { "Slug": "venice", "Input": 0.00000015, "CacheRead": 0.00000005, "Output": 0.000001 }
+    ] },
+    { "ModelId": "qwen/qwen3.5-397b-a17b", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000039, "CacheRead": 0.00000022, "Output": 0.00000234 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.00000055, "CacheRead": 0.00000055, "Output": 0.0000035 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000045, "CacheRead": 0.00000022, "Output": 0.000003 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000036, "CacheRead": 0.000000176, "Output": 0.0000024 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.000000675, "CacheRead": 0.00000033, "Output": 0.0000045 },
+      { "Slug": "gmicloud/fp8", "Input": 0.0000006, "CacheRead": 0.00000022, "Output": 0.0000036 },
+      { "Slug": "novita", "Input": 0.0000006, "CacheRead": 0.00000022, "Output": 0.0000036 },
+      { "Slug": "parasail/fp8", "Input": 0.0000005, "CacheRead": 0.0000003, "Output": 0.0000036 },
+      { "Slug": "streamlake", "Input": 0.0000006, "CacheRead": 0.00000012, "Output": 0.0000036 },
+      { "Slug": "venice", "Input": 0.00000075, "CacheRead": 0.00000022, "Output": 0.0000045 }
+    ] },
+    { "ModelId": "qwen/qwen3.5-9b", "Endpoints": [
+      { "Slug": "darkbloom/fp4", "Input": 0.00000008, "CacheRead": 0.00000004, "Output": 0.00000013 },
+      { "Slug": "deepinfra/bf16", "Input": 0.0000001, "CacheRead": 0.000000048, "Output": 0.00000015 },
+      { "Slug": "deepinfra/bf16/flex", "Input": 0.00000008, "CacheRead": 0.000000048, "Output": 0.00000012 },
+      { "Slug": "deepinfra/bf16/priority", "Input": 0.00000015, "CacheRead": 0.000000048, "Output": 0.000000225 },
+      { "Slug": "parasail/bf16", "Input": 0.0000001, "CacheRead": 0.000000048, "Output": 0.00000025 },
+      { "Slug": "primeintellect/bf16", "Input": 0.000000054, "CacheRead": 0.000000048, "Output": 0.000000079 },
+      { "Slug": "siliconflow/fp8", "Input": 0.0000001, "CacheRead": 0.000000048, "Output": 0.00000015 },
+      { "Slug": "together", "Input": 0.00000017, "CacheRead": 0.000000048, "Output": 0.00000025 }
+    ] },
+    { "ModelId": "qwen/qwen3.6-27b", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000045, "CacheRead": null, "Output": 0.0000027 },
+      { "Slug": "chutes/fp8", "Input": 0.00000025, "CacheRead": 0.000000025, "Output": 0.000002 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000032, "CacheRead": null, "Output": 0.0000032 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.000000256, "CacheRead": null, "Output": 0.00000256 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000048, "CacheRead": null, "Output": 0.0000048 },
+      { "Slug": "reka", "Input": 0.0000006, "CacheRead": 0.0000005, "Output": 0.000006 },
+      { "Slug": "siliconflow/fp8", "Input": 0.0000003, "CacheRead": null, "Output": 0.0000032 },
+      { "Slug": "venice/fp8", "Input": 0.000000325, "CacheRead": null, "Output": 0.00000325 }
+    ] },
+    { "ModelId": "qwen/qwen3.6-35b-a3b", "Endpoints": [
+      { "Slug": "akashml/fp8", "Input": 0.0000001, "CacheRead": 0.00000005, "Output": 0.0000009 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.00000025, "CacheRead": 0.00000025, "Output": 0.00000125 },
+      { "Slug": "coreweave/fp8", "Input": 0.0000001, "CacheRead": 0.000000035, "Output": 0.00000089 },
+      { "Slug": "darkbloom/fp4", "Input": 0.00000005, "CacheRead": 0.000000025, "Output": 0.0000007 },
+      { "Slug": "deepinfra/fp8", "Input": 0.0000001, "CacheRead": 0.0000001, "Output": 0.00000095 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000008, "CacheRead": 0.00000008, "Output": 0.00000076 },
+      { "Slug": "deepinfra/fp8/priority", "Input": 0.00000015, "CacheRead": 0.00000015, "Output": 0.000001425 },
+      { "Slug": "parasail/fp8", "Input": 0.0000001, "CacheRead": 0.000000025, "Output": 0.0000009 },
+      { "Slug": "primeintellect/fp8", "Input": 0.00000007, "CacheRead": 0.000000063, "Output": 0.000000647 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000024, "CacheRead": 0.00000015, "Output": 0.0000018 },
+      { "Slug": "venice/fp8", "Input": 0.0000001, "CacheRead": 0.000000025, "Output": 0.000001 }
+    ] },
+    { "ModelId": "qwen/qwen3.7-flash", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000003, "CacheRead": 0.000000006, "Output": 0.00000013 },
+      { "Slug": "alibaba/us-east-1", "Input": 0.0000000345, "CacheRead": 0.0000000069, "Output": 0.0000001495 }
+    ] },
+    { "ModelId": "qwen/qwen3.7-max", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.000001475, "CacheRead": 0.000000295, "Output": 0.000004425 },
+      { "Slug": "alibaba/us-east-1", "Input": 0.000002, "CacheRead": 0.0000004, "Output": 0.000006 }
+    ] },
+    { "ModelId": "qwen/qwen3.7-plus", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000032, "CacheRead": 0.000000064, "Output": 0.00000128 },
+      { "Slug": "alibaba/us-east-1", "Input": 0.00000032, "CacheRead": 0.000000064, "Output": 0.00000128 }
+    ] },
+    { "ModelId": "qwen/qwen3.8-2.4t-a95b", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.000002, "CacheRead": 0.00000025, "Output": 0.000006 },
+      { "Slug": "novita", "Input": 0.000002, "CacheRead": 0.00000025, "Output": 0.000006 },
+      { "Slug": "siliconflow/fp8", "Input": 0.000002, "CacheRead": 0.00000025, "Output": 0.000006 },
+      { "Slug": "venice", "Input": 0.000002, "CacheRead": 0.00000025, "Output": 0.000006 }
+    ] },
+    { "ModelId": "qwen/qwen3.8-27b", "Endpoints": [
+      { "Slug": "akashml/fp8", "Input": 0.000000225, "CacheRead": 0.00000005, "Output": 0.00000198 },
+      { "Slug": "alibaba", "Input": 0.000000425, "CacheRead": 0.000000085, "Output": 0.00000255 },
+      { "Slug": "cerebras/fp16", "Input": 0.00000099, "CacheRead": 0.00000099, "Output": 0.00000149 },
+      { "Slug": "chutes/fp8", "Input": 0.000000039, "CacheRead": 0.0000000039, "Output": 0.00000125 },
+      { "Slug": "cloudflare", "Input": 0.00000045, "CacheRead": 0.00000005, "Output": 0.0000032 },
+      { "Slug": "coreweave/fp8", "Input": 0.0000004, "CacheRead": 0.00000015, "Output": 0.000003 },
+      { "Slug": "darkbloom/fp4", "Input": 0.000000035, "CacheRead": 0.0000000175, "Output": 0.0000015 },
+      { "Slug": "deepinfra/bf16", "Input": 0.00000015, "CacheRead": 0.0000000375, "Output": 0.000001875 },
+      { "Slug": "dekallm", "Input": 0.00000004, "CacheRead": 0.00000002, "Output": 0.0000025 },
+      { "Slug": "gmicloud/fp8", "Input": 0.00000045, "CacheRead": 0.00000025, "Output": 0.0000032 },
+      { "Slug": "ionstream/fp8", "Input": 0.00000004, "CacheRead": 0.00000002, "Output": 0.00000195 },
+      { "Slug": "mancer/fp8", "Input": 0.000000125, "CacheRead": 0.00000005, "Output": 0.000002 },
+      { "Slug": "modal", "Input": 0.00000004, "CacheRead": 0.00000002, "Output": 0.0000023 },
+      { "Slug": "near-ai/fp8", "Input": 0.00000004, "CacheRead": 0.000000018, "Output": 0.00000135 },
+      { "Slug": "nebius/fp4", "Input": 0.00000045, "CacheRead": 0.0000001, "Output": 0.000003 },
+      { "Slug": "novita", "Input": 0.00000042, "CacheRead": 0.000000085, "Output": 0.000003 },
+      { "Slug": "parasail/fp8", "Input": 0.00000024, "CacheRead": 0.00000005, "Output": 0.0000022 },
+      { "Slug": "primeintellect/fp8", "Input": 0.000000074, "CacheRead": 0.000000008, "Output": 0.000000526 },
+      { "Slug": "reka/fp8", "Input": 0.00000015, "CacheRead": 0.00000005, "Output": 0.0000025 },
+      { "Slug": "streamlake", "Input": 0.000000175, "CacheRead": 0.000000035, "Output": 0.00000105 },
+      { "Slug": "tenstorrent/fp8", "Input": 0.00000015, "CacheRead": 0.00000005, "Output": 0.0000016 },
+      { "Slug": "venice/fp8", "Input": 0.00000045, "CacheRead": 0.0000000375, "Output": 0.0000032 },
+      { "Slug": "wafer/fp8", "Input": 0.00000006, "CacheRead": 0.000000059, "Output": 0.0000022 }
+    ] },
+    { "ModelId": "qwen/qwen3.8-flash", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.00000015, "CacheRead": 0.000000016, "Output": 0.00000047 },
+      { "Slug": "alibaba/us-east-1", "Input": 0.00000015, "CacheRead": 0.000000016, "Output": 0.00000047 }
+    ] },
+    { "ModelId": "qwen/qwen3.8-max-0902", "Endpoints": [
+      { "Slug": "alibaba", "Input": 0.000002, "CacheRead": 0.00000025, "Output": 0.000006 },
+      { "Slug": "alibaba/us-east-1", "Input": 0.000002, "CacheRead": 0.00000025, "Output": 0.000006 }
+    ] },
+    { "ModelId": "reflection/beam-1.0-501b-a23b", "Endpoints": [
+      { "Slug": "baseten/fp4", "Input": 0.0000004, "CacheRead": 0.00000004, "Output": 0.0000012 },
+      { "Slug": "coreweave/nvfp4", "Input": 0.0000003, "CacheRead": 0.00000004, "Output": 0.000001 },
+      { "Slug": "digitalocean", "Input": 0.0000004, "CacheRead": 0.00000004, "Output": 0.0000012 },
+      { "Slug": "nebius/fp4", "Input": 0.00000025, "CacheRead": 0.00000005, "Output": 0.000001 },
+      { "Slug": "together", "Input": 0.0000004, "CacheRead": 0.00000004, "Output": 0.0000012 }
+    ] },
+    { "ModelId": "ricursiveai/ripple-65b-preview", "Endpoints": [
+      { "Slug": "gmicloud/bf16", "Input": 0.0000002, "CacheRead": 0.00000005, "Output": 0.0000006 },
+      { "Slug": "primeintellect/bf16", "Input": 0.0000001, "CacheRead": 0.000000025, "Output": 0.0000003 },
+      { "Slug": "together", "Input": 0.0000002, "CacheRead": 0.00000002, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "sao10k/l3-lunaris-8b", "Endpoints": [
+      { "Slug": "deepinfra/turbo", "Input": 0.00000004, "CacheRead": null, "Output": 0.00000005 },
+      { "Slug": "parasail/bf16", "Input": 0.00000004, "CacheRead": null, "Output": 0.00000005 }
+    ] },
+    { "ModelId": "sao10k/l3.1-euryale-70b", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.00000085, "CacheRead": null, "Output": 0.00000085 },
+      { "Slug": "deepinfra/fp8/flex", "Input": 0.00000068, "CacheRead": null, "Output": 0.00000068 }
+    ] },
+    { "ModelId": "stepfun/step-3.7-flash", "Endpoints": [
+      { "Slug": "novita/fp8", "Input": 0.0000002, "CacheRead": 0.00000004, "Output": 0.00000115 },
+      { "Slug": "stepfun/fp8", "Input": 0.0000002, "CacheRead": 0.00000004, "Output": 0.00000115 }
+    ] },
+    { "ModelId": "stepfun/step-5-preview", "Endpoints": [
+      { "Slug": "featherless/fp4", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.0000027 },
+      { "Slug": "stepfun/fp8", "Input": 0.000001, "CacheRead": 0.0000001, "Output": 0.0000027 }
+    ] },
+    { "ModelId": "tencent/hy3", "Endpoints": [
+      { "Slug": "gmicloud/bf16", "Input": 0.00000014, "CacheRead": 0.000000035, "Output": 0.00000058 },
+      { "Slug": "novita", "Input": 0.00000014, "CacheRead": 0.000000035, "Output": 0.00000058 },
+      { "Slug": "tencent/fp8", "Input": 0.000000132, "CacheRead": 0.000000033, "Output": 0.000000528 }
+    ] },
+    { "ModelId": "tencent/hy4-preview", "Endpoints": [
+      { "Slug": "atlas-cloud/fp8", "Input": 0.000000834, "CacheRead": 0.000000042, "Output": 0.000002501 },
+      { "Slug": "deepinfra/fp4", "Input": 0.000000834, "CacheRead": 0.000000042, "Output": 0.000002501 },
+      { "Slug": "gmicloud/bf16", "Input": 0.000000834, "CacheRead": 0.000000042, "Output": 0.000002501 },
+      { "Slug": "novita/fp8", "Input": 0.000000834, "CacheRead": 0.000000042, "Output": 0.000002501 },
+      { "Slug": "siliconflow/fp8", "Input": 0.000000834, "CacheRead": 0.000000042, "Output": 0.000002501 },
+      { "Slug": "tencent/fp8", "Input": 0.000000834, "CacheRead": 0.000000042, "Output": 0.000002501 },
+      { "Slug": "venice/fp4", "Input": 0.0000010425, "CacheRead": 0.0000000525, "Output": 0.00000312625 }
+    ] },
+    { "ModelId": "thinkingmachines/inkling-2-small", "Endpoints": [
+      { "Slug": "cloudflare", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.000001 },
+      { "Slug": "deepinfra/fp4", "Input": 0.000000285, "CacheRead": 0.0000000285, "Output": 0.00000095 },
+      { "Slug": "modal/nvfp4", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.000001 },
+      { "Slug": "nebius/fp4", "Input": 0.0000003, "CacheRead": 0.00000006, "Output": 0.000001 },
+      { "Slug": "primeintellect/fp4", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "together", "Input": 0.0000003, "CacheRead": 0.00000003, "Output": 0.000001 }
+    ] },
+    { "ModelId": "upstage/solar-mini4", "Endpoints": [
+      { "Slug": "upstage", "Input": 0.00000005, "CacheRead": 0.000000005, "Output": 0.0000002 },
+      { "Slug": "upstage/zdr", "Input": 0.00000005, "CacheRead": 0.000000005, "Output": 0.0000002 }
+    ] },
+    { "ModelId": "upstage/solar-pro4", "Endpoints": [
+      { "Slug": "kt", "Input": 0.0000003, "CacheRead": 0.00000006, "Output": 0.0000012 },
+      { "Slug": "upstage", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000006 },
+      { "Slug": "upstage/zdr", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000006 }
+    ] },
+    { "ModelId": "x-ai/grok-4.20", "Endpoints": [
+      { "Slug": "xai", "Input": 0.00000125, "CacheRead": 0.0000002, "Output": 0.0000025 },
+      { "Slug": "xai/priority", "Input": 0.0000025, "CacheRead": 0.0000004, "Output": 0.000005 },
+      { "Slug": "xai/zdr", "Input": 0.00000125, "CacheRead": 0.0000002, "Output": 0.0000025 },
+      { "Slug": "xai/zdr/priority", "Input": 0.0000025, "CacheRead": 0.0000004, "Output": 0.000005 }
+    ] },
+    { "ModelId": "x-ai/grok-4.20-multi-agent", "Endpoints": [
+      { "Slug": "xai", "Input": 0.00000125, "CacheRead": 0.0000002, "Output": 0.0000025 },
+      { "Slug": "xai/priority", "Input": 0.0000025, "CacheRead": 0.0000004, "Output": 0.000005 },
+      { "Slug": "xai/zdr", "Input": 0.00000125, "CacheRead": 0.0000002, "Output": 0.0000025 },
+      { "Slug": "xai/zdr/priority", "Input": 0.0000025, "CacheRead": 0.0000004, "Output": 0.000005 }
+    ] },
+    { "ModelId": "x-ai/grok-4.3", "Endpoints": [
+      { "Slug": "xai", "Input": 0.00000125, "CacheRead": 0.0000002, "Output": 0.0000025 },
+      { "Slug": "xai/priority", "Input": 0.0000025, "CacheRead": 0.0000004, "Output": 0.000005 },
+      { "Slug": "xai/zdr", "Input": 0.00000125, "CacheRead": 0.0000002, "Output": 0.0000025 },
+      { "Slug": "xai/zdr/priority", "Input": 0.0000025, "CacheRead": 0.0000004, "Output": 0.000005 }
+    ] },
+    { "ModelId": "x-ai/grok-4.5", "Endpoints": [
+      { "Slug": "xai", "Input": 0.000002, "CacheRead": 0.0000003, "Output": 0.000006 },
+      { "Slug": "xai/priority", "Input": 0.000004, "CacheRead": 0.0000006, "Output": 0.000012 },
+      { "Slug": "xai/zdr", "Input": 0.000002, "CacheRead": 0.0000003, "Output": 0.000006 },
+      { "Slug": "xai/zdr/priority", "Input": 0.000004, "CacheRead": 0.0000006, "Output": 0.000012 }
+    ] },
+    { "ModelId": "x-ai/grok-4.6", "Endpoints": [
+      { "Slug": "amazon-bedrock/us-west-2", "Input": 0.0000022, "CacheRead": 0.00000055, "Output": 0.0000066 },
+      { "Slug": "xai", "Input": 0.000002, "CacheRead": 0.0000005, "Output": 0.000006 },
+      { "Slug": "xai/priority", "Input": 0.000004, "CacheRead": 0.000001, "Output": 0.000012 },
+      { "Slug": "xai/zdr", "Input": 0.000002, "CacheRead": 0.0000005, "Output": 0.000006 },
+      { "Slug": "xai/zdr/priority", "Input": 0.000004, "CacheRead": 0.000001, "Output": 0.000012 },
+      { "Slug": "xai/zdr/us", "Input": 0.0000022, "CacheRead": 0.00000055, "Output": 0.0000066 }
+    ] },
+    { "ModelId": "x-ai/grok-4.7", "Endpoints": [
+      { "Slug": "amazon-bedrock/global", "Input": 0.000002, "CacheRead": 0.0000005, "Output": 0.000006 },
+      { "Slug": "xai", "Input": 0.000002, "CacheRead": 0.0000005, "Output": 0.000006 },
+      { "Slug": "xai/priority", "Input": 0.000004, "CacheRead": 0.000001, "Output": 0.000012 },
+      { "Slug": "xai/zdr", "Input": 0.000002, "CacheRead": 0.0000005, "Output": 0.000006 },
+      { "Slug": "xai/zdr/priority", "Input": 0.000004, "CacheRead": 0.000001, "Output": 0.000012 },
+      { "Slug": "xai/zdr/us", "Input": 0.0000022, "CacheRead": 0.00000055, "Output": 0.0000066 }
+    ] },
+    { "ModelId": "x-ai/grok-build-0.1", "Endpoints": [
+      { "Slug": "xai", "Input": 0.000001, "CacheRead": 0.0000002, "Output": 0.000002 },
+      { "Slug": "xai/priority", "Input": 0.000002, "CacheRead": 0.0000004, "Output": 0.000004 },
+      { "Slug": "xai/zdr", "Input": 0.000001, "CacheRead": 0.0000002, "Output": 0.000002 },
+      { "Slug": "xai/zdr/priority", "Input": 0.000002, "CacheRead": 0.0000004, "Output": 0.000004 }
+    ] },
+    { "ModelId": "xiaomi/mimo-v2.5-pro", "Endpoints": [
+      { "Slug": "atlas-cloud/fp8", "Input": 0.000000435, "CacheRead": 0.0000000036, "Output": 0.00000087 },
+      { "Slug": "digitalocean", "Input": 0.00000048, "CacheRead": 0.000000096, "Output": 0.0000018 }
+    ] },
+    { "ModelId": "xiaomi/mimo-v2.6-flash", "Endpoints": [
+      { "Slug": "cohere/fp8", "Input": 0.00000014, "CacheRead": 0.000000003, "Output": 0.00000028 },
+      { "Slug": "darkbloom/fp4", "Input": 0.0000001, "CacheRead": 0.0000000028, "Output": 0.00000028 },
+      { "Slug": "deepinfra/fp8", "Input": 0.00000014, "CacheRead": 0.0000000028, "Output": 0.00000028 },
+      { "Slug": "gmicloud/bf16", "Input": 0.000000112, "CacheRead": 0.0000000024, "Output": 0.000000224 },
+      { "Slug": "makora/fp8", "Input": 0.00000018, "CacheRead": 0.0000000045, "Output": 0.00000036 },
+      { "Slug": "tenstorrent/fp8", "Input": 0.000000165, "CacheRead": 0.000000004, "Output": 0.00000033 },
+      { "Slug": "venice/fp8", "Input": 0.000000175, "CacheRead": 0.00000000375, "Output": 0.00000035 },
+      { "Slug": "xiaomi/fp8", "Input": 0.00000014, "CacheRead": 0.0000000028, "Output": 0.00000028 }
+    ] },
+    { "ModelId": "xiaomi/mimo-v2.6-pro", "Endpoints": [
+      { "Slug": "deepinfra/fp8", "Input": 0.000000387, "CacheRead": 0.00000000324, "Output": 0.000000783 },
+      { "Slug": "gmicloud/bf16", "Input": 0.00000032625, "CacheRead": 0.000000003, "Output": 0.0000006525 },
+      { "Slug": "primalabs/fp8", "Input": 0.000004, "CacheRead": 0.000000036, "Output": 0.000008 },
+      { "Slug": "streamlake", "Input": 0.000000522, "CacheRead": 0.00000000432, "Output": 0.000001044 },
+      { "Slug": "xiaomi/fp8", "Input": 0.000000435, "CacheRead": 0.0000000036, "Output": 0.00000087 }
+    ] },
+    { "ModelId": "z-ai/glm-4.5-air", "Endpoints": [
+      { "Slug": "novita/bf16", "Input": 0.00000013, "CacheRead": 0.000000025, "Output": 0.00000085 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000014, "CacheRead": 0.000000025, "Output": 0.00000086 },
+      { "Slug": "z-ai/fp8", "Input": 0.0000002, "CacheRead": 0.00000003, "Output": 0.0000011 }
+    ] },
+    { "ModelId": "z-ai/glm-4.5v", "Endpoints": [
+      { "Slug": "novita/fp8", "Input": 0.0000006, "CacheRead": 0.00000011, "Output": 0.0000018 },
+      { "Slug": "z-ai/fp8", "Input": 0.0000006, "CacheRead": 0.00000011, "Output": 0.0000018 }
+    ] },
+    { "ModelId": "z-ai/glm-4.6", "Endpoints": [
+      { "Slug": "deepinfra/fp4", "Input": 0.0000005, "CacheRead": 0.0000001, "Output": 0.000002 },
+      { "Slug": "deepinfra/fp4/flex", "Input": 0.0000004, "CacheRead": 0.00000008, "Output": 0.0000016 },
+      { "Slug": "novita/bf16", "Input": 0.00000055, "CacheRead": 0.00000011, "Output": 0.0000022 },
+      { "Slug": "venice/fp4", "Input": 0.00000043, "CacheRead": 0.00000008, "Output": 0.00000175 },
+      { "Slug": "z-ai/fp4", "Input": 0.0000006, "CacheRead": 0.00000011, "Output": 0.0000022 }
+    ] },
+    { "ModelId": "z-ai/glm-4.6v", "Endpoints": [
+      { "Slug": "novita/bf16", "Input": 0.0000003, "CacheRead": 0.000000055, "Output": 0.0000009 },
+      { "Slug": "z-ai/fp8", "Input": 0.0000003, "CacheRead": 0.00000005, "Output": 0.0000009 }
+    ] },
+    { "ModelId": "z-ai/glm-4.7", "Endpoints": [
+      { "Slug": "deepinfra/fp4", "Input": 0.0000004, "CacheRead": 0.00000008, "Output": 0.00000175 },
+      { "Slug": "deepinfra/fp4/flex", "Input": 0.00000032, "CacheRead": 0.000000064, "Output": 0.0000014 },
+      { "Slug": "mancer/fp4", "Input": 0.0000007, "CacheRead": 0.00000035, "Output": 0.0000025 },
+      { "Slug": "novita/fp8", "Input": 0.0000006, "CacheRead": 0.00000011, "Output": 0.0000022 },
+      { "Slug": "venice/fp4", "Input": 0.0000004004, "CacheRead": 0.00000008008, "Output": 0.0000019292 },
+      { "Slug": "z-ai/fp4", "Input": 0.0000006, "CacheRead": 0.00000011, "Output": 0.0000022 }
+    ] },
+    { "ModelId": "z-ai/glm-4.7-flash", "Endpoints": [
+      { "Slug": "cloudflare", "Input": 0.0000000605, "CacheRead": null, "Output": 0.0000004 },
+      { "Slug": "novita/bf16", "Input": 0.00000007, "CacheRead": 0.00000001, "Output": 0.0000004 }
+    ] },
+    { "ModelId": "z-ai/glm-5", "Endpoints": [
+      { "Slug": "amazon-bedrock", "Input": 0.000001, "CacheRead": 0.0000002, "Output": 0.0000032 },
+      { "Slug": "baidu/fp8", "Input": 0.0000007, "CacheRead": 0.00000014, "Output": 0.00000224 },
+      { "Slug": "gmicloud/fp8", "Input": 0.0000006, "CacheRead": 0.00000012, "Output": 0.00000192 },
+      { "Slug": "novita/fp8", "Input": 0.000001, "CacheRead": 0.0000002, "Output": 0.0000032 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000095, "CacheRead": 0.0000002, "Output": 0.00000255 },
+      { "Slug": "streamlake/fp8", "Input": 0.0000006, "CacheRead": 0.00000012, "Output": 0.00000192 },
+      { "Slug": "venice/fp8", "Input": 0.000001, "CacheRead": 0.0000002, "Output": 0.0000032 },
+      { "Slug": "venice/turbo", "Input": 0.0000012, "CacheRead": 0.00000024, "Output": 0.000004 },
+      { "Slug": "z-ai/fp8", "Input": 0.000001, "CacheRead": 0.0000002, "Output": 0.0000032 }
+    ] },
+    { "ModelId": "z-ai/glm-5.1", "Endpoints": [
+      { "Slug": "alibaba/fp8", "Input": 0.00000133, "CacheRead": 0.000000247, "Output": 0.00000418 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.00000126, "CacheRead": 0.000000234, "Output": 0.00000396 },
+      { "Slug": "baidu/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "chutes/fp8", "Input": 0.0000009, "CacheRead": 0.00000009, "Output": 0.0000029 },
+      { "Slug": "friendli", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "gmicloud/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "novita/fp8", "Input": 0.00000138, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "siliconflow/fp8", "Input": 0.00000119, "CacheRead": 0.0000006, "Output": 0.00000374 },
+      { "Slug": "streamlake/fp8", "Input": 0.000000966, "CacheRead": 0.0000001794, "Output": 0.000003036 },
+      { "Slug": "venice/fp8", "Input": 0.0000014014, "CacheRead": 0.00000026026, "Output": 0.0000044044 },
+      { "Slug": "z-ai/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 }
+    ] },
+    { "ModelId": "z-ai/glm-5.2", "Endpoints": [
+      { "Slug": "alibaba/fast", "Input": 0.00000231, "CacheRead": 0.000000462, "Output": 0.00000726 },
+      { "Slug": "alibaba/fp8", "Input": 0.000000966, "CacheRead": 0.0000001932, "Output": 0.000003036 },
+      { "Slug": "alibaba/fp8/us-east-1", "Input": 0.00000112, "CacheRead": 0.000000224, "Output": 0.00000352 },
+      { "Slug": "ambient/fp8", "Input": 0.0000006, "CacheRead": 0.00000015, "Output": 0.000002 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.000000938, "CacheRead": 0.0000001742, "Output": 0.000002948 },
+      { "Slug": "baidu/fast", "Input": 0.00000225, "CacheRead": 0.00000056, "Output": 0.00000788 },
+      { "Slug": "baidu/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "baseten/fast", "Input": 0.0000021, "CacheRead": 0.00000021, "Output": 0.0000066 },
+      { "Slug": "baseten/fp8", "Input": 0.0000014, "CacheRead": 0.00000014, "Output": 0.0000044 },
+      { "Slug": "baseten/fp8/us", "Input": 0.0000014, "CacheRead": 0.00000014, "Output": 0.0000044 },
+      { "Slug": "baseten/us/fast", "Input": 0.0000021, "CacheRead": 0.00000021, "Output": 0.0000066 },
+      { "Slug": "cloudflare", "Input": 0.00000019, "CacheRead": 0.00000019, "Output": 0.000008 },
+      { "Slug": "coreweave/fp4", "Input": 0.00000062, "CacheRead": 0.00000014, "Output": 0.00000242 },
+      { "Slug": "deepinfra/fp4", "Input": 0.0000005625, "CacheRead": 0.000000105, "Output": 0.0000018 },
+      { "Slug": "deepinfra/fp4/flex", "Input": 0.00000045, "CacheRead": 0.000000084, "Output": 0.00000144 },
+      { "Slug": "deepinfra/fp4/priority", "Input": 0.00000084375, "CacheRead": 0.0000001575, "Output": 0.0000027 },
+      { "Slug": "digitalocean", "Input": 0.0000007, "CacheRead": 0.000000105, "Output": 0.0000022 },
+      { "Slug": "friendli", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "gmicloud/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "inceptron/fp4", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "mistral/eu", "Input": 0.00000154, "CacheRead": 0.000000154, "Output": 0.00000484 },
+      { "Slug": "mistral/zdr", "Input": 0.0000014, "CacheRead": 0.00000014, "Output": 0.0000044 },
+      { "Slug": "morph/fp8", "Input": 0.000000643, "CacheRead": 0.000000217, "Output": 0.000001978 },
+      { "Slug": "nebius/fp4", "Input": 0.0000014, "CacheRead": 0.00000014, "Output": 0.0000044 },
+      { "Slug": "novita/fp8", "Input": 0.0000006496, "CacheRead": 0.00000012064, "Output": 0.0000020416 },
+      { "Slug": "parasail/fp4", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "relace/fp4", "Input": 0.0000000066, "CacheRead": 0.0000000066, "Output": 0.0000079833 },
+      { "Slug": "siliconflow/fp8", "Input": 0.000000651, "CacheRead": 0.00000013, "Output": 0.000002046 },
+      { "Slug": "streamlake/fp8", "Input": 0.00000061306, "CacheRead": 0.000000113854, "Output": 0.00000192676 },
+      { "Slug": "together", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "venice/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "wafer", "Input": 0.00000019, "CacheRead": 0.00000018, "Output": 0.000008 },
+      { "Slug": "wafer/us", "Input": 0.000000007, "CacheRead": 0.000000006, "Output": 0.0000068 },
+      { "Slug": "z-ai/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 }
+    ] },
+    { "ModelId": "z-ai/glm-5.3", "Endpoints": [
+      { "Slug": "akashml/fp4", "Input": 0.00000019, "CacheRead": 0.00000019, "Output": 0.0000044 },
+      { "Slug": "alibaba", "Input": 0.00000119, "CacheRead": 0.000000238, "Output": 0.00000374 },
+      { "Slug": "alibaba/prime", "Input": 0.0000028, "CacheRead": 0.00000056, "Output": 0.0000088 },
+      { "Slug": "amazon-bedrock/us-east-1", "Input": 0.00000168, "CacheRead": 0.000000312, "Output": 0.00000528 },
+      { "Slug": "atlas-cloud/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "baidu/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "baseten/fast", "Input": 0.0000021, "CacheRead": 0.00000021, "Output": 0.0000066 },
+      { "Slug": "baseten/fp4", "Input": 0.0000014, "CacheRead": 0.00000014, "Output": 0.0000044 },
+      { "Slug": "baseten/fp4/us", "Input": 0.0000014, "CacheRead": 0.00000014, "Output": 0.0000044 },
+      { "Slug": "baseten/us/fast", "Input": 0.0000021, "CacheRead": 0.00000021, "Output": 0.0000066 },
+      { "Slug": "cloudflare", "Input": 0.0000007, "CacheRead": 0.00000013, "Output": 0.0000022 },
+      { "Slug": "cohere/nvfp4", "Input": 0.00000095, "CacheRead": 0.00000019, "Output": 0.0000035 },
+      { "Slug": "coreweave/nvfp4", "Input": 0.00000075, "CacheRead": 0.00000019, "Output": 0.000003 },
+      { "Slug": "crusoe/fp4", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "decart/fp4", "Input": 0.00000056, "CacheRead": 0.0000001, "Output": 0.0000018 },
+      { "Slug": "deepinfra/fp4", "Input": 0.0000005625, "CacheRead": 0.000000125, "Output": 0.0000025 },
+      { "Slug": "deepinfra/fp4/flex", "Input": 0.00000045, "CacheRead": 0.0000001, "Output": 0.000002 },
+      { "Slug": "digitalocean", "Input": 0.00000091, "CacheRead": 0.000000169, "Output": 0.00000286 },
+      { "Slug": "doubleword", "Input": 0.0000014, "CacheRead": 0.00000028, "Output": 0.0000044 },
+      { "Slug": "featherless", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "fireworks", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "fireworks/fast", "Input": 0.0000021, "CacheRead": 0.00000039, "Output": 0.0000066 },
+      { "Slug": "fireworks/spot", "Input": 0.00000098, "CacheRead": 0.000000182, "Output": 0.00000308 },
+      { "Slug": "friendli", "Input": 0.00000126, "CacheRead": 0.000000234, "Output": 0.00000396 },
+      { "Slug": "gmicloud/fp8", "Input": 0.0000007, "CacheRead": 0.00000013, "Output": 0.0000022 },
+      { "Slug": "inceptron/fp4", "Input": 0.000001, "CacheRead": 0.00000014, "Output": 0.0000042 },
+      { "Slug": "inference-net/fp4", "Input": 0.000000084, "CacheRead": 0.000000079, "Output": 0.0000036 },
+      { "Slug": "inference-net/us", "Input": 0.000000084, "CacheRead": 0.000000079, "Output": 0.0000036 },
+      { "Slug": "makora/fp4", "Input": 0.000001, "CacheRead": 0.00000016, "Output": 0.000004 },
+      { "Slug": "mistral/nvfp4/eu", "Input": 0.00000154, "CacheRead": 0.000000154, "Output": 0.00000484 },
+      { "Slug": "mistral/zdr", "Input": 0.0000014, "CacheRead": 0.00000014, "Output": 0.0000044 },
+      { "Slug": "modal", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "morph/fp8", "Input": 0.00000049, "CacheRead": 0.000000165, "Output": 0.000001508 },
+      { "Slug": "nebius/fp4", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "novita/fp8", "Input": 0.00000063, "CacheRead": 0.000000117, "Output": 0.00000198 },
+      { "Slug": "parasail/fast", "Input": 0.0000021, "CacheRead": 0.00000026, "Output": 0.0000066 },
+      { "Slug": "parasail/fp4", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "relace/fp4", "Input": 0.0000000703, "CacheRead": 0.0000000703, "Output": 0.0000043843 },
+      { "Slug": "sail-research/fp8", "Input": 0.00000105, "CacheRead": 0.000000168, "Output": 0.0000042 },
+      { "Slug": "sail-research/us", "Input": 0.00000075, "CacheRead": 0.00000012, "Output": 0.000003 },
+      { "Slug": "sambanova", "Input": 0.0000014, "CacheRead": 0.00000007, "Output": 0.0000044 },
+      { "Slug": "siliconflow/fp8", "Input": 0.0000007, "CacheRead": 0.00000013, "Output": 0.0000022 },
+      { "Slug": "tenstorrent/fp8", "Input": 0.0000006, "CacheRead": 0.0000001, "Output": 0.000002 },
+      { "Slug": "together", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "venice", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 },
+      { "Slug": "wafer/fp4", "Input": 0.000000179, "CacheRead": 0.000000178, "Output": 0.0000014 },
+      { "Slug": "wafer/us", "Input": 0.0000000699, "CacheRead": 0.0000000689, "Output": 0.0000014 },
+      { "Slug": "z-ai/fp8", "Input": 0.0000014, "CacheRead": 0.00000026, "Output": 0.0000044 }
+    ] },
+    { "ModelId": "z-ai/glm-5.3-flash", "Endpoints": [
+      { "Slug": "atlas-cloud/fp8", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "baseten/fp8", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "cohere/nvfp4", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "coreweave/nvfp4", "Input": 0.00000012, "CacheRead": 0.00000002, "Output": 0.00000038 },
+      { "Slug": "crusoe/fp4", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "darkbloom/fp4", "Input": 0.000000065, "CacheRead": 0.000000012, "Output": 0.00000018 },
+      { "Slug": "deepinfra/fp4", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "dekallm", "Input": 0.0000001, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "digitalocean", "Input": 0.0000001125, "CacheRead": 0.00000003, "Output": 0.000000375 },
+      { "Slug": "fireworks", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "fireworks/us", "Input": 0.000000225, "CacheRead": 0.000000045, "Output": 0.00000075 },
+      { "Slug": "friendli", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "gmicloud/fp8", "Input": 0.000000075, "CacheRead": 0.000000015, "Output": 0.00000025 },
+      { "Slug": "inceptron/fp8", "Input": 0.000000175, "CacheRead": 0.00000004, "Output": 0.00000047 },
+      { "Slug": "inference-net/fp4", "Input": 0.000000108, "CacheRead": 0.000000035, "Output": 0.00000035 },
+      { "Slug": "inference-net/us", "Input": 0.000000108, "CacheRead": 0.000000035, "Output": 0.00000035 },
+      { "Slug": "kt", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "makora/fp4", "Input": 0.00000014, "CacheRead": 0.00000003, "Output": 0.00000024 },
+      { "Slug": "mistral", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "modal/fp4", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "morph/fp8", "Input": 0.000000048, "CacheRead": 0.000000024, "Output": 0.000000138 },
+      { "Slug": "near-ai/fp8", "Input": 0.00000008, "CacheRead": 0.000000012, "Output": 0.0000005 },
+      { "Slug": "nebius/fp4", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "nextbit/fp4", "Input": 0.00000012, "CacheRead": 0.00000003, "Output": 0.00000045 },
+      { "Slug": "novita/fp8", "Input": 0.000000084, "CacheRead": 0.0000000168, "Output": 0.00000028 },
+      { "Slug": "open-inference/fp4", "Input": 0.00000006, "CacheRead": 0.00000003, "Output": 0.0000003 },
+      { "Slug": "parasail/fast", "Input": 0.0000001875, "CacheRead": 0.0000000375, "Output": 0.000000625 },
+      { "Slug": "parasail/fp4", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "particle-ai/nvfp4", "Input": 0.00000012, "CacheRead": 0.00000004, "Output": 0.0000005 },
+      { "Slug": "reka", "Input": 0.00000012, "CacheRead": 0.00000003, "Output": 0.0000003 },
+      { "Slug": "relace/fp4", "Input": 0.0000000399, "CacheRead": 0.00000003, "Output": 0.0000000784 },
+      { "Slug": "river", "Input": 0.000000096, "CacheRead": 0.0000000192, "Output": 0.00000032 },
+      { "Slug": "sail-research/fp4", "Input": 0.000000175, "CacheRead": 0.0000000225, "Output": 0.000000625 },
+      { "Slug": "sail-research/us", "Input": 0.000000175, "CacheRead": 0.0000000225, "Output": 0.000000625 },
+      { "Slug": "siliconflow/fp8", "Input": 0.0000001, "CacheRead": 0.00000003, "Output": 0.0000004 },
+      { "Slug": "streamlake/fp8", "Input": 0.0000000885, "CacheRead": 0.0000000177, "Output": 0.000000295 },
+      { "Slug": "tenstorrent/fp8", "Input": 0.000000075, "CacheRead": 0.000000015, "Output": 0.00000025 },
+      { "Slug": "together", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "venice", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 },
+      { "Slug": "wafer/nvfp4", "Input": 0.000000065, "CacheRead": 0.000000064, "Output": 0.00000024 },
+      { "Slug": "wafer/us", "Input": 0.000000042, "CacheRead": 0.000000041, "Output": 0.000000184 },
+      { "Slug": "z-ai/fp8", "Input": 0.00000015, "CacheRead": 0.00000003, "Output": 0.0000005 }
+    ] },
+    { "ModelId": "z-ai/glm-5.3-flash:batch", "Endpoints": [
+      { "Slug": "deepinfra/fp4", "Input": 0.00000012, "CacheRead": 0.000000024, "Output": 0.0000004 },
+      { "Slug": "sail-research/fp4", "Input": 0.00000005, "CacheRead": 0.00000001, "Output": 0.00000018 },
+      { "Slug": "together", "Input": 0.000000075, "CacheRead": 0.000000015, "Output": 0.00000025 }
+    ] },
+    { "ModelId": "z-ai/glm-5.3:batch", "Endpoints": [
+      { "Slug": "deepinfra/fp4", "Input": 0.00000045, "CacheRead": 0.0000001, "Output": 0.000002 },
+      { "Slug": "morph/fp8", "Input": 0.000000245, "CacheRead": 0.000000083, "Output": 0.000000754 },
+      { "Slug": "together", "Input": 0.0000007, "CacheRead": 0.00000013, "Output": 0.0000022 }
+    ] }
+  ]
+}
