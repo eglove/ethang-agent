@@ -561,13 +561,17 @@ public class ModelPickerViewModelTests
 
   /// <summary>A ledger report for the model that clears the evidence floor at the workspace
   ///     median shape: 90.13% cache hits and 0.007284 output per input token.</summary>
-  private static ProviderPerformanceReport ModelRungReport() => new(
-      UsageScope.Workspace, 0.9013m, 1_000_000_000L, 901_300_000L, 40, 0,
+  private static ProviderPerformanceReport ModelRungReport() => ModelRungReport(0.9013m, 0.007284m);
+
+  /// <summary>The same report at a STATED shape, so a test can put the model's own measurement
+  ///     on either side of a crossing.</summary>
+  private static ProviderPerformanceReport ModelRungReport(decimal hitRate, decimal ratio) => new(
+      UsageScope.Workspace, hitRate, 1_000_000_000L, (long)(1_000_000_000m * hitRate), 40, 0,
       [
         new ProviderPerformance(CheapestModel, "wafer", null, null, null, null, 0, 0, 0, 0, 40,
-            1_000_000_000L, 901_300_000L)
+            1_000_000_000L, (long)(1_000_000_000m * hitRate))
         {
-          OutputTokens = 7_284_000L,
+          OutputTokens = (long)(1_000_000_000m * ratio),
         },
       ]);
 
@@ -621,6 +625,27 @@ public class ModelPickerViewModelTests
 
     Assert.Equal("Cheapest is river/fp8, but only above 71.5% cache-hit rate. Below that, "
         + "wafer/fp8 is cheaper.", vm.CheapestSentence);
+  }
+
+  [Fact]
+  public async Task CheapestSentence_StatesTheCrossingInTheDirectionItHolds_WhenTheWinnerLeadsLow()
+  {
+    // THE MIRROR OF E2, and the case the sentence used to state backwards: an endpoint with the
+    // cheapest input and cache-read rates leads at a LOW hit rate and is overtaken ABOVE the
+    // crossing. Asserting only that a crossing exists would let the sentence claim the winner
+    // holds above a rate it actually loses above.
+    ModelProviderEntry[] overtaken =
+    [
+      Endpoint("cheap/in", 4.37e-8m, 2.4e-9m, 7.0e-7m),
+      Endpoint("cheap/out", 7.75e-8m, 2.325e-9m, 2.325e-7m),
+    ];
+    ModelPickerViewModel vm = await CheapestVmAsync(overtaken,
+        new CheapestEvidence(ModelRungReport(0.8928m, 0.007462m),
+            new CostShape(0.9013m, 0.007284m))).ConfigureAwait(true);
+
+    string sentence = vm.CheapestSentence!;
+    Assert.StartsWith("Cheapest is cheap/in, but only below ", sentence, StringComparison.Ordinal);
+    Assert.Contains("Above that, cheap/out is cheaper.", sentence, StringComparison.Ordinal);
   }
 
   [Fact]

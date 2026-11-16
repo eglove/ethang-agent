@@ -49,6 +49,31 @@ public class CheapestOrderTests
   }
 
   [Fact]
+  public void For_RecordsWhichSideOfTheCrossingTheWinnerWinsOn()
+  {
+    // THE CROSSING HAS TWO DIRECTIONS. River wins at this shape and is overtaken BELOW the
+    // 71.49% rate, so the flag is false; an endpoint that leads on the input rate wins BELOW its
+    // crossing instead, and the flag is true. A ranking that reported only that a crossing exists
+    // would leave a surface free to state the opposite of the truth.
+    CheapestRanking riverWins = CheapestOrder.For([Wafer, River], WorkspaceShape);
+    Assert.False(riverWins.WinnerCheaperBelowBreakEven);
+
+    // The live Ionstream/PrimeIntellect pair on deepseek/deepseek-v4.1-flash-1017, at the shape
+    // THAT MODEL measures (89.28% hits, 0.007462 output per input): PrimeIntellect leads there and
+    // is overtaken ABOVE its 89.49% crossing, because Ionstream discounts caching harder. At the
+    // workspace median this same pair already sits above the crossing and Ionstream leads, which is
+    // why the shape is stated rather than assumed.
+    CostShape modelShape = new(0.8928m, 0.007462m);
+    ModelProviderEntry primeIntellect = Endpoint("primeintellect", 4.368e-8m, 2.4e-9m, 7.0e-7m);
+    ModelProviderEntry ionstream = Endpoint("ionstream/flex", 7.75e-8m, 2.325e-9m, 2.325e-7m);
+    CheapestRanking overtaken = CheapestOrder.For([primeIntellect, ionstream], modelShape);
+
+    Assert.Equal("primeintellect", overtaken.WinnerSlug);
+    Assert.True(overtaken.IsFragile);
+    Assert.True(overtaken.WinnerCheaperBelowBreakEven);
+  }
+
+  [Fact]
   public void For_IsNotFragileWhenTheWinnerDominatesTheRunnerUp()
   {
     // E2: A is no more expensive on any of the three rates and strictly cheaper on all of them,

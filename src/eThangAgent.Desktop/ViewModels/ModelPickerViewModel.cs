@@ -233,6 +233,9 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       => (ranking, winner) switch
       {
         ({ IsFragile: false }, _) => $"Cheapest is {winner}. {RungClause(assumption)} {winner} is cheapest at every hit rate.",
+        ({ BreakEvenHitRate: { } breakEven, RunnerUpSlug: { } runnerUp, WinnerCheaperBelowBreakEven: true }, _) =>
+            $"Cheapest is {winner}, but only below {PercentText(breakEven)} cache-hit rate. "
+                + $"Above that, {runnerUp} is cheaper.",
         ({ BreakEvenHitRate: { } breakEven, RunnerUpSlug: { } runnerUp }, _) =>
             $"Cheapest is {winner}, but only above {PercentText(breakEven)} cache-hit rate. "
                 + $"Below that, {runnerUp} is cheaper.",

@@ -56,13 +56,26 @@ public static class CheapestOrder
         && runnerUp is not null
         && !CheapestCost.Dominates(winner, runnerUp);
 
+    decimal? breakEven = isFragile
+        ? CheapestCost.BreakEvenHitRate(winner, runnerUp, shape.OutputPerInputRatio)
+        : null;
+
     return new CheapestRanking(
         [.. SlugsOf(ranked)],
         winner?.Variant.Slug,
-        isFragile ? CheapestCost.BreakEvenHitRate(winner, runnerUp, shape.OutputPerInputRatio) : null,
+        breakEven,
         runnerUp?.Variant.Slug,
-        isFragile);
+        isFragile)
+    {
+      WinnerCheaperBelowBreakEven = breakEven is { } crossing
+          && CheapestCost.Unit(winner, shape with { HitRate = Below(crossing) })
+              < CheapestCost.Unit(runnerUp, shape with { HitRate = Below(crossing) }),
+    };
   }
+
+  /// <summary>A hit rate just below <paramref name="crossing"/>, clamped at zero so a crossing
+  ///     at the very bottom of the range still has a reachable side to test.</summary>
+  private static decimal Below(decimal crossing) => crossing > 0.01m ? crossing - 0.01m : 0m;
 
   /// <summary>The <paramref name="offset"/>-th endpoint in the order whose unit cost is known,
   ///     or null when the order holds fewer than that many priced endpoints. Unknown-cost rows
@@ -109,4 +122,16 @@ public sealed record CheapestRanking(
     string? WinnerSlug,
     decimal? BreakEvenHitRate,
     string? RunnerUpSlug,
-    bool IsFragile);
+    bool IsFragile)
+{
+  /// <summary>True when the winner is the CHEAPER of the two below
+  ///     <see cref="BreakEvenHitRate"/> - so the crossing is a point above which the winner
+  ///     LOSES, not one above which it starts to win.
+  ///     <para>THE DIRECTION IS NOT IMPLIED BY THE CROSSING: which side of it the winner occupies
+  ///     depends on which of the two discounts caching harder, and a winner that already leads at
+  ///     a low hit rate is overtaken ABOVE the crossing. A surface that assumed one direction
+  ///     would state the opposite of the truth on every such pair.</para>
+  ///     <para>An INIT MEMBER rather than a positional one, so the record's shape is unchanged for
+  ///     every caller that already constructs it.</para></summary>
+  public bool WinnerCheaperBelowBreakEven { get; init; }
+}
