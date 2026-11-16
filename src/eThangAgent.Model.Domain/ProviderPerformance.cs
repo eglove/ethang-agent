@@ -104,6 +104,12 @@ public sealed record ProviderPerformance(
     long CachedInputTokens,
     string? ServedEndpoint = null)
 {
+  /// <summary>Completion tokens the group produced. An INIT MEMBER rather than a positional
+  ///     one so a row built without it reads as 'no output tokens recorded' instead of
+  ///     failing to compile, and so the pair's output/input ratio can be derived from it.
+  ///     </summary>
+  public long OutputTokens { get; init; }
+
   /// <summary>This pair's measured cache-hit rate, or null when it was billed for no input
   ///     tokens (D4). Derived, never carried, so it cannot disagree with the counts it came
   ///     from.</summary>

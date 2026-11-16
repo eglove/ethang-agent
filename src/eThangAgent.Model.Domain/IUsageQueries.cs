@@ -34,4 +34,18 @@ public interface IUsageQueries
   ///     <see cref="SessionSummaryAsync"/> follows, and for the same reason.</para></summary>
   Task<Result<ProviderPerformanceReport>> ProviderPerformanceAsync(
       ProviderPerformanceRequest request, CancellationToken ct = default);
+
+  /// <summary>The workspace rung of the usage-evidence chain (see
+  ///     <see cref="CheapestShapeSource"/>): the MEDIAN shape across every model in the whole
+  ///     ledger that clears <see cref="CheapestShapeSource.EvidenceFloorTokens"/>.
+  ///     <para>THE MEDIAN, NOT THE TOKEN-WEIGHTED AVERAGE: a weighted figure is dominated by
+  ///     whichever model happens to hold the most tokens, so one model with caching disabled
+  ///     describes every model's workload. The median model is what a model that has never run
+  ///     here should be priced at.</para>
+  ///     <para>OVER THE WHOLE LEDGER, NEVER A ROW CAP: a newest-rows window is a different
+  ///     population, and its median differs from the ledger's by whole percentage points.
+  ///     </para>
+  ///     <para>Null is an ANSWER, not a failure: a ledger holding no qualifying model has no
+  ///     workspace shape, and the chain falls through to its documented defaults.</para></summary>
+  Task<Result<CostShape?>> WorkspaceShapeAsync(CancellationToken ct = default);
 }

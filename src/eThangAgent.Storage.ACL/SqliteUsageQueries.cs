@@ -51,6 +51,30 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
   ///     partial read as complete history.</summary>
   private const int PerformanceRowCap = 20000;
 
+  /// <summary>One row per model in the WHOLE ledger: the tokens that model was billed for and
+  ///     the cache hits and output tokens it produced. The grouping is the model alone, not the
+  ///     model/provider pair, because the workspace shape describes a workload rather than a
+  ///     provider.
+  ///     <para>NO ROW CAP, DELIBERATELY: a newest-rows window is a different population, and its
+  ///     median differs from the ledger's by whole percentage points. <c>json_type</c> guards the
+  ///     extraction so a payload whose token members are not numbers is grouped as unmeasured
+  ///     rather than failing the whole aggregate.</para>
+  ///     <para>A row that names no model is excluded: it cannot be a model's measured shape.
+  ///     </para></summary>
+  private const string WorkspaceShapeSql =
+      @"SELECT json_extract(payload_json, '$.ModelId') AS model_id,
+               SUM(CAST(json_extract(payload_json, '$.InputTokens') AS INTEGER)) AS input_tokens,
+               SUM(COALESCE(CAST(json_extract(payload_json, '$.CachedInputTokens') AS INTEGER), 0)) AS cached_tokens,
+               SUM(COALESCE(CAST(json_extract(payload_json, '$.OutputTokens') AS INTEGER), 0)) AS output_tokens
+         FROM agent_events
+         WHERE type = 'usage'
+           AND json_valid(payload_json)
+           AND json_type(payload_json, '$.ModelId') = 'text'
+           AND json_type(payload_json, '$.InputTokens') IN ('integer', 'real')
+           AND json_extract(payload_json, '$.ModelId') <> ''
+         GROUP BY model_id
+         HAVING input_tokens >= @floor;";
+
   /// <summary>The 90th percentile, as the reliability signal's percentile (issue #295).</summary>
   private const double SlowTailPercentile = 0.9;
 
@@ -88,6 +112,18 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
         LIMIT @cap;";
 
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
+
+  /// <summary>Guards the workspace-shape cache: one aggregate over the whole ledger is the
+  ///     expensive read on this interface, and several sessions in one workspace may ask for it
+  ///     at once.</summary>
+  private readonly Lock _workspaceShapeGate = new();
+
+  /// <summary>The cached workspace shape. Null is a cached ANSWER (the ledger holds no
+  ///     qualifying model), so <see cref="_workspaceShapeCached"/> says whether it was read at
+  ///     all rather than the value saying it.</summary>
+  private CostShape? _workspaceShape;
+
+  private bool _workspaceShapeCached;
 
   public async Task<Result<UsageSummary>> SessionSummaryAsync(string sessionId, CancellationToken ct = default)
   {
@@ -156,6 +192,84 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
     {
       return Result.Failure<ProviderPerformanceReport>(new DomainError(QueryFailedCode, ex.Message));
     }
+  }
+
+  /// <summary>The workspace rung of the usage-evidence chain: the MEDIAN shape across every
+  ///     model in the whole ledger that was billed at least
+  ///     <see cref="CheapestShapeSource.EvidenceFloorTokens"/> input tokens.
+  ///     <para>ONE SQL AGGREGATE OVER THE WHOLE LEDGER, NOT A WALK DOWN THE ROW-CAPPED READ: the
+  ///     cap exists so a picker opens quickly, and a median over the newest rows is a different
+  ///     population from a median over the ledger — it reports a figure wrong by whole
+  ///     percentage points while looking exactly as authoritative.</para>
+  ///     <para>THE MEDIAN IS TAKEN ACROSS MODELS, each model contributing one hit rate and one
+  ///     output/input ratio, so a model holding most of the tokens counts once. A token-weighted
+  ///     average would describe that model rather than the workload.</para>
+  ///     <para>THE RESULT IS CACHED: the aggregate costs hundreds of milliseconds on a large
+  ///     ledger, and the shape it answers with changes only as new calls are recorded, so it is
+  ///     read once and reused.</para>
+  ///     <para>Null is an ANSWER — a ledger with no qualifying model has no workspace shape, and
+  ///     the chain falls through to its documented defaults.</para></summary>
+  public async Task<Result<CostShape?>> WorkspaceShapeAsync(CancellationToken ct = default)
+  {
+    lock (_workspaceShapeGate)
+    {
+      if (_workspaceShapeCached)
+      {
+        return Result.Success(_workspaceShape);
+      }
+    }
+
+    try
+    {
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SqliteConnection connection = _database.OpenReadOnly();
+#pragma warning restore CA2007
+      await RaiseBusyTimeoutAsync(connection, ct).ConfigureAwait(false);
+      CostShape? shape = await ReadWorkspaceShapeAsync(connection, ct).ConfigureAwait(false);
+      lock (_workspaceShapeGate)
+      {
+        _workspaceShape = shape;
+        _workspaceShapeCached = true;
+      }
+
+      return Result.Success(shape);
+    }
+    catch (SqliteException ex)
+    {
+      return Result.Failure<CostShape?>(new DomainError(QueryFailedCode, ex.Message));
+    }
+  }
+
+  /// <summary>Runs the workspace aggregate and reduces it to the median model's shape.</summary>
+  private static async Task<CostShape?> ReadWorkspaceShapeAsync(SqliteConnection connection,
+      CancellationToken ct)
+  {
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using SqliteCommand command = connection.CreateCommand();
+#pragma warning restore CA2007
+    command.CommandText = WorkspaceShapeSql;
+    _ = command.Parameters.AddWithValue("@floor", CheapestShapeSource.EvidenceFloorTokens);
+    List<decimal> hitRates = [];
+    List<decimal> ratios = [];
+    using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+    while (await reader.ReadAsync(ct).ConfigureAwait(false))
+    {
+      long inputTokens = reader.GetInt64(1);
+      long cachedTokens = reader.GetInt64(2);
+      long outputTokens = reader.GetInt64(3);
+      if (UsageStatistics.HitRate(cachedTokens, inputTokens) is { } hitRate)
+      {
+        hitRates.Add(hitRate);
+        ratios.Add((decimal)outputTokens / inputTokens);
+      }
+    }
+
+    return UsageStatistics.MedianCost(hitRates) is { } medianHitRate
+        && UsageStatistics.MedianCost(ratios) is { } medianRatio
+            ? new CostShape(medianHitRate, medianRatio)
+            : null;
   }
 
   /// <summary>The scopes to try, in precedence order, skipping any whose id is absent (D5).
@@ -255,7 +369,10 @@ public sealed class SqliteUsageQueries(AppDatabase database) : IUsageQueries
         rows.Count(row => row.DurationMs is null),
         rows.Count,
         rows.Sum(row => (long)row.InputTokens),
-        rows.Sum(row => (long)(row.CachedInputTokens ?? 0)));
+        rows.Sum(row => (long)(row.CachedInputTokens ?? 0)))
+    {
+      OutputTokens = rows.Sum(row => (long)row.OutputTokens),
+    };
   }
   /// <summary>Builds the summary from the rows in scope: the overall totals, one total per
   ///     call class, and one per model. The cost arithmetic is the Model Domain's single

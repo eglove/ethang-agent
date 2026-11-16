@@ -97,5 +97,10 @@ public class UsageEventTests
     public Task<Result<ProviderPerformanceReport>> ProviderPerformanceAsync(
         ProviderPerformanceRequest request, CancellationToken ct = default)
         => Task.FromResult(Result.Success(ProviderPerformanceReport.Empty(UsageScope.Session)));
+
+    // Nothing measured a workspace shape either: a null shape is the answer that sends the
+    // evidence chain to its documented defaults.
+    public Task<Result<CostShape?>> WorkspaceShapeAsync(CancellationToken ct = default)
+        => Task.FromResult(Result.Success<CostShape?>(null));
   }
 }
