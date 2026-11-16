@@ -48,6 +48,19 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   public const string EmptyContinuationPrompt =
       "[Your previous response hit the output limit with no visible text — the budget was consumed before any content surfaced, likely by hidden reasoning. Do NOT re-derive your previous work: give the answer or next tool call directly and concisely, skipping any long reasoning pass.]";
 
+  /// <summary>Appended as a System message the moment a content-free answer arrives.
+  ///     Verbatim contract: the reply produced nothing, and what to do instead.</summary>
+  public const string EmptyAnswerNudge =
+      "[Your previous reply came back empty — no text and no tool call reached me, so nothing happened. Do not wait and do not re-read what you already have: make the next tool call, or state your answer, in this reply. If you cannot proceed, say plainly what is blocking you.]";
+
+  /// <summary>Replaces a content-free answer in the transcript. An empty assistant message is
+  ///     not a turn boundary: it is a provider fault the model must not be paid for re-reading.</summary>
+  public const string EmptyAnswerDrop = "[an empty reply was dropped: it carried no text and no tool call.]";
+
+  /// <summary>Failure code returned when the per-turn empty-answer budget is spent: the turn
+  ///     ends loudly instead of succeeding with an answer that says nothing.</summary>
+  public const string MaxEmptyAnswersCode = "MaxEmptyAnswers";
+
   /// <summary>Error code returned (as a Result failure, never an exception) when the turn's
   ///     token fires mid-loop.</summary>
   public const string TurnCancelledCode = "TurnCancelled";
@@ -103,6 +116,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IAgentHeartbeat? _heartbeat = options?.Heartbeat;
   private readonly IAgentEvents? _events = options?.Events;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
+  // The empty-answer budget is the SAME KNOB, never a second one: both are 'the provider gave
+  // the loop nothing to act on', so a host that tunes one tunes both.
+  private readonly int _maxEmptyAnswers = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
   private readonly string? _sessionId = options?.SessionId;
   private readonly Action<string>? _onStreamActivity = options?.OnStreamActivity;
   private readonly IAgentEventLog? _eventLog = options?.EventLog;
@@ -330,6 +346,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // carried between turns. Properties, not fields: the repo's naming rules prefix
     // every field — including nested-class ones.
     public int Continuations { get; set; }
+    // Content-free answers this turn: a separate counter from Continuations because the
+    // remedies differ, even though the budget is one knob.
+    public int EmptyAnswers { get; set; }
     // Turn identity for the reasoning telemetry channel (issue #263): a fresh id per
     // turn, so a resumed conversation's traces never collide with an earlier turn's.
     public Guid TurnId { get; init; } = Guid.NewGuid();
@@ -379,6 +398,26 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       Conversation.AddUserMessage(text, imageParts, userMessageId);
     }
     Beat();
+    Result<string> outcome = await RunIterationsAsync(state, callbacks, inbox, ct).ConfigureAwait(false);
+    // A TURN THAT DELIVERS NOTHING ENDS LOUDLY. Every model-facing tool result appends its own
+    // lines to the conversation, so an empty terminal success is an answer that says nothing -
+    // and a session left in that state waits, visible to nobody, until a human types 'continue'
+    // (2026-11-16: two chain sessions sat idle that way).
+    return outcome is { IsSuccess: true } && string.IsNullOrWhiteSpace(outcome.Value)
+      ? Result.Failure<string>(new DomainError(MaxEmptyAnswersCode,
+          "the turn produced no answer: the model's last reply carried no text and no tool call."))
+      : outcome;
+  }
+
+  /// <summary>The turn's iteration loop, split out so the empty-answer check above owns the
+  ///     terminal result rather than every exit having to remember it.</summary>
+  /// <param name="state">The turn-local counters.</param>
+  /// <param name="callbacks">The turn's observer surface.</param>
+  /// <param name="inbox">Steering input, drained at each safe point.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<string>> RunIterationsAsync(TurnState state, TurnCallbacks? callbacks,
+      IAgentInbox? inbox, CancellationToken ct)
+  {
     // No iteration cap by design: the loop runs until the model answers without
     // tool calls. Termination is the model's job — but cancellation is checked
     // every round, because nothing else in the loop is obliged to observe ct
@@ -938,9 +977,15 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       TurnCallbacks? callbacks, IAgentInbox? inbox)
   {
     string content = response.Content ?? "";
+    // AN EMPTY ANSWER IS NOT A FINISHED TURN (2026-11-16). With no text and no tool call the
+    // loop has nothing to act on, so returning here leaves the session idle until a human types
+    // 'continue' - the silent stop this nudge exists to remove. It shares the truncated
+    // answer's budget because it is the same fact: the provider gave nothing to act on.
     if (response.FinishReason is not FinishReason.Length)
     {
-      return CompleteAnswer(content, callbacks, inbox);
+      return string.IsNullOrWhiteSpace(content)
+          ? ContinueAfterEmptyAnswer(state, callbacks)
+          : CompleteAnswer(content, callbacks, inbox);
     }
 
     if (state.Continuations >= _maxAutoContinuations)
@@ -959,6 +1004,26 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         : ContinuationPrompt;
     Conversation.AddSystemMessage(continuationPrompt);
     callbacks?.OnSystemMessage?.Invoke(continuationPrompt);
+    return null;
+  }
+
+  /// <summary>The remedy for a content-free answer: one bounded nudge, then a loud failure. The
+  ///     empty reply is dropped from the transcript (it carries nothing) and the nudge says what
+  ///     to do instead, so the model is never paid for re-reading its own silence.</summary>
+  /// <param name="state">The turn-local counters, which own the budget.</param>
+  /// <param name="callbacks">The turn's observer surface.</param>
+  private Result<string>? ContinueAfterEmptyAnswer(TurnState state, TurnCallbacks? callbacks)
+  {
+    if (state.EmptyAnswers >= _maxEmptyAnswers)
+    {
+      return Result.Failure<string>(new DomainError(MaxEmptyAnswersCode,
+          $"the model produced {_maxEmptyAnswers + 1} replies in a row with no text and no tool call."));
+    }
+
+    state.EmptyAnswers++;
+    Conversation.AddAssistantMessage(EmptyAnswerDrop);
+    Conversation.AddSystemMessage(EmptyAnswerNudge);
+    callbacks?.OnSystemMessage?.Invoke(EmptyAnswerNudge);
     return null;
   }
 

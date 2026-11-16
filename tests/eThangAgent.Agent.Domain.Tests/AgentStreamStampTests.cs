@@ -35,6 +35,39 @@ public class AgentStreamStampTests
     }
   }
 
+  /// <summary>A reasoning-only reply carries no text and no tool call, so the loop no longer
+  ///     ends its turn on one: the test scripts a second turn that answers.</summary>
+  private sealed class ScriptedDualStreamProvider(params (string[] Content, string[] Reasoning)[] turns)
+      : IModelProvider
+  {
+    private readonly Queue<(string[] Content, string[] Reasoning)> _turns = new(turns);
+
+    public int Calls { get; private set; }
+
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("the agent loop must use SendStreamingAsync.");
+
+    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta = null, Action<string>? onReasoningDelta = null,
+        CancellationToken ct = default)
+    {
+      Calls++;
+      (string[]? content, string[]? reasoning) = _turns.Dequeue();
+      foreach (string delta in reasoning)
+      {
+        onReasoningDelta?.Invoke(delta);
+      }
+
+      foreach (string delta in content)
+      {
+        onContentDelta?.Invoke(delta);
+      }
+
+      return Task.FromResult(Result.Success(new ModelResponse(string.Concat(content), [])));
+    }
+  }
+
   private static ModelConfig DefaultConfig =>
       ModelConfig.Create("test-model", 100, 0.5f, 8192).Value!;
 
@@ -56,13 +89,15 @@ public class AgentStreamStampTests
   public async Task ReasoningDelta_InvokesOnStreamActivityWithReasoning()
   {
     List<string> stamps = [];
-    Agent agent = new(new DualStreamFakeProvider([], ["thinking"]), new Conversation(),
-        DefaultConfig, new ToolRegistry([]),
+    ScriptedDualStreamProvider provider = new(([], ["thinking"]), (["the answer"], []));
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]),
         new AgentOptions { OnStreamActivity = stamps.Add });
 
     Result<string> result = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
-    Assert.True(result.IsSuccess);
+    Assert.True(result.IsSuccess, result.IsSuccess ? "" : result.Error.Code);
+    Assert.Equal("the answer", result.Value);
+    Assert.Equal(2, provider.Calls); // the reasoning-only reply did not end the turn
     Assert.Contains("reasoning", stamps);
   }
 
