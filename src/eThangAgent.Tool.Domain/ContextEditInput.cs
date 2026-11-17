@@ -3,7 +3,7 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public enum ContextEditAction { List, Remove, Shorten }
+public enum ContextEditAction { List, Remove, Shorten, Trim }
 
 /// <summary>Strict input for the context_edit tool: timeoutSeconds and action are
 ///     mandatory; selection and text are required exactly when their action demands
@@ -17,7 +17,7 @@ public sealed record ContextEditInput(ContextEditAction Action, string? Selectio
 
   private static readonly string[] AllowedNames = [ActionName, SelectionName, TextName, ToolTimeout.ParameterName];
 
-  private static readonly string[] AllowedActions = ["List", "Remove", "Shorten"];
+  private static readonly string[] AllowedActions = ["List", "Remove", "Shorten", "Trim"];
 
   public static Result<ContextEditInput> Create(string jsonArguments)
   {
@@ -35,13 +35,17 @@ public sealed record ContextEditInput(ContextEditAction Action, string? Selectio
     }
 
     Result<string> action = ToolArguments.RequireString(json, ActionName,
-        "This tool requires action (List, Remove, or Shorten).");
+        "This tool requires action (List, Remove, Shorten, or Trim).");
     if (!action.IsSuccess)
     {
       return Result.Failure<ContextEditInput>(action.Error);
     }
 
-    Result<ContextEditAction> parsed = ToolArguments.ParseEnum<ContextEditAction>(ActionName, action.Value, AllowedActions);
+    // Action names are matched case-insensitively: 'list' and 'List' are the same
+    // request, and refusing one only costs the caller a round trip.
+    string? canonical = AllowedActions.FirstOrDefault(a =>
+        string.Equals(a, action.Value, StringComparison.OrdinalIgnoreCase));
+    Result<ContextEditAction> parsed = ToolArguments.ParseEnum<ContextEditAction>(ActionName, canonical ?? action.Value, AllowedActions);
     if (!parsed.IsSuccess)
     {
       return Result.Failure<ContextEditInput>(parsed.Error);
@@ -74,6 +78,14 @@ public sealed record ContextEditInput(ContextEditAction Action, string? Selectio
       return selection is not null || text is not null
         ? new DomainError(ToolErrorCodes.InvalidParameterValue,
             "'selection' and 'text' are not accepted for List: it takes no other parameters.")
+        : null;
+    }
+
+    if (action == ContextEditAction.Trim)
+    {
+      return text is not null
+        ? new DomainError(ToolErrorCodes.InvalidParameterValue,
+            "'text' is not accepted for Trim: it replaces content with a marker, not an excerpt.")
         : null;
     }
 

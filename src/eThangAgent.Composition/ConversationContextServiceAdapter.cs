@@ -14,11 +14,11 @@ public sealed class ConversationContextServiceAdapter(Conversation conversation)
 
   public string List() => _service.List();
 
+  public string ListTrimmable() => _service.ListTrimmable();
+
   public Result<string> Remove(string selection) => _service.Remove(selection);
 
   public Result<string> Shorten(string selection, string text) => _service.Shorten(selection, text);
 
   public Result<string> TrimToolResults(string selection) => _service.TrimToolResults(selection);
-
-  public Result<string> ShortenToolResult(string selection, string text) => _service.ShortenToolResult(selection, text);
 }

@@ -5,7 +5,7 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
-/// <summary>Issue #222 end-to-end: the real context_trim tool, backed by the real
+/// <summary>Issue #222 end-to-end: the real context_edit Trim action, backed by the real
 ///     ConversationContextService, driven through the real agent loop. While the tool
 ///     runs, its own call is the conversation's trailing unanswered message — the exact
 ///     shape that used to make every trim fail with UnansweredToolCall.</summary>
@@ -32,7 +32,7 @@ public class AgentContextTrimTests
   /// <summary>The real tool over the real service — no fakes between them.</summary>
   private sealed class RealContextTrimTool(Conversation conversation) : ITool
   {
-    private readonly ContextTrimTool _inner = new(new ToolDomainAdapter(conversation));
+    private readonly ContextEditTool _inner = new(new ToolDomainAdapter(conversation));
 
     public ToolDefinition Definition => _inner.Definition;
 
@@ -46,13 +46,13 @@ public class AgentContextTrimTests
 
     public string List() => _service.List();
 
+    public string ListTrimmable() => _service.ListTrimmable();
+
     public Result<string> Remove(string selection) => _service.Remove(selection);
 
     public Result<string> Shorten(string selection, string text) => _service.Shorten(selection, text);
 
     public Result<string> TrimToolResults(string selection) => _service.TrimToolResults(selection);
-
-    public Result<string> ShortenToolResult(string selection, string text) => _service.ShortenToolResult(selection, text);
   }
 
   private static ModelResponse CallResponse(string id, string name, string arguments)
@@ -68,8 +68,8 @@ public class AgentContextTrimTests
     RealContextTrimTool tool = new(conversation);
     ScriptedProvider provider = new(
     [
-      CallResponse("c2", "context_trim",
-          /*lang=json,strict*/ "{\"timeoutSeconds\":5,\"action\":\"Trim\",\"selection\":\"3\"}"),
+      CallResponse("c2", "context_edit",
+          /*lang=json,strict*/ "{\"timeoutSeconds\":5,\"action\":\"Trim\",\"selection\":\"r1\"}"),
       new ModelResponse("done", []),
     ]);
     Agent agent = new(provider, conversation, Config, new ToolRegistry([tool]), new AgentOptions());

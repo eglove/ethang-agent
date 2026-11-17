@@ -6,10 +6,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
 
-/// <summary>The context-trim wiring contract: the context_trim tool is on the
-///     agent tool surface (root and children alike), next to context_edit, and
-///     the adapter delegates both trim operations to the wrapped Conversation
-///     Domain service.</summary>
+/// <summary>The context-trim wiring contract: ONE context tool carries List, Remove,
+///     Shorten, and Trim, and it is on the agent tool surface (root and children
+///     alike). The adapter delegates every action to the wrapped Conversation Domain
+///     service.</summary>
 [Trait("Category", "Process")]
 public class ContextTrimWiringTests
 {
@@ -28,20 +28,29 @@ public class ContextTrimWiringTests
   }
 
   [Fact]
-  public void ContextTrimTool_IsOnAgentToolSurface()
+  public void ContextTool_IsOnAgentToolSurface()
   {
     using ServiceProvider services = Build();
     AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
 
-    Assert.Contains(tools.Actions, a => a.Name == "context_trim");
+    Assert.Contains(tools.Actions, a => a.Name == "context_edit");
   }
 
   [Fact]
-  public void ContextTrimTool_IsResolvable_OnChildSurface()
+  public void ContextTrimTool_IsGone_ItsActionsLiveOnContextEdit()
+  {
+    using ServiceProvider services = Build();
+    AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
+
+    Assert.DoesNotContain(tools.Actions, a => a.Name == "context_trim");
+  }
+
+  [Fact]
+  public void ContextTool_IsResolvable_OnChildSurface()
   {
     using ServiceProvider services = Build();
     Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
 
-    Assert.True(surface().Resolve("context_trim").IsSuccess);
+    Assert.True(surface().Resolve("context_edit").IsSuccess);
   }
 }

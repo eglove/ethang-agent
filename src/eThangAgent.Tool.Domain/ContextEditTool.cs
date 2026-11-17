@@ -2,10 +2,11 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-/// <summary>Fine-grained conversation-context edits: List renders the message list
-///     with stable 1-based indexes, Remove deletes selected messages (whole
-///     tool-call/result pairs together), Shorten replaces one message's content in
-///     place. Mutations return the verbatim sentinel
+/// <summary>Fine-grained conversation-context edits: List renders the trimmable tool
+///     results with the ordinals Trim names and the message positions Remove and
+///     Shorten name, Remove deletes selected messages (whole tool-call/result pairs
+///     together), Shorten replaces one message's content in place, and Trim replaces
+///     selected tool results with relocation markers. Mutations return the verbatim sentinel
 ///     '[context: shrank N message(s) ...]' — the loop's persistence contract for
 ///     replacing the transcript. Errors begin with 'Error [Code]:' and leave the
 ///     conversation untouched.</summary>
@@ -19,21 +20,28 @@ public sealed class ContextEditTool(IConversationContextService service) : ITool
 
   public ToolDefinition Definition { get; } = new(
       "context_edit",
-      "Edit this conversation's own context. timeoutSeconds and action are mandatory: " +
-      "action is exactly List, Remove, or Shorten (case-sensitive). List takes no other " +
-      "parameters and prints one '[index] [Role] content' line per message - indexes are " +
-      "1-based and always current. Remove deletes the selected messages: 'selection' is " +
-      "exactly 'last N' or 'S..E' (1-based inclusive; a bare 'S' means S..S). Tool calls " +
-      "and their results are removed together - removing one side fails with " +
-      "UnansweredToolCall / DanglingToolResult, and removing the first message fails with " +
-      "OrphanHead. Shorten replaces ONE message's content in place (same selection " +
-      "syntax; a multi-message selection fails with AmbiguousSelection): 'text' is the " +
-      "replacement - role, tool-call pairing, and timestamps stay intact. Use Remove for " +
-      "redundant exchanges and Shorten to condense a verbose message. A successful " +
-      "mutation returns '[context: shrank N message(s) ...]'; a selection naming nothing " +
-      "fails with NothingSelected; an unparseable selection fails with InvalidSelection; " +
-      "an out-of-bounds range fails with PositionOutOfRange. Errors begin with " +
-      "`Error [Code]:`. The conversation is never emptied and never left " +
+      "Manage this conversation's own context. timeoutSeconds and action are mandatory: " +
+      "action is List, Remove, Shorten, or Trim (any case). " +
+      "LIST shows what can be trimmed - one line per trimmable tool result, biggest " +
+      "first: 'rN' (the ordinal Trim names), 'msg M' (the message position Remove and " +
+      "Shorten name), the tool, its size, and the arguments that identify it. Run List " +
+      "before choosing. " +
+      "TRIM replaces the selected tool results' content with a one-line marker naming " +
+      "what produced it and how to re-fetch it - nothing is deleted, so this is the safe " +
+      "way to reclaim context. selection is 'r3', 'r3,r7', 'r3-r12', 'last N', or " +
+      "omitted for every trimmable result outside the most recent 5. Anything selected " +
+      "that cannot be trimmed is skipped and named in the result; the rest still trims. " +
+      "REMOVE deletes the selected messages: selection is 'last N' or 'S..E' (1-based " +
+      "message positions; a bare 'S' means S..S). Tool calls and their results are " +
+      "removed together - removing one side fails with UnansweredToolCall / " +
+      "DanglingToolResult, and removing the first message fails with OrphanHead. " +
+      "SHORTEN replaces ONE message's content in place (same message-position syntax; a " +
+      "multi-message selection fails with AmbiguousSelection): 'text' is the replacement " +
+      "- role, tool-call pairing, and timestamps stay intact. " +
+      "A successful mutation returns '[context: shrank N message(s) ...]'; a selection " +
+      "naming nothing fails with NothingSelected; an unparseable selection fails with " +
+      "InvalidSelection; an out-of-bounds range fails with PositionOutOfRange. Errors " +
+      "begin with `Error [Code]:`. The conversation is never emptied and never left " +
       "protocol-invalid. WHEN TO COMPACT (grand-plan guidance): shrink at a milestone - a sub-task that has " +
       "closed (a decision made, a file finished, a step completed) or a stretch of " +
       "redundant exploration - never mid-exploration, while you are still actively " +
@@ -44,9 +52,10 @@ public sealed class ContextEditTool(IConversationContextService service) : ITool
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
           new ToolParameter(ActionName, ToolParameterType.Text,
-              "Exactly List, Remove, or Shorten (case-sensitive)."),
+              "List, Remove, Shorten, or Trim (any case)."),
           new ToolParameter(SelectionName, ToolParameterType.Text,
-              "Remove and Shorten only: 'last N', 'S..E', or a bare position (1-based, current list)."),
+              "Trim: 'r3', 'r3,r7', 'r3-r12', 'last N', or omitted for all but the last 5. " +
+              "Remove and Shorten: 'last N', 'S..E', or a message position."),
           new ToolParameter(TextName, ToolParameterType.Text,
               "Shorten only: the replacement content for the selected message. Non-empty."),
       ],
@@ -70,9 +79,10 @@ public sealed class ContextEditTool(IConversationContextService service) : ITool
   private ToolResult Run(ContextEditInput input)
     => input.Action switch
     {
-      ContextEditAction.List => new ToolResult(_service.List(), false),
+      ContextEditAction.List => new ToolResult(_service.ListTrimmable(), false),
       ContextEditAction.Remove => ToResult(_service.Remove(input.Selection!)),
       ContextEditAction.Shorten => ToResult(_service.Shorten(input.Selection!, input.Text!)),
+      ContextEditAction.Trim => ToResult(_service.TrimToolResults(input.Selection!)),
       // Unnamed enum values cannot occur.
       _ => throw new InvalidOperationException("Unknown context_edit action."),
     };

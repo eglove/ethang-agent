@@ -351,7 +351,7 @@ public static class AgentComposition
           "Invoke a named catalog skill on the user's behalf (including manual skills)."),
   ];
 
-  /// <summary>Context and git tool bindings: the experiment ledger, context edit and trim,
+  /// <summary>Context and git tool bindings: the experiment ledger, context edit,
   ///     git status, diff, commit, and worktrees.</summary>
   private static IReadOnlyList<AgentToolBinding> ContextAndGitToolBindings(IServiceProvider sp) =>
   [
@@ -361,10 +361,7 @@ public static class AgentComposition
           "Record the scientific loop's hypotheses, predictions, verdicts, observations, conclusions, and skips."),
       new AgentToolBinding(
           new ContextEditTool(sp.GetRequiredService<IConversationContextService>()),
-          "Edit this conversation's own context (list, remove, shorten messages)."),
-      new AgentToolBinding(
-          new ContextTrimTool(sp.GetRequiredService<IConversationContextService>()),
-          "Trim tool results this conversation no longer needs (marker-preserving cleanup)."),
+          "Manage this conversation's own context (list trimmable results, remove, shorten, trim)."),
       new AgentToolBinding(
           new GitStatusTool(sp.GetRequiredService<IPathResolver>(),
               sp.GetRequiredService<IGitQueryAccess>()),

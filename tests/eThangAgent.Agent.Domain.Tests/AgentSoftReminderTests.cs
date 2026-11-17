@@ -120,7 +120,7 @@ public class AgentSoftReminderTests
     Assert.Equal(1, ReminderCount(conversation));
     string reminder = Assert.Single(systemMessages, m => m.StartsWith(Agent.SoftReminderPrefix, StringComparison.Ordinal));
     Assert.Contains("55% full", reminder, StringComparison.Ordinal);
-    Assert.Contains("context_trim", reminder, StringComparison.Ordinal);
+    Assert.Contains("context_edit", reminder, StringComparison.Ordinal);
     Assert.Contains("60%", reminder, StringComparison.Ordinal);
     Assert.Equal(0, compactor.Calls); // below the ceiling: no compaction ran
   }

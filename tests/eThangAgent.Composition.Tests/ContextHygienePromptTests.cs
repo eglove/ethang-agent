@@ -27,7 +27,7 @@ public class ContextHygienePromptTests
   [Fact]
   public void Guidance_IsStaticAndShort()
   {
-    Assert.Contains("context_trim", ContextHygienePromptProvider.Guidance, StringComparison.Ordinal);
+    Assert.Contains("context_edit", ContextHygienePromptProvider.Guidance, StringComparison.Ordinal);
     Assert.Contains("Clean as you go", ContextHygienePromptProvider.Guidance, StringComparison.Ordinal);
     Assert.True(ContextHygienePromptProvider.Guidance.Length < 600); // a few dozen tokens
   }
@@ -50,13 +50,13 @@ public class ContextHygienePromptTests
     string guidance = ContextHygienePromptProvider.Guidance;
 
     Assert.True(
-        guidance.Contains("Tools.context_trim", StringComparison.Ordinal)
+        guidance.Contains("Tools.context_edit", StringComparison.Ordinal)
         || guidance.Contains("exec", StringComparison.Ordinal),
-        "the hygiene guidance must say HOW to reach context_trim (Tools.context_trim inside "
+        "the hygiene guidance must say HOW to reach context_edit (Tools.context_edit inside "
         + "exec); since #288 it is not a top-level tool. Guidance was: " + guidance);
 
     // The bare-tool phrasing is the defect: it reads as a top-level call.
-    Assert.DoesNotContain("with the context_trim tool", guidance, StringComparison.Ordinal);
+    Assert.DoesNotContain("with the context_edit tool", guidance, StringComparison.Ordinal);
   }
 
   /// <summary>The loop's one-time soft reminder has the same contract: it nudges the model
@@ -67,9 +67,9 @@ public class ContextHygienePromptTests
     string reminder = SoftReminderText(88, 80);
 
     Assert.True(
-        reminder.Contains("Tools.context_trim", StringComparison.Ordinal)
+        reminder.Contains("Tools.context_edit", StringComparison.Ordinal)
         || reminder.Contains("exec", StringComparison.Ordinal),
-        "the soft reminder must say how to reach context_trim. Reminder was: " + reminder);
+        "the soft reminder must say how to reach context_edit. Reminder was: " + reminder);
   }
 
   [Fact]
@@ -83,7 +83,7 @@ public class ContextHygienePromptTests
 
     string prompt = services.GetRequiredService<ISystemPromptProvider>().Build();
 
-    Assert.Contains("context_trim", prompt, StringComparison.Ordinal);
+    Assert.Contains("context_edit", prompt, StringComparison.Ordinal);
     Assert.Contains("Clean as you go", prompt, StringComparison.Ordinal);
   }
 }

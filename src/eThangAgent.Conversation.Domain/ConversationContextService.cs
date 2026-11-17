@@ -45,9 +45,112 @@ public sealed class ConversationContextService(Conversation conversation)
     return lines.Count == 0 ? "[context: empty]" : string.Join("\n", lines);
   }
 
+  /// <summary>Renders the TRIMMABLE tool results, one line each, biggest first: the
+  ///     ordinal a trim names ('rN'), the message position Remove and Shorten name,
+  ///     the tool that produced it, its size, and the arguments that identify it.
+  ///     Only results that still hold their content are listed - a result already
+  ///     trimmed is not a trim candidate. Capped at <see cref="ListLimit"/> lines;
+  ///     the count left out is stated so the list is never mistaken for the whole.</summary>
+  public string ListTrimmable()
+  {
+    IReadOnlyList<Message> messages = _conversation.Messages;
+    List<(int Ordinal, int Position, Message Message, ToolCall? Call)> rows = [];
+    int ordinal = 0;
+    for (int i = 0; i < messages.Count; i++)
+    {
+      if (messages[i].Role is not Role.Tool)
+      {
+        continue;
+      }
+
+      ordinal++;
+      if (IsTrimmed(messages[i]))
+      {
+        continue;
+      }
+
+      rows.Add((ordinal, i + 1, messages[i], PairedCall(messages, i)));
+    }
+
+    if (rows.Count == 0)
+    {
+      return "[context: no trimmable tool results]";
+    }
+
+    List<(int Ordinal, int Position, Message Message, ToolCall? Call)> ordered =
+        [.. rows.OrderByDescending(r => r.Message.Content.Length).ThenBy(r => r.Ordinal)];
+    List<string> lines = [];
+    foreach ((int Ordinal, int Position, Message Message, ToolCall? Call) row in ordered.Take(ListLimit))
+    {
+      int tokens = row.Message.Content.Length / ToolResultMarker.CharsPerToken;
+      lines.Add($"r{row.Ordinal}\tmsg {row.Position}\t{Describe(row.Call)}\t~{tokens} tok\t{Identify(row.Call)}{Parts(row.Message)}");
+    }
+
+    int omitted = ordered.Count - lines.Count;
+    string header = omitted > 0
+        ? $"[context: {ordered.Count} trimmable result(s); {omitted} smaller one(s) omitted - trim these, or name ordinals directly]"
+        : $"[context: {ordered.Count} trimmable result(s)]";
+    return header + "\n" + string.Join("\n", lines);
+  }
+
+  /// <summary>How many rows the listing renders before it starts omitting.</summary>
+  public const int ListLimit = 40;
+
+  private const int IdentifyLimit = 60;
+
+  /// <summary>The tool name for a row: the paired call's name, or a generic marker when
+  ///     the pairing is unavailable.</summary>
+  private static string Describe(ToolCall? call) => call?.Name ?? "tool";
+
+  /// <summary>The identifying arguments for a row: the paired call's arguments on one
+  ///     line, truncated. Empty when the pairing is unavailable.</summary>
+  private static string Identify(ToolCall? call)
+  {
+    if (call is null)
+    {
+      return "";
+    }
+
+    string flat = call.Arguments.Replace('\r', ' ').Replace('\n', ' ').Trim();
+    return flat.Length <= IdentifyLimit ? flat : flat[..IdentifyLimit] + "...";
+  }
+
+  /// <summary>A listing must never hide a picture: a result carrying image parts says so,
+  ///     or a model choosing what to trim would discard an image it never saw named.</summary>
+  private static string Parts(Message message) =>
+      message.Parts is { Count: > 0 } parts && parts.Any(p => p is MessagePart.ImagePart)
+          ? "  [image]"
+          : "";
+
+  /// <summary>True when the result already holds a relocation marker rather than its
+  ///     original content.</summary>
+  private static bool IsTrimmed(Message message) =>
+      message.Content.StartsWith(ToolResultMarker.Prefix, StringComparison.Ordinal);
+
+  /// <summary>The tool call a result answers, searched backwards through the list.</summary>
+  private static ToolCall? PairedCall(IReadOnlyList<Message> messages, int toolResultIndex)
+  {
+    string? id = messages[toolResultIndex].ToolCallId;
+    if (id is null)
+    {
+      return null;
+    }
+
+    for (int i = toolResultIndex - 1; i >= 0; i--)
+    {
+      if (messages[i].ToolCalls?.FirstOrDefault(c => c.Id == id) is { } call)
+      {
+        return call;
+      }
+    }
+
+    return null;
+  }
+
   /// <summary>Removes the selected messages. The selection rides a strict parser
   ///     ('last N' or 'S..E'); the replacement must stay non-empty, keep every
   ///     tool-call/result pair together, and keep a System-or-User head.</summary>
+
   public Result<string> Remove(string selection)
   {
     Result<ContextSelection> parsed = ContextSelection.Parse(selection);
@@ -135,38 +238,115 @@ public sealed class ConversationContextService(Conversation conversation)
   }
 
   /// <summary>Replaces the selected tool results' content in place with relocation
-  ///     markers. The selection must name only Tool messages — user, assistant, and
-  ///     system messages are out of reach by design. Pairing ids stay, so the
+  ///     markers. The selection names tool-result ordinals ('rN'), 'last N', or
+  ///     nothing for every trimmable result outside the recent tail. A selection that
+  ///     names something untrimmable trims the rest and reports what it skipped - the
+  ///     model's intent is the trim, not the validation. Pairing ids stay, so the
   ///     aggregate's tool-call/result invariants hold by construction.</summary>
   public Result<string> TrimToolResults(string selection)
   {
-    Result<ContextSelection> parsed = ContextSelection.Parse(selection);
+    Result<TrimSelection> parsed = TrimSelection.Parse(selection);
     if (!parsed.IsSuccess)
     {
       return Result.Failure<string>(parsed.Error);
     }
 
     IReadOnlyList<Message> messages = _conversation.Messages;
-    Result<IReadOnlyList<int>> resolved = ResolveToolOnlySelection(parsed.Value, requireSingle: false);
-    if (!resolved.IsSuccess)
+    List<int> toolPositions = [];
+    for (int i = 0; i < messages.Count; i++)
     {
-      return Result.Failure<string>(resolved.Error);
+      if (messages[i].Role is Role.Tool)
+      {
+        toolPositions.Add(i);
+      }
     }
 
-    IReadOnlyList<int> positions = resolved.Value;
+    List<string> skipped = [];
+    List<int> trimmable = ResolveTrimPositions(parsed.Value, messages, toolPositions, skipped);
+    if (trimmable.Count == 0)
+    {
+      return Result.Failure<string>(new DomainError("NothingToTrim",
+          NothingToTrimReason(parsed.Value, skipped)));
+    }
+
     List<Message> updated = [.. messages];
     long savedChars = 0;
-    foreach (int position in positions)
+    foreach (int position in trimmable)
     {
       string marker = ToolResultMarker.For(messages, position);
       savedChars += messages[position].Content.Length - marker.Length;
       updated[position] = updated[position] with { Content = marker };
     }
 
+    string trimmedNote = string.Join(",", trimmable.Select(p => $"r{toolPositions.IndexOf(p) + 1}"));
+    string skippedNote = skipped.Count == 0 ? "" : $" skipped: {string.Join(", ", skipped)}.";
     Result<bool> applied = _conversation.Compact(updated);
     return applied.IsSuccess
-        ? Result.Success($"{ShrankSentinel} {positions.Count} message(s): trimmed {parsed.Value.Render()}.] {Cost(messages, positions.Min(), savedChars)}")
+        ? Result.Success($"{ShrankSentinel} {trimmable.Count} message(s): trimmed {trimmedNote}.{skippedNote}] {Cost(messages, trimmable.Min(), savedChars)}")
         : Result.Failure<string>(applied.Error);
+  }
+
+  /// <summary>Why a trim selected nothing: the skipped items when the selection named some,
+  ///     the default window when it named none, and a plain statement otherwise.</summary>
+  private static string NothingToTrimReason(TrimSelection selection, List<string> skipped)
+  {
+    return skipped.Count > 0
+        ? $"Nothing selected can be trimmed: {string.Join(", ", skipped)}."
+        : DefaultNothingToTrimReason(selection);
+  }
+
+  private static string DefaultNothingToTrimReason(TrimSelection selection)
+  {
+    return selection.Ordinals is null && selection.LastCount is null
+        ? $"No trimmable result outside the most recent {TrimSelection.DefaultProtectedTail}; "
+            + "name ordinals with 'selection' to trim inside that window."
+        : "Nothing selected to trim.";
+  }
+
+  /// <summary>Maps a parsed selection onto the positions it names, keeping only the
+  ///     results that still hold content. Anything named but untrimmable is recorded
+  ///     in <paramref name="skipped"/> and the rest proceeds.</summary>
+  private static List<int> ResolveTrimPositions(TrimSelection selection, IReadOnlyList<Message> messages,
+      List<int> toolPositions, List<string> skipped)
+  {
+    List<int> chosen = [];
+    if (selection.Ordinals is { } ordinals)
+    {
+      foreach (int ordinal in ordinals)
+      {
+        if (ordinal > toolPositions.Count)
+        {
+          skipped.Add($"r{ordinal} (no such tool result; the list has {toolPositions.Count})");
+        }
+        else
+        {
+          chosen.Add(toolPositions[ordinal - 1]);
+        }
+      }
+    }
+    else if (selection.LastCount is { } last)
+    {
+      chosen.AddRange(toolPositions.Skip(Math.Max(0, toolPositions.Count - last)));
+    }
+    else
+    {
+      chosen.AddRange(toolPositions.Take(Math.Max(0, toolPositions.Count - TrimSelection.DefaultProtectedTail)));
+    }
+
+    List<int> trimmable = [];
+    foreach (int position in chosen.Distinct().Order())
+    {
+      if (IsTrimmed(messages[position]))
+      {
+        skipped.Add($"r{toolPositions.IndexOf(position) + 1} (already trimmed)");
+      }
+      else
+      {
+        trimmable.Add(position);
+      }
+    }
+
+    return trimmable;
   }
 
   /// <summary>Replaces ONE selected tool result's content with the caller's excerpt,

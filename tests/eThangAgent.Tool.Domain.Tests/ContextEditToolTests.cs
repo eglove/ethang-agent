@@ -6,20 +6,27 @@ public class ContextEditToolTests
 {
   private sealed class FakeContextService : IConversationContextService
   {
-    public string Listed { get; set; } = "[1] [User] hi";
+    public string Listed { get; set; } = "[context: no trimmable tool results]";
+    public string CalledList { get; set; } = "List";
     public Result<string> RemoveResult { get; set; } = Result.Success("[context: shrank 2 message(s): removed last 2.]");
     public Result<string> ShortenResult { get; set; } = Result.Success("[context: shrank 1 message(s): message 1 shortened.]");
+    public List<string> TrimCalls { get; } = [];
 
     public string List() => Listed;
+
+    public string ListTrimmable() => CalledList == "ListTrimmable" ? "ListTrimmable" : Listed;
 
     public Result<string> Remove(string selection) => RemoveResult;
 
     public Result<string> Shorten(string selection, string text) => ShortenResult;
 
-    public Result<string> TrimToolResults(string selection) => Result.Success("[context: shrank]");
-
-    public Result<string> ShortenToolResult(string selection, string text) => ShortenResult;
+    public Result<string> TrimToolResults(string selection)
+    {
+      TrimCalls.Add(selection);
+      return Result.Success("[context: shrank 1 message(s): trimmed r1.]");
+    }
   }
+
 
   private static RawToolInput Input(string json) => new("context_edit", json);
 
@@ -39,7 +46,7 @@ public class ContextEditToolTests
     ContextEditTool tool = new(service);
     ToolResult result = await tool.ExecuteAsync(Input(/*lang=json,strict*/"""{"timeoutSeconds":5, "action": "List" }"""), TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal("[1] [User] hi", result.Content);
+    Assert.Equal("[context: no trimmable tool results]", result.Content);
   }
 
   [Fact]
@@ -109,6 +116,79 @@ public class ContextEditToolTests
     ToolResult result = await tool.ExecuteAsync(Input(/*lang=json,strict*/"""{"timeoutSeconds":5, "action": "Shorten", "selection": "1" }"""), TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.StartsWith("Error [MissingParameter]", result.Content, StringComparison.Ordinal);
+  }
+
+
+  [Fact]
+  public void Definition_ExposesFourActions_RequiresOnlyTimeoutAndAction()
+  {
+    // Trim's selection is optional (omitted means every trimmable result outside the
+    // recent tail), so 'selection' must NOT be declared required.
+    ContextEditTool tool = new(new FakeContextService());
+    Assert.Equal(["timeoutSeconds", "action"], tool.Definition.RequiredParameters);
+    Assert.Equal(4, tool.Definition.Parameters.Count);
+    Assert.Contains("Trim", tool.Definition.Description, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Trim_PassesSelectionToService()
+  {
+    FakeContextService service = new();
+    ContextEditTool tool = new(service);
+    ToolResult result = await tool.ExecuteAsync(
+        Input(/*lang=json,strict*/"""{"timeoutSeconds":5, "action": "Trim", "selection": "r3,r7" }"""),
+        TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Equal(["r3,r7"], service.TrimCalls);
+  }
+
+  [Fact]
+  public async Task Trim_WithoutSelection_PassesEmptyString_SoTheDefaultApplies()
+  {
+    FakeContextService service = new();
+    ContextEditTool tool = new(service);
+    ToolResult result = await tool.ExecuteAsync(
+        Input(/*lang=json,strict*/"""{"timeoutSeconds":5, "action": "Trim" }"""),
+        TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    string selection = Assert.Single(service.TrimCalls);
+    Assert.True(string.IsNullOrEmpty(selection),
+        "the omitted selection must reach the service as empty so the default applies");
+  }
+
+  [Fact]
+  public async Task Trim_RejectsText_InvalidParameterValue()
+  {
+    ContextEditTool tool = new(new FakeContextService());
+    ToolResult result = await tool.ExecuteAsync(
+        Input(/*lang=json,strict*/"""{"timeoutSeconds":5, "action": "Trim", "text": "excerpt" }"""),
+        TestContext.Current.CancellationToken);
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [InvalidParameterValue]", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task ActionNames_AreCaseInsensitive()
+  {
+    FakeContextService service = new();
+    ContextEditTool tool = new(service);
+    ToolResult lowered = await tool.ExecuteAsync(
+        Input(/*lang=json,strict*/"""{"timeoutSeconds":5, "action": "trim", "selection": "r1" }"""),
+        TestContext.Current.CancellationToken);
+    Assert.False(lowered.IsError);
+    Assert.Equal(["r1"], service.TrimCalls);
+  }
+
+  [Fact]
+  public async Task List_RendersTheTrimmableListing_NotEveryMessage()
+  {
+    FakeContextService service = new() { CalledList = "ListTrimmable" };
+    ContextEditTool tool = new(service);
+    ToolResult result = await tool.ExecuteAsync(
+        Input(/*lang=json,strict*/"""{"timeoutSeconds":5, "action": "List" }"""),
+        TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Contains("ListTrimmable", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]

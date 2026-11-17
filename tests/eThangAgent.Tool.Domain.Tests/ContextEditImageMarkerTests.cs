@@ -3,10 +3,10 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain.Tests;
 
-/// <summary>Secondary parts consumer: the context_edit List render shows an
-///     '[image]' marker for messages carrying image parts, beside unchanged text
-///     content. Pinned through the tool surface with the real Conversation Domain
-///     service - the same adapter stack the composition wires.</summary>
+/// <summary>Secondary parts consumer: the context_edit List render names an image a
+///     trimmable result carries, so a model choosing what to trim never discards a
+///     picture it was not told about. Pinned through the tool surface with the real
+///     Conversation Domain service - the same adapter stack the composition wires.</summary>
 public class ContextEditImageMarkerTests
 {
   private static ContextEditTool Tool(Conversation conversation) =>
@@ -17,9 +17,10 @@ public class ContextEditImageMarkerTests
       """);
 
   [Fact]
-  public async Task List_MessageWithImagePart_ShowsImageMarker_BesideText()
+  public async Task List_ToolResultWithImagePart_NamesTheImage()
   {
     Conversation conversation = new();
+    conversation.AddAssistantMessage("", [new ToolCall("c1", "screenshot", "{}")]);
     conversation.AddToolResult("c1", "screenshot captured",
         [new MessagePart.ImagePart("image/png", "aGVsbG8=")]); // 'hello' decoded: 5 bytes
     ContextEditTool tool = Tool(conversation);
@@ -27,28 +28,30 @@ public class ContextEditImageMarkerTests
     ToolResult result = await tool.ExecuteAsync(ListInput(), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.Contains("screenshot captured [image: image/png, 5 bytes]", result.Content, StringComparison.Ordinal);
+    Assert.Contains("[image]", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task List_TextOnlyMessages_StayUnmarked()
+  public async Task List_TextOnlyToolResult_CarriesNoImageMarker()
   {
     Conversation conversation = new();
-    conversation.AddUserMessage("plain text");
-    conversation.AddAssistantMessage("the answer");
+    conversation.AddAssistantMessage("", [new ToolCall("c1", "read", "{}")]);
+    conversation.AddToolResult("c1", "plain text");
     ContextEditTool tool = Tool(conversation);
 
     ToolResult result = await tool.ExecuteAsync(ListInput(), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.DoesNotContain("[image]", result.Content, StringComparison.Ordinal);
-    Assert.Contains("plain text", result.Content, StringComparison.Ordinal);
-    Assert.Contains("the answer", result.Content, StringComparison.Ordinal);
+    Assert.Contains("r1", result.Content, StringComparison.Ordinal);
+    Assert.Contains("read", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task List_UserMessageWithImagePart_IsMarked()
+  public async Task List_UserMessageWithImagePart_IsNotATrimCandidate()
   {
+    // Only tool results can be trimmed, so a user message - image or not - never
+    // appears in the listing. Offering it would invite a call that must fail.
     Conversation conversation = new();
     conversation.AddUserMessage("what is this",
         [new MessagePart.ImagePart("image/jpeg", "aGVsbG8=")]);
@@ -57,7 +60,7 @@ public class ContextEditImageMarkerTests
     ToolResult result = await tool.ExecuteAsync(ListInput(), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.Contains("what is this [image: image/jpeg, 5 bytes]", result.Content, StringComparison.Ordinal);
+    Assert.Equal("[context: no trimmable tool results]", result.Content);
   }
 }
 
@@ -70,11 +73,11 @@ internal sealed class ConversationContextServiceAdapter(Conversation conversatio
 
   public string List() => _service.List();
 
+  public string ListTrimmable() => _service.ListTrimmable();
+
   public Result<string> Remove(string selection) => _service.Remove(selection);
 
   public Result<string> Shorten(string selection, string text) => _service.Shorten(selection, text);
 
   public Result<string> TrimToolResults(string selection) => _service.TrimToolResults(selection);
-
-  public Result<string> ShortenToolResult(string selection, string text) => _service.ShortenToolResult(selection, text);
 }

@@ -12,6 +12,11 @@ public interface IConversationContextService
   /// <summary>Renders the current message list with stable 1-based indexes.</summary>
   string List();
 
+  /// <summary>Renders the trimmable tool results: one line each with the ordinal a trim
+  ///     names, the message position Remove and Shorten name, the tool, the size, and
+  ///     the identifying arguments. Biggest first.</summary>
+  string ListTrimmable();
+
   /// <summary>Removes the selected messages; success returns the shrink sentinel line.</summary>
   Result<string> Remove(string selection);
 
@@ -21,8 +26,4 @@ public interface IConversationContextService
   /// <summary>Replaces the selected tool results' content with relocation markers;
   ///     success returns the shrink sentinel line.</summary>
   Result<string> TrimToolResults(string selection);
-
-  /// <summary>Replaces ONE selected tool result's content with the given excerpt;
-  ///     success returns the shrink sentinel line.</summary>
-  Result<string> ShortenToolResult(string selection, string text);
 }

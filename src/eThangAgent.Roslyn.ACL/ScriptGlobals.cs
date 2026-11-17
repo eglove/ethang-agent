@@ -975,7 +975,6 @@ public sealed class ScriptTools
   public string skill_registry(object? args = null) => Invoke("skill_registry", args);
 
   public string computer(object? args = null) => Invoke("computer", args);
-  public string context_trim(object? args = null) => Invoke("context_trim", args);
   public string docx(object? args = null) => Invoke("docx", args);
   public string experiment(object? args = null) => Invoke("experiment", args);
   public string find_files(object? args = null) => Invoke("find_files", args);

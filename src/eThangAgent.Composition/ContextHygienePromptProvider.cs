@@ -18,10 +18,11 @@ public sealed class ContextHygienePromptProvider : ISystemPromptProvider
   public const string Guidance =
       "Context hygiene: keep your working context lean. When a large tool result " +
       "(a long file read, a web fetch, big command output) has served its purpose, " +
-      "trim it with Tools.context_trim inside an exec program - it replaces the result " +
-      "with a one-line marker preserving what produced it and how to re-fetch it. " +
-      "Clean as you go at task milestones; do not wait for the context to fill. Keep " +
-      "concrete identifiers (paths, ids, numbers) before trimming anything you still need.";
+      "trim it with Tools.context_edit inside an exec program - action List shows what " +
+      "can be trimmed, action Trim replaces the chosen results with a one-line marker " +
+      "preserving what produced them and how to re-fetch them. Clean as you go at task " +
+      "milestones; do not wait for the context to fill. Keep concrete identifiers " +
+      "(paths, ids, numbers) before trimming anything you still need.";
 
   public string Build() => Guidance;
 }

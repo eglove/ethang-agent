@@ -876,7 +876,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     tool, and the ceiling; it never repeats until the pressure cycle resets.</summary>
   public static string SoftReminderText(double utilization, double ceilingPercent)
       => $"{SoftReminderPrefix} {utilization:0}% full — trim tool results you no longer need with "
-          + $"Tools.context_trim inside exec; a forced cleanup runs at {ceilingPercent:0}%].";
+          + $"Tools.context_edit inside exec (action List, then action Trim); a forced cleanup "
+          + $"runs at {ceilingPercent:0}%].";
 
   private void ShowSoftReminderIfPressured(CompactionPolicy policy, double utilization, TurnCallbacks? callbacks)
   {
