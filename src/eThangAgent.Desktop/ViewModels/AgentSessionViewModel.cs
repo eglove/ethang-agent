@@ -1127,7 +1127,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private async Task SendMessageAsync(string input)
   {
     string messageText = input;
-    IReadOnlyList<string> blocks = [];
+    IReadOnlyList<ReferenceBlock> blocks = [];
     if (_references is not null)
     {
       ReferenceInjectionResult resolved = await _references.InjectAsync(input, CancellationToken.None).ConfigureAwait(true);
@@ -1140,24 +1140,33 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       blocks = resolved.AppendedBlocks;
     }
 
-    foreach (string block in blocks)
+    foreach (ReferenceBlock block in blocks)
     {
-      Transcript.AddToolResult("read", ReferenceBlockSummary(block), block, isError: false, title: "reference");
+      Transcript.AddToolResult(block.ToolName, ReferenceBlockSummary(block.Content), block.Content,
+          isError: false, title: "reference", images: ReferenceImages(block));
     }
 
     // While a turn runs, input steers it: posted to the session inbox for delivery at the
     // loop's next safe point, and echoed into the transcript immediately. Never dropped.
     // The read blocks ride the STEERING message itself — a pre-turn entry queued here would
-    // never be consumed by a running turn and would leak into the NEXT turn's prefix.
+    // never be consumed by a running turn and would leak into the NEXT turn's prefix. The
+    // inbox carries TEXT, so a block's images cannot ride a steer: each one's marker says it
+    // did not travel and names the tool that fetches it, rather than naming bytes nobody sent.
     if (IsBusy)
     {
-      Steer(blocks.Count == 0 ? messageText : string.Join(Environment.NewLine + Environment.NewLine, [messageText, .. blocks]));
+      Steer(blocks.Count == 0
+          ? messageText
+          : string.Join(Environment.NewLine + Environment.NewLine,
+              [messageText, .. blocks.Select(b => b.ModelText(imagesAttached: false))]));
       return;
     }
 
-    foreach (string block in blocks)
+    foreach (ReferenceBlock block in blocks)
     {
-      _pendingPreTurn.Add(new RootTurnPreTurnMessage("user", block));
+      _pendingPreTurn.Add(new RootTurnPreTurnMessage("user", block.ModelText())
+      {
+        Images = ReferenceWireImages(block),
+      });
     }
 
     // Real turn — start and track it.
@@ -1166,11 +1175,32 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>The read annotation line a reference block opens with, used as its card summary.</summary>
-  private static string ReferenceBlockSummary(string block)
+  private static string ReferenceBlockSummary(string content)
   {
-    int newline = block.IndexOf('\n', StringComparison.Ordinal);
-    return newline < 0 ? block : block[..newline].TrimEnd('\r');
+    int newline = content.IndexOf('\n', StringComparison.Ordinal);
+    return newline < 0 ? content : content[..newline].TrimEnd('\r');
   }
+
+  /// <summary>A reference block's images as transcript pictures, or null when it attached none.</summary>
+  private static List<TranscriptImage>? ReferenceImages(ReferenceBlock block)
+  {
+    if (block.Images.Count == 0)
+    {
+      return null;
+    }
+
+    List<TranscriptImage> images = [];
+    foreach (ToolResultImage image in block.Images)
+    {
+      images.Add(new TranscriptImage(Convert.FromBase64String(image.Base64Data)));
+    }
+
+    return images;
+  }
+
+  /// <summary>A reference block's images in the wire form the host rebuilds its parts from.</summary>
+  private static IReadOnlyList<RootTurnImage> ReferenceWireImages(ReferenceBlock block)
+      => [.. block.Images.Select(image => new RootTurnImage(image.MediaType, image.Base64Data))];
 
   /// <summary>Resolves a slash input through the closed command registry. A registered name
   ///     runs its command with the rest of the input as its arguments; any other name is not
@@ -1247,10 +1277,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // The blocks ride the PROMPT, not this session's pre-turn queue: the new session runs
       // the turn, so a pre-turn entry queued here would never be consumed and would leak into
       // this session's next turn instead.
+      // The new session reads the blocks as one prompt, so a block's images travel as the
+      // prompt's own markers: the prompt is text, and a marker that named bytes nobody sent
+      // would read as a picture the model is looking at and cannot see.
       prompt = resolved.AppendedBlocks.Count == 0
           ? resolved.MessageText
           : string.Join(Environment.NewLine + Environment.NewLine,
-              [resolved.MessageText, .. resolved.AppendedBlocks]);
+              [resolved.MessageText, .. resolved.AppendedBlocks.Select(b => b.ModelText(imagesAttached: false))]);
     }
 
     Transcript.AddNotice("[new session: starting a fresh session with the prompt you gave.]");

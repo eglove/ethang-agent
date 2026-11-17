@@ -28,8 +28,17 @@ public sealed class DirectFileSystemAccess(ITextConventionPolicy conventions) : 
     FileInfo stat = new(path);
     FileVersion version = new(stat.Length, stat.LastWriteTimeUtc);
 
+    // The bytes decide whether this is text at all: a document, an archive, or an image read
+    // as lines is a page of replacement characters that describes the decoder, not the file.
+    byte[] bytes = File.ReadAllBytes(path);
+    if (TextBytes.Detect(bytes) is not { } encoding)
+    {
+      return Task.FromResult(Result.Failure<FileRead>(
+          new DomainError("BinaryFile", $"File appears to be binary (NUL byte or invalid UTF-8): {path}.")));
+    }
+
     List<string> allLines = [];
-    using StreamReader sr = new(path, Encoding.UTF8);
+    using StreamReader sr = new(path, encoding);
     while (sr.ReadLine() is { } line)
     {
       allLines.Add(line);
@@ -712,19 +721,9 @@ public sealed class DirectFileSystemAccess(ITextConventionPolicy conventions) : 
   }
 
   private static string? ReadAllTextRejectBinary(string path)
-  {
-    byte[] buffer = new byte[4096];
-    using FileStream fs = File.OpenRead(path);
-    int n = fs.Read(buffer, 0, buffer.Length);
-    for (int i = 0; i < n; i++)
-    {
-      if (buffer[i] == 0)
-      {
-        return null;
-      }
-    }
-    return File.ReadAllText(path, Encoding.UTF8);
-  }
+      => TextBytes.Detect(File.ReadAllBytes(path)) is { } encoding
+          ? File.ReadAllText(path, encoding)
+          : null;
 
   public void Dispose() { }
 }

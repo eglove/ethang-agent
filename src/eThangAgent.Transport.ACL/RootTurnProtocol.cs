@@ -14,8 +14,17 @@ public sealed record RootTurnImage(string MediaType, string Base64Data);
 ///     a CONVERSATION mutation, so they travel as one rather than being re-derived host-side
 ///     (the host has no command runner and no workspace reader, and inventing either would be
 ///     a second implementation of the app's own surface). <see cref="Role"/> is
-///     <c>system</c> for the command line and <c>user</c> for a reference's read output.</summary>
-public sealed record RootTurnPreTurnMessage(string Role, string Text);
+///     <c>system</c> for the command line and <c>user</c> for a reference's read output.
+///     <para><see cref="Images"/> carries what the reference's read ATTACHED - a picture, or a
+///     PDF page rendered to PNG. The app read the file and holds the bytes, so an image that
+///     did not travel would leave the model reading a marker for a picture it never received.
+///     Empty for every message that attaches nothing, which is every command line and every
+///     text reference.</para></summary>
+public sealed record RootTurnPreTurnMessage(string Role, string Text)
+{
+  /// <summary>The images this message carries, in the order the read attached them.</summary>
+  public IReadOnlyList<RootTurnImage> Images { get; init; } = [];
+}
 
 /// <summary>One host→app request to start a NEW session in the workspace (issue #234).
 ///     Emitted as a <c>session-request</c> root-turn event by the host's compaction handoff

@@ -60,6 +60,39 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   }
 
   [Fact]
+  public async Task ReadLinesAsync_BinaryFile_IsRefusedRatherThanDecoded()
+  {
+    // A zip read as lines is a page of replacement characters that describes the decoder, not
+    // the file. The reader refuses it by name so the caller can say what it is.
+    string path = Path.Combine(_tempDir, "bundle.zip");
+    _ = Directory.CreateDirectory(_tempDir);
+    await File.WriteAllBytesAsync(path, [0x50, 0x4B, 0x03, 0x04, 0x00, 0x00, 0x41, 0x42],
+        TestContext.Current.CancellationToken);
+    DirectFileSystemAccess access = new(TextConventionStub.For(LineEnding.Lf));
+
+    Result<FileRead> r = await access.ReadLinesAsync(path, 1, 10, ct: TestContext.Current.CancellationToken);
+
+    Assert.False(r.IsSuccess);
+    Assert.Equal("BinaryFile", r.Error.Code);
+  }
+
+  [Fact]
+  public async Task ReadLinesAsync_Utf16WithByteOrderMark_IsText()
+  {
+    // A UTF-16 file is full of NUL bytes and is still text: the mark names its encoding.
+    string path = Path.Combine(_tempDir, "utf16.txt");
+    _ = Directory.CreateDirectory(_tempDir);
+    await File.WriteAllTextAsync(path, "alpha\nbeta", System.Text.Encoding.Unicode,
+        TestContext.Current.CancellationToken);
+    DirectFileSystemAccess access = new(TextConventionStub.For(LineEnding.Lf));
+
+    Result<FileRead> r = await access.ReadLinesAsync(path, 1, 10, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal(["alpha", "beta"], r.Value.Lines);
+  }
+
+  [Fact]
   public async Task WriteFileAsync_CreatesFile()
   {
     string path = Path.Combine(_tempDir, "new.txt");

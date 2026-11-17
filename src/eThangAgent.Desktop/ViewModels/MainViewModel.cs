@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
+using eThangAgent.CapabilityDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
@@ -2826,6 +2827,18 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     this resolves synchronously — the documented sync-over-async seam constraint (the
   ///     SkillsListingPromptProvider Build() precedent). A catalog failure yields the files
   ///     alone.</summary>
+  /// <summary>The session's read-only path resolver, or null when its container wired none. It
+  ///     is what the READ TOOLS resolve against, so a reference the tools could open must not be
+  ///     refused by the composer: the two resolve through the same roots and the same grants.
+  ///     </summary>
+  private static TrustedDirectoryPathResolver? ReadOnlyResolverOf(AgentSession session)
+      => session.Services.GetService<IPathResolver>() is { } inner
+          ? new TrustedDirectoryPathResolver(inner,
+              session.Services.GetService<ResolvedTrustedDirectories>()?.WithStoredImages().List,
+              enforceWritePolicy: false,
+              session.Services.GetService<SessionPathGrants>()).AsReadOnlyResolver()
+          : null;
+
   private static List<ReferenceOption> ReferenceOptionsOf(AgentSession session, WorkspaceFileIndex? files,
       ReferenceTrigger trigger, string query)
   {
@@ -3092,10 +3105,14 @@ internal sealed partial class MainViewModel : ObservableObject
           SkillInvocation = session.SkillInvocation,
           ReferenceCatalogSource = (trigger, query) => ReferenceOptionsOf(session, fileIndex, trigger, query),
           // A container that registered no file access (a bare test stub) resolves no
-          // references; every production container registers it.
+          // references; every production container registers it. The reference resolves
+          // through the SAME tool surface the model uses, so a reference reads exactly as a
+          // tool call does - an image, a PDF page, a document, or a page of text.
           References = session.Services.GetService<IFileSystemAccess>() is { } referenceFiles
               ? new ReferenceInjector(referenceFiles, session.SkillInvocation, session.WorkspaceRoot,
-                  session.Services.GetService<SessionPathGrants>())
+                  session.Services.GetService<SessionPathGrants>(),
+                  session.Services.GetService<AgentToolsProvider>(),
+                  ReadOnlyResolverOf(session))
               : null,
           PathGrants = session.Services.GetService<SessionPathGrants>(),
           ReferenceIndexRefresh = fileIndex is null ? null : () => fileIndex.RefreshAsync(),

@@ -456,7 +456,7 @@ public sealed class RootRunHost : IDisposable
       }
       else if (string.Equals(message.Role, "user", StringComparison.Ordinal))
       {
-        Conversation.AddUserMessage(message.Text);
+        Conversation.AddUserMessage(message.Text, BuildParts(message.Images));
       }
       else
       {
@@ -467,6 +467,15 @@ public sealed class RootRunHost : IDisposable
       }
     }
   }
+
+  /// <summary>The image parts one pre-turn message carries, or null when it carries none (the
+  ///     legacy text-only shape). A reference's read attached these in the app, which is where
+  ///     the file was read, so the parts travel with the message rather than being re-read
+  ///     here.</summary>
+  private static IReadOnlyList<MessagePart>? BuildParts(IReadOnlyList<RootTurnImage>? images)
+      => images is { Count: > 0 }
+          ? [.. images.Select(image => new MessagePart.ImagePart(image.MediaType, image.Base64Data))]
+          : null;
 
   /// <summary>Grants the external paths the app's quoted message paths named, so the tools
   ///     this turn runs can reach them.
