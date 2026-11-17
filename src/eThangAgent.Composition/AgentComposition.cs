@@ -1294,6 +1294,12 @@ public static class AgentComposition
                  // so a session with no approvals keeps a byte-identical prompt.
                  new TrustedDirectoriesPromptProvider(
                      sp.GetRequiredService<ResolvedTrustedDirectories>().List),
+                 // The PATH tools the user ticked (plan #209): renders EMPTY when nothing is
+                 // ticked or nothing ticked resolves, so a user who never opens the Tools page
+                 // keeps a byte-identical prompt. Every name it announces resolved against the
+                 // PATH at container build, so the model is never told about a tool it cannot run.
+                 new AvailableToolsPromptProvider(
+                     sp.GetRequiredService<ResolvedAvailableTools>().List),
                  // The chain contract (issue #311): renders EMPTY for a session that is not a
                  // chain step, so the ordinary way a user begins work keeps a byte-identical
                  // prompt. The contract is read from the CARRIER rather than built here because
@@ -1450,6 +1456,16 @@ public static class AgentComposition
         // remote resolves nulls, an empty root list, and nothing else changes.
         .AddSingleton<TrustedDirectoriesCarrier>()
         .AddSingleton(_ => new ResolvedTrustedDirectories(ResolveTrustedDirectoriesFromSettings(settings)))
+        // The ticked PATH tools (plan #209) ride every container the same way: the factory
+        // fills the carrier from the app preference at open/resume, and the RemoteHost block
+        // overlays that raw value onto the settings JSON - so BOTH containers (the app's and
+        // the host that actually runs the turns) announce the same tools. Unconditional
+        // registration: a container with nothing ticked resolves an empty list and renders
+        // nothing. Resolution reads the PATH, never a version, so it costs one file probe per
+        // ticked name and no process spawn.
+        .AddSingleton<PathToolsCarrier>()
+        .AddSingleton(sp => ResolvedAvailableTools.Resolve(
+            sp.GetRequiredService<PathToolsCarrier>().Stored))
         // Quoted-path grants: the second source of reach, filled when the app parses a message
         // that names an external path as @"...". It rides every container because the tools
         // resolve paths in the HOST, so the host needs the same set the app filled - which is
@@ -1592,6 +1608,10 @@ public static class AgentComposition
                // an approval that did not travel with the settings would be invisible to
                // the process that resolves the tool paths.
                .WithTrustedDirectories(sp.GetRequiredService<TrustedDirectoriesCarrier>().Stored)
+               // The ticked PATH tools (plan #209) travel for the same reason: the prompt is
+               // built host-side, so a list that stayed in the app would leave the announced
+               // tools silent in the only process that serves the model.
+               .WithPathTools(sp.GetRequiredService<PathToolsCarrier>().Stored)
                // The chain contract (issue #311) travels for the same reason: the prompt is
                // built host-side, so a contract that stayed in the app would leave the system
                // prompt silent in the only process that serves the model.
@@ -1695,6 +1715,19 @@ public static class AgentComposition
   ///     settings-sourced registration in AgentSessionFactory.BuildContainer with the
   ///     value they just read from the store; the host takes this path, so a remote
   ///     child and a host-run root turn see the identical approved roots.</summary>
+  /// <summary>Resolves the settings-carried ticked-tool list - the config shape a host built
+  ///     from serialized <see cref="AgentSettings" /> (the remote ChildHost) resolves through.
+  ///     App-side containers REPLACE the core's settings-sourced registration in
+  ///     AgentSessionFactory.BuildContainer with the value they just read from the store; the
+  ///     host takes this path, so a remote child and a host-run root turn announce the
+  ///     identical tools.</summary>
+  public static ResolvedAvailableTools ResolveAvailableToolsFromSettings(AgentSettings settings)
+  {
+    ArgumentNullException.ThrowIfNull(settings);
+
+    return ResolvedAvailableTools.Resolve(settings.PathTools);
+  }
+
   public static IReadOnlyList<TrustedDirectory> ResolveTrustedDirectoriesFromSettings(AgentSettings settings)
   {
     ArgumentNullException.ThrowIfNull(settings);

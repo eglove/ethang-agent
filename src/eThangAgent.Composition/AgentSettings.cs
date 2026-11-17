@@ -50,7 +50,8 @@ public sealed record AgentSettings(
     string? SessionId = null,
     string? TrustedDirectories = null,
     string? WorkspaceId = null,
-    ChainContract? ChainContract = null)
+    ChainContract? ChainContract = null,
+    string? PathTools = null)
 {
   // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
   // runs WatchdogOptions.Default. The value travels to the child host inside the
@@ -96,6 +97,15 @@ public sealed record AgentSettings(
   public AgentSettings WithTrustedDirectories(string? stored) => this with
   {
     TrustedDirectories = TrustedDirectories ?? stored,
+  };
+
+  /// <summary>Returns the same settings with the stored ticked-tool list overlaid. The raw
+  ///     preference value travels to the host inside the settings JSON, so the process that
+  ///     builds the prompt resolves the SAME announced tools the app-side session does. Null
+  ///     keeps whatever the caller already set (never a clobber).</summary>
+  public AgentSettings WithPathTools(string? stored) => this with
+  {
+    PathTools = PathTools ?? stored,
   };
 
   /// <summary>Returns the same settings with the verification gate toggled. The

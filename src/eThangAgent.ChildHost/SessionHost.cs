@@ -148,6 +148,10 @@ public sealed class SessionHost
             // approved external roots must resolve here, not only in the app process.
             .AddSingleton(new ResolvedTrustedDirectories(
                 AgentComposition.ResolveTrustedDirectoriesFromSettings(settings)))
+            // The ticked PATH tools (plan #209) ride the settings JSON for the same reason:
+            // THIS container builds the system prompt for every production turn, so the
+            // announced tools must resolve here, not only in the app process.
+            .AddSingleton(AgentComposition.ResolveAvailableToolsFromSettings(settings))
             // ORCHESTRATION (issue #305 D1/D2): this host runs each agent in its OWN host
             // process. The in-process runtime it used to register ran every child inside THIS
             // process — one job object, one pipe, one scratch folder for all of them — which is

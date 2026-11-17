@@ -128,6 +128,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
     string? trustedDirectories = await ReadTrustedDirectoriesAsync(full, ct).ConfigureAwait(false);
+    string? pathTools = await ReadPathToolsAsync(ct).ConfigureAwait(false);
     // A workspace IS its directory path: nothing is written into the user's directory to
     // identify it, so the identity is derived rather than resolved.
     string workspaceId = WorkspaceIdentity.For(full);
@@ -135,7 +136,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     ServiceProvider services = BuildContainer(workspaceId, anchor, providerName, conversationSeed,
         ResolveBootstrapModel(providerName),
         new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories,
-            trustedDirectories));
+            trustedDirectories, pathTools));
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     // The chain contract (issue #311) is filled BEFORE the session is handed out: the prompt
     // provider reads it at construction, so a fill after the first turn would leave the prompt
@@ -339,13 +340,14 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(workspaceRoot, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
     string? trustedDirectories = await ReadTrustedDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
+    string? pathTools = await ReadPathToolsAsync(ct).ConfigureAwait(false);
     // A resumed session keeps ITS OWN identity: the persisted record names the workspace the
     // conversation belongs to, and re-resolving would mint a different id for a directory whose
     // marker was deleted - forking a live session's records away from the workspace it ran in.
     ServiceProvider services = BuildContainer(record.WorkspaceId, workspaceRoot, providerName, transcript.Value,
         ResolveBootstrapModel(providerName),
         new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories,
-            trustedDirectories));
+            trustedDirectories, pathTools));
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
@@ -592,6 +594,16 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     return (global, workspace);
   }
 
+  /// <summary>Reads the stored ticked-tool list (plan #209). APP-scoped and optional like every
+  ///     other launch preference: a store miss returns null and the session announces no tools.
+  ///     <para>Read once at container build, which is what makes a tool installed mid-run need a
+  ///     restart: the accepted cost of not re-reading a preference on every turn.</para></summary>
+  private async Task<string?> ReadPathToolsAsync(CancellationToken ct)
+  {
+    SqliteAppPreferenceStore preferences = new(_database ?? new AppDatabase());
+    return await preferences.GetAsync(PathToolPreferences.Key, ct).ConfigureAwait(false);
+  }
+
   /// <summary>Reads one workspace's stored trusted-directory list (issue #96). Optional
   ///     like every other launch preference: a store miss returns null and the session
   ///     opens with no external roots approved.</summary>
@@ -722,22 +734,32 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         // runs every production turn - resolves the identical roots.
         .AddSingleton(new ResolvedTrustedDirectories(
             TrustedDirectoryPreferences.Resolve(stored.TrustedDirectories)))
+        // The ticked PATH tools (plan #209) override the core's settings-sourced registration
+        // for the same reason: the value was just READ from the store here, and this is the
+        // site that owns preference resolution. The carrier filled below is the core-registered
+        // singleton the RemoteHost block overlays onto the settings JSON, so the host process -
+        // which runs every production turn - announces the identical tools.
+        .AddSingleton(ResolvedAvailableTools.Resolve(stored.PathTools))
         .BuildServiceProvider();
     services.GetRequiredService<SkillDirectoriesCarrier>().Fill(stored.GlobalSkillDirectories, stored.WorkspaceSkillDirectories);
     services.GetRequiredService<TrustedDirectoriesCarrier>().Fill(stored.TrustedDirectories);
+    services.GetRequiredService<PathToolsCarrier>().Fill(stored.PathTools);
     return services;
   }
 
   /// <summary>The raw stored preference lists a container build carries: the two
-  ///     session-file lists and the two skill-directory lists, each (global, workspace).
+  ///     session-file lists and the two skill-directory lists, each (global, workspace),
+  ///     plus the trusted-directory list and the ticked-tool list.
   ///     Every member is optional - a store miss is null, and the session then opens
-  ///     with nothing injected and no configured skill directories.</summary>
+  ///     with nothing injected, no configured skill directories, no external roots, and no
+  ///     announced tools.</summary>
   private sealed record StoredPreferenceLists(
       string? GlobalSessionFiles,
       string? WorkspaceSessionFiles,
       string? GlobalSkillDirectories,
       string? WorkspaceSkillDirectories,
-      string? TrustedDirectories);
+      string? TrustedDirectories,
+      string? PathTools);
 
   private static AgentSession BuildSession(ServiceProvider services, AgentId rootId,
       string workspaceRoot, string providerName, IReadOnlyList<string> pendingNotices)
