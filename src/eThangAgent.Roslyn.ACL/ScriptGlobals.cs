@@ -221,7 +221,7 @@ public sealed class ScriptGlobals
     DateTimeOffset startedUtc = DateTimeOffset.UtcNow;
     ProcessStartInfo psi = new()
     {
-      FileName = exe,
+      FileName = ResolveExecutable(exe),
       WorkingDirectory = Workspace,
       RedirectStandardOutput = true,
       RedirectStandardError = true,
@@ -333,6 +333,27 @@ public sealed class ScriptGlobals
       // contained for the app's lifetime, not just this call's.
       _ = JobObject.Close(job);
     }
+  }
+
+  /// <summary>The file name to start for <paramref name="exe"/>.
+  ///     <para>A BARE NAME IS RESOLVED THROUGH PATH AND PATHEXT FIRST. The loader .NET uses under
+  ///     <c>UseShellExecute = false</c> appends only <c>.exe</c>, so a command published as a
+  ///     <c>.cmd</c> shim - npm, pnpm, and every other Windows script wrapper - could not be
+  ///     started by name at all.</para>
+  ///     <para>A QUALIFIED NAME is passed through untouched: the caller has already said where to
+  ///     look, and a name that does not resolve is passed through untouched too, so the spawn
+  ///     failure and its message stay exactly what they were.</para></summary>
+  private static string ResolveExecutable(string exe)
+  {
+    if (ExecutableResolution.IsQualified(exe))
+    {
+      return exe;
+    }
+
+    string[] directories = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+        .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+    return ExecutableResolution.Resolve(
+        exe, directories, Environment.GetEnvironmentVariable("PATHEXT")) ?? exe;
   }
 
   /// <summary>Killing the tree closes its pipes, so the drain tasks finish promptly;

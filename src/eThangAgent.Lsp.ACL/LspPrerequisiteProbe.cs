@@ -1,3 +1,5 @@
+using eThangAgent.ToolDomain;
+
 namespace eThangAgent.Lsp.ACL;
 
 /// <summary>Whether a toolchain executable is on this machine.</summary>
@@ -53,56 +55,16 @@ public sealed class LspPrerequisiteProbe
 
   private static PrerequisiteProbeResult LocateOnPath(string executable)
   {
-    string[] extensions = ExecutableExtensions();
-    if (executable.Contains(Path.DirectorySeparatorChar, StringComparison.Ordinal)
-        || executable.Contains(Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
-    {
-      string? direct = FirstExisting(
-          Path.GetDirectoryName(executable) ?? string.Empty, Path.GetFileName(executable), extensions);
-      return direct is null ? PrerequisiteProbeResult.Missing : PrerequisiteProbeResult.Found(direct);
-    }
-
     string? path = Environment.GetEnvironmentVariable("PATH");
-    if (string.IsNullOrWhiteSpace(path))
+    if (!ExecutableResolution.IsQualified(executable) && string.IsNullOrWhiteSpace(path))
     {
       return PrerequisiteProbeResult.Unsearched;
     }
 
-    foreach (string directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-    {
-      string? hit = FirstExisting(directory.Trim(), executable, extensions);
-      if (hit is not null)
-      {
-        return PrerequisiteProbeResult.Found(hit);
-      }
-    }
-
-    return PrerequisiteProbeResult.Missing;
-  }
-
-  private static string? FirstExisting(string directory, string name, string[] extensions)
-  {
-    if (directory.Length == 0)
-    {
-      return null;
-    }
-
-    foreach (string extension in extensions)
-    {
-      string candidate = Path.Combine(directory, name + extension);
-      if (File.Exists(candidate))
-      {
-        return Path.GetFullPath(candidate);
-      }
-    }
-
-    return null;
-  }
-
-  private static string[] ExecutableExtensions()
-  {
-    string pathExt = Environment.GetEnvironmentVariable("PATHEXT") ?? string.Empty;
-    string[] declared = pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    return declared.Length == 0 ? [".COM", ".EXE", ".BAT", ".CMD"] : declared;
+    string[] directories = (path ?? string.Empty)
+        .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+    string? hit = ExecutableResolution.Resolve(
+        executable, directories, Environment.GetEnvironmentVariable("PATHEXT"));
+    return hit is null ? PrerequisiteProbeResult.Missing : PrerequisiteProbeResult.Found(hit);
   }
 }
