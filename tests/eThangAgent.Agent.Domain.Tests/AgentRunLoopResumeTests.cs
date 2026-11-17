@@ -92,10 +92,14 @@ public class AgentRunLoopResumeTests
     _ = await store.SaveAsync(child);
     _ = await store.AppendMessageAsync(child.Id, new Message(Role.User, "do the thing", DateTimeOffset.UtcNow));
 
-    // The 250 ms CTS is the reachable completion path (deadlock vigilance): without it
-    // the run would wait out the full 300 s ChildTimeout budget before failing.
-    using CancellationTokenSource cts = new(TestCeiling.Value);
-    AgentRunOutcome outcome = await Spawner(store, new BlockingProvider()).RunAsync(child, ct: cts.Token);
+    // The interrupt lands on a FACT the test controls: the provider call is inside its wait,
+    // and only then is the token cancelled. No duration decides when the run is interrupted.
+    BlockingProvider provider = new();
+    using CancellationTokenSource cts = new();
+    Task<AgentRunOutcome> running = Spawner(store, provider).RunAsync(child, ct: cts.Token);
+    await provider.Entered.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    await cts.CancelAsync().ConfigureAwait(true);
+    AgentRunOutcome outcome = await running.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.Equal(AgentStatus.Failed, outcome.Status);
     Assert.Equal(AgentFailureReason.Interrupted, outcome.Reason);

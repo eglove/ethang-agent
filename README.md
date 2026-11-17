@@ -88,7 +88,7 @@ An ACL exists because its seam earns its keep. ACLs share no domain code with ea
   dotnet test eThangAgent.slnx --max-parallel-test-modules 4 --filter-not-trait Category=Process
   ```
 
-  Measured on a 24-core machine with the build warm: 5,882 tests in 24 s, against 2 m 37 s for the whole suite. The tier is a boundary, not a label of convenience — a process test that lacks the trait runs on every edit, and a pure test that carries it silently stops running in the fast loop at all. `DoctrineTests` rejects both directions, so the boundary cannot drift: adding a test that spawns something fails the build until it is tagged, and tagging a test that spawns nothing fails it too.
+  Measured on a 24-core machine with the build warm: 6,914 tests in 40 s, against 4 m 15 s for the whole suite. The tier is a boundary, not a label of convenience — a process test that lacks the trait runs on every edit, and a pure test that carries it silently stops running in the fast loop at all. `DoctrineTests` rejects both directions, so the boundary cannot drift: adding a test that spawns something fails the build until it is tagged, and tagging a test that spawns nothing fails it too.
 - **The loaded shape is a documented command**: the suite runs as three commands, and CI runs each as its own job. `eThangAgent.Batch.slnf` is every test project except the two heavyweight ones, which run on their own so they stop competing with the other 24 modules for the machine:
 
   ```

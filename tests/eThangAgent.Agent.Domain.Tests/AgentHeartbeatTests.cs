@@ -28,20 +28,21 @@ public class AgentHeartbeatTests
   [Fact]
   public async Task SendMessage_WithHeartbeat_BeatsEveryIteration()
   {
-    CountingHeartbeat heartbeat = new();
-    // LoopingProvider answers every iteration with one more tool call; the turn only
-    // ends when the token fires. The 200 ms timer is the reachable completion path
-    // (deadlock vigilance): CTS fires at 200 ms, ThrowIfCancellationRequested throws,
-    // SendMessage returns Failure(TurnCancelled).
-    using CancellationTokenSource cts = new(TestCeiling.Value);
+    // LoopingProvider answers every iteration with one more tool call, so the turn would run
+    // until the token fires. The turn ends on a FACT the test controls: the heartbeat cancels its
+    // own token on the third beat, so the run stops on an iteration boundary the test chose and no
+    // duration decides when the turn ends.
+    using CancellationTokenSource cts = new();
+    CountingHeartbeat heartbeat = new(cancelOnBeat: 3, cts);
 
     Agent agent = new(new LoopingProvider(), new Conversation(), Config(),
         new ToolRegistry([new FakeTool("loop", "ok")]), Options(heartbeat));
 
-    Result<string> run = await agent.SendMessage("go", ct: cts.Token);
+    Result<string> run = await agent.SendMessage("go", ct: cts.Token)
+        .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-    Assert.True(heartbeat.BeatCount >= 1);
-    Assert.False(run.IsSuccess); // the 200 ms timer is what ended the turn
+    Assert.True(heartbeat.BeatCount >= 3);
+    Assert.False(run.IsSuccess); // the cancelled token is what ended the turn
   }
 
   [Fact]
@@ -77,11 +78,22 @@ public class AgentHeartbeatTests
     Assert.True(run.IsSuccess);
   }
 
-  private sealed class CountingHeartbeat : IAgentHeartbeat
+  private sealed class CountingHeartbeat(int? cancelOnBeat, CancellationTokenSource? cts) : IAgentHeartbeat
   {
+    public CountingHeartbeat() : this(null, null)
+    {
+    }
+
     public int BeatCount { get; private set; }
 
-    public void Beat(AgentId agentId) => BeatCount++;
+    public void Beat(AgentId agentId)
+    {
+      BeatCount++;
+      if (cancelOnBeat is { } beat && BeatCount >= beat)
+      {
+        cts!.Cancel();
+      }
+    }
 
     public bool TryGetLastBeat(AgentId agentId, out DateTimeOffset lastBeat)
     {

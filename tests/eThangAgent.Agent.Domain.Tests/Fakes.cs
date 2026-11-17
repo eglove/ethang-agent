@@ -46,12 +46,18 @@ internal sealed class FakeProvider : IModelProvider
   }
 }
 
-/// <summary>Blocks until cancelled, then reports a failed call — exercises the timeout path.</summary>
+/// <summary>Blocks until cancelled, then reports a failed call — exercises the timeout path.
+///     <see cref="Entered"/> completes once the call is inside the wait, so a test interrupts a
+///     fact it controls instead of waiting out a duration.</summary>
 internal sealed class BlockingProvider : IModelProvider
 {
+  /// <summary>Completes once the provider call has entered its wait.</summary>
+  public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
   public async Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
       CancellationToken ct = default)
   {
+    _ = Entered.TrySetResult();
     try
     {
       await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
