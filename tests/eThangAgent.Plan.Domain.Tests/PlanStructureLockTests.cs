@@ -4,13 +4,10 @@ using Xunit;
 
 namespace eThangAgent.PlanDomain.Tests;
 
-/// <summary>The plan a chain executes must not be rewritten underneath it. A structure change -
-///     inserting, moving, or removing a step - renumbers the positions the chain's claim binds to,
-///     so the session holding step N silently starts completing somebody else's work.
-///     <para>2026-11-16: a planner inserted a review step at position 1 AFTER starting its chain,
-///     every implementation step shifted by one, and the review session had been seeded with a
-///     brief naming the OLD numbers. The work was abandoned and the chain restarted from the
-///     corrected plan. Refusing the edit is the cheaper exit.</para>
+/// <summary>A plan a chain executes may be APPENDED to but not renumbered underneath it. A chain
+///     binds its claims to plan step POSITIONS, so inserting, moving, or removing a step renumbers
+///     the positions the running sessions already hold. A step appended past every position the
+///     chain holds shifts nothing and is permitted; the lock is bounded by the chain's reach.
 ///     <para>A session outside any chain is unaffected, and so is a chain that has already
 ///     finished: its positions can no longer be re-read by anybody.</para></summary>
 public class PlanStructureLockTests
@@ -53,23 +50,27 @@ public class PlanStructureLockTests
     }
   }
 
-  private sealed class FakeLock(int? executingChain) : IPlanExecutionLock
+  /// <summary>A chain executing the plan and holding positions up to <c>lastPosition</c>, or no
+  ///     chain at all when <paramref name="executingChain"/> is null.</summary>
+  private sealed class FakeLock(int? executingChain, int lastPosition = 2) : IPlanExecutionLock
   {
     public int Calls { get; private set; }
 
-    public Task<int?> ExecutingChainAsync(int planId, CancellationToken ct = default)
+    public Task<PlanExecutionLock?> ExecutionAsync(int planId, CancellationToken ct = default)
     {
       ct.ThrowIfCancellationRequested();
       Calls++;
       Assert.Equal(1, planId); // the lock is asked about the plan being edited, never another
-      return Task.FromResult(executingChain);
+      return Task.FromResult<PlanExecutionLock?>(executingChain is { } chainId
+          ? new PlanExecutionLock(chainId, lastPosition)
+          : null);
     }
   }
 
   private static async Task<(PlanCapabilityProvider Provider, FakeLock Lock)> SeededAsync(
-      int? executingChain)
+      int? executingChain, int lastPosition = 2)
   {
-    FakeLock executionLock = new(executingChain);
+    FakeLock executionLock = new(executingChain, lastPosition);
     PlanCapabilityProvider provider = new(new PlanService(new FakeStore()),
         () => "root-session-1", executionLock: executionLock);
     CapabilityInvocationResult created = await provider.InvokeAsync("create",
@@ -80,7 +81,7 @@ public class PlanStructureLockTests
   }
 
   [Fact]
-  public async Task AddStep_WhileAChainExecutesThePlan_IsRefused_NamingTheChain()
+  public async Task AddStep_AppendingPastTheChainsLastPosition_IsAllowed()
   {
     (PlanCapabilityProvider provider, _) = await SeededAsync(executingChain: 9);
 
@@ -88,9 +89,61 @@ public class PlanStructureLockTests
         /*lang=json,strict*/"{ \"id\": 1, \"title\": \"three\" }",
         TestContext.Current.CancellationToken).ConfigureAwait(true);
 
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal("[plan] added step 3 to #1", result.Content);
+  }
+
+  [Fact]
+  public async Task AddStep_AppendingPastTheChainsLastPosition_IsAllowed_WithExplicitPosition()
+  {
+    (PlanCapabilityProvider provider, _) = await SeededAsync(executingChain: 9);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("add-step",
+        /*lang=json,strict*/"{ \"id\": 1, \"title\": \"three\", \"position\": 3 }",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsError, result.Content);
+  }
+
+  [Fact]
+  public async Task AddStep_AppendingPastTheChainsLastPosition_IsAllowed_WhenTheChainTrailsThePlan()
+  {
+    // A chain holds the positions it names, which need not reach the plan's end.
+    (PlanCapabilityProvider provider, _) = await SeededAsync(executingChain: 9, lastPosition: 1);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("add-step",
+        /*lang=json,strict*/"{ \"id\": 1, \"title\": \"three\", \"position\": 2 }",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsError, result.Content);
+  }
+
+  [Fact]
+  public async Task AddStep_InsertingAtOrBeforeTheChainsLastPosition_IsRefused_NamingTheChainAndTheFirstSafePosition()
+  {
+    (PlanCapabilityProvider provider, _) = await SeededAsync(executingChain: 9);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("add-step",
+        /*lang=json,strict*/"{ \"id\": 1, \"title\": \"three\", \"position\": 1 }",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
     Assert.True(result.IsError);
     Assert.Contains("PlanStructureLocked", result.Content, StringComparison.Ordinal);
     Assert.Contains("chain #9", result.Content, StringComparison.Ordinal);
+    Assert.Contains("position 3", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task AddStep_InsertingInsideTheChainsRange_IsRefused()
+  {
+    (PlanCapabilityProvider provider, _) = await SeededAsync(executingChain: 9);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("add-step",
+        /*lang=json,strict*/"{ \"id\": 1, \"title\": \"three\", \"position\": 2 }",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsError);
+    Assert.Contains("PlanStructureLocked", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]

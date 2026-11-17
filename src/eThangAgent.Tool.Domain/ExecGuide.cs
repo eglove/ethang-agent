@@ -105,7 +105,11 @@ public static class ExecGuide
     plan.index lists (optional status filter), and plan.add-step / plan.update-step /
     plan.remove-step / plan.move-step / plan.set-status mutate. plan.add-step takes an
     optional 'position' (insert there, renumbering the tail) and plan.move-step {from, to}
-    reorders, which are the two ways a plan's step order changes:
+    reorders, which are the two ways a plan's step order changes. While a CHAIN is executing
+    a plan, move-step and remove-step are refused (PlanStructureLocked) and add-step is
+    allowed only at a position past every one the chain holds - so a step that reads the
+    real work count and then appends the rest of the chain still works, and the refusal
+    names the first position that would be safe:
 
         Tools.Invoke("plan.create", new { timeoutSeconds = 60, title = "...", goal = "..." })
         → [plan] created #<id>

@@ -4,28 +4,31 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Composition;
 
-/// <summary>Answers 'is a chain executing this plan' from the CHAIN record. The Plan Domain asks
-///     through <see cref="IPlanExecutionLock"/>; this adapter reads the chain store, so neither
-///     domain has to know the other.
-///     <para>A CHAIN THAT IS NOT RUNNING LOCKS NOTHING. Parked waits for a human and may be
-///     abandoned or resumed, and Completed or Abandoned are frozen records whose positions
-///     nobody will read again - so only Running is a lock.</para>
-///     <para>AN UNREADABLE CHAIN LIST ANSWERS 'NOT LOCKED', deliberately: the plan store reports
-///     its own faults, and turning a chain-store fault into a lock would make every plan in the
-///     workspace uneditable for a reason the caller cannot see or fix.</para></summary>
+/// <summary>Answers 'is a chain executing this plan, and how far does it reach' from the CHAIN
+///     record. The Plan Domain asks through <see cref="IPlanExecutionLock"/>; this adapter reads
+///     the chain store, so neither domain references the other.
+///     <para>ONLY A RUNNING CHAIN IS A LOCK. A parked chain waits for a human who may abandon or
+///     resume it, and Completed or Abandoned chains are frozen records.</para>
+///     <para>AN UNREADABLE CHAIN LIST ANSWERS 'NOT LOCKED', so a chain-store fault is reported
+///     by the store rather than making every plan in the workspace uneditable.</para>
+///     <para>THE REACH IS THE HIGHEST POSITION THE CHAIN'S STEPS NAME, not their count: a chain
+///     holds the positions it names, which need not be contiguous.</para></summary>
 public sealed class ChainPlanExecutionLock(IChainStore chains) : IPlanExecutionLock
 {
   private readonly IChainStore _chains = chains ?? throw new ArgumentNullException(nameof(chains));
 
   /// <inheritdoc />
-  public async Task<int?> ExecutingChainAsync(int planId, CancellationToken ct = default)
+  public async Task<PlanExecutionLock?> ExecutionAsync(int planId, CancellationToken ct = default)
   {
     Result<ChainCatalog> listed = await _chains.ListAsync(ChainStatus.Running, ct).ConfigureAwait(false);
-    return !listed.IsSuccess
+    if (!listed.IsSuccess)
+    {
+      return null;
+    }
+
+    Chain? executing = listed.Value.Chains.FirstOrDefault(chain => chain.PlanId == planId);
+    return executing is null
         ? null
-        : listed.Value.Chains
-            .Where(chain => chain.PlanId == planId)
-            .Select(chain => (int?)chain.Id)
-            .FirstOrDefault();
+        : new PlanExecutionLock(executing.Id, executing.Steps.Max(step => step.Position));
   }
 }

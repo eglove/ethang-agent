@@ -84,14 +84,14 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
             "Output contract: header '[plan] <n> plan(s)' then one line per plan:\n#<id> [ <status> ] <title> (<n> step(s), session <sid>)\nAn empty list prints only the header. A plan row that cannot be read is NOT fatal: it is skipped and reported on its own line '#<id> [ CorruptPlanRow ] <reason>' after the healthy plans, so one bad row never blanks the catalog (issue #279). status, when present, must be exactly Active|Completed|Abandoned. Errors: InvalidActionInput (bad params).",
             [new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Active|Completed|Abandoned; omit for every plan.")]),
         new("add-step", "Add one step to a plan, at a position or appended.",
-            "Without 'position' the step appends at the next 1-based position; with it the step is INSERTED there and every step from that position onward renumbers, so the tail shifts down by one. 'position' must be between 1 and stepCount+1. Output contract: '[plan] added step <position> to #<id>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan), VersionConflict.",
+            "Without 'position' the step appends at the next 1-based position; with it the step is INSERTED there and every step from that position onward renumbers, so the tail shifts down by one. 'position' must be between 1 and stepCount+1. A CHAIN EXECUTING THE PLAN BOUNDS THIS: a step landing after every position the chain holds shifts nothing and is allowed, while a step landing at or before one of them is refused with Error [PlanStructureLocked] naming the chain and the first position that would be safe - so a step that reads the real work count and then appends the rest of the chain can do its job. Output contract: '[plan] added step <position> to #<id>'. Errors: InvalidActionInput (bad params), PlanNotFound, PlanStructureLocked (a chain holds the landing position), InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Title, ActionParameterTypes.StringType, "Required. Non-empty step title."),
               new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Optional. Where the new step lands, 1..stepCount+1. Omit to append.")],
             [IdParam, Title]),
         new("move-step", "Move a step to a different position, renumbering what it displaces.",
-            "The step at 'from' lands at 'to' and every step between them shifts one place, so positions stay contiguous 1..n. Both positions must already exist; moving a step to its own position changes nothing and succeeds. Output contract: '[plan] moved step <from> to <to> in #<id>'. This is the ONLY action that changes a plan's step order. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan), VersionConflict.",
+            "The step at 'from' lands at 'to' and every step between them shifts one place, so positions stay contiguous 1..n. Both positions must already exist; moving a step to its own position changes nothing and succeeds. Output contract: '[plan] moved step <from> to <to> in #<id>'. This is the ONLY action that changes a plan's step order. A MOVE ALWAYS RENUMBERS WHAT IT DISPLACES, so while a chain is executing the plan it is refused with Error [PlanStructureLocked] however early or late the move lands. Errors: InvalidActionInput (bad params), PlanNotFound, PlanStructureLocked, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(FromParam, ActionParameterTypes.IntegerType, "Required. The 1-based position of the step to move."),
               new ActionParameter(ToParam, ActionParameterTypes.IntegerType, "Required. The 1-based position it should occupy.")],
@@ -105,7 +105,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Pending|InProgress|Done|Skipped.")],
             [IdParam, Position]),
         new("remove-step", "Remove one step; the tail renumbers.",
-            "Output contract: '[plan] removed step <position> from #<id>'. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. Errors: InvalidActionInput (bad params), PlanNotFound, PlanStepNotFound, InvalidTransition (frozen plan), VersionConflict.",
+            "Output contract: '[plan] removed step <position> from #<id>'. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. A REMOVAL RENUMBERS THE TAIL, so while a chain is executing the plan it is refused with Error [PlanStructureLocked]. Errors: InvalidActionInput (bad params), PlanNotFound, PlanStepNotFound, PlanStructureLocked, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position.")],
             [IdParam, Position]),
@@ -239,7 +239,9 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       return Gutter(plan.Error);
     }
 
-    if (await StructureLockRefusalAsync(id).ConfigureAwait(false) is { } locked)
+    // The position the new step would occupy: the caller's, or the next free one when it appends.
+    int landing = position ?? (plan.Value.Steps.Count + 1);
+    if (await StructureLockRefusalAsync(id, landing).ConfigureAwait(false) is { } locked)
     {
       return locked;
     }
@@ -276,7 +278,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       return Gutter(plan.Error);
     }
 
-    if (await StructureLockRefusalAsync(id).ConfigureAwait(false) is { } locked)
+    if (await StructureLockRefusalAsync(id, landing: null).ConfigureAwait(false) is { } locked)
     {
       return locked;
     }
@@ -412,7 +414,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       return Gutter(plan.Error);
     }
 
-    if (await StructureLockRefusalAsync(id).ConfigureAwait(false) is { } locked)
+    if (await StructureLockRefusalAsync(id, landing: null).ConfigureAwait(false) is { } locked)
     {
       return locked;
     }
@@ -652,20 +654,33 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   ///     (a headless host, or a test that composes the provider directly) behaves exactly as
   ///     before - which is also the correct behaviour for a session outside any chain.</summary>
   /// <summary>The refusal a STRUCTURE edit earns while a chain executes the plan, or null when
-  ///     the edit may proceed: inserting, moving, or removing a step renumbers the positions a
-  ///     chain's claims bind to. Rewriting a step's title or detail in place leaves every claim
-  ///     where it was, which is why <c>update-step</c> is not gated.</summary>
+  ///     the edit may proceed. Inserting, moving, or removing a step renumbers the positions a
+  ///     chain's claims bind to; rewriting a step's title or detail in place leaves every claim
+  ///     where it was, which is why <c>update-step</c> is not gated.
+  ///     <para><paramref name="landing"/> bounds the rule to the positions an edit actually moves.
+  ///     A new step landing after every position the chain holds renumbers nothing and is
+  ///     permitted; a move or a removal always renumbers what it displaces, so it passes null and
+  ///     is refused whenever a chain is executing the plan.</para></summary>
   /// <param name="planId">The plan being edited.</param>
-  private async Task<CapabilityInvocationResult?> StructureLockRefusalAsync(int planId)
+  /// <param name="landing">The position a new step would occupy, or null when the edit renumbers
+  ///     whatever it displaces.</param>
+  private async Task<CapabilityInvocationResult?> StructureLockRefusalAsync(int planId, int? landing)
   {
-    return _executionLock is null
-        || await _executionLock.ExecutingChainAsync(planId).ConfigureAwait(false) is not { } chainId
-        ? null
-        : CapabilityInvocationResult.Fail(
-            $"Error [{StructureLockedCode}]: chain #{chainId} is executing plan #{planId}, and its "
-            + "steps bind to the plan's step POSITIONS - inserting, moving, or removing one renumbers "
-            + "them underneath the sessions already holding them. Edit the step text in place "
-            + $"instead, or abandon chain #{chainId} and start a fresh chain from the corrected plan.");
+    if (_executionLock is null
+        || await _executionLock.ExecutionAsync(planId).ConfigureAwait(false) is not { } held
+        || (landing is { } at && at > held.LastPosition))
+    {
+      return null;
+    }
+
+    string appendable = string.Create(CultureInfo.InvariantCulture,
+        $"Appending at position {held.LastPosition + 1} or later shifts nothing the chain holds.");
+    return CapabilityInvocationResult.Fail(
+        $"Error [{StructureLockedCode}]: chain #{held.ChainId} is executing plan #{planId}, and its "
+        + "steps bind to the plan's step POSITIONS - inserting, moving, or removing one renumbers "
+        + $"them underneath the sessions already holding them. {appendable} Edit the step text in "
+        + $"place instead, or abandon chain #{held.ChainId} and start a fresh chain from the "
+        + "corrected plan.");
   }
 
   private async Task<PlanStepOwnership?> OwnershipRefusalAsync(int planId, int position)
