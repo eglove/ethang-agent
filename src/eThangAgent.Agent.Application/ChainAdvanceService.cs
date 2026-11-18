@@ -101,7 +101,7 @@ public interface IChainResumeLaunchPort
 ///     <para>A refusal is returned as a <see cref="ChainAdvance"/> value, never thrown: the
 ///     model receives it as a tool result and can correct itself.</para></summary>
 public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost host,
-    ChainReviewService? reviews = null)
+    ChainReviewService? reviews)
 {
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly IChainAdvanceHost _host = host ?? throw new ArgumentNullException(nameof(host));

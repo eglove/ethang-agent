@@ -29,10 +29,20 @@ namespace eThangAgent.Composition;
 ///     ONE app-owned SQLite file (migrated once); when omitted each session container
 ///     constructs its own connection over the default database path.</remarks>
 public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? database = null,
-    Func<string>? hostExePath = null)
+    Func<string>? hostExePath = null, LiveRootSessions? liveSessions = null)
 {
   private readonly AgentSettings _settings = settings ?? throw new ArgumentNullException(nameof(settings));
   private readonly AppDatabase? _database = database;
+
+  /// <summary>The root sessions THIS PROCESS has open. A factory is one process, so this is
+  ///     the liveness signal an orphan sweep consults: a persisted Running row is trusted only
+  ///     when some live session still holds it, and a row no live session holds is a row whose
+  ///     run is over. Shared across <see cref="WithSettings"/> rebinds for the same reason the
+  ///     database is - the sessions already open are still open.</summary>
+  /// <summary>The root sessions this process has open. Exposed so a host can answer 'is this
+  ///     session live' without rebuilding the set, and so the sweep's input is observable.
+  ///     </summary>
+  public LiveRootSessions LiveSessions { get; } = liveSessions ?? new LiveRootSessions();
 
   /// <summary>Where the out-of-process conversation host executable lives; null uses the
   ///     default resolution (the repo's live build output, else the copy shipped next to
@@ -56,7 +66,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     Hosts call this when credentials change (the Desktop's Settings modal);
   ///     sessions already built keep the credentials they were created with.</summary>
   public AgentSessionFactory WithSettings(AgentSettings settings) =>
-      new(settings ?? throw new ArgumentNullException(nameof(settings)), _database, _hostExePath);
+      new(settings ?? throw new ArgumentNullException(nameof(settings)), _database, _hostExePath,
+          LiveSessions);
 
   /// <summary>Creates a session rooted at <paramref name="workspaceRoot"/> on the selected
   ///     <paramref name="providerName"/>. The directory must exist; workspace identity is
@@ -175,6 +186,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // the RootAgentResolver reads it lazily to persist ModelUsed on each selection, so it
       // must be set before the first turn can fire.
       services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value;
+      services.GetRequiredService<LiveSessionCarrier>().Fill(bootstrapped.Value);
 
       // The seed (the compaction handoff's summary, issue #234) is persisted EXPLICITLY:
       // the transcript sink's baseline counts the seeded prefix as already-persisted
@@ -353,6 +365,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     {
 
       services.GetRequiredService<RootSessionIdentity>().Id = sessionId;
+      services.GetRequiredService<LiveSessionCarrier>().Fill(sessionId);
       // Resume contract notice: the hydrated transcript may carry tool listings and
       // contract text from an OLDER build (the session survived an app update), and
       // transcript history is append-only — nothing rewrites it. The wire schema is
@@ -547,15 +560,23 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     Running record survives only when the host still owns it, and everything else is
   ///     Failed(Interrupted). Failures of the repair never block session open: they surface
   ///     through the same validation path as any store fault.</summary>
-  private static async Task RepairOrphansAsync(ServiceProvider services, AgentId rootId, CancellationToken ct)
+  private async Task RepairOrphansAsync(ServiceProvider services, AgentId rootId, CancellationToken ct)
   {
     await AttachHostAsync(services, ct).ConfigureAwait(false);
     RemoteAgentRuntime remote = services.GetRequiredService<RemoteAgentRuntime>();
 
+    // A ROOT SESSION IS OWNED BY THE PROCESS THAT OPENED IT, not by the host this container
+    // attached to. Every root session runs in its own conversation host, so the declared set of
+    // the host opened HERE names this session and nothing else - and reading it alone marked
+    // every other open session in the workspace Failed(Interrupted) the moment a new one
+    // opened. Measured on the 2026-11-18 job batch: each open killed its predecessor 1.8s
+    // later, and one of the killed sessions kept emitting usage events for another hour.
+    // The union is what makes the answer exact: this process's own live roots, plus whatever the
+    // attached host declares (its children, which are the runs this session launched).
     OrphanRepairHandler repair = new(
         services.GetRequiredService<IAgentStore>(),
         () => [],
-        () => remote.DeclaredLiveChildren,
+        () => [.. LiveSessions.Snapshot(), .. remote.DeclaredLiveChildren],
         services.GetRequiredService<IWatchdogEventStore>(),
         exempt: rootId,
         workspaceId: services.GetRequiredService<IWorkspaceContext>().WorkspaceId);
@@ -740,6 +761,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         // singleton the RemoteHost block overlays onto the settings JSON, so the host process -
         // which runs every production turn - announces the identical tools.
         .AddSingleton(ResolvedAvailableTools.Resolve(stored.PathTools))
+        // THIS SESSION'S LIVENESS HOLD. Registered in the container so the container's own
+        // disposal releases it: a session that is closed stops being live at the moment it is
+        // torn down, with no second call site to forget.
+        .AddSingleton(_ => new LiveSessionCarrier(LiveSessions))
         .BuildServiceProvider();
     services.GetRequiredService<SkillDirectoriesCarrier>().Fill(stored.GlobalSkillDirectories, stored.WorkspaceSkillDirectories);
     services.GetRequiredService<TrustedDirectoriesCarrier>().Fill(stored.TrustedDirectories);

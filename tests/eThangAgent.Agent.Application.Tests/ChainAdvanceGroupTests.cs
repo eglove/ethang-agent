@@ -156,7 +156,8 @@ public class ChainAdvanceGroupTests
     ChainService chains = new(store);
     Chain chain = Must(await chains.CreateAsync(creation ?? Grouped(), T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
-    return new Fixture(new ChainAdvanceService(chains, host), store, host, chain);
+    // NO REVIEW STORE: these chains are implementer steps only, so no verdict is ever read.
+    return new Fixture(new ChainAdvanceService(chains, host, reviews: null), store, host, chain);
   }
 
   /// <summary>Claims step 1 for a session and settles it, so the next advance starts step 2.</summary>
@@ -220,7 +221,7 @@ public class ChainAdvanceGroupTests
         TestContext.Current.CancellationToken).ConfigureAwait(true));
     journal.Entries.Clear();
 
-    _ = Must(await new ChainAdvanceService(chains, host).AdvanceAsync(claimed, 1, "session-a", T0,
+    _ = Must(await new ChainAdvanceService(chains, host, reviews: null).AdvanceAsync(claimed, 1, "session-a", T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
 
     Assert.True(journal.IndexOf("claim:2") >= 0, string.Join(",", journal.Entries));

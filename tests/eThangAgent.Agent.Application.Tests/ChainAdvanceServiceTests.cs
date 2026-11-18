@@ -157,7 +157,10 @@ public class ChainAdvanceServiceTests
     Chain chain = Must(await chains.CreateAsync(ChainCreation.Implementing("C:\\ws", 3, 1, "t",
         "session-root", positions.Length == 0 ? [1] : positions), T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
-    return (new ChainAdvanceService(chains, host), store, host, chain);
+    // NO REVIEW STORE: every chain here is implementer-only, so no step can record a verdict
+    // and the cursor never reads one. The argument is stated rather than defaulted - a call
+    // site that omits it is how a review step came to be refused on a live batch.
+    return (new ChainAdvanceService(chains, host, reviews: null), store, host, chain);
   }
 
   [Fact]
@@ -231,7 +234,7 @@ public class ChainAdvanceServiceTests
 
     // Closing the session is what disposes the container the store lives in.
     host.OnClose = () => store.Disposed = true;
-    ChainAdvanceService service = new(chains, host);
+    ChainAdvanceService service = new(chains, host, reviews: null);
 
     ChainAdvance decision = Must(await service.OnCompletionAsync("session-a", planId: 3, T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
@@ -365,7 +368,7 @@ public class ChainAdvanceServiceTests
     // The settle and the claim land; the CORRECTION is the write that loses the race. That is
     // the shape a concurrent writer produces, and the only write it strands is the reassign.
     store.SuccessesRemaining = 2;
-    ChainAdvanceService service = new(chains, host);
+    ChainAdvanceService service = new(chains, host, reviews: null);
 
     Result<ChainAdvance> advance = await service.OnCompletionAsync("session-a", planId: 3, T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true);

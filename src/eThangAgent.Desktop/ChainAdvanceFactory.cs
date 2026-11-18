@@ -27,8 +27,13 @@ internal static class ChainAdvanceFactory
   {
     ArgumentNullException.ThrowIfNull(session);
     ArgumentNullException.ThrowIfNull(shell);
+    // THE REVIEW SERVICE RIDES ALONG, and it is not optional: a review step's verdict is what
+    // the cursor acts on, so an advance built without it refuses every review step's completion
+    // with ChainReviewMissing and the chain stops there for good. The parameter has no default
+    // for exactly that reason - a call site cannot omit it by accident.
     return session.Services.GetService<ChainService>() is { } chains
-      ? new ChainAdvanceService(chains, HostFor(session, shell))
+      ? new ChainAdvanceService(chains, HostFor(session, shell),
+          session.Services.GetService<ChainReviewService>())
       : null;
   }
 
