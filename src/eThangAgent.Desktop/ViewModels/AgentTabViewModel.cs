@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
@@ -31,10 +32,21 @@ internal sealed partial class AgentTabViewModel : ObservableObject
 
   /// <summary>Builds the tab around its primary cell, optionally sharing a workbench the
   ///     caller already built (the shell builds one per tab and hands it to every session
-  ///     view-model in it, so the rail is workspace-scoped and survives a cell swap).</summary>
+  ///     view-model in it, so the rail is workspace-scoped and survives a cell swap).
+  ///     <para>The tab is named after its workspace directory.</para></summary>
   public AgentTabViewModel(AgentSession session, AgentSessionViewModel sessionVm,
       WorkbenchViewModel? workbench)
+      : this(session, sessionVm, workbench, WorkspaceFolderName(session))
   {
+  }
+
+  /// <summary>Builds the tab around its primary cell with the name the tab strip shows.
+  ///     <para>The name is the caller's: a window's tabs all belong to one workspace, so the
+  ///     directory names none of them.</para></summary>
+  public AgentTabViewModel(AgentSession session, AgentSessionViewModel sessionVm,
+      WorkbenchViewModel? workbench, string title)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(title);
     ArgumentNullException.ThrowIfNull(session);
     ArgumentNullException.ThrowIfNull(sessionVm);
     Workbench = workbench ?? sessionVm.Workbench;
@@ -46,7 +58,16 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     primary.PropertyChanged += OnCellPropertyChanged;
     Cells = [primary];
     Cells.CollectionChanged += OnCellsChanged;
-    Title = Path.GetFileName(
+    Title = title;
+  }
+
+  /// <summary>The last segment of a workspace directory, which is what a tab built without a
+  ///     name of its own is called.</summary>
+  /// <param name="session">The session whose workspace names the tab.</param>
+  private static string WorkspaceFolderName(AgentSession session)
+  {
+    ArgumentNullException.ThrowIfNull(session);
+    return Path.GetFileName(
         session.WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
   }
 
@@ -125,6 +146,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   ///     unchanged by a cell's arrival or departure.</summary>
   public WorkbenchViewModel Workbench { get; }
 
+  /// <summary>The name the tab strip shows.</summary>
   public string Title { get; }
 
   /// <summary>The workspace directory this tab shows. STORED, not derived from a cell: a tab
@@ -132,6 +154,21 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   public string WorkspaceRoot { get; }
 
   public string Subtitle => WorkspaceRoot;
+
+  /// <summary>What the tab's header states on hover: the workspace it belongs to, the
+  ///     provider it is wired for, and the session it holds. A tab holding no live session
+  ///     states its workspace alone.</summary>
+  public string Tooltip
+  {
+    get
+    {
+      AgentSession? live = LiveContainer;
+      return live is null
+          ? WorkspaceRoot
+          : string.Create(CultureInfo.InvariantCulture,
+              $"{WorkspaceRoot} \u00B7 {live.ProviderName} \u00B7 session {live.RootId}");
+    }
+  }
 
   /// <summary>Whether the tab holds no agent at all, so it renders its empty-state prompt
   ///     rather than a blank pane.</summary>
@@ -310,6 +347,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     OnPropertyChanged(nameof(Container));
     OnPropertyChanged(nameof(ViewModel));
     OnPropertyChanged(nameof(Subtitle));
+    OnPropertyChanged(nameof(Tooltip));
   }
 
   /// <summary>Finds the cell showing <paramref name="agentId"/>, or null when this tab shows
@@ -386,6 +424,7 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     OnPropertyChanged(nameof(IsEmpty));
     OnPropertyChanged(nameof(ViewModel));
     OnPropertyChanged(nameof(Subtitle));
+    OnPropertyChanged(nameof(Tooltip));
   }
 
   /// <summary>Subscribes the badge to this session's event stream. Called once by the shell

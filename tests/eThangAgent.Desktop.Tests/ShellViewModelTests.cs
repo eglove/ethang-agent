@@ -289,7 +289,7 @@ public class ShellViewModelTests
     _ = Assert.Single(vm.Tabs);
     Assert.Equal(vm.Tabs[0], vm.SelectedTab);
     Assert.True(vm.HasTabs);
-    Assert.Equal("alpha", opened.Value.Title);
+    Assert.Equal("Agent 1", opened.Value.Title);
   }
 
   [Fact]
@@ -323,7 +323,7 @@ public class ShellViewModelTests
     _ = await vm.OpenAgentAsync(@"C:\work\beta", "openrouter");
 
     Assert.Equal(2, vm.Tabs.Count);
-    Assert.Equal("beta", vm.SelectedTab!.Title); // newest tab selected
+    Assert.Equal("Agent 2", vm.SelectedTab!.Title); // newest tab selected
   }
 
   [Fact]
@@ -352,6 +352,99 @@ public class ShellViewModelTests
     Assert.Empty(vm.Tabs);
     Assert.False(vm.HasTabs);
     Assert.Null(vm.SelectedTab);
+  }
+
+  /// <summary>Every tab the shell opens is named by its ordinal, in the order the tabs were
+  ///     opened. The workspace directory cannot name a tab: every tab in a window belongs to
+  ///     the window's one workspace, so they would all read the same.</summary>
+  [Fact]
+  public async Task Tabs_AreNamedByOrdinal_InTheOrderTheyWereOpened()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+
+    _ = await vm.OpenAgentInWorkspaceAsync();
+    _ = await vm.OpenAgentInWorkspaceAsync();
+    _ = await vm.OpenAgentInWorkspaceAsync();
+
+    string[] expected = ["Agent 1", "Agent 2", "Agent 3"];
+    Assert.Equal(expected, vm.Tabs.Select(tab => tab.Title));
+  }
+
+  /// <summary>Closing a tab frees the ordinal it held, so the next agent takes the lowest one
+  ///     nothing is using rather than counting past the highest ever opened.</summary>
+  [Fact]
+  public async Task ClosingAMiddleTab_FreesItsOrdinalForTheNextAgent()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+    _ = await vm.OpenAgentInWorkspaceAsync();
+    _ = await vm.OpenAgentInWorkspaceAsync();
+    _ = await vm.OpenAgentInWorkspaceAsync();
+
+    await vm.CloseTabAsync(vm.Tabs[1]);
+    Result<AgentTabViewModel> opened = await vm.OpenAgentInWorkspaceAsync();
+
+    Assert.True(opened.IsSuccess);
+    Assert.Equal("Agent 2", opened.Value.Title);
+    // The new tab is APPENDED to the strip; only the name it takes is the freed one.
+    string[] expected = ["Agent 1", "Agent 3", "Agent 2"];
+    Assert.Equal(expected, vm.Tabs.Select(tab => tab.Title));
+  }
+
+  [Fact]
+  public async Task ClosingTheFirstTab_FreesItsOrdinalForTheNextAgent()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+    _ = await vm.OpenAgentInWorkspaceAsync();
+    _ = await vm.OpenAgentInWorkspaceAsync();
+    _ = await vm.OpenAgentInWorkspaceAsync();
+
+    await vm.CloseTabAsync(vm.Tabs[0]);
+    Result<AgentTabViewModel> opened = await vm.OpenAgentInWorkspaceAsync();
+
+    Assert.True(opened.IsSuccess);
+    Assert.Equal("Agent 1", opened.Value.Title);
+    string[] expected = ["Agent 2", "Agent 3", "Agent 1"];
+    Assert.Equal(expected, vm.Tabs.Select(tab => tab.Title));
+  }
+
+  /// <summary>A host that builds a tab directly keeps the name it always had: the workspace
+  ///     folder name. The ordinal belongs to the shell, which is the only caller that opens
+  ///     several tabs in one workspace.</summary>
+  [Fact]
+  public void ATabBuiltThroughTheExistingConstructor_ReportsTheWorkspaceFolderName()
+  {
+    AgentTabViewModel tab = TestFixtures.CreateTab();
+
+    Assert.Equal("demo", tab.Title);
+  }
+
+  /// <summary>The tab's name is an ordinal, so the tooltip is where it says which workspace,
+  ///     which provider and which session it actually is.</summary>
+  [Fact]
+  public async Task ATabsTooltip_NamesItsWorkspace_Provider_AndSession()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, provider) => FakeSession(root, provider));
+
+    AgentTabViewModel tab = (await vm.OpenAgentInWorkspaceAsync()).Value!;
+
+    Assert.Contains(@"C:\work\alpha", tab.Tooltip, StringComparison.Ordinal);
+    Assert.Contains("openrouter", tab.Tooltip, StringComparison.Ordinal);
+    Assert.Contains(tab.Container.RootId.ToString(), tab.Tooltip, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task TwoOpenTabs_NeverShareATitle()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+    for (int i = 0; i < 5; i++)
+    {
+      _ = await vm.OpenAgentInWorkspaceAsync();
+    }
+
+    await vm.CloseTabAsync(vm.Tabs[2]);
+    _ = await vm.OpenAgentInWorkspaceAsync();
+
+    Assert.Equal(vm.Tabs.Count, vm.Tabs.Select(tab => tab.Title).Distinct(StringComparer.Ordinal).Count());
   }
 
   [Fact]

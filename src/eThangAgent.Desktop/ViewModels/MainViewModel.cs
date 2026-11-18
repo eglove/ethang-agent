@@ -3023,7 +3023,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // conversation) renders into the transcript view. A fresh session replays nothing.
     sessionVm.Transcript.Restore(session.Conversation.Messages);
 
-    AgentTabViewModel tab = new(session, sessionVm, workbench);
+    AgentTabViewModel tab = new(session, sessionVm, workbench, NextTabTitle());
     // Publish the tab to the view-model's new-session seams (issue #234): both resolve it
     // lazily because the tab is constructed FROM this view-model.
     attachedTab = tab;
@@ -3035,6 +3035,27 @@ internal sealed partial class MainViewModel : ObservableObject
     await PersistProviderPreferenceAsync(session.ProviderName).ConfigureAwait(false);
     return tab;
   }
+
+  /// <summary>The name a tab opened now takes: <c>Agent &lt;n&gt;</c>, where n is the
+  ///     smallest positive integer no open tab already answers to.
+  ///     <para>A title an open tab already holds is skipped whatever put it there, so two
+  ///     tabs never share a name.</para></summary>
+  private string NextTabTitle()
+  {
+    HashSet<string> taken = [.. Tabs.Select(tab => tab.Title)];
+    int ordinal = 1;
+    while (taken.Contains(TabTitle(ordinal)))
+    {
+      ordinal++;
+    }
+
+    return TabTitle(ordinal);
+  }
+
+  /// <summary>The tab name for one ordinal.</summary>
+  /// <param name="ordinal">The number the name states.</param>
+  private static string TabTitle(int ordinal)
+      => string.Create(CultureInfo.InvariantCulture, $"Agent {ordinal}");
 
   /// <summary>Builds ONE workbench rail for a workspace tab (issue #307 D6). The rail is
   ///     workspace-scoped - plans, git, PRs, and the database are the workspace's, not any one

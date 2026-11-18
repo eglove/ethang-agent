@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -39,6 +40,13 @@ public class KeepAliveTabsTests
         => Task.FromResult(Result.Success(FakeSession(root)));
     return new MainViewModel(create);
   }
+
+  /// <summary>The text the tab strip currently renders, one entry per realized header.
+  ///     </summary>
+  /// <param name="tabs">The strip.</param>
+  private static List<string> Headers(TabControl tabs)
+      => [.. tabs.GetVisualDescendants().OfType<TextBlock>()
+          .Select(block => block.Text ?? string.Empty)];
 
   private static AgentView? FindViewFor(Avalonia.Visual root, AgentSessionViewModel vm)
       => root.GetVisualDescendants().OfType<AgentView>()
@@ -88,6 +96,36 @@ public class KeepAliveTabsTests
     Assert.NotNull(viewAfter);
     Assert.True(ReferenceEquals(viewOne, viewAfter),
         "tab content must be keep-alive: the same AgentView instance survives selection changes");
+  }
+
+  /// <summary>THE STRIP RENDERS THE ORDINAL: the header the user reads is the tab's title, and
+  ///     every tab in a window belongs to that window's one workspace, so the directory name
+  ///     would read the same on all of them.</summary>
+  [AvaloniaFact]
+  public async Task Tab_Headers_Render_TheOrdinalTitle()
+  {
+    MainViewModel shell = CreateShell();
+    MainWindow window = new(shell);
+    window.Show();
+    _ = await shell.OpenAgentAsync(@"C:\work\one", "openrouter").ConfigureAwait(true);
+    _ = await shell.OpenAgentAsync(@"C:\work\two", "openrouter").ConfigureAwait(true);
+    Dispatcher.UIThread.RunJobs();
+
+    TabControl tabs = window.GetControl<TabControl>("AgentTabs");
+    // A tab's header is built by the layout pass, which is scheduled behind the jobs a single
+    // RunJobs drains, so the headers are awaited rather than read once.
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
+    List<string> rendered = Headers(tabs);
+    while (!rendered.Contains("Agent 2") && DateTimeOffset.UtcNow < deadline)
+    {
+      await Task.Delay(5).ConfigureAwait(true);
+      Dispatcher.UIThread.RunJobs();
+      rendered = Headers(tabs);
+    }
+
+    Assert.Contains("Agent 1", rendered);
+    Assert.Contains("Agent 2", rendered);
+    Assert.Equal(["Agent 1", "Agent 2"], shell.Tabs.Select(tab => tab.Title));
   }
 
   [AvaloniaFact]

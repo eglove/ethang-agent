@@ -154,8 +154,9 @@
                 <TextBlock Text="{Binding ParkedChains}" FontSize="10"
                            Foreground="#1B1B2F"/>
               </Border>
+              <!-- The tooltip names the workspace, the provider and the session. -->
               <Button Content="✕" Padding="3,0" Background="Transparent" BorderThickness="0"
-                      Click="OnCloseTab" ToolTip.Tip="{Binding Subtitle}"/>
+                      Click="OnCloseTab" ToolTip.Tip="{Binding Tooltip}"/>
             </StackPanel>
           </DataTemplate>
         </TabControl.ItemTemplate>
