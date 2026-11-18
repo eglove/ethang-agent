@@ -70,6 +70,14 @@ An ACL exists because its seam earns its keep. ACLs share no domain code with ea
 - **AI Providers**: OpenRouter. The domain model speaks in provider-neutral concepts and each provider's ACL implements them; a session is wired to one provider, and switching providers is a different experience by design.
 - **Interface**: Desktop (Avalonia).
 
+### Desktop Startup
+
+- **The app opens on a workspace launcher.** It lists the recently opened directories newest first, offers an open-folder action, and carries a Settings entry so a provider key can be configured before any workspace exists. Choosing a workspace hands off to the main window for it and closes the launcher. Every launch stops at the launcher; the app never reopens a workspace by itself.
+- **A window is one workspace, and a workspace is one process.** The main window is bound to its root for its whole life, so every tab in it belongs to that directory, and the tab strip expresses agents rather than workspaces. Launching the app for a directory another process already has open raises that window and exits, so two windows can never write one workspace's history; two directories run as two independent processes.
+- **Closing a workspace returns to the launcher** without ending the process: every agent is torn down, the workspace's background loops stop, and the launcher comes back over the same database. Closing the launcher with no workspace open is what ends the process.
+- **Settings split by scope.** Session files and skill directories that apply to every workspace live in the app Settings window, which is reachable with no workspace open. The lists scoped to one workspace — session files, skill directories, and the workspace's trusted directories — live in a workspace settings window reachable only while that workspace is open.
+- **Nothing about a workspace is a file.** The recent list, the workspace binding and every setting are rows in the app database, and a workspace is its normalized directory path: opening one writes nothing into it.
+
 ### Packaging & Wiring
 
 - Each domain and each ACL is its own project, so any implementation can be swapped without touching domain code.
