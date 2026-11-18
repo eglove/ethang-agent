@@ -280,7 +280,11 @@ public class WorkspaceLauncherE2ETests
 
   /// <summary>A second launch for a directory this process already has open is handed off: the
   ///     running window is raised, the new launch opens no window of its own, and the workspace
-  ///     keeps exactly one window writing its history.</summary>
+  ///     keeps exactly one window writing its history.
+  ///     <para>THE EXIT CODE IS NOT OBSERVED HERE. This test drives two hosts inside one process,
+  ///     so the launch-level decision - signal the owner, then exit with the handoff code before
+  ///     any window exists - is <see cref="LaunchHandoffTests"/>'s subject, where the decision is
+  ///     observed without opening a window.</para></summary>
   [AvaloniaFact]
   public async Task SecondLaunch_ForAnOpenWorkspace_IsHandedOff_NotASecondWindow()
   {
@@ -325,7 +329,6 @@ public class WorkspaceLauncherE2ETests
     Assert.False(openedAgain, "a workspace another process owns is signalled, not opened");
     Assert.Null(second.Session);
     Assert.Same(secondLauncher, second.Launcher);
-    Assert.True(secondLauncher.IsVisible, "the second launch keeps its launcher, not a window");
     Assert.Same(secondLauncher, secondLifetime.MainWindow);
 
     // The FIRST launch is untouched: one window, still bound to the directory, still visible.
