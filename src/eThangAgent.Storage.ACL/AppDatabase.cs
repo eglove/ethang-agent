@@ -102,7 +102,7 @@ public sealed class AppDatabase
   ///     refuses to run when it disagrees with the table, so adding a migration without
   ///     updating this constant is a startup failure rather than a silently half-migrated
   ///     database.</summary>
-  public const int LatestSchemaVersion = 46;
+  public const int LatestSchemaVersion = 47;
 
   /// <summary>The ordered migration table: one entry per schema version, in application
   ///     order. The runner walks it top to bottom, re-reading user_version before each
@@ -155,6 +155,7 @@ public sealed class AppDatabase
     (44, ApplyV44),
     (45, ApplyV45),
     (46, ApplyV46),
+    (47, ApplyV47),
   ];
 
   private void Migrate()
@@ -524,6 +525,21 @@ public sealed class AppDatabase
         CREATE INDEX IF NOT EXISTS ix_chain_reviews_chain ON chain_reviews (chain_id, judged_position, id);
         """);
   }
+
+  /// <summary>V47 adds <c>recent_workspaces</c>: the directories the launcher lists, with the
+  ///     moment each was last opened. <c>root</c> is the primary key because a workspace IS its
+  ///     normalized directory path, so opening one twice updates a row rather than adding a
+  ///     second. The index orders by <c>opened_at</c>, which is what makes the list newest
+  ///     first.</summary>
+  /// <param name="connection">The connection the migration runs on.</param>
+  private static void ApplyV47(SqliteConnection connection) =>
+      Execute(connection, """
+          CREATE TABLE IF NOT EXISTS recent_workspaces (
+              root      TEXT PRIMARY KEY,
+              opened_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS ix_recent_workspaces_opened ON recent_workspaces (opened_at DESC);
+          """);
 
   /// <summary>V9 adds watchdog_events: the append-only audit trail of watchdog decisions
   ///     (hung detections, wrap-up retries, deferrals, terminal reports, RSS breaches,
