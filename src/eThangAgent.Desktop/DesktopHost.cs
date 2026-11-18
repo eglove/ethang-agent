@@ -44,7 +44,7 @@ internal sealed record DesktopBootstrap(
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads settings from app preferences (provider API keys live DPAPI-
 ///     protected in the same app database) and shows the shell immediately;
-///     each 'Open Workspace' pick builds an isolated <see cref="AgentSession"/> whose directory
+///     each agent opened in the bound workspace builds an isolated <see cref="AgentSession"/> whose directory
 ///     roots path resolution, workspace identity, and — when an AGENTS.md exists there — a
 ///     verbatim system-prompt injection announcing it as read. Startup infrastructure
 ///     failures surface as an error dialog followed by exit code 1; a missing key is NOT
@@ -198,7 +198,7 @@ internal static class DesktopHost
     return resolved.Value;
   }
 
-  /// <summary>The provider the new-agent dialog pre-selects: OpenRouter, the only provider.</summary>
+  /// <summary>The provider a new agent opens on: OpenRouter, the only provider.</summary>
   private static string ResolvePreferredProvider() => Providers.OpenRouter;
 
   /// <summary>Defers shutdown while startup runs. Between framework initialization and

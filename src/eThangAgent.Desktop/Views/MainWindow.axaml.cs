@@ -37,14 +37,13 @@ internal partial class MainWindow : Window
     DataContext = vm;
     Title = vm.WindowTitle;
 
-    // The New Agent button opens an agent in the bound workspace through the shell
-    // itself, so no dialog is involved. The Sessions
+    // The New Agent button opens an agent in the bound workspace through the shell's
+    // own command, so no dialog is involved. The Sessions
     // button shows the sessions dialog, its pick flowing through
     // ResumeSessionAsync. The gear button shows the settings modal the same way, and
     // its result flows through ApplySettingsAsync. The Model Settings button shows
     // the selected tab's settings window — model choice, effort, sampling knobs,
     // provider routing — with its save flowing through ApplySamplingSettingsAsync.
-    vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
     vm.SessionsRequested += async (_, _) => await ShowSessionsDialogAsync();
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.WorkspaceSettingsRequested += async (_, _) => await ShowWorkspaceSettingsDialogAsync();
@@ -85,40 +84,6 @@ internal partial class MainWindow : Window
     if (!result.IsSuccess)
     {
       await ShowOpenFailedAsync(result.Error.Message);
-    }
-  }
-
-  /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker) and opens
-  ///     (or selects) the agent tab. A cancelled dialog is a no-op. Failures surface as a
-  ///     dialog.
-  ///     <para>The dialog no longer carries any of the file lists: the workspace-scoped ones
-  ///     belong to <see cref="ShowWorkspaceSettingsDialogAsync"/> and the app-wide ones to the
-  ///     settings modal, so this handler persists nothing.</para></summary>
-  private async Task ShowNewAgentDialogAsync()
-  {
-    try
-    {
-      NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId);
-      NewAgentChoice? choice = await dialog.ShowDialog<NewAgentChoice?>(this);
-      if (choice is null)
-      {
-        return; // user cancelled — no-op
-      }
-
-      Result<AgentTabViewModel> result = await _vm.OpenAgentAsync(choice.WorkspaceRoot, choice.ProviderId);
-      if (!result.IsSuccess)
-      {
-        await ShowOpenFailedAsync(result.Error.Message);
-      }
-    }
-    // Named decision (CA1031): this handler is an async-void on the dispatcher, so an
-    // escaping exception tears the WHOLE process down - the crash amplifier the
-    // launch-guard tests name. A failed launch is a DIALOG, never a fault.
-#pragma warning disable CA1031, S2486 // Do not catch general exception types
-    catch (Exception ex)
-#pragma warning restore CA1031, S2486
-    {
-      await ShowOpenFailedAsync("The workspace could not be opened: " + ex.Message);
     }
   }
 

@@ -142,7 +142,7 @@ public class ShellUiPolishTests
     Button mcp = window.GetControl<Button>("McpServersMenuItem");
     Assert.False(mcp.IsEffectivelyEnabled);
 
-    // The same path the new-agent dialog drives: a successful open selects the
+    // The same path the rail's New Agent entry drives: a successful open selects the
     // tab, and the button must re-enable from the command's own CanExecuteChanged
     // — with no further notification.
     _ = await shell.OpenAgentAsync(@"C:\work\alpha", "openrouter").ConfigureAwait(true);

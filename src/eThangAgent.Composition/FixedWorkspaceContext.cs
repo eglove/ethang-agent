@@ -28,8 +28,8 @@ public sealed class FixedWorkspaceContext(string workspaceId, string workspaceRo
   public static FixedWorkspaceContext ForPath(string path) => new(WorkspaceIdentity.For(path), path);
 
   /// <summary>A context for a caller that knows a workspace's IDENTITY but not, or not yet, its
-  ///     directory (issue #285): the Open Workspace dialog writes a gate key for a workspace it
-  ///     has resolved an id for, and no path-taking seam is involved in a key write.
+  ///     directory (issue #285): a caller writes a gate key for a workspace it has resolved an
+  ///     id for, and no path-taking seam is involved in a key write.
   ///     <para>THE ROOT IS THE ID because there is nothing better to put there and a blank would
   ///     throw. That is honest rather than clever: a caller reaching the root from this context is
   ///     reaching for a directory it does not have, and the next reader should see that in the

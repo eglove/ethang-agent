@@ -300,10 +300,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(KeyPasswordChar))]
   public partial bool KeysVisible { get; set; }
 
-  /// <summary>Session files and skill directories moved to the Open Workspace
-  ///     dialog (the launch surface): the settings modal no longer edits them,
-  ///     so the workspace scope (and its inert-without-workspace state) is gone
-  ///     with them.</summary>
+  /// <summary>The workspace root the modal was opened for, or null when no tab was
+  ///     selected. The modal edits no workspace-scoped list: this workspace's session files,
+  ///     skill directories and trusted directories belong to the workspace settings window.</summary>
   public string? WorkspaceRoot { get; }
 
   private Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; }

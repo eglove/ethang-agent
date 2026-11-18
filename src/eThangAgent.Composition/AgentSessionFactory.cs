@@ -16,7 +16,7 @@ namespace eThangAgent.Composition;
 
 /// <summary>Builds one isolated <see cref="AgentSession"/> per opened workspace, wired for
 ///     ONE exclusively selected AI provider. The desktop shell calls this every time the
-///     user opens a directory through the new-agent dialog; each returned session owns its
+///     user opens an agent in the bound workspace; each returned session owns its
 ///     own DI container, conversation, path resolver, and workspace identity, so agents
 ///     can run concurrently without sharing mutable state. The session
 ///     stays on its provider until closed. Cross-cutting singletons — configuration, the

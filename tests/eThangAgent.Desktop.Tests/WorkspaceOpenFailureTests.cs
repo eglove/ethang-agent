@@ -35,6 +35,36 @@ public sealed class WorkspaceOpenFailureTests
   }
 
   [Fact]
+  public async Task OpenAgent_With_A_Blank_Root_FailsInvalidWorkspace_And_OpensNothing()
+  {
+    MainViewModel shell = new((root, provider) => Task.FromResult(
+        Result.Success(TestFixtures.FakeSessionFor(TestFixtures.CreateViewModel()))));
+
+    Result<AgentTabViewModel> result = await shell.OpenAgentAsync("   ", "openrouter").ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidWorkspace", result.Error.Code);
+    Assert.Empty(shell.Tabs);
+  }
+
+  [Fact]
+  public async Task OpenAgent_With_An_Unresolvable_Root_FailsInvalidWorkspace_And_Does_Not_Throw()
+  {
+    MainViewModel shell = new((root, provider) => Task.FromResult(
+        Result.Success(TestFixtures.FakeSessionFor(TestFixtures.CreateViewModel()))));
+
+    Exception? failure = await Record.ExceptionAsync(() =>
+        shell.OpenAgentAsync("C:\\bad\0path", "openrouter")).ConfigureAwait(true);
+    Result<AgentTabViewModel> result = await shell
+        .OpenAgentAsync("C:\\bad\0path", "openrouter").ConfigureAwait(true);
+
+    Assert.Null(failure);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidWorkspace", result.Error.Code);
+    Assert.Empty(shell.Tabs);
+  }
+
+  [Fact]
   public void TheApp_Output_Carries_The_Conversation_Host()
   {
     // A published app has no repo to probe, so the host must ship NEXT TO the app -

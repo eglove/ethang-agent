@@ -86,6 +86,41 @@ public class SkillDirectoryScopePersistenceTests
     Assert.Empty(await shell.GetGlobalSkillDirectoriesAsync());
   }
 
+  // ── save: the GLOBAL session-file list, through the same app settings save ──
+
+  [Fact]
+  public async Task AppSettings_WritesTheGlobalSessionFileKeyAndJson()
+  {
+    FakePreferenceStore store = new();
+    MainViewModel shell = CreateSettingsShell(store);
+
+    await shell.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Conventional,
+        GlobalSessionFiles: [new SessionFileEntry(@"C:\g\AGENTS.md", true)]));
+
+    string expected = SessionFilePreferences.Serialize(
+        [new SessionFileEntry(@"C:\g\AGENTS.md", true)]);
+    Assert.Equal(expected, store.Stored[SessionFilePreferences.GlobalKey]);
+    SessionFileEntry reloaded = Assert.Single(await shell.GetGlobalSessionFilesAsync());
+    Assert.Equal(@"C:\g\AGENTS.md", reloaded.Path);
+    Assert.True(reloaded.Enabled);
+  }
+
+  [Fact]
+  public async Task AppSettings_EmptyGlobalSessionFileList_DeletesTheKey()
+  {
+    FakePreferenceStore store = new();
+    store.Stored[SessionFilePreferences.GlobalKey] = SessionFilePreferences.Serialize(
+        [new SessionFileEntry(@"C:\g\AGENTS.md", true)]);
+    MainViewModel shell = CreateSettingsShell(store);
+
+    await shell.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Conventional,
+        GlobalSessionFiles: []));
+
+    Assert.Contains(SessionFilePreferences.GlobalKey, store.Deletions);
+    Assert.False(store.Stored.ContainsKey(SessionFilePreferences.GlobalKey));
+    Assert.Empty(await shell.GetGlobalSessionFilesAsync());
+  }
+
   // ── save: the WORKSPACE list, through the workspace settings save ──
 
   [Fact]
@@ -105,6 +140,24 @@ public class SkillDirectoryScopePersistenceTests
     Assert.False(store.Stored.ContainsKey(SkillDirectoryPreferences.GlobalKey));
     SessionFileEntry reloaded = Assert.Single(await shell.GetWorkspaceSkillDirectoriesAsync(WsRoot));
     Assert.Equal(@"C:\skills\ws", reloaded.Path);
+  }
+
+  [Fact]
+  public async Task WorkspaceSettings_WritesTheWorkspaceSessionFileKeyAndJson()
+  {
+    FakePreferenceStore store = new();
+    MainViewModel shell = CreateSettingsShell(store);
+    _ = await OpenShellAsync(shell, WsRoot);
+
+    Result<bool> applied = await shell.ApplyWorkspaceSettingsAsync(new WorkspaceSettingsSave(WsRoot,
+        [new SessionFileEntry("AGENTS.md", true)], [], []));
+    Assert.True(applied.IsSuccess);
+
+    string expected = SessionFilePreferences.Serialize([new SessionFileEntry("AGENTS.md", true)]);
+    Assert.Equal(expected, store.Stored[SessionFilePreferences.WorkspaceKey(WsRoot)]);
+    Assert.False(store.Stored.ContainsKey(SessionFilePreferences.GlobalKey));
+    SessionFileEntry reloaded = Assert.Single(await shell.GetWorkspaceSessionFilesAsync(WsRoot));
+    Assert.Equal("AGENTS.md", reloaded.Path);
   }
 
   [Fact]

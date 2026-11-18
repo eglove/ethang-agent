@@ -12,7 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>End-to-end proof of the trusted-directory wiring (issue #96) over the
 /// PRODUCTION open path: an approval written to the workspace preference key reaches a
 /// real session container opened through <see cref="AgentSessionFactory"/> - the same
-/// path the launch dialog uses - and the ordinary tools reach the external root. The
+/// path the shell's New Agent entry uses - and the ordinary tools reach the external root. The
 /// inverse pins the no-approval behavior: nothing configured means the container
 /// behaves exactly as it did before the capability existed.</summary>
 [Collection("Desktop E2E")]
@@ -36,7 +36,7 @@ public sealed class TrustedDirectoryE2ETests
       host.ClaimHostsForCurrentTest();
       _ = await host.StartAsync(workspaceRoot: ws.FullName);
 
-      // Configure the approval exactly the way the launch dialog persists it: the
+      // Configure the approval exactly the way the workspace settings save persists it: the
       // workspace preference key in the SAME app database the factory reads on every
       // open. Read-only here - reading is what the approval is for.
       _ = await host.Store.SetAsync(

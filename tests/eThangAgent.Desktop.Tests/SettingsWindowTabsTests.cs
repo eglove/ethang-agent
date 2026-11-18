@@ -14,8 +14,9 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Settings chrome: the flat settings list is a categorized TabControl
 ///     (API Keys / Skills / Language servers / Tools / Models / Agents / Advanced / Git)
-///     with the validation error and Save/Cancel footer shared outside the tabs. Session files and
-///     skill directories live in the Open Workspace dialog, not here.</summary>
+///     with the validation error and Save/Cancel footer shared outside the tabs. The two lists
+///     that apply to every workspace - session files and skill directories - live here; the
+///     workspace-scoped ones live in the workspace settings window.</summary>
 [Trait("Category", "Process")]
 public class SettingsWindowTabsTests
 {

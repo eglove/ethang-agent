@@ -50,8 +50,8 @@ internal delegate Task<Result<AgentSession>> SeededSessionCreator(
 
 /// <summary>Optional shell configuration for <see cref="MainViewModel"/>. Every member
 ///     is an optional seam or default override whose null behaves exactly as the
-///     former absent parameter: providers fall back to the built-in list, the dialog's
-///     pre-selection to the first configured provider, the preference store and key
+///     former absent parameter: providers fall back to the built-in list, the provider
+///     choice to the first configured one, the preference store and key
 ///     protector remember/persist nothing, the stream sink falls back to the session
 ///     view-model's own marshaling, and a null settings/factory pair disables settings
 ///     editing (prebuilt-session hosts own their configuration).</summary>
@@ -337,13 +337,13 @@ internal sealed partial class MainViewModel : ObservableObject
   [ObservableProperty]
   public partial bool IsOpeningAgent { get; set; }
 
-  /// <summary>Providers offered by the new-agent dialog: those with a configured key.
+  /// <summary>Providers a new agent may be opened on: those with a configured key.
   ///     Refreshed when the settings modal saves new keys.</summary>
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(HasConfiguredProvider))]
   public partial IReadOnlyList<ProviderOption> AvailableProviders { get; set; }
 
-  /// <summary>Provider the new-agent dialog pre-selects (last persisted choice).</summary>
+  /// <summary>Provider a new agent is opened on (the last persisted choice).</summary>
   [ObservableProperty]
   public partial string PreferredProviderId { get; set; }
 
@@ -479,9 +479,6 @@ internal sealed partial class MainViewModel : ObservableObject
   public IRelayCommand ChooseModelSettingsCommand { get; }
 
   public IRelayCommand OpenMcpServersCommand { get; }
-
-  /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
-  public event EventHandler? OpenAgentRequested;
 
   /// <summary>Raised when the shell wants the Sessions dialog shown.</summary>
   public event EventHandler? SessionsRequested;
@@ -715,10 +712,6 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>Menu-bar entry point: raises the dialog request. The view shows the
-  ///     new-agent dialog and calls <see cref="OpenAgentAsync"/> with the choices.</summary>
-  public void RequestOpenAgent() => OpenAgentRequested?.Invoke(this, EventArgs.Empty);
-
   /// <summary>Menu-bar entry point: raises the settings request. The view shows the
   ///     settings modal and calls <see cref="ApplySettingsAsync"/> with the result.</summary>
   public void RequestOpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
@@ -746,7 +739,7 @@ internal sealed partial class MainViewModel : ObservableObject
     return options;
   }
 
-  /// <summary>Loads the global session-file rows for the launch dialog's prefill (E).
+  /// <summary>Loads the global session-file rows for the settings modal's prefill.
   ///     Unset preference renders as an empty list, never an error.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetGlobalSessionFilesAsync()
   {
@@ -784,7 +777,7 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsedWs.IsSuccess ? parsedWs.Value : [];
   }
 
-  /// <summary>Loads the global skill-directory rows for the launch dialog's prefill.
+  /// <summary>Loads the global skill-directory rows for the settings modal's prefill.
   ///     Unset preference renders as an empty list, never an error.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetGlobalSkillDirectoriesAsync()
   {
