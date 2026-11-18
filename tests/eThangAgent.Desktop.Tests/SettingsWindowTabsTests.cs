@@ -9,23 +9,24 @@ using eThangAgent.Desktop.Views;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Settings chrome: the flat settings list is a categorized TabControl
-///     (API Keys / Skills / Models / Agents / Advanced / Git) with the validation
-///     error and Save/Cancel footer shared outside the tabs. Session files and
+///     (API Keys / Skills / Language servers / Tools / Models / Agents / Advanced / Git)
+///     with the validation error and Save/Cancel footer shared outside the tabs. Session files and
 ///     skill directories live in the Open Workspace dialog, not here.</summary>
 [Trait("Category", "Process")]
 public class SettingsWindowTabsTests
 {
   [AvaloniaFact]
-  public void Settings_Renders_As_Seven_Categorized_Tabs()
+  public void Settings_Renders_As_Eight_Categorized_Tabs()
   {
     SettingsWindow window = new();
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
-    Assert.Equal(7, tabs.Items.Count);
+    Assert.Equal(8, tabs.Items.Count);
     Assert.Collection(tabs.Items,
         item => Assert.Equal("API Keys", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Skills", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Language servers", Assert.IsType<TabItem>(item).Header),
+        item => Assert.Equal("Tools", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Models", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Agents", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Advanced", Assert.IsType<TabItem>(item).Header),
@@ -47,6 +48,24 @@ public class SettingsWindowTabsTests
     Button open = window.GetControl<Button>("OpenLanguageServersButton");
     Assert.True(open.IsVisible);
     Assert.Same(window.DataContext is SettingsViewModel vm ? vm.OpenLanguageServersCommand : null,
+        open.Command);
+  }
+
+  /// <summary>The tools page has exactly one way in: the row labelled 'Tools', whose button
+  ///     asks the view to open the page.</summary>
+  [AvaloniaFact]
+  public void The_Tools_Page_Opens_From_One_Row()
+  {
+    SettingsWindow window = new();
+    window.Show();
+    TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
+
+    tabs.SelectedIndex = 3;
+    Dispatcher.UIThread.RunJobs();
+
+    Button open = window.GetControl<Button>("OpenToolsButton");
+    Assert.True(open.IsVisible);
+    Assert.Same(window.DataContext is SettingsViewModel vm ? vm.OpenToolsCommand : null,
         open.Command);
   }
 
@@ -94,10 +113,10 @@ public class SettingsWindowTabsTests
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
 
-    tabs.SelectedIndex = 2;
+    tabs.SelectedIndex = 4;
     Dispatcher.UIThread.RunJobs();
     _ = window.GetControl<ComboBox>("CompactionModelBox");
-    Assert.Equal(2, tabs.SelectedIndex);
+    Assert.Equal(4, tabs.SelectedIndex);
   }
 
   [AvaloniaFact]
@@ -107,10 +126,10 @@ public class SettingsWindowTabsTests
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
 
-    tabs.SelectedIndex = 3;
+    tabs.SelectedIndex = 7;
     Dispatcher.UIThread.RunJobs();
     _ = window.GetControl<ComboBox>("CommitStyleBox");
-    Assert.Equal(3, tabs.SelectedIndex);
+    Assert.Equal(7, tabs.SelectedIndex);
   }
 
   [AvaloniaFact]

@@ -97,6 +97,13 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>Asks the view to open the language-servers page.</summary>
   public IRelayCommand OpenLanguageServersCommand { get; }
 
+  /// <summary>Raised when the user asks for the tools page. The view opens it; the page owns
+  ///     its own persistence, so nothing here widens <see cref="SettingsUpdate"/>.</summary>
+  public event EventHandler? ToolsRequested;
+
+  /// <summary>Asks the view to open the tools page.</summary>
+  public IRelayCommand OpenToolsCommand { get; }
+
   /// <summary>Runs the provider sign-in and writes the minted key into the field. The
   ///     field stays the single source of truth for what Save persists, so a sign-in that
   ///     succeeds and a key that is typed by hand take the same path out of this dialog.</summary>
@@ -337,6 +344,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
         () => IsSignedIn);
     OpenLanguageServersCommand = new RelayCommand(
         () => LanguageServersRequested?.Invoke(this, EventArgs.Empty));
+    OpenToolsCommand = new RelayCommand(
+        () => ToolsRequested?.Invoke(this, EventArgs.Empty));
     SaveCommand = new RelayCommand(
         () =>
         {

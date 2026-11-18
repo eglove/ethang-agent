@@ -78,6 +78,18 @@
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>
+      <TabItem Header="Tools">
+        <StackPanel Spacing="10">
+          <TextBlock Text="Command-line tools" FontWeight="Bold"/>
+          <TextBlock Text="Which of this machine's console programs and scripts agents are told about."
+                     Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+          <Button x:Name="OpenToolsButton" Content="Choose tools"
+                  Command="{Binding OpenToolsCommand}"/>
+          <TextBlock
+              Text="Nothing is ticked until you tick it, so a fresh install tells agents about no tools at all. The page lists every console program and script on the PATH, grouped by the directory it lives in. Ticked tools are named to every agent this app opens; a ticked tool that is no longer on the PATH is kept and shown as unavailable, and it is left out of what agents are told. Changes apply from the next app launch."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        </StackPanel>
+      </TabItem>
       <TabItem Header="Models">
         <StackPanel Spacing="10">
           <TextBlock Text="Compaction model" FontWeight="Bold"/>

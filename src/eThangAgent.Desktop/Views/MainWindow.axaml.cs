@@ -7,6 +7,7 @@ using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain.Mcp;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -156,7 +157,7 @@ internal partial class MainWindow : Window
       SkillRegistryDefaultTarget = await _vm.GetSkillRegistryDefaultTargetAsync(),
       OpenRouterManagementKey = _vm.ConfiguredOpenRouterManagementKey,
       ProviderSignInFactory = _vm.ProviderSignInFactory,
-    }, LanguageServersPage());
+    }, LanguageServersPage(), ToolsPage());
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {
@@ -197,6 +198,16 @@ internal partial class MainWindow : Window
     return catalog is null || installer is null || detector is null
         ? null
         : () => new LanguageServersViewModel(catalog, installer, detector, tab.Container.WorkspaceRoot);
+  }
+
+  /// <summary>The tools page over this shell's app-scoped preference store, or null when the
+  ///     host wired none (the page is then not offered, because its Save would go nowhere).
+  ///     The page is built per open so it scans the PATH at that moment, and the scan belongs
+  ///     to the page rather than to app launch.</summary>
+  private Func<ToolsSettingsViewModel>? ToolsPage()
+  {
+    IAppPreferenceStore? preferences = _vm?.AppPreferences;
+    return preferences is null ? null : () => new ToolsSettingsViewModel(preferences);
   }
 
   /// <summary>Shows the Model Settings window for the selected tab: the model

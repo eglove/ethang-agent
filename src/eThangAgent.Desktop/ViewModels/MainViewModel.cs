@@ -184,8 +184,9 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Optional preference store persisting the last-chosen provider and the
   ///     protected API keys (test seam: when null, opens still work and nothing is
-  ///     remembered).</summary>
-  private readonly IAppPreferenceStore? _preferences;
+  ///     remembered). Readable by the surfaces the shell builds: the tools page is app-scoped
+  ///     state with no workspace of its own, so it uses this rather than a tab's preferences.</summary>
+  public IAppPreferenceStore? AppPreferences { get; }
 
   /// <summary>Optional stream-sink override for every opened session (test seam).
   ///     When null, production self-marshaling applies per session view-model.</summary>
@@ -450,7 +451,7 @@ internal sealed partial class MainViewModel : ObservableObject
 
     // Each member is an optional seam: a null one behaves exactly as the
     // corresponding absent parameter always did.
-    _preferences = options?.Preferences;
+    AppPreferences = options?.Preferences;
     SeedSettingsPrefills(options);
     _streamSink = options?.UiStreamSink;
     _uiMarshal = ResolveUiMarshal(options);
@@ -629,9 +630,9 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     List<CompactionModelOption> options = [CompactionModelOption.Automatic];
     _compactionWorkspaceKey = SelectedTab?.Container.WorkspaceRoot;
-    if (_settings is not null && _compactionWorkspaceKey is not null && _preferences is not null)
+    if (_settings is not null && _compactionWorkspaceKey is not null && AppPreferences is not null)
     {
-      string? preferred = await _preferences.GetAsync(
+      string? preferred = await AppPreferences.GetAsync(
           CompactionModelResolver.PreferenceKey(PreferredProviderId, _compactionWorkspaceKey));
       if (!string.IsNullOrWhiteSpace(preferred))
       {
@@ -646,12 +647,12 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     Unset preference renders as an empty list, never an error.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetGlobalSessionFilesAsync()
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return [];
     }
 
-    string? stored = await _preferences.GetAsync(SessionFilePreferences.GlobalKey);
+    string? stored = await AppPreferences.GetAsync(SessionFilePreferences.GlobalKey);
     Result<IReadOnlyList<SessionFileEntry>> parsed = SessionFilePreferences.Parse(stored);
     return parsed.IsSuccess ? parsed.Value : [];
   }
@@ -661,7 +662,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     comes from the caller's chosen root — null root means an empty scope.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSessionFilesAsync(string? workspaceRoot = null)
   {
-    if (_preferences is null || workspaceRoot is null)
+    if (AppPreferences is null || workspaceRoot is null)
     {
       return [];
     }
@@ -674,7 +675,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return [];
     }
 
-    string? stored = await _preferences.GetAsync(
+    string? stored = await AppPreferences.GetAsync(
         SessionFilePreferences.WorkspaceKey(resolved.Value));
     Result<IReadOnlyList<SessionFileEntry>> parsedWs = SessionFilePreferences.Parse(stored);
     return parsedWs.IsSuccess ? parsedWs.Value : [];
@@ -684,12 +685,12 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     Unset preference renders as an empty list, never an error.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetGlobalSkillDirectoriesAsync()
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return [];
     }
 
-    string? stored = await _preferences.GetAsync(SkillDirectoryPreferences.GlobalKey);
+    string? stored = await AppPreferences.GetAsync(SkillDirectoryPreferences.GlobalKey);
     Result<IReadOnlyList<SessionFileEntry>> parsed = SkillDirectoryPreferences.Parse(stored);
     return parsed.IsSuccess ? parsed.Value : [];
   }
@@ -698,7 +699,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     prefill. Null root means an empty scope.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSkillDirectoriesAsync(string? workspaceRoot = null)
   {
-    if (_preferences is null || workspaceRoot is null)
+    if (AppPreferences is null || workspaceRoot is null)
     {
       return [];
     }
@@ -709,7 +710,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return [];
     }
 
-    string? stored = await _preferences.GetAsync(
+    string? stored = await AppPreferences.GetAsync(
         SkillDirectoryPreferences.WorkspaceKey(resolved.Value));
     Result<IReadOnlyList<SessionFileEntry>> parsedWs = SkillDirectoryPreferences.Parse(stored);
     return parsedWs.IsSuccess ? parsedWs.Value : [];
@@ -720,7 +721,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     rather than half a list - the safe direction for external reach is nothing.</summary>
   public async Task<IReadOnlyList<TrustedDirectoryEntry>> GetTrustedDirectoriesAsync(string? workspaceRoot = null)
   {
-    if (_preferences is null || workspaceRoot is null)
+    if (AppPreferences is null || workspaceRoot is null)
     {
       return [];
     }
@@ -731,7 +732,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return [];
     }
 
-    string? stored = await _preferences.GetAsync(
+    string? stored = await AppPreferences.GetAsync(
         TrustedDirectoryPreferences.WorkspaceKey(resolved.Value));
     Result<IReadOnlyList<TrustedDirectoryEntry>> parsed = TrustedDirectoryPreferences.Parse(stored);
     return parsed.IsSuccess ? parsed.Value : [];
@@ -741,21 +742,21 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     The raw stored value prefills; strict parsing happens at settings load.</summary>
   public async Task<string> GetSkillRegistryDefaultTargetAsync()
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return string.Empty;
     }
 
-    string? stored = await _preferences.GetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget);
+    string? stored = await AppPreferences.GetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget);
     return stored ?? string.Empty;
   }
 
   /// <summary>The currently-selected compaction model row for the modal's prefill.</summary>
   public Task<CompactionModelOption?> GetSelectedCompactionModelAsync()
   {
-    string? preferred = _compactionWorkspaceKey is null || _preferences is null
+    string? preferred = _compactionWorkspaceKey is null || AppPreferences is null
         ? null
-        : _preferences.GetAsync(CompactionModelResolver.PreferenceKey(PreferredProviderId, _compactionWorkspaceKey)).GetAwaiter().GetResult();
+        : AppPreferences.GetAsync(CompactionModelResolver.PreferenceKey(PreferredProviderId, _compactionWorkspaceKey)).GetAwaiter().GetResult();
     return Task.FromResult(preferred is null ? null : new CompactionModelOption(preferred, preferred));
   }
 
@@ -920,8 +921,8 @@ internal sealed partial class MainViewModel : ObservableObject
     // save are the normalized update values, the same ones persisted above; deviating
     // to re-apply them keeps both contracts — no loss on re-hydration (rebuilt carries
     // none), no resurrection of cleared keys.)
-    AgentSettings rebuilt = _preferences is not null
-        ? await AgentSettingsLoader.LoadAsync(_preferences)
+    AgentSettings rebuilt = AppPreferences is not null
+        ? await AgentSettingsLoader.LoadAsync(AppPreferences)
         : BindFromUpdate(update); // test seam: no store, same strict binders
     _settings = rebuilt.WithApiKeys(openRouterKey).WithManagementKey(managementKey);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
@@ -979,8 +980,8 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       string compactionKey = CompactionModelResolver.PreferenceKey(PreferredProviderId, workspaceKey);
       _ = update.CompactionModelId is null
-          ? _preferences?.DeleteAsync(compactionKey)
-          : _preferences?.SetAsync(compactionKey, update.CompactionModelId);
+          ? AppPreferences?.DeleteAsync(compactionKey)
+          : AppPreferences?.SetAsync(compactionKey, update.CompactionModelId);
     }
 
     // Skill-registry default target (plan #29 T12): absent text deletes the key
@@ -988,8 +989,8 @@ internal sealed partial class MainViewModel : ObservableObject
     if (update.SkillRegistryDefaultTarget is { } registryTarget)
     {
       _ = registryTarget.Length == 0
-          ? _preferences?.DeleteAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget)
-          : _preferences?.SetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget, registryTarget);
+          ? AppPreferences?.DeleteAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget)
+          : AppPreferences?.SetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget, registryTarget);
     }
   }
 
@@ -1075,7 +1076,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     skipped with a note instead of stored raw.</summary>
   private async Task PersistApiKeyAsync(string preferenceKey, string? apiKey)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return; // test seam: nothing is remembered
     }
@@ -1091,8 +1092,8 @@ internal sealed partial class MainViewModel : ObservableObject
     try
     {
       bool landed = apiKey is null
-          ? await _preferences.DeleteAsync(preferenceKey)
-          : await _preferences.SetAsync(preferenceKey, _keyProtector!.Protect(apiKey));
+          ? await AppPreferences.DeleteAsync(preferenceKey)
+          : await AppPreferences.SetAsync(preferenceKey, _keyProtector!.Protect(apiKey));
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"api key preference write failed for '{preferenceKey}'");
@@ -1110,7 +1111,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     effort, same named decision as the key preferences.</summary>
   private async Task PersistPreferenceAsync(string preferenceKey, string? value)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return; // test seam: nothing is remembered
     }
@@ -1120,8 +1121,8 @@ internal sealed partial class MainViewModel : ObservableObject
     try
     {
       bool landed = value is null
-          ? await _preferences.DeleteAsync(preferenceKey)
-          : await _preferences.SetAsync(preferenceKey, value);
+          ? await AppPreferences.DeleteAsync(preferenceKey)
+          : await AppPreferences.SetAsync(preferenceKey, value);
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}'");
@@ -1254,7 +1255,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return Result.Failure<bool>(root.Error);
     }
 
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return Result.Success(true); // test seam: nothing is remembered
     }
@@ -1311,7 +1312,7 @@ internal sealed partial class MainViewModel : ObservableObject
   private async Task PersistTrustedDirectoriesAsync(string preferenceKey,
       IReadOnlyList<TrustedDirectoryEntry> entries)
   {
-    IAppPreferenceStore preferences = _preferences
+    IAppPreferenceStore preferences = AppPreferences
         ?? throw new InvalidOperationException("PersistTrustedDirectoriesAsync requires a preference store.");
     // Named decision (CA1031): preference persistence must not take the launch down.
 #pragma warning disable CA1031 // Do not catch general exception types
@@ -1339,7 +1340,7 @@ internal sealed partial class MainViewModel : ObservableObject
   private async Task PersistFileListAsync(string preferenceKey,
       IReadOnlyList<SessionFileEntry> entries, Func<IReadOnlyList<SessionFileEntry>, string> serialize)
   {
-    IAppPreferenceStore preferences = _preferences
+    IAppPreferenceStore preferences = AppPreferences
         ?? throw new InvalidOperationException("PersistFileListAsync requires a preference store.");
     // Named decision (CA1031): preference persistence must not take the launch down.
 #pragma warning disable CA1031 // Do not catch general exception types
@@ -3135,7 +3136,7 @@ internal sealed partial class MainViewModel : ObservableObject
           LanguageCatalog = session.Services.GetService<ILanguageServerCatalog>(),
           LanguageInstaller = _languageInstaller ?? session.Services.GetService<ILanguageServerInstaller>(),
           LanguageDetector = session.Services.GetService<IWorkspaceLanguageDetector>(),
-          Preferences = _preferences,
+          Preferences = AppPreferences,
           LanguageServersPage = languageId =>
           {
             LanguageServersRequested?.Invoke(this, languageId);
@@ -3619,7 +3620,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     it logs to stderr instead (named decision, CA1031 scope kept tight).</summary>
   private async Task PersistProviderPreferenceAsync(string providerName)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return;
     }
@@ -3628,7 +3629,7 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      bool persisted = await _preferences.SetAsync(Providers.PreferenceKey, providerName);
+      bool persisted = await AppPreferences.SetAsync(Providers.PreferenceKey, providerName);
       if (!persisted)
       {
         await Console.Error.WriteLineAsync($"provider preference write failed for '{providerName}'");
@@ -3668,7 +3669,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     dropped model.</para></summary>
   private async Task<ModelSelection?> ReadModelChoiceAsync(string providerName, string workspaceRoot)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return null;
     }
@@ -3677,8 +3678,8 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      string? stored = await _preferences.GetAsync(ModelChoiceKey(providerName, workspaceRoot))
-          ?? await _preferences.GetAsync(LegacyModelChoiceKey(providerName, workspaceRoot));
+      string? stored = await AppPreferences.GetAsync(ModelChoiceKey(providerName, workspaceRoot))
+          ?? await AppPreferences.GetAsync(LegacyModelChoiceKey(providerName, workspaceRoot));
       if (stored is null)
       {
         return null;
@@ -3704,7 +3705,7 @@ internal sealed partial class MainViewModel : ObservableObject
   private async Task PersistModelChoiceAsync(string providerName, string workspaceRoot,
       IReadOnlyList<string> modelIds, ModelVariant? variant, RetentionPolicy? retention = null)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return;
     }
@@ -3725,12 +3726,12 @@ internal sealed partial class MainViewModel : ObservableObject
         return;
       }
 
-      if (!await _preferences.SetAsync(key, created.Value.Serialize()))
+      if (!await AppPreferences.SetAsync(key, created.Value.Serialize()))
       {
         await Console.Error.WriteLineAsync($"model choice preference write failed for '{key}'");
       }
 
-      _ = await _preferences.DeleteAsync(LegacyModelChoiceKey(providerName, workspaceRoot));
+      _ = await AppPreferences.DeleteAsync(LegacyModelChoiceKey(providerName, workspaceRoot));
     }
     catch (Exception ex)
     {
@@ -3753,7 +3754,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     never fails the open (named decision, CA1031).</summary>
   private async Task<ReasoningEffort?> ReadEffortChoiceAsync(string providerName, string workspaceRoot)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return null;
     }
@@ -3762,7 +3763,7 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      string? stored = await _preferences.GetAsync(EffortChoiceKey(providerName, workspaceRoot));
+      string? stored = await AppPreferences.GetAsync(EffortChoiceKey(providerName, workspaceRoot));
       return Enum.TryParse(stored, ignoreCase: true, out ReasoningEffort effort)
           ? effort
           : null;
@@ -3780,7 +3781,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     (named decision, CA1031; same reasoning as the provider preference).</summary>
   private async Task PersistEffortChoiceAsync(string providerName, string workspaceRoot, ReasoningEffort? effort)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return;
     }
@@ -3791,8 +3792,8 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       string key = EffortChoiceKey(providerName, workspaceRoot);
       bool landed = effort is null
-          ? await _preferences.DeleteAsync(key)
-          : await _preferences.SetAsync(key, effort.Value.ToString());
+          ? await AppPreferences.DeleteAsync(key)
+          : await AppPreferences.SetAsync(key, effort.Value.ToString());
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"effort choice preference write failed for '{key}'");
@@ -3898,7 +3899,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     never fails the save (named decision, CA1031).</summary>
   private async Task PersistSamplingPrefsAsync(string providerName, string workspaceRoot, string? knobPayload)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return;
     }
@@ -3909,8 +3910,8 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       string key = SamplingPrefsKey(providerName, workspaceRoot);
       bool landed = knobPayload is null
-          ? await _preferences.DeleteAsync(key)
-          : await _preferences.SetAsync(key, knobPayload);
+          ? await AppPreferences.DeleteAsync(key)
+          : await AppPreferences.SetAsync(key, knobPayload);
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"sampling prefs write failed for '{key}'");
@@ -3927,7 +3928,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     settings. Best effort, same named decision.</summary>
   private async Task PersistProviderSettingsAsync(string providerName, string workspaceRoot, string? settingsJson)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return;
     }
@@ -3938,8 +3939,8 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       string key = ProviderSettingsKey(providerName, workspaceRoot);
       bool landed = settingsJson is null
-          ? await _preferences.DeleteAsync(key)
-          : await _preferences.SetAsync(key, settingsJson);
+          ? await AppPreferences.DeleteAsync(key)
+          : await AppPreferences.SetAsync(key, settingsJson);
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"provider settings write failed for '{key}'");
@@ -3957,7 +3958,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     to unset, never fails the open; named decision, CA1031).</summary>
   private async Task<IReadOnlyDictionary<string, string>?> ReadSamplingPrefsAsync(string providerName, string workspaceRoot)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return null;
     }
@@ -3966,7 +3967,7 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      string? stored = await _preferences.GetAsync(SamplingPrefsKey(providerName, workspaceRoot));
+      string? stored = await AppPreferences.GetAsync(SamplingPrefsKey(providerName, workspaceRoot));
       return stored is null
           ? null
           : JsonSerializer.Deserialize<Dictionary<string, string>>(stored);
@@ -3988,7 +3989,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     </summary>
   private async Task<string?> ReadProviderSettingsAsync(string providerName, string workspaceRoot)
   {
-    if (_preferences is null)
+    if (AppPreferences is null)
     {
       return null;
     }
@@ -3997,7 +3998,7 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      string? stored = await _preferences.GetAsync(ProviderSettingsKey(providerName, workspaceRoot));
+      string? stored = await AppPreferences.GetAsync(ProviderSettingsKey(providerName, workspaceRoot));
       if (stored is null)
       {
         return null;
