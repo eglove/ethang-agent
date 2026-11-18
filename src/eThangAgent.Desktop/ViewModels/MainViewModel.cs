@@ -1011,12 +1011,13 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    string? openRouterKey = Normalize(update.OpenRouterApiKey);
-    string? managementKey = Normalize(update.OpenRouterManagementKey);
-
-    await PersistSettingsTextAsync(update, openRouterKey, managementKey);
+    // ONE WRITER FOR BOTH SURFACES: the launcher's Settings entry saves through this same
+    // SettingsPersistence, so a key configured before any workspace exists lands exactly as a
+    // key configured from a shell does.
+    (string? openRouterKey, string? managementKey) = await new SettingsPersistence(
+        AppPreferences, _keyProtector).ApplyAsync(update, PreferredProviderId).ConfigureAwait(true);
     ConfiguredCommitStyle = update.CommitStyle;
-    PersistScopedSettings(update);
+    ConfiguredCompactionHandoff = update.CompactionHandoff;
 
     // Re-hydrate non-secrets from the store they just landed in — the loader's strict
     // binding is the single interpretation of these values (no parallel with-mutators).
@@ -1034,78 +1035,6 @@ internal sealed partial class MainViewModel : ObservableObject
 
     PushLiveKeys(openRouterKey, managementKey);
     RefreshProviderSurface(_settings);
-  }
-
-  /// <summary>Persists every non-scoped field of a settings-modal update: the two
-  ///     keys (protected) and the plaintext knobs, each normalized defensively.
-  ///     Best effort, the same named decision as every other preference write.</summary>
-  private async Task PersistSettingsTextAsync(SettingsUpdate update, string? openRouterKey,
-      string? managementKey)
-  {
-    await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, openRouterKey);
-    await PersistApiKeyAsync(OpenRouterSettings.ManagementKeyPreferenceKey, managementKey);
-    await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
-        update.CommitStyle.ToString());
-    await PersistPreferenceAsync(AgentPreferenceKeys.MaxConcurrentAgents,
-        Normalize(update.MaxConcurrentAgentsText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.DefaultModel,
-        Normalize(update.DefaultModelText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogTickInterval,
-        Normalize(update.WatchdogTickText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogIdleThreshold,
-        Normalize(update.WatchdogIdleText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
-        Normalize(update.WatchdogWrapUpText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.RootTurnIdle,
-        Normalize(update.RootTurnIdleText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.OpenRouterBaseUrl,
-        Normalize(update.OpenRouterBaseUrlText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.ComputerUseEnabled,
-        update.ComputerUse ? "true" : "false");
-    // The compaction handoff is a LIVE preference (issue #234): the composition reads it at
-    // every compaction, so a save applies from the next compaction without a container
-    // rebuild. Absent means off, so 'false' is written as a delete rather than a value.
-    await PersistPreferenceAsync(SessionHandoffPreferences.Key,
-        update.CompactionHandoff ? "true" : null);
-    ConfiguredCompactionHandoff = update.CompactionHandoff;
-    // Retention window (issue #246): '0' is stored as the zero-hour window, which the sweep
-    // reads as 'delete nothing'; blank deletes the key so the thirty-day default applies.
-    await PersistPreferenceAsync(RetentionSweep.WindowHoursKey,
-        Normalize(update.RetentionWindowText));
-    // The ticked tools (plan #209) are one global preference like the rest: null is an empty
-    // selection, which the store expresses as a delete rather than as a written blank.
-    await PersistPreferenceAsync(PathToolPreferences.Key, Normalize(update.PathToolsText));
-    // The two lists that apply to EVERY workspace: an empty list deletes its key, so an
-    // unconfigured scope leaves nothing behind for the session factory to read.
-    await PersistFileListAsync(SessionFilePreferences.GlobalKey, update.GlobalSessionFiles ?? [],
-        SessionFilePreferences.Serialize);
-    await PersistFileListAsync(SkillDirectoryPreferences.GlobalKey,
-        update.GlobalSkillDirectories ?? [], SkillDirectoryPreferences.Serialize);
-  }
-
-  /// <summary>Persists the two scoped settings of a settings-modal update: the
-  ///     compaction summarizer (per selected tab's provider + workspace) and the
-  ///     skill-registry default target. Absent values delete their key.</summary>
-  private void PersistScopedSettings(SettingsUpdate update)
-  {
-    // Compaction summarizer is per selected tab's (provider, workspace): unset means
-    // Automatic — the cheapest capable catalog entry resolves at compaction time.
-    if (update.CompactionWorkspaceKey is { } workspaceKey)
-    {
-      string compactionKey = CompactionModelResolver.PreferenceKey(PreferredProviderId, workspaceKey);
-      _ = update.CompactionModelId is null
-          ? AppPreferences?.DeleteAsync(compactionKey)
-          : AppPreferences?.SetAsync(compactionKey, update.CompactionModelId);
-    }
-
-    // Skill-registry default target (plan #29 T12): absent text deletes the key
-    // (unset), 'global'/'workspace' store verbatim; the loader strict-parses on read.
-    if (update.SkillRegistryDefaultTarget is { } registryTarget)
-    {
-      _ = registryTarget.Length == 0
-          ? AppPreferences?.DeleteAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget)
-          : AppPreferences?.SetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget, registryTarget);
-    }
   }
 
   /// <summary>Live key push: every open session's carriers take the saved keys
@@ -1182,71 +1111,6 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore S1075
         subAgents,
         Watchdog: watchdog);
-  }
-
-  /// <summary>Writes one key preference: set (protected) when configured, delete when
-  ///     cleared. Best effort — a failed write logs to stderr and never fails the save.
-  ///     Plaintext keys never reach durable storage: without a protector a key save is
-  ///     skipped with a note instead of stored raw.</summary>
-  private async Task PersistApiKeyAsync(string preferenceKey, string? apiKey)
-  {
-    if (AppPreferences is null)
-    {
-      return; // test seam: nothing is remembered
-    }
-
-    if (apiKey is not null && _keyProtector is null)
-    {
-      await Console.Error.WriteLineAsync($"no API key protector configured; '{preferenceKey}' not persisted");
-      return;
-    }
-
-    // Named decision (CA1031): preference persistence must not take the shell down.
-#pragma warning disable CA1031 // Do not catch general exception types
-    try
-    {
-      bool landed = apiKey is null
-          ? await AppPreferences.DeleteAsync(preferenceKey)
-          : await AppPreferences.SetAsync(preferenceKey, _keyProtector!.Protect(apiKey));
-      if (!landed)
-      {
-        await Console.Error.WriteLineAsync($"api key preference write failed for '{preferenceKey}'");
-      }
-    }
-    catch (Exception ex)
-    {
-      await Console.Error.WriteLineAsync($"api key preference write failed for '{preferenceKey}': {ex.Message}");
-    }
-#pragma warning restore CA1031
-  }
-
-  /// <summary>Writes one plaintext preference (never a secret — secrets go through the
-  ///     key protector). A null value deletes the preference (blank clears). Best
-  ///     effort, same named decision as the key preferences.</summary>
-  private async Task PersistPreferenceAsync(string preferenceKey, string? value)
-  {
-    if (AppPreferences is null)
-    {
-      return; // test seam: nothing is remembered
-    }
-
-    // Named decision (CA1031): preference persistence must not take the shell down.
-#pragma warning disable CA1031 // Do not catch general exception types
-    try
-    {
-      bool landed = value is null
-          ? await AppPreferences.DeleteAsync(preferenceKey)
-          : await AppPreferences.SetAsync(preferenceKey, value);
-      if (!landed)
-      {
-        await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}'");
-      }
-    }
-    catch (Exception ex)
-    {
-      await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}': {ex.Message}");
-    }
-#pragma warning restore CA1031
   }
 
   private static List<ProviderOption> ProvidersFrom(AgentSettings settings)
@@ -1411,10 +1275,12 @@ internal sealed partial class MainViewModel : ObservableObject
       return Result.Success(true); // test seam: nothing is remembered
     }
 
-    await PersistFileListAsync(SessionFilePreferences.WorkspaceKey(root.Value),
-        save.SessionFiles, SessionFilePreferences.Serialize);
-    await PersistFileListAsync(SkillDirectoryPreferences.WorkspaceKey(root.Value),
-        save.SkillDirectories, SkillDirectoryPreferences.Serialize);
+    await SettingsPersistence.PersistFileListAsync(AppPreferences,
+        SessionFilePreferences.WorkspaceKey(root.Value), save.SessionFiles,
+        SessionFilePreferences.Serialize).ConfigureAwait(true);
+    await SettingsPersistence.PersistFileListAsync(AppPreferences,
+        SkillDirectoryPreferences.WorkspaceKey(root.Value), save.SkillDirectories,
+        SkillDirectoryPreferences.Serialize).ConfigureAwait(true);
     // Trusted directories (issue #96) are WORKSPACE-scoped: an approval says 'in THIS
     // workspace the agent may reach this external root', and a global list would widen
     // every other workspace's reach the moment one approves something.
@@ -1469,37 +1335,6 @@ internal sealed partial class MainViewModel : ObservableObject
       bool landed = entries.Count == 0
           ? await preferences.DeleteAsync(preferenceKey)
           : await preferences.SetAsync(preferenceKey, TrustedDirectoryPreferences.Serialize(entries));
-      if (!landed)
-      {
-        await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}'");
-      }
-    }
-    catch (Exception ex)
-    {
-      await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}': {ex.Message}");
-    }
-#pragma warning restore CA1031
-  }
-
-  /// <summary>Writes one file/directory list preference: an empty list deletes the
-  ///     key (nothing configured), a non-empty one serializes verbatim. Best
-  ///     effort — a failed write logs to stderr and never fails the launch
-  ///     (named decision, CA1031).</summary>
-  private async Task PersistFileListAsync(string preferenceKey,
-      IReadOnlyList<SessionFileEntry> entries, Func<IReadOnlyList<SessionFileEntry>, string> serialize)
-  {
-    if (AppPreferences is not { } preferences)
-    {
-      return; // test seam: nothing is remembered
-    }
-
-    // Named decision (CA1031): preference persistence must not take the launch down.
-#pragma warning disable CA1031 // Do not catch general exception types
-    try
-    {
-      bool landed = entries.Count == 0
-          ? await preferences.DeleteAsync(preferenceKey)
-          : await preferences.SetAsync(preferenceKey, serialize(entries));
       if (!landed)
       {
         await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}'");

@@ -18,6 +18,8 @@ using eThangAgent.Storage.ACL;
 using Microsoft.Extensions.DependencyInjection;
 using CommitStyle = eThangAgent.ToolDomain.CommitStyle;
 using CommitStylePreference = eThangAgent.ToolDomain.CommitStylePreference;
+using IRecentWorkspaceStore = eThangAgent.ToolDomain.IRecentWorkspaceStore;
+using SessionFileEntry = eThangAgent.Composition.SessionFileEntry;
 
 namespace eThangAgent.Desktop;
 
@@ -39,7 +41,12 @@ internal sealed record DesktopBootstrap(
     WatchdogOptions WatchdogOptions,
     bool CompactionHandoff,
     Func<Uri, IProviderSignIn> OpenRouterSignIn,
-    IRetentionService Retention);
+    IRetentionService Retention,
+    IRecentWorkspaceStore Recents,
+    string? PathToolsText,
+    string? RetentionWindowText,
+    IReadOnlyList<SessionFileEntry> GlobalSessionFiles,
+    IReadOnlyList<SessionFileEntry> GlobalSkillDirectories);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads settings from app preferences (provider API keys live DPAPI-
@@ -92,6 +99,13 @@ internal static class DesktopHost
     // window in the process, and a window lists only its own workspace.
     SessionCatalogQueryHandler catalog = new(new SqliteAgentStore(database), Providers.IsKnown);
 
+    // The launcher opens the app Settings window before any shell exists, so the prefill it
+    // needs is read HERE, from the same store the shell would read it from.
+    IReadOnlyList<SessionFileEntry> globalSessionFiles =
+        await ReadSessionFilesAsync(preferences, SessionFilePreferences.GlobalKey);
+    IReadOnlyList<SessionFileEntry> globalSkillDirectories =
+        await ReadSessionFilesAsync(preferences, SkillDirectoryPreferences.GlobalKey);
+
     return new DesktopBootstrap(
         new AgentSessionFactory(settings, database),
         settings,
@@ -104,7 +118,12 @@ internal static class DesktopHost
         watchdogOptions,
         compactionHandoff,
         SignInFor,
-        new RetentionSweep(database, preferences, TimeProvider.System));
+        new RetentionSweep(database, preferences, TimeProvider.System),
+        new SqliteRecentWorkspaceStore(database),
+        await preferences.GetAsync(PathToolPreferences.Key),
+        await preferences.GetAsync(RetentionSweep.WindowHoursKey),
+        globalSessionFiles,
+        globalSkillDirectories);
   }
 
   /// <summary>Builds the OpenRouter sign-in for a base URL: the browser is the OS default
@@ -222,12 +241,16 @@ internal static class DesktopHost
     desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
   }
 
-  /// <summary>Builds the shell view-model and main window. MUST run on the UI thread —
-  ///     Avalonia controls are thread-affine (calling this off-thread throws "Call from
-  ///     invalid thread"). No agent exists yet: the window opens on the empty shell and
-  ///     tabs appear as the user opens directories.</summary>
-  public static MainWindow CreateMainWindow(DesktopBootstrap boot)
+  /// <summary>Builds the shell view-model, the main window and the session that owns both.
+  ///     MUST run on the UI thread — Avalonia controls are thread-affine (calling this
+  ///     off-thread throws "Call from invalid thread"). No agent exists yet: the window opens
+  ///     on the empty shell and tabs appear as the user opens agents in the workspace.</summary>
+  /// <param name="boot">The bootstrap prepared off the UI thread.</param>
+  /// <param name="workspaceRoot">The workspace the window is bound to for its whole life.</param>
+  public static DesktopSession CreateMainWindow(DesktopBootstrap boot, string workspaceRoot)
   {
+    ArgumentNullException.ThrowIfNull(boot);
+    ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
     Dispatcher.UIThread.VerifyAccess();
 
     // No session delegate is injected: the shell derives it from the factory so
@@ -268,6 +291,7 @@ internal static class DesktopHost
         createSession: null,
         new MainViewModelOptions
         {
+          WorkspaceRoot = workspaceRoot,
           PreferredProviderId = boot.PreferredProviderId,
           CommitStyle = boot.CommitStyle,
           CompactionHandoff = boot.CompactionHandoff,
@@ -319,43 +343,95 @@ internal static class DesktopHost
 
     MainWindow window = new(vm);
 
-    // Named decision (CA2000): the source's lifetime is the window's lifetime - disposal
-    // races a cancel arriving on the same close event; RunAsync observes the token only
-    // before the window can close, so a late touch cannot occur.
-#pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
-    CancellationTokenSource watchdogCts = new();
-#pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
-    StartBackgroundLoops(watchdogCts.Token,
-        (watchdogLoop.RunAsync, "watchdog loop"),
-        (resourceLoop.RunAsync, "resource governor loop"),
-        (rssMonitor.RunAsync, "rss monitor"));
-    StartRetentionLoop(boot.Retention, vmRef, watchdogCts.Token);
-    window.Closed += (_, _) =>
+    // Named decision (CA2000): the source belongs to the SESSION, which cancels and disposes it
+    // on close - disposal races a cancel arriving on the same close event, and every loop
+    // observes the token only before the window can close, so a late touch cannot occur.
+#pragma warning disable CA2000 // The DesktopSession owns the source and disposes it.
+    CancellationTokenSource loopSource = new();
+#pragma warning restore CA2000 // The DesktopSession owns the source and disposes it.
+    List<Task> loops =
+    [
+        .. StartBackgroundLoops(loopSource.Token,
+            (watchdogLoop.RunAsync, "watchdog loop"),
+            (resourceLoop.RunAsync, "resource governor loop"),
+            (rssMonitor.RunAsync, "rss monitor")),
+        .. StartBackgroundLoops(loopSource.Token,
+            (RetentionLoopFor(boot.Retention, vmRef), "retention loop")),
+    ];
+    return new DesktopSession(window, vm, loopSource, loops);
+  }
+
+  /// <summary>Builds the launcher view-model and window over the bootstrap's recent-workspace
+  ///     store. MUST run on the UI thread — Avalonia controls are thread-affine.</summary>
+  /// <param name="boot">The bootstrap prepared off the UI thread.</param>
+  public static LauncherWindow CreateLauncherWindow(DesktopBootstrap boot)
+  {
+    ArgumentNullException.ThrowIfNull(boot);
+    Dispatcher.UIThread.VerifyAccess();
+    return new LauncherWindow(
+        new LauncherViewModel(boot.Recents, boot.Settings.HasOpenRouter));
+  }
+
+  /// <summary>The settings prefill built from the bootstrap alone, so the launcher can open the
+  ///     app Settings window before any shell exists. Every value is read from the same store the
+  ///     shell reads it from, so the two surfaces open on the same state.</summary>
+  /// <param name="boot">The bootstrap prepared off the UI thread.</param>
+  public static SettingsValues SettingsValuesFrom(DesktopBootstrap boot)
+  {
+    ArgumentNullException.ThrowIfNull(boot);
+    AgentSettings settings = boot.Settings;
+    return new SettingsValues
     {
-      watchdogCts.Cancel();
-      watchdogCts.Dispose();
+      OpenRouterKey = settings.OpenRouter.ApiKey,
+      OpenRouterManagementKey = settings.OpenRouter.ManagementKey,
+      OpenRouterBaseUrlText = settings.OpenRouter.BaseUrl.ToString(),
+      CommitStyle = boot.CommitStyle,
+      CompactionModels = [CompactionModelOption.Automatic],
+      SelectedCompactionModel = CompactionModelOption.Automatic,
+      MaxConcurrentAgentsText =
+          settings.SubAgents.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture),
+      DefaultModelText = settings.SubAgents.DefaultModel,
+      RootTurnIdleText = settings.SubAgents.RootTurnBudget?.Idle.ToString("c"),
+      WatchdogTickText = settings.Watchdog?.TickInterval?.ToString("c"),
+      WatchdogIdleText = settings.Watchdog?.IdleThreshold?.ToString("c"),
+      WatchdogWrapUpText =
+          settings.Watchdog?.MaxWrapUpAttempts?.ToString(CultureInfo.InvariantCulture),
+      ComputerUse = settings.ComputerUse,
+      CompactionHandoff = boot.CompactionHandoff,
+      RetentionWindowText = boot.RetentionWindowText,
+      PathToolsText = boot.PathToolsText,
+      GlobalSessionFiles = boot.GlobalSessionFiles,
+      GlobalSkillDirectories = boot.GlobalSkillDirectories,
+      ToolsPage = () => new ToolsSettingsViewModel(boot.Preferences),
+      ProviderSignInFactory = boot.OpenRouterSignIn,
     };
-    return window;
-  }  /// <summary>Starts each process-lifetime loop on the host's token, with one fault reporter
-     ///     each: a loop that throws must not take the host down silently, and the report names
-     ///     which loop it was.</summary>
-     /// <param name="ct">The process-lifetime token every loop observes.</param>
-     /// <param name="loops">Each loop's run method and the name its fault is reported under.</param>
-  private static void StartBackgroundLoops(CancellationToken ct,
+  }
+
+  /// <summary>Starts each loop on the session's token, with one fault reporter each: a loop that
+  ///     throws must not take the host down silently, and the report names which loop it was.
+  ///     </summary>
+  /// <param name="ct">The session's token every loop observes.</param>
+  /// <param name="loops">Each loop's run method and the name its fault is reported under.</param>
+  /// <returns>One task per loop, so the session can account for what it started.</returns>
+  private static List<Task> StartBackgroundLoops(CancellationToken ct,
       params (Func<CancellationToken, Task> Run, string Name)[] loops)
   {
+    List<Task> started = [];
     foreach ((Func<CancellationToken, Task> run, string name) in loops)
     {
       // Named decision (CA2016, S8949): the token reaches each loop through 'run'; the
       // continuation deliberately uses CancellationToken.None so a fault that happens after
       // the token fires is still reported.
-      _ = Task.Run(() => run(ct), CancellationToken.None)
-          .ContinueWith(
-              ReportFault(name),
-              CancellationToken.None,
-              TaskContinuationOptions.OnlyOnFaulted,
-              TaskScheduler.Default);
+      Task loop = Task.Run(() => run(ct), CancellationToken.None);
+      _ = loop.ContinueWith(
+          ReportFault(name),
+          CancellationToken.None,
+          TaskContinuationOptions.OnlyOnFaulted,
+          TaskScheduler.Default);
+      started.Add(loop);
     }
+
+    return started;
   }
 
   /// <summary>The continuation that reports one loop's fault, named so the line says which loop
@@ -365,15 +441,13 @@ internal static class DesktopHost
       t => _ = Console.Error.WriteLineAsync(name + " faulted: " + t.Exception);
 
 
-  /// <summary>Starts the app-level retention job (issue #246): a maintenance sweep, not a
-  ///     model-driven one, so it runs for the life of the process on the host's own token.
+  /// <summary>The retention job (issue #246): a maintenance sweep, not a model-driven one.
   ///     <para>ITS REPORTS REACH THE SHELL'S WARNING BAR: a run that reclaimed space is a fact
   ///     the user can check, and one that could not is a fact they should see.</para></summary>
   /// <param name="retention">The configured sweep.</param>
   /// <param name="vm">The shell the reports surface on.</param>
-  /// <param name="ct">The process-lifetime token the host's loops share.</param>
-  private static void StartRetentionLoop(IRetentionService retention, MainViewModel? vm,
-      CancellationToken ct)
+  private static Func<CancellationToken, Task> RetentionLoopFor(IRetentionService retention,
+      MainViewModel? vm)
   {
     RetentionLoop loop = new(retention,
         report => vm?.WarnApp("retention reclaimed "
@@ -381,7 +455,19 @@ internal static class DesktopHost
             + report.RowsDeleted.ToString(CultureInfo.InvariantCulture) + " rows older than "
             + report.Cutoff.ToString("u", CultureInfo.InvariantCulture)),
         message => vm?.WarnApp("retention run failed: " + message));
-    StartBackgroundLoops(ct, (loop.RunAsync, "retention loop"));
+    return loop.RunAsync;
+  }
+
+  /// <summary>Reads one stored file list for the launcher's settings prefill. Unset or
+  ///     unparseable text prefills as an empty list: the prefill never fails a startup.</summary>
+  /// <param name="preferences">The store the list lives in.</param>
+  /// <param name="key">The preference key.</param>
+  private static async Task<IReadOnlyList<SessionFileEntry>> ReadSessionFilesAsync(
+      SqliteAppPreferenceStore preferences, string key)
+  {
+    string? stored = await preferences.GetAsync(key).ConfigureAwait(false);
+    Result<IReadOnlyList<SessionFileEntry>> parsed = SessionFilePreferences.Parse(stored);
+    return parsed.IsSuccess ? parsed.Value : [];
   }
 
 

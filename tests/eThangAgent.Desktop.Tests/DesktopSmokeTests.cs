@@ -1,6 +1,8 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 
 [assembly: AvaloniaTestApplication(typeof(eThangAgent.Desktop.Tests.TestApp))]
@@ -25,5 +27,21 @@ public class DesktopSmokeTests
   {
     MainWindow window = new();
     Assert.Equal("eThang Agent", window.Title);
+  }
+
+  /// <summary>The app's first window is the launcher, and it carries the three things the
+  ///     launcher exists for: the recent list, an open-folder action, and Settings.</summary>
+  [AvaloniaFact]
+  public void Launcher_Instantiates_WithItsThreeActions()
+  {
+    LauncherWindow window = new(new LauncherViewModel(new FakeRecentWorkspaceStore(),
+        hasConfiguredProvider: false));
+    window.Show();
+
+    Assert.Equal("eThang Agent", window.Title);
+    Assert.NotNull(window.GetControl<ListBox>("RecentList"));
+    Assert.NotNull(window.GetControl<Button>("OpenFolderButton"));
+    Assert.NotNull(window.GetControl<Button>("SettingsButton"));
+    window.Close();
   }
 }
