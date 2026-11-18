@@ -122,7 +122,11 @@ internal sealed record MainViewModelOptions
 
   /// <summary>Lists resumable root sessions for the Sessions dialog. When null (hosts
   ///     that compose sessions without a shared store), the Sessions entry reports the
-  ///     catalog as unavailable.</summary>
+  ///     catalog as unavailable.
+  ///     <para>THE CATALOG IS UNSCOPED HERE AND SCOPED BY THE SHELL: the same handler serves
+  ///     every window in the process, and each window lists only its own workspace through
+  ///     <see cref="WorkspaceRoot"/>. A handler bound at the composition root would bind one
+  ///     window's workspace for all of them.</para></summary>
   public SessionCatalogQueryHandler? SessionCatalog { get; init; }
 
   /// <summary>Session creation that can SEED the new conversation (issue #234): the
@@ -3741,10 +3745,13 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     Sessions dialog and calls <see cref="ResumeSessionAsync"/> with the pick.</summary>
   public void RequestOpenSessions() => SessionsRequested?.Invoke(this, EventArgs.Empty);
 
-  /// <summary>Loads the Sessions catalog for the dialog, or null when the host wired no
-  ///     shared store (the dialog is then not shown).</summary>
+  /// <summary>Loads the Sessions catalog for the dialog, scoped to this window's workspace,
+  ///     or null when the host wired no shared store (the dialog is then not shown).
+  ///     <para>A WINDOW WITH NO WORKSPACE LISTS NOTHING: the loader is still present, so the
+  ///     dialog opens and reports the scope refusal in its error state rather than the shell
+  ///     claiming the catalog is unavailable when it is merely unscoped.</para></summary>
   public Func<CancellationToken, Task<Result<IReadOnlyList<SessionCatalogEntry>>>>? SessionCatalogLoader
-      => _sessionCatalog is null ? null : ct => _sessionCatalog.ListAsync(ct);
+      => _sessionCatalog is null ? null : ct => _sessionCatalog.ListAsync(WorkspaceRoot, ct);
 
   /// <summary>The selected tab's MCP seams (issue #106): the store the dialog's form
   ///     writes through, the SHARED pooled access its status view reads (the same

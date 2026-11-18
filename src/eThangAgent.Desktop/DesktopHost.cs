@@ -88,6 +88,8 @@ internal static class DesktopHost
     // tabs open, i.e. outside any per-session container.
     // Removed-provider rows (e.g. a session persisted under the retired z.ai provider)
     // are not resumable, so the catalog omits them rather than listing a dead entry.
+    // The handler is UNSCOPED here and scoped by each shell: one handler serves every
+    // window in the process, and a window lists only its own workspace.
     SessionCatalogQueryHandler catalog = new(new SqliteAgentStore(database), Providers.IsKnown);
 
     return new DesktopBootstrap(

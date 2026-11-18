@@ -13,7 +13,7 @@
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:SessionRow">
             <StackPanel Margin="2,4" Opacity="{Binding Dimming}" ToolTip.Tip="{Binding ToolTip}">
-              <TextBlock FontWeight="SemiBold" Text="{Binding WorkspaceName}"/>
+              <TextBlock FontWeight="SemiBold" Text="{Binding Title}"/>
               <TextBlock FontSize="12" Opacity="0.6" Text="{Binding Detail}"/>
             </StackPanel>
           </DataTemplate>

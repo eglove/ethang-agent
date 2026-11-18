@@ -8,14 +8,14 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.ViewModels;
 
-/// <summary>One row of the Sessions dialog: a persisted root session with its workspace
-///     and provider binding, the time it started, and whether a tab already has it open.
-///     An open row stays selectable for inspection but greyed (dimmed) and cannot be
-///     resumed — the hover tooltip explains why.</summary>
+/// <summary>One row of the Sessions dialog: a persisted root session with its provider
+///     binding, the time it started, and whether a tab already has it open. An open row stays
+///     selectable for inspection but greyed (dimmed) and cannot be resumed — the hover tooltip
+///     explains why.
+///     <para>NO WORKSPACE COLUMN: every row in the dialog belongs to the window's own
+///     workspace, so a column naming it would repeat one value down the whole list.</para></summary>
 internal sealed record SessionRow(
     AgentId Id,
-    string WorkspaceName,
-    string WorkspaceRoot,
     string ProviderDisplay,
     string CreatedDisplay,
     string StatusDisplay,
@@ -23,18 +23,21 @@ internal sealed record SessionRow(
 {
   public double Dimming => IsOpen ? 0.45 : 1.0;
 
-  /// <summary>The secondary line: provider, start time, and lifecycle status.</summary>
-  public string Detail => $"{ProviderDisplay} · started {CreatedDisplay} · {StatusDisplay}";
+  /// <summary>The primary line: the provider that serves the session.</summary>
+  public string Title => ProviderDisplay;
+
+  /// <summary>The secondary line: start time and lifecycle status.</summary>
+  public string Detail => $"started {CreatedDisplay} · {StatusDisplay}";
 
   public string ToolTip => IsOpen
       ? "This session is already open in a tab — select that tab to continue it."
-      : WorkspaceRoot;
+      : Detail;
 }
 
-/// <summary>View-model behind the Sessions dialog: every resumable root session, newest
-///     first, with already-open ones greyed. Pure state and commands; window closing and
-///     applying the resume belong to the caller. The catalog load runs off the UI thread
-///     and populates the rows when it lands. Confirming raises the session id; an
+/// <summary>View-model behind the Sessions dialog: the bound workspace's resumable root
+///     sessions, newest first, with already-open ones greyed. Pure state and commands; window
+///     closing and applying the resume belong to the caller. The catalog load runs off the UI
+///     thread and populates the rows when it lands. Confirming raises the session id; an
 ///     already-open row never confirms — resume selects the open tab instead of
 ///     double-resuming.</summary>
 internal sealed partial class SessionsViewModel : ObservableObject
@@ -112,8 +115,6 @@ internal sealed partial class SessionsViewModel : ObservableObject
 
       Rows = [.. catalog.Value.Select(summary => new SessionRow(
           summary.Id,
-          WorkspaceName(summary.WorkspaceId),
-          summary.WorkspaceId,
           Providers.DisplayName(summary.Provider),
           summary.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
           summary.Status.ToString(),
@@ -138,7 +139,4 @@ internal sealed partial class SessionsViewModel : ObservableObject
       ConfirmRequested?.Invoke(this, row.Id);
     }
   }
-
-  private static string WorkspaceName(string workspaceRoot) => Path.GetFileName(
-      workspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 }

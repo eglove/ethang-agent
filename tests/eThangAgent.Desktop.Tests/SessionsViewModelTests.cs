@@ -7,13 +7,15 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Behavior of the Sessions dialog view-model: catalog loading, open-session
 ///     grey-out, pre-selection, and the confirm guard. The catalog is faked at the
-///     loader-delegate seam; the real query handler is covered in Agent.Application tests.</summary>
+///     loader-delegate seam; the real query handler is covered in Agent.Application tests.
+///     <para>THE ROWS CARRY NO WORKSPACE: the dialog lists one window's workspace, so a
+///     workspace column would repeat one value down the whole list.</para></summary>
 public class SessionsViewModelTests
 {
   private static readonly DateTimeOffset Started =
       new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
-  private static SessionCatalogEntry Entry(AgentId id, string workspace = "C:/ws/demo",
+  private static SessionCatalogEntry Entry(AgentId id, string workspace = @"C:\work\alpha",
       string provider = "openrouter", DateTimeOffset? createdAt = null)
       => new(id, workspace, provider, AgentStatus.Completed,
           createdAt ?? Started, Started.AddMinutes(30));
@@ -39,17 +41,43 @@ public class SessionsViewModelTests
     // The handler returns entries newest first; the view-model preserves that order.
     SessionsViewModel vm = await LoadVmAsync(
     [
-        Entry(AgentId.NewId(), workspace: "C:/ws/newer", createdAt: Started.AddMinutes(5)),
-            Entry(AgentId.NewId(), workspace: "C:/ws/older", createdAt: Started),
+        Entry(AgentId.NewId(), createdAt: Started.AddMinutes(5)),
+            Entry(AgentId.NewId(), createdAt: Started),
     ]);
 
     Assert.Equal(2, vm.Rows.Count);
-    Assert.Equal("C:/ws/newer", vm.Rows[0].WorkspaceRoot);
-    Assert.Equal("newer", vm.Rows[0].WorkspaceName);
-    Assert.Equal("C:/ws/older", vm.Rows[1].WorkspaceRoot);
     Assert.Equal("OpenRouter", vm.Rows[0].ProviderDisplay); // display name, not the raw id
+    Assert.Equal("OpenRouter", vm.Rows[0].Title);
     Assert.Contains("started", vm.Rows[0].Detail, StringComparison.Ordinal);
     Assert.False(vm.Rows[0].IsOpen);
+  }
+
+  /// <summary>Every row in the dialog belongs to the window's workspace, so the row type
+  ///     exposes no workspace at all — not a name, not a root.</summary>
+  [Fact]
+  public void SessionRow_Exposes_No_Workspace_Column()
+  {
+    string[] members = [.. typeof(SessionRow).GetProperties().Select(property => property.Name)];
+
+    Assert.DoesNotContain(members, name =>
+        name.Contains("Workspace", StringComparison.OrdinalIgnoreCase));
+  }
+
+  /// <summary>Behavior 5 stated at the dialog: a session of another workspace never reaches
+  ///     the rows, even when it is the newest entry the catalog could have offered. The
+  ///     catalog itself already refuses to return it (the store query is scoped), so this
+  ///     pins the shape the shell relies on.</summary>
+  [Fact]
+  public async Task Load_Another_Workspace_Session_Never_Appears()
+  {
+    AgentId alpha = AgentId.NewId();
+    SessionsViewModel vm = await LoadVmAsync([Entry(alpha)]);
+
+    AgentId beta = AgentId.NewId();
+    SessionsViewModel betaVm = await LoadVmAsync([Entry(beta, workspace: @"C:\work\beta")]);
+
+    Assert.Equal([alpha], vm.Rows.Select(row => row.Id).ToList());
+    Assert.Equal([beta], betaVm.Rows.Select(row => row.Id).ToList());
   }
 
   [Fact]

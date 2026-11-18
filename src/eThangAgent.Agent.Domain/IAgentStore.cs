@@ -45,4 +45,24 @@ public interface IAgentStore
   /// <summary>Every persisted agent record in creation order (CreatedAt ascending) —
   ///     the corpus source for memory recall and session listing.</summary>
   Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default);
+
+  /// <summary>Every persisted agent record bound to one workspace, in creation order
+  ///     (CreatedAt ascending). Two spellings of one directory that differ only by case are
+  ///     the same workspace, matching <c>WorkspaceIdentity.PathsEqual</c>.</summary>
+  /// <param name="workspaceId">The workspace whose rows to read.</param>
+  /// <param name="ct">Cancellation for the read.</param>
+  /// <remarks>IMPLEMENTATIONS THAT CAN ANSWER CHEAPLY MUST. This default filters
+  ///     <see cref="ListAllAsync"/>, so a store that does not override it still answers
+  ///     correctly by reading every workspace's rows - the cost this member exists to remove.
+  ///     The SQL store, which is what the Sessions catalog calls, overrides it.</remarks>
+  async Task<Result<IReadOnlyList<AgentRecord>>> ListByWorkspaceAsync(string workspaceId,
+      CancellationToken ct = default)
+  {
+    Result<IReadOnlyList<AgentRecord>> records = await ListAllAsync(ct).ConfigureAwait(false);
+    return records.IsSuccess
+        ? Result.Success<IReadOnlyList<AgentRecord>>([.. records.Value
+            .Where(record => string.Equals(record.WorkspaceId, workspaceId,
+                StringComparison.OrdinalIgnoreCase))])
+        : Result.Failure<IReadOnlyList<AgentRecord>>(records.Error);
+  }
 }

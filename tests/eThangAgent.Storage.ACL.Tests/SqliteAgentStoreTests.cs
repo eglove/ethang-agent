@@ -233,6 +233,53 @@ public sealed class SqliteAgentStoreTests : IDisposable
     Assert.Equal("answer", transcript.Value[2].Content);
   }
 
+  /// <summary>The Sessions catalog's scope: the query returns one workspace's rows, so
+  ///     another workspace's sessions are never loaded to be discarded.</summary>
+  [Fact]
+  public async Task ListByWorkspace_Returns_Only_That_Workspace_Newest_Last()
+  {
+    DateTimeOffset start = new(2026, 8, 21, 9, 0, 0, TimeSpan.Zero);
+    AgentRecord alphaOld = AgentRecord.Root(AgentId.NewId(), start, @"C:\work\alpha", "openrouter");
+    AgentRecord alphaNew = AgentRecord.Root(AgentId.NewId(), start.AddMinutes(1), @"C:\work\alpha", "openrouter");
+    AgentRecord beta = AgentRecord.Root(AgentId.NewId(), start.AddMinutes(9), @"C:\work\beta", "openrouter");
+    _ = await _store.SaveAsync(alphaOld, ct: TestContext.Current.CancellationToken);
+    _ = await _store.SaveAsync(alphaNew, ct: TestContext.Current.CancellationToken);
+    _ = await _store.SaveAsync(beta, ct: TestContext.Current.CancellationToken);
+
+    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListByWorkspaceAsync(
+        @"C:\work\alpha", TestContext.Current.CancellationToken);
+
+    Assert.True(listed.IsSuccess);
+    Assert.Equal([alphaOld.Id, alphaNew.Id], listed.Value.Select(record => record.Id).ToList());
+  }
+
+  /// <summary>Two spellings of one Windows directory are one workspace, so the scope
+  ///     comparison is case-insensitive.</summary>
+  [Fact]
+  public async Task ListByWorkspace_Matches_A_Differently_Cased_Root()
+  {
+    _ = await _store.SaveAsync(AgentRecord.Root(AgentId.NewId(),
+        new DateTimeOffset(2026, 8, 21, 9, 0, 0, TimeSpan.Zero), @"C:\Work\Alpha", "openrouter"),
+        ct: TestContext.Current.CancellationToken);
+
+    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListByWorkspaceAsync(
+        @"c:\work\alpha", TestContext.Current.CancellationToken);
+
+    Assert.True(listed.IsSuccess);
+    _ = Assert.Single(listed.Value);
+  }
+
+  /// <summary>A workspace nothing was recorded for is an empty list, not a failure.</summary>
+  [Fact]
+  public async Task ListByWorkspace_Unknown_Workspace_Is_Empty_And_Succeeds()
+  {
+    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListByWorkspaceAsync(
+        @"C:\work\gamma", TestContext.Current.CancellationToken);
+
+    Assert.True(listed.IsSuccess);
+    Assert.Empty(listed.Value);
+  }
+
   [Fact]
   public async Task ReplaceTranscript_EmptyReplacement_Fails_TranscriptUnchanged()
   {

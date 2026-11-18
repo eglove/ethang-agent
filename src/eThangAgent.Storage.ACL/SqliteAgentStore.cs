@@ -557,6 +557,34 @@ public sealed class SqliteAgentStore(
     return Result.Success<IReadOnlyList<AgentRecord>>(records);
   }
 
+  /// <summary>Reads one workspace's rows only: the Sessions catalog's scope lives in this
+  ///     query, so a workspace with a thousand sessions never loads another workspace's
+  ///     rows to discard them. The comparison is case-insensitive because two spellings of
+  ///     one Windows directory are one workspace.</summary>
+  public async Task<Result<IReadOnlyList<AgentRecord>>> ListByWorkspaceAsync(string workspaceId,
+      CancellationToken ct = default)
+  {
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using SqliteConnection connection = _database.Open();
+#pragma warning restore CA2007
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = """
+            SELECT id, status, failure_reason, model_used, label, task_prompt,
+                   created_at, completed_at, final_report, workspace_id, provider, attempts, phase, contract
+            FROM agents WHERE workspace_id = @workspace COLLATE NOCASE ORDER BY created_at;
+            """;
+    Add(command, "@workspace", workspaceId);
+    List<AgentRecord> records = [];
+    using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+    while (await reader.ReadAsync(ct).ConfigureAwait(false))
+    {
+      records.Add(ReadRecord(reader));
+    }
+
+    return Result.Success<IReadOnlyList<AgentRecord>>(records);
+  }
+
   /// <summary>Persists an agent domain event as an agent_events row (state_events-style append).
   ///     This is the <see cref="IAgentEventLog"/> implementation too: the reasoning trace
   ///     (issue #263) is an ordinary row here, which is what makes it telemetry — the
