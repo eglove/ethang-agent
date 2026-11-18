@@ -13,7 +13,7 @@ internal sealed record RecentWorkspaceRow(string Root, string Name, string Detai
 {
   /// <summary>Builds a row from a stored binding, probing the directory once.</summary>
   /// <param name="recent">The stored root and the moment it was opened.</param>
-  public static RecentWorkspaceRow From(eThangAgent.ToolDomain.RecentWorkspace recent)
+  public static RecentWorkspaceRow From(ToolDomain.RecentWorkspace recent)
   {
     ArgumentNullException.ThrowIfNull(recent);
     string trimmed = recent.Root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

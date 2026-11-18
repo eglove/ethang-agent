@@ -25,6 +25,17 @@ public class ShellUiPolishTests
 
   private static MainWindow CreateShellWindow() => new(CreateShellWindowVm());
 
+  /// <summary>A shell bound to one workspace, the shape the launcher hands the main window.</summary>
+  private static MainViewModel CreateBoundShellVm(string? workspaceRoot)
+  {
+    static Task<Result<AgentSession>> create(string root, string provider)
+        => Task.FromResult(Result.Success(FakeSession(root)));
+    return new MainViewModel(create, new MainViewModelOptions { WorkspaceRoot = workspaceRoot });
+  }
+
+  private static MainWindow CreateBoundShellWindow(string? workspaceRoot)
+      => new(CreateBoundShellVm(workspaceRoot));
+
   private static AgentSession FakeSession(string root)
       => new(
           new ServiceCollection().BuildServiceProvider(),
@@ -61,7 +72,7 @@ public class ShellUiPolishTests
             window.GetControl<Button>("SettingsMenuItem"),
         ];
     Assert.Collection(items,
-        b => Assert.Equal("\uD83D\uDCC2", b.Content),
+        b => Assert.Equal("\u2795", b.Content),
         b => Assert.Equal("\uD83D\uDCAC", b.Content),
         b => Assert.Equal("\uD83C\uDF9B", b.Content),
         b => Assert.Equal("\u2699", b.Content));
@@ -134,6 +145,45 @@ public class ShellUiPolishTests
     Dispatcher.UIThread.RunJobs();
 
     Assert.True(mcp.IsEffectivelyEnabled, "McpServersMenuItem must re-enable once a tab is selected");
+  }
+
+  [AvaloniaFact]
+  public void WindowTitle_NamesTheBoundWorkspace_AndIsBareWhenUnbound()
+  {
+    Assert.Equal("eThang Agent \u2014 alpha", CreateBoundShellWindow(@"C:\work\alpha").Title);
+    Assert.Equal("eThang Agent", CreateBoundShellWindow(null).Title);
+  }
+
+  [AvaloniaFact]
+  public void Rail_NewAgentEntry_IsLabelledAndEnabledOnlyWhileAWorkspaceIsBound()
+  {
+    MainWindow bound = CreateBoundShellWindow(@"C:\work\alpha");
+    bound.Show();
+    Dispatcher.UIThread.RunJobs();
+    Button newAgent = bound.GetControl<Button>("OpenAgentMenuItem");
+    Assert.Contains("New Agent", ToolTip.GetTip(newAgent) as string, StringComparison.Ordinal);
+    Assert.True(newAgent.IsEffectivelyEnabled, "New Agent must be usable in a bound window");
+
+    MainWindow unbound = CreateBoundShellWindow(null);
+    unbound.Show();
+    Dispatcher.UIThread.RunJobs();
+    Assert.False(unbound.GetControl<Button>("OpenAgentMenuItem").IsEffectivelyEnabled,
+        "New Agent must be disabled with no workspace bound");
+  }
+
+  [AvaloniaFact]
+  public void EmptyState_NamesTheWorkspace_AndNoLongerPointsAtOpenWorkspace()
+  {
+    MainWindow window = CreateBoundShellWindow(@"C:\work\alpha");
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    StackPanel emptyState = window.GetControl<StackPanel>("EmptyState");
+    Assert.True(emptyState.IsVisible);
+    string text = window.GetControl<TextBlock>("EmptyStateText").Text ?? string.Empty;
+    Assert.StartsWith("No agent is open.", text, StringComparison.Ordinal);
+    Assert.Contains(@"C:\work\alpha", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("Open Workspace", text, StringComparison.Ordinal);
   }
 
   [AvaloniaFact]

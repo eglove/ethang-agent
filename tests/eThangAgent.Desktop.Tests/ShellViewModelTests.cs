@@ -32,6 +32,22 @@ public class ShellViewModelTests
     return new MainViewModel(create, new MainViewModelOptions { Preferences = preferences });
   }
 
+  /// <summary>A shell bound to one workspace for its whole life, the shape the launcher
+  ///     hands the main window.</summary>
+  private static MainViewModel CreateBoundShell(string? workspaceRoot,
+      Func<string, string, AgentSession>? factory = null, IAppPreferenceStore? preferences = null)
+  {
+    Task<Result<AgentSession>> create(string root, string provider) =>
+        factory is null
+            ? Task.FromResult(Result.Failure<AgentSession>(new DomainError("NoFactory", "no session factory configured")))
+            : Task.FromResult(Result.Success(factory(root, provider)));
+    return new MainViewModel(create, new MainViewModelOptions
+    {
+      WorkspaceRoot = workspaceRoot,
+      Preferences = preferences,
+    });
+  }
+
   private static AgentSession FakeSession(string root, string provider = "openrouter",
       SessionModelPreferences? preferences = null, AgentDomain.IAgentStore? store = null)
   {
@@ -147,15 +163,119 @@ public class ShellViewModelTests
           });
 
   [Fact]
-  public void OpenAgentCommand_Raises_Dialog_Request()
+  public async Task OpenAgentCommand_OpensAnAgentInTheBoundWorkspace()
   {
-    MainViewModel vm = CreateShell();
-    bool raised = false;
-    vm.OpenAgentRequested += (_, _) => raised = true;
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
 
-    vm.OpenAgentCommand.Execute(null);
+    await vm.OpenAgentCommand.ExecuteAsync(null);
 
-    Assert.True(raised);
+    AgentTabViewModel tab = Assert.Single(vm.Tabs);
+    Assert.Equal(@"C:\work\alpha", tab.WorkspaceRoot);
+    Assert.Equal(tab, vm.SelectedTab);
+  }
+
+  [Fact]
+  public void WorkspaceRoot_IsNormalizedFromTheOptions()
+  {
+    // Normalize trims the trailing separator and surrounding whitespace. It does NOT fold
+    // case: case-insensitivity is WorkspaceIdentity.PathsEqual's rule, not the stored form's.
+    Assert.Equal(@"C:\work\alpha", CreateBoundShell(@"C:\work\alpha\").WorkspaceRoot);
+    Assert.Equal(@"c:\work\alpha", CreateBoundShell(@"  c:\work\alpha  ").WorkspaceRoot);
+    Assert.Null(CreateBoundShell(null).WorkspaceRoot);
+  }
+
+  [Fact]
+  public async Task OpenAgentInWorkspaceAsync_CreatesOneTabInTheBoundWorkspace_AndSelectsIt()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+
+    Result<AgentTabViewModel> opened = await vm.OpenAgentInWorkspaceAsync();
+
+    Assert.True(opened.IsSuccess);
+    AgentTabViewModel tab = Assert.Single(vm.Tabs);
+    Assert.Equal(@"C:\work\alpha", tab.Container.WorkspaceRoot);
+    Assert.Equal(tab, vm.SelectedTab);
+  }
+
+  [Fact]
+  public async Task OpenAgentInWorkspaceAsync_Twice_CreatesTwoTabsInTheSameWorkspace()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+
+    _ = await vm.OpenAgentInWorkspaceAsync();
+    _ = await vm.OpenAgentInWorkspaceAsync();
+
+    Assert.Equal(2, vm.Tabs.Count);
+    Assert.All(vm.Tabs, t => Assert.Equal(@"C:\work\alpha", t.Container.WorkspaceRoot));
+    Assert.Equal(vm.Tabs[1], vm.SelectedTab);
+  }
+
+  [Fact]
+  public async Task OpenAgentAsync_WithTheBoundRootInAnotherSpelling_OpensNormally()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+
+    Result<AgentTabViewModel> opened = await vm.OpenAgentAsync(@"c:\work\alpha\", "openrouter");
+
+    Assert.True(opened.IsSuccess);
+    _ = Assert.Single(vm.Tabs);
+  }
+
+  [Fact]
+  public async Task OpenAgentAsync_WithAForeignRoot_FailsForeignWorkspace_AndOpensNothing()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+
+    Result<AgentTabViewModel> opened = await vm.OpenAgentAsync(@"C:\work\beta", "openrouter");
+
+    Assert.False(opened.IsSuccess);
+    Assert.Equal("ForeignWorkspace", opened.Error.Code);
+    Assert.Empty(vm.Tabs);
+  }
+
+  [Fact]
+  public async Task OpenAgentInWorkspaceAsync_OnAnUnboundShell_FailsNoWorkspace_AndOpensNothing()
+  {
+    MainViewModel vm = CreateBoundShell(null, (root, _) => FakeSession(root));
+
+    Result<AgentTabViewModel> opened = await vm.OpenAgentInWorkspaceAsync();
+
+    Assert.False(opened.IsSuccess);
+    Assert.Equal("NoWorkspace", opened.Error.Code);
+    Assert.Empty(vm.Tabs);
+  }
+
+  [Fact]
+  public void EmptyStateText_NamesTheBoundWorkspace_AndNeverPointsAtOpenWorkspace()
+  {
+    string bound = CreateBoundShell(@"C:\work\alpha").EmptyStateText;
+    Assert.StartsWith("No agent is open.", bound, StringComparison.Ordinal);
+    Assert.Contains(@"C:\work\alpha", bound, StringComparison.Ordinal);
+    Assert.DoesNotContain("Open Workspace", bound, StringComparison.Ordinal);
+    Assert.DoesNotContain("Open Workspace",
+        CreateBoundShell(null).EmptyStateText, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task WorkspaceScopedLists_DefaultToTheBoundRoot()
+  {
+    FakePreferenceStore preferences = new();
+    preferences.Stored[SessionFilePreferences.WorkspaceKey(@"C:\work\alpha")] =
+        SessionFilePreferences.Serialize([new SessionFileEntry("AGENTS.md", true)]);
+    preferences.Stored[SkillDirectoryPreferences.WorkspaceKey(@"C:\work\alpha")] =
+        SkillDirectoryPreferences.Serialize([new SessionFileEntry(@"C:\skills", true)]);
+    preferences.Stored[TrustedDirectoryPreferences.WorkspaceKey(@"C:\work\alpha")] =
+        TrustedDirectoryPreferences.Serialize([new TrustedDirectoryEntry(@"D:\shared", true, false)]);
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", preferences: preferences);
+
+    IReadOnlyList<SessionFileEntry> files = await vm.GetWorkspaceSessionFilesAsync();
+    IReadOnlyList<SessionFileEntry> skills = await vm.GetWorkspaceSkillDirectoriesAsync();
+    IReadOnlyList<TrustedDirectoryEntry> trusted = await vm.GetTrustedDirectoriesAsync();
+
+    Assert.Equal("AGENTS.md", Assert.Single(files).Path);
+    Assert.Equal(@"C:\skills", Assert.Single(skills).Path);
+    Assert.Equal(@"D:\shared", Assert.Single(trusted).Path);
+    Assert.Empty(await CreateBoundShell(null, preferences: preferences).GetWorkspaceSessionFilesAsync());
   }
 
   [Fact]

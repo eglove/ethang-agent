@@ -14,12 +14,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace eThangAgent.Desktop.Views;
 
 /// <summary>The main window shell: a thin left icon rail (labels are hover
-///     tooltips) plus a tab host with one tab per open agent. 'Open Workspace' shows
-///     the new-agent dialog (provider dropdown plus
-///     workspace picker); the chosen pair opens as a new tab wired exclusively for
-///     that provider. Opening another directory (or the same directory under the
-///     other provider) opens another tab — each backed by its own isolated session
-///     container.</summary>
+///     tooltips) plus a tab host with one tab per open agent. The window is bound to ONE
+///     workspace for its whole life, so every tab belongs to that folder; 'New Agent' opens
+///     another agent in it, each backed by its own isolated session container. The title
+///     names the workspace.</summary>
 internal partial class MainWindow : Window
 {
   private readonly MainViewModel? _vm;
@@ -37,10 +35,11 @@ internal partial class MainWindow : Window
     ArgumentNullException.ThrowIfNull(vm);
     _vm = vm;
     DataContext = vm;
+    Title = vm.WindowTitle;
 
-    // The menu button asks the view to show the new-agent modal (UI-affine); the
-    // chosen provider/workspace pair comes back through OpenAgentAsync. The Sessions
-    // button shows the sessions dialog the same way, its pick flowing through
+    // The New Agent button opens an agent in the bound workspace through the shell
+    // itself, so no dialog is involved. The Sessions
+    // button shows the sessions dialog, its pick flowing through
     // ResumeSessionAsync. The gear button shows the settings modal the same way, and
     // its result flows through ApplySettingsAsync. The Model Settings button shows
     // the selected tab's settings window — model choice, effort, sampling knobs,

@@ -1,5 +1,6 @@
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.TestSupport;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -13,7 +14,7 @@ public sealed class LauncherViewModelTests
   [Fact]
   public async Task Load_ListsExistingAndMissingDirectories()
   {
-    string existing = Directory.CreateTempSubdirectory("launcher-").FullName;
+    string existing = TestTempRoot.CreateDirectory("launcher").FullName;
     try
     {
       FakeRecentWorkspaceStore store = new();
@@ -38,7 +39,7 @@ public sealed class LauncherViewModelTests
   [Fact]
   public async Task OpenRecent_RaisesOnlyForAnExistingDirectory()
   {
-    string existing = Directory.CreateTempSubdirectory("launcher-").FullName;
+    string existing = TestTempRoot.CreateDirectory("launcher").FullName;
     try
     {
       FakeRecentWorkspaceStore store = new();
@@ -115,7 +116,7 @@ public sealed class LauncherViewModelTests
   [Fact]
   public void ChooseFolder_RaisesTheChosenWorkspace()
   {
-    string existing = Directory.CreateTempSubdirectory("launcher-").FullName;
+    string existing = TestTempRoot.CreateDirectory("launcher").FullName;
     try
     {
       LauncherViewModel vm = new(new FakeRecentWorkspaceStore(), hasConfiguredProvider: true);

@@ -57,6 +57,11 @@ internal delegate Task<Result<AgentSession>> SeededSessionCreator(
 ///     editing (prebuilt-session hosts own their configuration).</summary>
 internal sealed record MainViewModelOptions
 {
+  /// <summary>The workspace this shell is bound to for its whole life, or null for a host
+  ///     that binds none. Normalized through <see cref="WorkspaceIdentity.Normalize"/> at
+  ///     construction, so every surface downstream compares one spelling of one directory.</summary>
+  public string? WorkspaceRoot { get; init; }
+
   /// <summary>Host hook fired when a session tab opens (after Tabs.Add): the watchdog host
   ///     attaches the session's container-scoped watchdog here. Null: no-op (tests, hosts
   ///     without a watchdog).</summary>
@@ -152,10 +157,11 @@ internal sealed record MainViewModelOptions
   public ILanguageServerInstaller? LanguageInstaller { get; init; }
 }
 
-/// <summary>Shell-level state for the main window: the left menu bar (Open Workspace,
-///     Sessions, the per-tab Model and Effort entries, and the bottom-anchored Settings
-///     entry) and the open agent tabs. 'Open Workspace' shows the new-agent dialog (provider
-///     dropdown plus workspace picker); each tab owns an <see cref="AgentSessionViewModel"/>
+/// <summary>Shell-level state for the main window: the left menu bar (New Agent, Sessions,
+///     the per-tab Model and Effort entries, and the bottom-anchored Settings entry) and the
+///     open agent tabs. The window is bound to ONE workspace for its whole life, so every tab
+///     belongs to that folder and the strip expresses no workspace choice; each tab owns an
+///     <see cref="AgentSessionViewModel"/>
 ///     bound to its own isolated <see cref="AgentSession"/> created through the injected
 ///     provider-aware session-factory hook. 'Sessions' lists every persisted root session
 ///     (newest first, already-open ones greyed); confirming one resumes it — the persisted
@@ -278,6 +284,38 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     ResumeUnavailable failure instead of a crash.</summary>
   private readonly Func<AgentId, Task<Result<AgentSession>>> _resumeSession;
 
+  /// <summary>The workspace this shell is bound to, normalized, or null when the host bound
+  ///     none. Fixed at construction: a window IS one workspace, so there is no setter and no
+  ///     picker that could change it under the open tabs.</summary>
+  public string? WorkspaceRoot { get; }
+
+  /// <summary>True when this shell is bound to a workspace: what enables the rail's New Agent
+  ///     entry, and what the empty state and the window title name.</summary>
+  public bool HasWorkspace => WorkspaceRoot is not null;
+
+  /// <summary>The window title: the app name alone for an unbound shell, and the app name
+  ///     followed by the workspace's folder name for a bound one.</summary>
+  public string WindowTitle
+  {
+    get
+    {
+      if (WorkspaceRoot is null)
+      {
+        return "eThang Agent";
+      }
+
+      string name = Path.GetFileName(
+          WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+      return "eThang Agent — " + (name.Length > 0 ? name : WorkspaceRoot);
+    }
+  }
+
+  /// <summary>The empty state's text: what the shell has nothing to show, and which
+  ///     workspace the next agent will open in.</summary>
+  public string EmptyStateText => WorkspaceRoot is null
+      ? "No agent is open."
+      : "No agent is open." + Environment.NewLine + "Agents open in " + WorkspaceRoot;
+
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(HasSelectedTab))]
   public partial AgentTabViewModel? SelectedTab { get; set; }
@@ -348,7 +386,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     (every provider has a model picker).</summary>
   public bool HasSelectedTab => SelectedTab is not null;
 
-  /// <summary>True when at least one provider has a configured API key; gates Open Workspace.</summary>
+  /// <summary>True when at least one provider has a configured API key; gates New Agent.</summary>
   public bool HasConfiguredProvider => AvailableProviders.Count > 0;
 
   /// <summary>Keys currently configured — the settings dialog's prefill (null when
@@ -406,7 +444,9 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     Loaded from preferences at construction; updated when settings save.</summary>
   public CommitStyle ConfiguredCommitStyle { get; private set; }
 
-  public IRelayCommand OpenAgentCommand { get; }
+  /// <summary>The rail's New Agent entry: opens an agent in the bound workspace. Disabled
+  ///     while no workspace is bound, because there is nowhere to open one.</summary>
+  public IAsyncRelayCommand OpenAgentCommand { get; }
 
   public IRelayCommand OpenSessionsCommand { get; }
 
@@ -452,6 +492,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // Each member is an optional seam: a null one behaves exactly as the
     // corresponding absent parameter always did.
     AppPreferences = options?.Preferences;
+    WorkspaceRoot = NormalizeBoundRoot(options);
     SeedSettingsPrefills(options);
     _streamSink = options?.UiStreamSink;
     _uiMarshal = ResolveUiMarshal(options);
@@ -480,6 +521,15 @@ internal sealed partial class MainViewModel : ObservableObject
 
     InitializeProviders(options);
     Tabs.CollectionChanged += OnTabsChanged;
+  }
+
+  /// <summary>The bound root in comparable form, or null when the host bound none. A blank
+  ///     root is the unbound case rather than an error: the launcher only hands over a
+  ///     directory a picker returned.</summary>
+  private static string? NormalizeBoundRoot(MainViewModelOptions? options)
+  {
+    string? workspaceRoot = options?.WorkspaceRoot;
+    return string.IsNullOrWhiteSpace(workspaceRoot) ? null : WorkspaceIdentity.Normalize(workspaceRoot);
   }
 
   /// <summary>The host's sign-in factory, or null when it wired none.</summary>
@@ -539,11 +589,24 @@ internal sealed partial class MainViewModel : ObservableObject
               "this host composed its sessions without a shared store; sessions cannot be resumed.")))
           : _sessionFactory.ResumeAsync(sessionId);
 
-  /// <summary>The Open Workspace command: gated on no open in flight and at least one
-  ///     configured provider.</summary>
-  private RelayCommand CreateOpenAgentCommand() => new(
-      () => OpenAgentRequested?.Invoke(this, EventArgs.Empty),
-      () => !IsOpeningAgent && HasConfiguredProvider);
+  /// <summary>The New Agent command: gated on a bound workspace, no open in flight, and at
+  ///     least one configured provider. A failure is reported on the app-level warning bar so
+  ///     the user learns why nothing opened.</summary>
+  private AsyncRelayCommand CreateOpenAgentCommand() => new(
+      OpenAgentFromRailAsync,
+      () => !IsOpeningAgent && HasConfiguredProvider && HasWorkspace);
+
+  /// <summary>Opens one agent in the bound workspace and surfaces a refusal on the warning
+  ///     bar. The rail is a fire-and-forget entry point, so a structured failure has no caller
+  ///     left to return it to.</summary>
+  private async Task OpenAgentFromRailAsync()
+  {
+    Result<AgentTabViewModel> opened = await OpenAgentInWorkspaceAsync().ConfigureAwait(true);
+    if (!opened.IsSuccess)
+    {
+      AppWarning = opened.Error.Message;
+    }
+  }
 
   private RelayCommand CreateOpenSessionsCommand() => new(
       () => SessionsRequested?.Invoke(this, EventArgs.Empty));
@@ -657,19 +720,19 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsed.IsSuccess ? parsed.Value : [];
   }
 
-  /// <summary>Loads the workspace session-file rows for the launch dialog's prefill.
-  ///     The launch dialog edits the workspace it is ABOUT to open, so the prefill
-  ///     comes from the caller's chosen root — null root means an empty scope.</summary>
+  /// <summary>Loads one workspace's session-file rows. A null root means the workspace this
+  ///     shell is bound to; a shell bound to nothing has an empty scope.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSessionFilesAsync(string? workspaceRoot = null)
   {
-    if (AppPreferences is null || workspaceRoot is null)
+    string? root = workspaceRoot ?? WorkspaceRoot;
+    if (AppPreferences is null || root is null)
     {
       return [];
     }
 
     // The root is resolved through the same guard the launch path uses:
     // an unresolvable path is a NAMED failure, not an escaping exception.
-    Result<string> resolved = ResolveWorkspaceRoot(workspaceRoot);
+    Result<string> resolved = ResolveWorkspaceRoot(root);
     if (!resolved.IsSuccess)
     {
       return [];
@@ -695,16 +758,17 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsed.IsSuccess ? parsed.Value : [];
   }
 
-  /// <summary>Loads the workspace skill-directory rows for the launch dialog's
-  ///     prefill. Null root means an empty scope.</summary>
+  /// <summary>Loads one workspace's skill-directory rows. A null root means the workspace
+  ///     this shell is bound to; a shell bound to nothing has an empty scope.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSkillDirectoriesAsync(string? workspaceRoot = null)
   {
-    if (AppPreferences is null || workspaceRoot is null)
+    string? root = workspaceRoot ?? WorkspaceRoot;
+    if (AppPreferences is null || root is null)
     {
       return [];
     }
 
-    Result<string> resolved = ResolveWorkspaceRoot(workspaceRoot);
+    Result<string> resolved = ResolveWorkspaceRoot(root);
     if (!resolved.IsSuccess)
     {
       return [];
@@ -716,17 +780,19 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsedWs.IsSuccess ? parsedWs.Value : [];
   }
 
-  /// <summary>Loads the workspace trusted-directory rows for the launch dialog's prefill
-  ///     (issue #96). Null root means an empty scope; a parse failure renders as empty
-  ///     rather than half a list - the safe direction for external reach is nothing.</summary>
+  /// <summary>Loads one workspace's trusted-directory rows (issue #96). A null root means
+  ///     the workspace this shell is bound to; a shell bound to nothing has an empty scope. A
+  ///     parse failure renders as empty rather than half a list - the safe direction for
+  ///     external reach is nothing.</summary>
   public async Task<IReadOnlyList<TrustedDirectoryEntry>> GetTrustedDirectoriesAsync(string? workspaceRoot = null)
   {
-    if (AppPreferences is null || workspaceRoot is null)
+    string? root = workspaceRoot ?? WorkspaceRoot;
+    if (AppPreferences is null || root is null)
     {
       return [];
     }
 
-    Result<string> resolved = ResolveWorkspaceRoot(workspaceRoot);
+    Result<string> resolved = ResolveWorkspaceRoot(root);
     if (!resolved.IsSuccess)
     {
       return [];
@@ -1160,6 +1226,22 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     surfaces it. Reopening an already-open (directory, provider) pair selects its
   ///     existing tab instead — the same directory may be open under both providers.</summary>
   public async Task<Result<AgentTabViewModel>> OpenAgentAsync(string workspaceRoot, string providerName)
+      => await OpenAgentCoreAsync(workspaceRoot, providerName, reuseExistingTab: true).ConfigureAwait(true);
+
+  /// <summary>Opens one more agent in the workspace this shell is bound to, with the
+  ///     preferred provider. Every call adds a TAB: the rail's New Agent entry is how the user
+  ///     asks for another agent, and selecting an existing one instead would refuse the
+  ///     request. Fails with <c>NoWorkspace</c> when the host bound no root.</summary>
+  public Task<Result<AgentTabViewModel>> OpenAgentInWorkspaceAsync()
+      => WorkspaceRoot is null
+          ? Task.FromResult(Result.Failure<AgentTabViewModel>(new DomainError("NoWorkspace",
+              "this window is not bound to a workspace; open one from the launcher.")))
+          : OpenAgentCoreAsync(WorkspaceRoot, PreferredProviderId, reuseExistingTab: false);
+
+  /// <summary>The open path both entry points share. <paramref name="reuseExistingTab"/> false
+  ///     always appends: a caller that asked for another agent gets one.</summary>
+  private async Task<Result<AgentTabViewModel>> OpenAgentCoreAsync(string workspaceRoot,
+      string providerName, bool reuseExistingTab)
   {
     // The root is VALIDATED, not trusted: a blank or unresolvable path must
     // fail with a NAMED error, never an exception. Path.GetFullPath throws on
@@ -1173,13 +1255,25 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     string full = resolved.Value;
-    AgentTabViewModel? existing = Tabs.FirstOrDefault(t =>
-        string.Equals(t.Container.WorkspaceRoot, full, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(t.Container.ProviderName, providerName, StringComparison.Ordinal));
-    if (existing is not null)
+    // ONE WINDOW IS ONE WORKSPACE: a root that is not this shell's own would put a tab in the
+    // strip that belongs to another folder, which is the per-tab workspace choice the launcher
+    // replaces. An unbound shell constrains nothing - it has no own root to compare against.
+    if (WorkspaceRoot is not null && !WorkspaceIdentity.PathsEqual(WorkspaceRoot, full))
     {
-      SelectedTab = existing;
-      return Result.Success(existing);
+      return Result.Failure<AgentTabViewModel>(new DomainError("ForeignWorkspace",
+          $"this window is bound to '{WorkspaceRoot}'; it cannot open '{full}'."));
+    }
+
+    if (reuseExistingTab)
+    {
+      AgentTabViewModel? existing = Tabs.FirstOrDefault(t =>
+          string.Equals(t.Container.WorkspaceRoot, full, StringComparison.OrdinalIgnoreCase)
+          && string.Equals(t.Container.ProviderName, providerName, StringComparison.Ordinal));
+      if (existing is not null)
+      {
+        SelectedTab = existing;
+        return Result.Success(existing);
+      }
     }
 
     IsOpeningAgent = true;

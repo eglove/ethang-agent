@@ -8,6 +8,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>The launcher window renders the recent list and carries the two actions the
 ///     launcher exists for: open a folder, and reach Settings before any workspace exists.
 ///     </summary>
+[Trait("Category", "Process")]
 public sealed class LauncherWindowTests
 {
   [AvaloniaFact]

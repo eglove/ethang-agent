@@ -21,11 +21,11 @@
          docked explicitly. -->
     <Border Grid.Column="0" x:Name="SideMenu" Background="#FF1B1B2F" Width="48">
       <DockPanel LastChildFill="False">
-        <Button x:Name="OpenAgentMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="📂"
+        <Button x:Name="OpenAgentMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="➕"
                 Width="40" Height="34" Padding="0" FontSize="18"
                 HorizontalAlignment="Center"
                 Margin="0,8,0,2" Command="{Binding OpenAgentCommand}"
-                ToolTip.Tip="Open Workspace"/>
+                ToolTip.Tip="New Agent — open another agent in this workspace"/>
         <Button x:Name="SessionsMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="💬"
                 Width="40" Height="34" Padding="0" FontSize="18"
                 HorizontalAlignment="Center"
@@ -192,8 +192,8 @@
       <!-- Empty shell: shown when no tab is open. -->
       <StackPanel x:Name="EmptyState" Grid.Row="2" VerticalAlignment="Center" Spacing="10"
                   IsVisible="{Binding !HasTabs}">
-        <TextBlock
-            Text="No agent is open.&#x0a;'Open Workspace' chooses the directory the agent works from."
+        <TextBlock x:Name="EmptyStateText"
+            Text="{Binding EmptyStateText}"
             TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="15"/>
         <TextBlock
             Text="No API key configured yet — open ⚙ Settings to add one."
