@@ -5,9 +5,10 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>The tools page: the PATH listing grouped by source directory, the name filter, the
-///     ticked counts, the free-text add box, and the save that writes the ticked bare names.
-///     The scan and the resolution are seams, so nothing here reads this machine's PATH.</summary>
+/// <summary>The Tools tab: the PATH listing grouped by source directory, the name filter, the
+///     ticked counts, the free-text add box, and the selection the settings dialog's Save
+///     writes. The scan and the resolution are seams, so nothing here reads this machine's
+///     PATH, and the page persists nothing itself - the dialog owns the one write.</summary>
 public class ToolsSettingsViewModelTests
 {
   private const string FirstDirectory = @"C:\tools\first";
@@ -38,8 +39,6 @@ public class ToolsSettingsViewModelTests
       Deletes.Add(key);
       return Task.FromResult(_values.Remove(key));
     }
-
-    public bool Holds(string key) => _values.ContainsKey(key);
   }
 
   /// <summary>A discovery result holding the given tools, grouped as the scan groups them.</summary>
@@ -134,8 +133,10 @@ public class ToolsSettingsViewModelTests
     Assert.Contains("1 of 2", vm.SummaryText, StringComparison.Ordinal);
   }
 
+  /// <summary>The page's whole output is the selection: the settings dialog serializes it and
+  ///     writes it with the rest of the settings, so this list is what Save stores.</summary>
   [Fact]
-  public async Task TickingTwoRowsAndSavingWritesExactlyThoseTwoBareNames()
+  public async Task TickingTwoRowsPutsExactlyThoseTwoBareNamesInTheSelection()
   {
     MemoryPreferences preferences = new();
     ToolsSettingsViewModel vm = Page(preferences, ScanOf((FirstDirectory, ["rg", "jq", "fzf"])));
@@ -143,31 +144,22 @@ public class ToolsSettingsViewModelTests
 
     vm.Groups[0].Rows[0].IsTicked = true;
     vm.Groups[0].Rows[1].IsTicked = true;
-    await vm.SaveAsync();
 
-    string? stored = await preferences.GetAsync(PathToolPreferences.Key, TestContext.Current.CancellationToken);
-    Assert.NotNull(stored);
-    Assert.Equal(["rg", "jq"], PathToolPreferences.Parse(stored).Value);
+    Assert.Equal(["rg", "jq"], vm.SelectedNames);
+    Assert.Empty(preferences.Writes);
     Assert.Empty(preferences.Deletes);
   }
 
+  /// <summary>An unread page has no rows, so its empty answer must never be mistaken for an
+  ///     empty selection: the dialog saves only a loaded page's ticks.</summary>
   [Fact]
-  public async Task SavingAnEmptySelectionDeletesThePreferenceInsteadOfWritingABlank()
+  public void AnUnreadPageIsNotLoaded_AndItsSelectionIsEmpty()
   {
     MemoryPreferences preferences = new();
-    _ = await preferences.SetAsync(PathToolPreferences.Key, "[\"rg\"]", TestContext.Current.CancellationToken);
-    preferences.Writes.Clear();
     ToolsSettingsViewModel vm = Page(preferences, ScanOf((FirstDirectory, ["rg"])));
-    await vm.LoadAsync();
 
-    Assert.Equal(1, vm.TickedCount);
-    vm.Groups[0].Rows[0].IsTicked = false;
-    await vm.SaveAsync();
-
-    Assert.False(preferences.Holds(PathToolPreferences.Key));
-    Assert.Equal([PathToolPreferences.Key], preferences.Deletes);
-    Assert.Empty(preferences.Writes);
-    Assert.Contains("Nothing is ticked", vm.StatusText, StringComparison.Ordinal);
+    Assert.False(vm.IsLoaded);
+    Assert.Empty(vm.SelectedNames);
   }
 
   [Fact]
@@ -187,14 +179,11 @@ public class ToolsSettingsViewModelTests
     Assert.True(absent.IsUnavailable);
     Assert.Null(absent.SourceDirectory);
     Assert.Equal(2, vm.TickedCount);
-
-    await vm.SaveAsync();
-    string? stored = await preferences.GetAsync(PathToolPreferences.Key, TestContext.Current.CancellationToken);
-    Assert.Equal(["rg", "mytool"], PathToolPreferences.Parse(stored).Value);
+    Assert.Equal(["rg", "mytool"], vm.SelectedNames);
   }
 
   [Fact]
-  public async Task AddingANameByHandTicksItAndSavesIt()
+  public async Task AddingANameByHandTicksItAndPutsItInTheSelection()
   {
     MemoryPreferences preferences = new();
     ToolsSettingsViewModel vm = Page(preferences, ScanOf((FirstDirectory, ["rg"])), Resolver("rg"));
@@ -208,10 +197,7 @@ public class ToolsSettingsViewModelTests
     Assert.True(added.IsTicked);
     Assert.True(added.IsUnavailable);
     Assert.Equal(string.Empty, vm.NameToAdd);
-
-    await vm.SaveAsync();
-    string? stored = await preferences.GetAsync(PathToolPreferences.Key, TestContext.Current.CancellationToken);
-    Assert.Equal(["mytool"], PathToolPreferences.Parse(stored).Value);
+    Assert.Equal(["mytool"], vm.SelectedNames);
   }
 
   [Fact]
@@ -258,12 +244,14 @@ public class ToolsSettingsViewModelTests
         Resolver("rg"));
 
     Assert.Equal(0, scans);
+    Assert.False(vm.IsLoaded);
     await vm.LoadAsync();
     Assert.Equal(1, scans);
+    Assert.True(vm.IsLoaded);
   }
 
   [Fact]
-  public async Task ASearchDoesNotChangeWhatIsSaved()
+  public async Task ASearchDoesNotChangeTheSelection()
   {
     MemoryPreferences preferences = new();
     ToolsSettingsViewModel vm = Page(preferences, ScanOf((FirstDirectory, ["rg", "jq"])));
@@ -271,10 +259,8 @@ public class ToolsSettingsViewModelTests
 
     vm.Groups[0].Rows[0].IsTicked = true;
     vm.SearchText = "jq";
-    await vm.SaveAsync();
 
-    string? stored = await preferences.GetAsync(PathToolPreferences.Key, TestContext.Current.CancellationToken);
-    Assert.Equal(["rg"], PathToolPreferences.Parse(stored).Value);
+    Assert.Equal(["rg"], vm.SelectedNames);
   }
 
   [Fact]
@@ -294,13 +280,13 @@ public class ToolsSettingsViewModelTests
   }
 
   [Fact]
-  public async Task AHostWithNoPreferenceStoreStillListsThePath_AndSaysSaveCannotLand()
+  public async Task AHostWithNoPreferenceStoreStillListsThePath_WithNothingTicked()
   {
     ToolsSettingsViewModel vm = new(null, () => ScanOf((FirstDirectory, ["rg"])), Resolver("rg"));
     await vm.LoadAsync();
 
     _ = Assert.Single(vm.Groups);
-    await vm.SaveAsync();
-    Assert.Contains("cannot be saved", vm.StatusText, StringComparison.Ordinal);
+    Assert.Empty(vm.SelectedNames);
+    Assert.True(vm.IsLoaded);
   }
 }

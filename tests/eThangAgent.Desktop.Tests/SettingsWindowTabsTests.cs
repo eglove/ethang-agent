@@ -2,8 +2,12 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
+using eThangAgent.Lsp.ACL;
+using eThangAgent.ToolDomain;
+using TextBlock = Avalonia.Controls.TextBlock;
 
 
 namespace eThangAgent.Desktop.Tests;
@@ -33,40 +37,61 @@ public class SettingsWindowTabsTests
         item => Assert.Equal("Git", Assert.IsType<TabItem>(item).Header));
   }
 
-  /// <summary>The language-servers page has exactly one way in: the row labelled 'Language
-  ///     servers', whose button asks the view to open the page.</summary>
+  /// <summary>The language-servers page is IN the tab: the rows are bound to the page the
+  ///     dialog built, so managing a language server never opens a second window.</summary>
   [AvaloniaFact]
-  public void The_Language_Servers_Page_Opens_From_One_Row()
+  public void The_Language_Servers_Tab_Holds_The_Page_Itself()
   {
-    SettingsWindow window = new();
+    LanguageServersViewModel page = new(new StubCatalog(), new StubInstaller(), new StubDetector());
+    SettingsWindow window = new(new SettingsValues { LanguageServersPage = () => page });
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
 
     tabs.SelectedIndex = 2;
     Dispatcher.UIThread.RunJobs();
 
-    Button open = window.GetControl<Button>("OpenLanguageServersButton");
-    Assert.True(open.IsVisible);
-    Assert.Same(window.DataContext is SettingsViewModel vm ? vm.OpenLanguageServersCommand : null,
-        open.Command);
+    Assert.Same(page, ((SettingsViewModel)window.DataContext!).LanguageServersPage);
+    Assert.Same(page.Rows, window.GetControl<ItemsControl>("LanguageList").ItemsSource);
   }
 
-  /// <summary>The tools page has exactly one way in: the row labelled 'Tools', whose button
-  ///     asks the view to open the page.</summary>
+  /// <summary>The tools page is IN the tab: the grouped list is bound to the page the dialog
+  ///     built, and the dialog's own Save is the only write, so no second window and no second
+  ///     Save button exist.</summary>
   [AvaloniaFact]
-  public void The_Tools_Page_Opens_From_One_Row()
+  public void The_Tools_Tab_Holds_The_Page_Itself()
   {
-    SettingsWindow window = new();
+    ToolsSettingsViewModel page = new(null, () => new PathToolScan([], 0),
+        names => [.. names.Select(name => new PathToolResolution(name, null, null))]);
+    SettingsWindow window = new(new SettingsValues { ToolsPage = () => page });
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
 
     tabs.SelectedIndex = 3;
     Dispatcher.UIThread.RunJobs();
 
-    Button open = window.GetControl<Button>("OpenToolsButton");
-    Assert.True(open.IsVisible);
-    Assert.Same(window.DataContext is SettingsViewModel vm ? vm.OpenToolsCommand : null,
-        open.Command);
+    Assert.Same(page, ((SettingsViewModel)window.DataContext!).ToolsPage);
+    Assert.Same(page.Groups, window.GetControl<ItemsControl>("ToolsGroupList").ItemsSource);
+    _ = window.GetControl<TextBox>("ToolsSearchBox");
+    _ = window.GetControl<TextBox>("ToolsAddNameBox");
+    _ = window.GetControl<Button>("ToolsAddNameButton");
+    _ = window.GetControl<TextBlock>("ToolsSummaryText");
+  }
+
+  /// <summary>A host that wired no tools page says so in the tab rather than offering a
+  ///     selection whose Save would go nowhere.</summary>
+  [AvaloniaFact]
+  public void A_Host_With_No_Tools_Page_Says_So_In_The_Tab()
+  {
+    SettingsWindow window = new(new SettingsValues());
+    window.Show();
+    TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
+
+    tabs.SelectedIndex = 3;
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.False(((SettingsViewModel)window.DataContext!).HasToolsPage);
+    Assert.True(window.GetControl<TextBlock>("ToolsUnavailableText").IsVisible);
+    Assert.False(window.GetControl<StackPanel>("ToolsPagePanel").IsVisible);
   }
 
   [AvaloniaFact]
@@ -170,5 +195,38 @@ public class SettingsWindowTabsTests
     }
 
     return false;
+  }
+
+  /// <summary>The real catalog: it is immutable data, so the tab renders genuine rows.</summary>
+  private sealed class StubCatalog : ILanguageServerCatalog
+  {
+    public IReadOnlyList<LspLanguageRow> All => LanguageServerCatalog.Default.All;
+
+    public LspLanguageRow? ForLanguage(string? languageId) =>
+        LanguageServerCatalog.Default.ForLanguage(languageId);
+  }
+
+  /// <summary>An installer that reports nothing installed and installs nothing: the tab's
+  ///     rows are what this test observes, not a machine's toolchain.</summary>
+  private sealed class StubInstaller : ILanguageServerInstaller
+  {
+    public string InstallRoot => @"C:\cache";
+
+    public Task<LspInstallResult> InstallAsync(string languageId, CancellationToken ct) =>
+        throw new NotSupportedException("InstallAsync is outside this test.");
+
+    public Task RemoveAsync(string languageId, CancellationToken ct) =>
+        throw new NotSupportedException("RemoveAsync is outside this test.");
+
+    public Task<InstalledLanguageServers> ReadAsync(CancellationToken ct) =>
+        Task.FromResult(InstalledLanguageServers.None);
+
+    public string? MissingPrerequisiteExecutable(string languageId) => null;
+  }
+
+  /// <summary>Detection that finds nothing: no workspace is walked.</summary>
+  private sealed class StubDetector : IWorkspaceLanguageDetector
+  {
+    public IReadOnlyList<DetectedLanguage> Detect(string workspaceRoot) => [];
   }
 }

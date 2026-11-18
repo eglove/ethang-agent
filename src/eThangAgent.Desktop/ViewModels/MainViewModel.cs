@@ -751,6 +751,12 @@ internal sealed partial class MainViewModel : ObservableObject
     return stored ?? string.Empty;
   }
 
+  /// <summary>The stored ticked-tool value for the settings dialog's prefill, or null when
+  ///     nothing is ticked. The raw text prefills; the Tools tab parses it and shows the
+  ///     selection, so a stored name the PATH no longer holds still opens ticked.</summary>
+  public async Task<string?> GetPathToolsTextAsync() =>
+      AppPreferences is null ? null : await AppPreferences.GetAsync(PathToolPreferences.Key);
+
   /// <summary>The currently-selected compaction model row for the modal's prefill.</summary>
   public Task<CompactionModelOption?> GetSelectedCompactionModelAsync()
   {
@@ -967,6 +973,9 @@ internal sealed partial class MainViewModel : ObservableObject
     // reads as 'delete nothing'; blank deletes the key so the thirty-day default applies.
     await PersistPreferenceAsync(RetentionSweep.WindowHoursKey,
         Normalize(update.RetentionWindowText));
+    // The ticked tools (plan #209) are one global preference like the rest: null is an empty
+    // selection, which the store expresses as a delete rather than as a written blank.
+    await PersistPreferenceAsync(PathToolPreferences.Key, Normalize(update.PathToolsText));
   }
 
   /// <summary>Persists the two scoped settings of a settings-modal update: the

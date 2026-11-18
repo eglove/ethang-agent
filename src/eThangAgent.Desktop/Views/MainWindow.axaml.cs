@@ -156,8 +156,11 @@ internal partial class MainWindow : Window
       CompactionHandoff = _vm.ConfiguredCompactionHandoff,
       SkillRegistryDefaultTarget = await _vm.GetSkillRegistryDefaultTargetAsync(),
       OpenRouterManagementKey = _vm.ConfiguredOpenRouterManagementKey,
+      PathToolsText = await _vm.GetPathToolsTextAsync(),
+      ToolsPage = ToolsPage(),
+      LanguageServersPage = LanguageServersPage(),
       ProviderSignInFactory = _vm.ProviderSignInFactory,
-    }, LanguageServersPage(), ToolsPage());
+    });
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {
@@ -167,8 +170,9 @@ internal partial class MainWindow : Window
     await _vm.ApplySettingsAsync(update);
   }
 
-  /// <summary>Opens the language-servers page for the selected tab. A host that wired no
-  ///     language-server seams shows nothing rather than an empty page.</summary>
+  /// <summary>Opens the language-servers page for the selected tab, from the session prompt's
+  ///     Choose command. A host that wired no language-server seams shows nothing rather than
+  ///     an empty page.</summary>
   /// <param name="languageId">The language the requesting prompt named first.</param>
   private async Task ShowLanguageServersAsync(string languageId)
   {
@@ -200,10 +204,10 @@ internal partial class MainWindow : Window
         : () => new LanguageServersViewModel(catalog, installer, detector, tab.Container.WorkspaceRoot);
   }
 
-  /// <summary>The tools page over this shell's app-scoped preference store, or null when the
-  ///     host wired none (the page is then not offered, because its Save would go nowhere).
-  ///     The page is built per open so it scans the PATH at that moment, and the scan belongs
-  ///     to the page rather than to app launch.</summary>
+  /// <summary>The tools tab's page over this shell's app-scoped preference store, or null when
+  ///     the host wired none (the tab then says a selection could not be saved). The page is
+  ///     built per open so it scans the PATH at that moment, and the scan belongs to the page
+  ///     rather than to app launch.</summary>
   private Func<ToolsSettingsViewModel>? ToolsPage()
   {
     IAppPreferenceStore? preferences = _vm?.AppPreferences;

@@ -182,6 +182,16 @@ internal sealed partial class LanguageServersViewModel : ObservableObject
   [ObservableProperty]
   public partial string? PageError { get; set; }
 
+  /// <summary>True while the installed state and every prerequisite are being read. The
+  ///     settings dialog shows this instead of a list of rows that have no status yet.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(LoadingText))]
+  public partial bool IsLoading { get; set; }
+
+  /// <summary>What the page says while it reads, so the wait is stated rather than implied by
+  ///     a disabled button.</summary>
+  public string LoadingText => IsLoading ? "Reading installed language servers..." : string.Empty;
+
   /// <summary>Re-reads installed state and prerequisite availability for every row, then
   ///     fills each row's status.</summary>
   public async Task RefreshAsync()
@@ -190,6 +200,27 @@ internal sealed partial class LanguageServersViewModel : ObservableObject
     foreach (LanguageServerRowViewModel row in _rows)
     {
       row.Data = Resolve(row.Data);
+    }
+  }
+
+  /// <summary>The settings dialog's entry point: reads the machine's state once and states the
+  ///     wait while it does. <see cref="RefreshAsync"/> is the same read without the wait
+  ///     state, which is what the page's own Refresh button runs.</summary>
+  public async Task LoadAsync()
+  {
+    if (IsLoading)
+    {
+      return;
+    }
+
+    IsLoading = true;
+    try
+    {
+      await RefreshAsync().ConfigureAwait(true);
+    }
+    finally
+    {
+      IsLoading = false;
     }
   }
 

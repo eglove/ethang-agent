@@ -60,6 +60,21 @@ internal sealed record SettingsValues
   public string? SkillRegistryDefaultTarget { get; init; }
   public string? OpenRouterManagementKey { get; init; }
 
+  /// <summary>The stored ticked-tool value exactly as the preference holds it, so the Tools tab
+  ///     opens on the selection the last save wrote and an untouched tab writes back the same
+  ///     bytes.</summary>
+  public string? PathToolsText { get; init; }
+
+  /// <summary>The Tools tab's page over the host's app-scoped preference store and this
+  ///     machine's PATH, or null when the host wired no store - the tab then says so rather
+  ///     than offering a selection whose Save would go nowhere.</summary>
+  public Func<ToolsSettingsViewModel>? ToolsPage { get; init; }
+
+  /// <summary>The Language servers tab's page over the selected tab's composition seams, or
+  ///     null when this host wired none - the tab then says so rather than showing an empty
+  ///     page.</summary>
+  public Func<LanguageServersViewModel>? LanguageServersPage { get; init; }
+
   /// <summary>Builds the provider sign-in for a base URL, or null when the dialog offers
   ///     no sign-in.</summary>
   public Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; init; }
@@ -75,7 +90,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     string? OpenRouterManagementKey = null,
     string? RootTurnIdleText = null,
     bool CompactionHandoff = false,
-    string? RetentionWindowText = null);
+    string? RetentionWindowText = null,
+    string? PathToolsText = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -89,20 +105,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public event EventHandler<SettingsUpdate>? SaveRequested;
 
   public IRelayCommand SaveCommand { get; }
-
-  /// <summary>Raised when the user asks for the language-servers page. The view opens it; the
-  ///     page owns its own persistence, so nothing here widens <see cref="SettingsUpdate"/>.</summary>
-  public event EventHandler? LanguageServersRequested;
-
-  /// <summary>Asks the view to open the language-servers page.</summary>
-  public IRelayCommand OpenLanguageServersCommand { get; }
-
-  /// <summary>Raised when the user asks for the tools page. The view opens it; the page owns
-  ///     its own persistence, so nothing here widens <see cref="SettingsUpdate"/>.</summary>
-  public event EventHandler? ToolsRequested;
-
-  /// <summary>Asks the view to open the tools page.</summary>
-  public IRelayCommand OpenToolsCommand { get; }
 
   /// <summary>Runs the provider sign-in and writes the minted key into the field. The
   ///     field stays the single source of truth for what Save persists, so a sign-in that
@@ -120,6 +122,26 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>The compaction summarizer choices: Automatic plus the session provider's
   ///     catalog model ids.</summary>
   public IReadOnlyList<CompactionModelOption> CompactionModels { get; }
+
+  /// <summary>The Tools tab's page, built per open so its scan reflects this machine now. Null
+  ///     when the host wired no app preference store: the tab then says the selection cannot be
+  ///     saved instead of offering ticks that would go nowhere.</summary>
+  public ToolsSettingsViewModel? ToolsPage { get; }
+
+  /// <summary>The Language servers tab's page, built per open so its statuses reflect this
+  ///     machine now. Null when the host wired no language-server seams.</summary>
+  public LanguageServersViewModel? LanguageServersPage { get; }
+
+  /// <summary>Whether the Tools tab has a page to show.</summary>
+  public bool HasToolsPage => ToolsPage is not null;
+
+  /// <summary>Whether the Language servers tab has a page to show.</summary>
+  public bool HasLanguageServersPage => LanguageServersPage is not null;
+
+  /// <summary>The stored ticked-tool value this dialog opened with. It is written back on Save
+  ///     only when the Tools tab was actually loaded: an unread page has no rows, and its empty
+  ///     answer must never delete a selection the user did not look at.</summary>
+  private readonly string? _openingPathTools;
 
   [ObservableProperty]
   public partial CompactionModelOption SelectedCompactionModel { get; set; }
@@ -342,10 +364,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
           SignInError = null;
         },
         () => IsSignedIn);
-    OpenLanguageServersCommand = new RelayCommand(
-        () => LanguageServersRequested?.Invoke(this, EventArgs.Empty));
-    OpenToolsCommand = new RelayCommand(
-        () => ToolsRequested?.Invoke(this, EventArgs.Empty));
     SaveCommand = new RelayCommand(
         () =>
         {
@@ -361,7 +379,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 OpenRouterManagementKey: Normalize(OpenRouterManagementKey),
                 RootTurnIdleText: Normalize(RootTurnIdleText),
                 CompactionHandoff: CompactionHandoff,
-                RetentionWindowText: Normalize(RetentionWindowText)));
+                RetentionWindowText: Normalize(RetentionWindowText),
+                PathToolsText: PathToolsTextForSave()));
           }
         },
         () => CanSave);
@@ -369,7 +388,43 @@ internal sealed partial class SettingsViewModel : ObservableObject
     CompactionModels = values.CompactionModels ?? [CompactionModelOption.Automatic];
     WorkspaceRoot = values.WorkspaceRoot;
     ProviderSignInFactory = values.ProviderSignInFactory;
+    ToolsPage = values.ToolsPage?.Invoke();
+    LanguageServersPage = values.LanguageServersPage?.Invoke();
+    _openingPathTools = values.PathToolsText;
     SeedFrom(values);
+  }
+
+  /// <summary>Reads the machine state both embedded pages need, once, when the dialog opens.
+  ///     The PATH scan costs seconds and the language-server read probes this machine, so
+  ///     neither belongs to app launch - and both belong to the dialog rather than to a
+  ///     window opened over it.
+  ///     <para>BEST EFFORT: a page that fails to read states its own failure, and the rest of
+  ///     the dialog stays usable.</para></summary>
+  public async Task LoadPagesAsync()
+  {
+    if (ToolsPage is { } tools)
+    {
+      await tools.LoadAsync().ConfigureAwait(true);
+    }
+
+    if (LanguageServersPage is { } languages)
+    {
+      await languages.LoadAsync().ConfigureAwait(true);
+    }
+  }
+
+  /// <summary>The ticked-tool value this save writes: the page's selection when the page was
+  ///     loaded, and the value the dialog opened with otherwise. Null means nothing is ticked,
+  ///     which the shell persists as a delete.</summary>
+  private string? PathToolsTextForSave()
+  {
+    if (ToolsPage is not { IsLoaded: true } page)
+    {
+      return _openingPathTools;
+    }
+
+    IReadOnlyList<string> selected = page.SelectedNames;
+    return selected.Count == 0 ? null : PathToolPreferences.Serialize(selected);
   }
 
   /// <summary>Runs the provider sign-in and puts the minted key in the field. The key

@@ -3,8 +3,9 @@
         xmlns:vm="using:eThangAgent.Desktop.ViewModels"
         x:Class="eThangAgent.Desktop.Views.SettingsWindow"
         x:DataType="vm:SettingsViewModel"
-        Title="Settings" Width="480" SizeToContent="Height"
-        CanResize="False" WindowStartupLocation="CenterOwner">
+        Title="Settings" Width="760" Height="720"
+        MinWidth="560" MinHeight="420"
+        CanResize="True" WindowStartupLocation="CenterOwner">
   <DockPanel>
     <!-- Shared footer: validation error plus Save/Cancel, outside the tabs so it
          applies to whichever category is showing. -->
@@ -67,28 +68,138 @@
         </StackPanel>
       </TabItem>
       <TabItem Header="Language servers">
-        <StackPanel Spacing="10">
-          <TextBlock Text="Language servers" FontWeight="Bold"/>
-          <TextBlock Text="Ten languages this app can serve, and which are installed on this machine."
-                     Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-          <Button x:Name="OpenLanguageServersButton" Content="Manage language servers"
-                  Command="{Binding OpenLanguageServersCommand}"/>
-          <TextBlock
-              Text="Nothing is installed until you install it, except C#, which ships with the app. A language whose toolchain this machine lacks stays listed and says what is missing. Installs land in the app's own cache directory and removing one deletes only that directory."
-              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-        </StackPanel>
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+          <TextBlock Grid.Row="0" TextWrapping="Wrap" Opacity="0.75" FontSize="12">
+            Every language this app can serve, and which of them this machine has. Nothing is
+            installed until you install it, except C#, which ships with the app. A language whose
+            toolchain this machine lacks stays listed and says what is missing. Installs land in
+            the app's own cache directory, and removing one deletes only that directory.
+          </TextBlock>
+
+          <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+            <TextBlock x:Name="LanguageServersLoadingText"
+                       Text="{Binding LanguageServersPage.LoadingText}"
+                       Opacity="0.7" FontSize="12" VerticalAlignment="Center"
+                       IsVisible="{Binding LanguageServersPage.IsLoading}"/>
+            <TextBlock x:Name="LanguageServersErrorText"
+                       Text="{Binding LanguageServersPage.PageError}" Foreground="OrangeRed"
+                       TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center"
+                       IsVisible="{Binding LanguageServersPage.PageError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            <TextBlock x:Name="LanguageServersUnavailableText"
+                       Text="This host wired no language-server seams, so there is nothing to install or remove here."
+                       Opacity="0.75" FontSize="12" VerticalAlignment="Center"
+                       IsVisible="{Binding !HasLanguageServersPage}"/>
+            <Button x:Name="RefreshLanguageServersButton" Content="Refresh"
+                    Command="{Binding LanguageServersPage.RefreshCommand}"
+                    HorizontalAlignment="Right"
+                    IsVisible="{Binding HasLanguageServersPage}"/>
+          </StackPanel>
+
+          <ScrollViewer Grid.Row="2">
+            <ItemsControl x:Name="LanguageList" ItemsSource="{Binding LanguageServersPage.Rows}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LanguageServerRowViewModel">
+                  <Border BorderBrush="#33808080" BorderThickness="0,0,0,1" Padding="0,8">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}"/>
+                        <TextBlock FontSize="12" Opacity="0.7" Text="{Binding StatusText}"/>
+                        <TextBlock FontSize="12" Opacity="0.55" TextWrapping="Wrap"
+                                   Text="{Binding StatusDetail}"/>
+                      </StackPanel>
+                      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                  VerticalAlignment="Center">
+                        <Button x:Name="InstallButton" Content="Install"
+                                Command="{Binding InstallCommand}"
+                                IsVisible="{Binding CanInstall}"/>
+                        <Button x:Name="UpdateButton" Content="Update"
+                                Command="{Binding UpdateCommand}"
+                                IsVisible="{Binding CanUpdate}"/>
+                        <Button x:Name="RemoveButton" Content="Remove"
+                                Command="{Binding RemoveCommand}"
+                                IsVisible="{Binding CanRemove}"/>
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
       </TabItem>
       <TabItem Header="Tools">
-        <StackPanel Spacing="10">
-          <TextBlock Text="Command-line tools" FontWeight="Bold"/>
-          <TextBlock Text="Which of this machine's console programs and scripts agents are told about."
-                     Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-          <Button x:Name="OpenToolsButton" Content="Choose tools"
-                  Command="{Binding OpenToolsCommand}"/>
-          <TextBlock
-              Text="Nothing is ticked until you tick it, so a fresh install tells agents about no tools at all. The page lists every console program and script on the PATH, grouped by the directory it lives in. Ticked tools are named to every agent this app opens; a ticked tool that is no longer on the PATH is kept and shown as unavailable, and it is left out of what agents are told. Changes apply from the next app launch."
-              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-        </StackPanel>
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+          <TextBlock Grid.Row="0" TextWrapping="Wrap" Opacity="0.75" FontSize="12">
+            Which of this machine's console programs and scripts agents are told about. Nothing is
+            ticked until you tick it, so a fresh install tells agents about no tools at all.
+            Ticked tools are named to every agent this app opens; a ticked tool that is no longer
+            on the PATH is kept, shown as unavailable, and left out of what agents are told.
+            Changes apply from the next app launch.
+          </TextBlock>
+
+          <StackPanel Grid.Row="1" x:Name="ToolsPagePanel" Spacing="6"
+                      IsVisible="{Binding HasToolsPage}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBox Grid.Column="0" x:Name="ToolsSearchBox"
+                       Text="{Binding ToolsPage.SearchText}"
+                       PlaceholderText="Filter by name"/>
+              <Button Grid.Column="1" x:Name="ToolsRescanButton" Content="Rescan"
+                      Command="{Binding ToolsPage.LoadCommand}"/>
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBox Grid.Column="0" x:Name="ToolsAddNameBox"
+                       Text="{Binding ToolsPage.NameToAdd}"
+                       PlaceholderText="Add a tool name that is not on the PATH"/>
+              <Button Grid.Column="1" x:Name="ToolsAddNameButton" Content="Add"
+                      Command="{Binding ToolsPage.AddNameCommand}"/>
+            </Grid>
+            <TextBlock x:Name="ToolsSummaryText" Text="{Binding ToolsPage.SummaryText}"
+                       FontWeight="SemiBold"/>
+            <TextBlock x:Name="ToolsLoadingText" Text="Reading the PATH..." Opacity="0.7"
+                       FontSize="12" IsVisible="{Binding ToolsPage.IsLoading}"/>
+            <TextBlock x:Name="ToolsStatusText" Text="{Binding ToolsPage.StatusText}" Opacity="0.7"
+                       TextWrapping="Wrap" FontSize="12"
+                       IsVisible="{Binding ToolsPage.StatusText, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+          </StackPanel>
+
+          <TextBlock Grid.Row="1" x:Name="ToolsUnavailableText"
+                     Text="This host keeps no app preferences, so a tool selection could not be saved here."
+                     Opacity="0.75" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Top"
+                     IsVisible="{Binding !HasToolsPage}"/>
+
+          <ScrollViewer Grid.Row="2">
+            <ItemsControl x:Name="ToolsGroupList" ItemsSource="{Binding ToolsPage.Groups}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ToolGroupViewModel">
+                  <Border BorderBrush="#33808080" BorderThickness="0,0,0,1" Padding="0,6">
+                    <Expander IsExpanded="{Binding IsExpanded}">
+                      <Expander.Header>
+                        <TextBlock Text="{Binding HeaderText}" FontWeight="SemiBold"
+                                   TextWrapping="Wrap"/>
+                      </Expander.Header>
+                      <ItemsControl ItemsSource="{Binding Rows}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:ToolRowViewModel">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,2">
+                              <CheckBox Grid.Column="0" IsChecked="{Binding IsTicked}"/>
+                              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                          VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding AvailabilityText}" FontSize="12"
+                                           Opacity="0.6" VerticalAlignment="Center"
+                                           IsVisible="{Binding IsUnavailable}"/>
+                              </StackPanel>
+                            </Grid>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </Expander>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
       </TabItem>
       <TabItem Header="Models">
         <StackPanel Spacing="10">

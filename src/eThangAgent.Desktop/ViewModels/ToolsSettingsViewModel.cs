@@ -83,26 +83,20 @@ internal sealed partial class ToolGroupViewModel : ObservableObject
   partial void OnIsExpandedChanged(bool value) => _owner.NoteExpanded(Directory, value);
 }
 
-/// <summary>View-model behind the Tools page: every console program and script on this
+/// <summary>View-model behind the Tools tab: every console program and script on this
 ///     machine's PATH, grouped by the directory it lives in, with a search box, a ticked
-///     count, a free-text add box, and Save.
+///     count, and a free-text add box.
 ///     <para>THE SCAN BELONGS TO THIS PAGE, not to app launch: reading every PE header costs
-///     several seconds, and only a user who opens the page is waiting for it.</para>
+///     several seconds, and only a user who opens the tab is waiting for it.</para>
 ///     <para>NOTHING IS TICKED BY DEFAULT and no name is seeded: a fresh install announces no
 ///     tools at all, and the list is a guess about nobody's machine.</para>
+///     <para>THE PAGE PERSISTS NOTHING. The settings dialog's one Save writes
+///     <see cref="SelectedNames"/>, so a selection and the rest of the settings land together or
+///     not at all.</para>
 ///     <para>The scan and the resolution arrive as seams so the page is testable without
 ///     touching the machine's PATH.</para></summary>
 internal sealed partial class ToolsSettingsViewModel : ObservableObject
 {
-  /// <summary>What the page says after a save landed.</summary>
-  internal const string SavedMessage =
-      "Saved. Agents opened from now on are told about these tools; a change applies from the next app launch.";
-
-  /// <summary>What the page says after an empty selection was saved: the preference is gone,
-  ///     so the next agent's prompt is byte-identical to one built without this feature.</summary>
-  internal const string NothingTickedMessage =
-      "Saved. Nothing is ticked, so agents are told about no tools. Applies from the next app launch.";
-
   private readonly IAppPreferenceStore? _preferences;
   private readonly Func<PathToolScan> _scan;
   private readonly Func<IReadOnlyList<string>, IReadOnlyList<PathToolResolution>> _resolve;
@@ -110,8 +104,8 @@ internal sealed partial class ToolsSettingsViewModel : ObservableObject
   /// <summary>The directories the user has opened, so a search does not collapse them.</summary>
   private readonly HashSet<string> _expanded = [with(StringComparer.OrdinalIgnoreCase)];
 
-  /// <summary>Every row the page holds, filtered or not. The selection is saved from THIS, so
-  ///     a search never narrows what gets written.</summary>
+  /// <summary>Every row the page holds, filtered or not. The selection is read from THIS, so
+  ///     a search never narrows what gets saved.</summary>
   private List<ToolRowViewModel> _allRows = [];
 
   public ToolsSettingsViewModel(
@@ -123,7 +117,6 @@ internal sealed partial class ToolsSettingsViewModel : ObservableObject
     _scan = scan ?? (() => PathToolDiscovery.Scan(ResolvedAvailableTools.MachinePath()));
     _resolve = resolve ?? (names => PathToolDiscovery.Resolve(names, ResolvedAvailableTools.MachinePath()));
     LoadCommand = new AsyncRelayCommand(LoadAsync);
-    SaveCommand = new AsyncRelayCommand(SaveAsync);
     AddNameCommand = new RelayCommand(AddName, () => NameToAdd.Trim().Length > 0);
   }
 
@@ -132,11 +125,9 @@ internal sealed partial class ToolsSettingsViewModel : ObservableObject
   ///     rather than present and empty.</summary>
   public ObservableCollection<ToolGroupViewModel> Groups { get; } = [];
 
-  /// <summary>Scans the PATH and rebuilds the page. The view calls this when the page opens.</summary>
+  /// <summary>Scans the PATH and rebuilds the page. The settings dialog calls this when it
+  ///     shows the tab, and the page's Rescan button calls it again.</summary>
   public IAsyncRelayCommand LoadCommand { get; }
-
-  /// <summary>Writes the ticked names to the preference, or deletes it when nothing is ticked.</summary>
-  public IAsyncRelayCommand SaveCommand { get; }
 
   /// <summary>Ticks the name in the add box, creating a row for it when the PATH holds none.</summary>
   public IRelayCommand AddNameCommand { get; }
@@ -156,6 +147,17 @@ internal sealed partial class ToolsSettingsViewModel : ObservableObject
   /// <summary>True while the PATH is being read, which takes seconds.</summary>
   [ObservableProperty]
   public partial bool IsLoading { get; set; }
+
+  /// <summary>Whether the PATH has been read and the rows exist. The settings dialog saves the
+  ///     selection only from a loaded page: an unread page has no rows, and writing its empty
+  ///     answer would delete a selection the user never looked at.</summary>
+  [ObservableProperty]
+  public partial bool IsLoaded { get; set; }
+
+  /// <summary>The bare names the user has ticked, in page order. The settings dialog's one Save
+  ///     writes exactly this list, so the page never persists anything itself.</summary>
+  public IReadOnlyList<string> SelectedNames =>
+      [.. _allRows.Where(row => row.IsTicked).Select(row => row.Name)];
 
   /// <summary>How many rows are ticked, filtered or not.</summary>
   public int TickedCount => _allRows.Count(row => row.IsTicked);
@@ -187,6 +189,7 @@ internal sealed partial class ToolsSettingsViewModel : ObservableObject
       _allRows = BuildRows(scan, ticked);
       ApplyFilter();
       RaiseCounts();
+      IsLoaded = true;
       StatusText = scan.MissingDirectoryCount == 0
           ? null
           : scan.MissingDirectoryCount.ToString(CultureInfo.InvariantCulture)
@@ -196,31 +199,6 @@ internal sealed partial class ToolsSettingsViewModel : ObservableObject
     {
       IsLoading = false;
     }
-  }
-
-  /// <summary>Writes the ticked names through the preference's own serializer, or deletes the
-  ///     preference when nothing is ticked: the store requires a non-blank value, so an empty
-  ///     selection is expressed as a delete and never as a written blank.</summary>
-  public async Task SaveAsync()
-  {
-    if (_preferences is null)
-    {
-      StatusText = "This host keeps no preferences, so the selection cannot be saved.";
-      return;
-    }
-
-    List<string> names = [.. _allRows.Where(row => row.IsTicked).Select(row => row.Name)];
-    if (names.Count == 0)
-    {
-      _ = await _preferences.DeleteAsync(PathToolPreferences.Key).ConfigureAwait(true);
-      StatusText = NothingTickedMessage;
-      return;
-    }
-
-    bool stored = await _preferences
-        .SetAsync(PathToolPreferences.Key, PathToolPreferences.Serialize(names))
-        .ConfigureAwait(true);
-    StatusText = stored ? SavedMessage : "The selection could not be saved.";
   }
 
   /// <summary>Records a row's tick so the counts follow it.</summary>
