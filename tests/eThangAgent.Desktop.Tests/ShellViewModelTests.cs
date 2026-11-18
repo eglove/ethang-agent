@@ -516,7 +516,8 @@ public class ShellViewModelTests
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
          AgentPreferenceKeys.RootTurnIdle,
          AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key,
-         RetentionSweep.WindowHoursKey, PathToolPreferences.Key],
+         RetentionSweep.WindowHoursKey, PathToolPreferences.Key,
+         SessionFilePreferences.GlobalKey, SkillDirectoryPreferences.GlobalKey],
         preferences.Deletions);
 
     Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
@@ -542,7 +543,8 @@ public class ShellViewModelTests
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
          AgentPreferenceKeys.RootTurnIdle,
          AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key,
-         RetentionSweep.WindowHoursKey, PathToolPreferences.Key],
+         RetentionSweep.WindowHoursKey, PathToolPreferences.Key,
+         SessionFilePreferences.GlobalKey, SkillDirectoryPreferences.GlobalKey],
         preferences.Deletions);
     Assert.Equal(
         [
@@ -580,7 +582,8 @@ public class ShellViewModelTests
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
          AgentPreferenceKeys.RootTurnIdle,
          AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key,
-         RetentionSweep.WindowHoursKey, PathToolPreferences.Key],
+         RetentionSweep.WindowHoursKey, PathToolPreferences.Key,
+         SessionFilePreferences.GlobalKey, SkillDirectoryPreferences.GlobalKey],
         preferences.Deletions);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
   }

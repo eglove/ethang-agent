@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -78,6 +79,14 @@ internal sealed record SettingsValues
   /// <summary>Builds the provider sign-in for a base URL, or null when the dialog offers
   ///     no sign-in.</summary>
   public Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; init; }
+
+  /// <summary>The session files loaded for EVERY workspace, as the Skills tab opens with
+  ///     them. Null means an empty list.</summary>
+  public IReadOnlyList<SessionFileEntry>? GlobalSessionFiles { get; init; }
+
+  /// <summary>The skill directories scanned for EVERY workspace. Null means an empty
+  ///     list.</summary>
+  public IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories { get; init; }
 }
 
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle CommitStyle,
@@ -91,7 +100,9 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     string? RootTurnIdleText = null,
     bool CompactionHandoff = false,
     string? RetentionWindowText = null,
-    string? PathToolsText = null);
+    string? PathToolsText = null,
+    IReadOnlyList<SessionFileEntry>? GlobalSessionFiles = null,
+    IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -137,6 +148,28 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   /// <summary>Whether the Language servers tab has a page to show.</summary>
   public bool HasLanguageServersPage => LanguageServersPage is not null;
+
+  /// <summary>The session-file rows loaded for EVERY workspace. App-wide, so they live in
+  ///     this dialog rather than in the workspace settings surface.</summary>
+  public ObservableCollection<SessionFileRow> GlobalSessionFiles { get; } = [];
+
+  /// <summary>The skill-directory rows scanned for EVERY workspace.</summary>
+  public ObservableCollection<SessionFileRow> GlobalSkillDirectories { get; } = [];
+
+  /// <summary>The named problem with the last pick, or null. Rendered in the Skills tab so a
+  ///     refused pick says why instead of adding a second row.</summary>
+  [ObservableProperty]
+  public partial string? FileError { get; set; }
+
+  /// <summary>Raised when the user asks for a file picker (global session file).</summary>
+  public event EventHandler? GlobalFilePickRequested;
+
+  /// <summary>Raised when the user asks for a folder picker (global skill directory).</summary>
+  public event EventHandler? GlobalSkillDirectoryPickRequested;
+
+  public IRelayCommand PickGlobalFileCommand { get; }
+
+  public IRelayCommand PickGlobalSkillDirectoryCommand { get; }
 
   /// <summary>The stored ticked-tool value this dialog opened with. It is written back on Save
   ///     only when the Tools tab was actually loaded: an unread page has no rows, and its empty
@@ -357,6 +390,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
     // is load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
     // button is only one of several ways this command can be invoked.
     SignInCommand = new AsyncRelayCommand(SignInAsync, () => CanSignIn);
+    PickGlobalFileCommand = new RelayCommand(() => GlobalFilePickRequested?.Invoke(this, EventArgs.Empty));
+    PickGlobalSkillDirectoryCommand = new RelayCommand(
+        () => GlobalSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty));
     SignOutCommand = new RelayCommand(
         () =>
         {
@@ -380,7 +416,11 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 RootTurnIdleText: Normalize(RootTurnIdleText),
                 CompactionHandoff: CompactionHandoff,
                 RetentionWindowText: Normalize(RetentionWindowText),
-                PathToolsText: PathToolsTextForSave()));
+                PathToolsText: PathToolsTextForSave(),
+                GlobalSessionFiles: [.. GlobalSessionFiles.Select(
+                    row => new SessionFileEntry(row.Path, row.Enabled))],
+                GlobalSkillDirectories: [.. GlobalSkillDirectories.Select(
+                    row => new SessionFileEntry(row.Path, row.Enabled))]));
           }
         },
         () => CanSave);
@@ -391,6 +431,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
     ToolsPage = values.ToolsPage?.Invoke();
     LanguageServersPage = values.LanguageServersPage?.Invoke();
     _openingPathTools = values.PathToolsText;
+    SeedGlobalRows(GlobalSessionFiles, values.GlobalSessionFiles);
+    SeedGlobalRows(GlobalSkillDirectories, values.GlobalSkillDirectories);
     SeedFrom(values);
   }
 
@@ -494,6 +536,16 @@ internal sealed partial class SettingsViewModel : ObservableObject
     RetentionWindowText = values.RetentionWindowText ?? string.Empty;
   }
 
+  /// <summary>Appends one persisted entry list as checked rows.</summary>
+  private static void SeedGlobalRows(ObservableCollection<SessionFileRow> rows,
+      IReadOnlyList<SessionFileEntry>? entries)
+  {
+    foreach (SessionFileEntry entry in entries ?? [])
+    {
+      rows.Add(new SessionFileRow(entry.Path, entry.Enabled));
+    }
+  }
+
   private static CommitStyleOption StyleFor(CommitStyle style) => style switch
   {
     CommitStyle.Conventional => CommitStyleOption.Conventional,
@@ -527,6 +579,42 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnWatchdogWrapUpTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnOpenRouterBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  /// <summary>Feeds a picked global session-file path back in. A cancelled pick (null/blank)
+  ///     changes nothing; a duplicate is a named error.</summary>
+  public void SetPickedGlobalFile(string? path) => SetPicked(path, GlobalSessionFiles, "session file");
+
+  /// <summary>Feeds a picked global skill-directory path back in.</summary>
+  public void SetPickedGlobalSkillDirectory(string? path) =>
+      SetPicked(path, GlobalSkillDirectories, "skill directory");
+
+  [RelayCommand]
+  private void RemoveGlobalFile(SessionFileRow row) => _ = GlobalSessionFiles.Remove(row);
+
+  [RelayCommand]
+  private void RemoveGlobalSkillDirectory(SessionFileRow row) => _ = GlobalSkillDirectories.Remove(row);
+
+  /// <summary>Validates one picked path and appends a checked row. Pickers return absolute
+  ///     paths by construction, so the only named failure is a duplicate (case-insensitive,
+  ///     full-path normalized) - never a silent second row.</summary>
+  private void SetPicked(string? path, ObservableCollection<SessionFileRow> rows, string kind)
+  {
+    string trimmed = path?.Trim() ?? string.Empty;
+    if (trimmed.Length == 0)
+    {
+      return; // cancelled pick - no-op
+    }
+
+    string normalized = Path.GetFullPath(trimmed);
+    if (rows.Any(r => string.Equals(Path.GetFullPath(r.Path), normalized, StringComparison.OrdinalIgnoreCase)))
+    {
+      FileError = $"The {kind} is already configured: '{trimmed}'.";
+      return;
+    }
+
+    FileError = null;
+    rows.Add(new SessionFileRow(trimmed, Enabled: true));
+  }
 
   /// <summary>Returns the validation problem with <paramref name="key"/>, or null when
   ///     it is a legal entry: blank (cleared), or a trimmed non-empty value with no

@@ -112,54 +112,6 @@ public sealed class NewAgentLaunchGuardTests
         "the Open button's availability must be requeried when the workspace changes.");
   }
 
-  // ── the shell's launch application ──
-
-  [Fact]
-  public async Task ApplyLaunchFiles_With_A_Null_Workspace_Root_Does_Not_Throw()
-  {
-    GuardPreferenceStore store = new();
-    MainViewModel shell = CreateShell(store);
-
-    Exception? failure = await Record.ExceptionAsync(() => shell.ApplyLaunchFilesAsync(
-        new NewAgentChoice("openrouter", null!, [], [], [], []))).ConfigureAwait(true);
-
-    Assert.Null(failure);
-  }
-
-  [Fact]
-  public async Task ApplyLaunchFiles_With_A_Null_Workspace_Root_Persists_Nothing()
-  {
-    GuardPreferenceStore store = new();
-    MainViewModel shell = CreateShell(store);
-
-    Result<bool> applied = await shell.ApplyLaunchFilesAsync(
-        new NewAgentChoice("openrouter", null!, [], [], [], []));
-
-    Assert.Empty(store.Writes);
-    Assert.Empty(store.Deletions);
-    // A NAMED failure, not an exception: the shell refuses the launch and
-    // says why in a code the UI can surface.
-    Assert.False(applied.IsSuccess);
-    Assert.Equal("InvalidWorkspace", applied.Error.Code);
-  }
-
-  [Fact]
-  public async Task ApplyLaunchFiles_With_A_Blank_Workspace_Root_Persists_Nothing()
-  {
-    GuardPreferenceStore store = new();
-    MainViewModel shell = CreateShell(store);
-
-    Result<bool> applied = await shell.ApplyLaunchFilesAsync(
-        new NewAgentChoice("openrouter", "   ", [], [], [], []));
-
-    // A blank root must be refused BEFORE any preference is written or deleted -
-    // otherwise the workspace-scoped keys are derived from a garbage path.
-    Assert.Empty(store.Writes);
-    Assert.Empty(store.Deletions);
-    Assert.False(applied.IsSuccess);
-    Assert.Equal("InvalidWorkspace", applied.Error.Code);
-  }
-
   // ── the dialog's chrome: the Open button is DISABLED until the choice is
   //    complete, so the crash is unreachable by clicking (not only by the
   //    programmatic path the command test covers) ──
@@ -206,7 +158,7 @@ public sealed class NewAgentLaunchGuardTests
 
     NewAgentWindow? dialog = _shown.OfType<NewAgentWindow>().LastOrDefault();
     Assert.NotNull(dialog);
-    dialog.Close(new NewAgentChoice("openrouter", null!, [], [], [], []));
+    dialog.Close(new NewAgentChoice("openrouter", null!));
     Dispatcher.UIThread.RunJobs();
 
     // The refusal SURFACES to the user: the shell shows the named error in a
@@ -229,31 +181,13 @@ public sealed class NewAgentLaunchGuardTests
 
   // ── an UNRESOLVABLE (non-blank) root: the shape that still reaches
   //    Path.GetFullPath, which THROWS rather than returning a failure. The
-  //    shell must refuse it with a named error, and the open path must
-  //    never run (OpenAgentAsync would throw on the same path). ──
-
-  [Fact]
-  public async Task ApplyLaunchFiles_With_An_Unresolvable_Workspace_Root_Fails_Named()
-  {
-    GuardPreferenceStore store = new();
-    MainViewModel shell = CreateShell(store);
-
-    Result<bool> applied = await shell.ApplyLaunchFilesAsync(
-        new NewAgentChoice("openrouter", "C:\\bad\0path", [], [], [], []));
-
-    Assert.False(applied.IsSuccess);
-    Assert.Equal("InvalidWorkspace", applied.Error.Code);
-    Assert.Empty(store.Writes);
-    Assert.Empty(store.Deletions);
-  }
+  //    open path must refuse it with a named error, never an exception. ──
 
   [Fact]
   public async Task OpenAgent_With_An_Unresolvable_Workspace_Root_Fails_Named()
   {
     MainViewModel shell = CreateShell(new GuardPreferenceStore());
 
-    // The open path must be safe on its own too: the launch handler calls it
-    // right after the launch files are applied.
     Exception? failure = await Record.ExceptionAsync(() =>
         shell.OpenAgentAsync("C:\\bad\0path", "openrouter")).ConfigureAwait(true);
 

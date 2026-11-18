@@ -47,6 +47,7 @@ internal partial class MainWindow : Window
     vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
     vm.SessionsRequested += async (_, _) => await ShowSessionsDialogAsync();
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
+    vm.WorkspaceSettingsRequested += async (_, _) => await ShowWorkspaceSettingsDialogAsync();
     vm.ModelSettingsRequested += async (_, _) => await ShowModelSettingsDialogAsync();
     vm.McpServersRequested += async (_, _) => await ShowMcpServersDialogAsync();
     vm.LanguageServersRequested += async (_, languageId) => await ShowLanguageServersAsync(languageId);
@@ -79,40 +80,21 @@ internal partial class MainWindow : Window
     }
   }
 
-  /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker +
-  ///     the session-file / skill-directory lists configured at launch) and opens
-  ///     (or selects) the agent tab. The confirmed file lists persist BEFORE the
-  ///     open, so the new session's container build reads them. A cancelled dialog
-  ///     is a no-op. Failures surface as a dialog.</summary>
+  /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker) and opens
+  ///     (or selects) the agent tab. A cancelled dialog is a no-op. Failures surface as a
+  ///     dialog.
+  ///     <para>The dialog no longer carries any of the file lists: the workspace-scoped ones
+  ///     belong to <see cref="ShowWorkspaceSettingsDialogAsync"/> and the app-wide ones to the
+  ///     settings modal, so this handler persists nothing.</para></summary>
   private async Task ShowNewAgentDialogAsync()
   {
     try
     {
-      NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId,
-          new LaunchRows
-          {
-            GlobalFiles = await _vm.GetGlobalSessionFilesAsync(),
-            GlobalSkillDirectories = await _vm.GetGlobalSkillDirectoriesAsync(),
-          },
-          loadWorkspaceRows: async root => (
-              await _vm.GetWorkspaceSessionFilesAsync(root),
-              await _vm.GetWorkspaceSkillDirectoriesAsync(root),
-              await _vm.GetTrustedDirectoriesAsync(root)));
+      NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId);
       NewAgentChoice? choice = await dialog.ShowDialog<NewAgentChoice?>(this);
       if (choice is null)
       {
         return; // user cancelled — no-op
-      }
-
-      // The launch files are applied FIRST so the new session's container build
-      // reads the just-saved lists. A refusal here (a missing workspace root) is
-      // a NAMED failure, not an exception: the shell surfaces it and stops -
-      // the 2026-10-20 crash was an ArgumentNullException escaping this handler.
-      Result<bool> applied = await _vm.ApplyLaunchFilesAsync(choice);
-      if (!applied.IsSuccess)
-      {
-        await ShowOpenFailedAsync(applied.Error.Message);
-        return;
       }
 
       Result<AgentTabViewModel> result = await _vm.OpenAgentAsync(choice.WorkspaceRoot, choice.ProviderId);
@@ -129,6 +111,47 @@ internal partial class MainWindow : Window
 #pragma warning restore CA1031, S2486
     {
       await ShowOpenFailedAsync("The workspace could not be opened: " + ex.Message);
+    }
+  }
+
+  /// <summary>Shows the workspace settings window over the bound workspace's three stored
+  ///     lists and persists what it confirms. A cancelled window is a no-op; a refused save is
+  ///     a named failure surfaced in a dialog, never an escaping exception.
+  ///     <para>Nothing is shown on a shell with no bound workspace: every list the window edits
+  ///     is scoped to one, and the window refuses to be built without it.</para></summary>
+  private async Task ShowWorkspaceSettingsDialogAsync()
+  {
+    if (_vm?.WorkspaceRoot is not { } root)
+    {
+      return;
+    }
+
+    try
+    {
+      WorkspaceSettingsViewModel vm = new(root,
+          await _vm.GetWorkspaceSessionFilesAsync(root),
+          await _vm.GetWorkspaceSkillDirectoriesAsync(root),
+          await _vm.GetTrustedDirectoriesAsync(root));
+      WorkspaceSettingsWindow dialog = new(vm);
+      WorkspaceSettingsSave? save = await dialog.ShowDialog<WorkspaceSettingsSave?>(this);
+      if (save is null)
+      {
+        return; // user cancelled — no-op
+      }
+
+      Result<bool> applied = await _vm.ApplyWorkspaceSettingsAsync(save);
+      if (!applied.IsSuccess)
+      {
+        await ShowOpenFailedAsync(applied.Error.Message);
+      }
+    }
+    // Named decision (CA1031): an async-void dispatcher handler that faults tears the whole
+    // process down, so a failed save is a DIALOG rather than a fault.
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031, S2486
+    {
+      await ShowOpenFailedAsync("The workspace settings could not be saved: " + ex.Message);
     }
   }
 
@@ -156,6 +179,8 @@ internal partial class MainWindow : Window
       SkillRegistryDefaultTarget = await _vm.GetSkillRegistryDefaultTargetAsync(),
       OpenRouterManagementKey = _vm.ConfiguredOpenRouterManagementKey,
       PathToolsText = await _vm.GetPathToolsTextAsync(),
+      GlobalSessionFiles = await _vm.GetGlobalSessionFilesAsync(),
+      GlobalSkillDirectories = await _vm.GetGlobalSkillDirectoriesAsync(),
       ToolsPage = ToolsPage(),
       LanguageServersPage = LanguageServersPage(),
       ProviderSignInFactory = _vm.ProviderSignInFactory,

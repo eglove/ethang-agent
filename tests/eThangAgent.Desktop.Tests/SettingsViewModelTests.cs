@@ -1,3 +1,4 @@
+using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ToolDomain;
 
@@ -122,6 +123,75 @@ public class SettingsViewModelTests
 
     Assert.NotNull(saved);
     Assert.Equal(CommitStyle.Gitmoji, saved.CommitStyle);
+  }
+
+  /// <summary>The two GLOBAL lists prefill from the opening values and ride the same save: the
+  ///     Skills tab edits what applies to every workspace, and one Save writes it.</summary>
+  [Fact]
+  public void Global_Lists_Prefill_And_Ride_The_Update()
+  {
+    SettingsViewModel vm = new(new SettingsValues
+    {
+      GlobalSessionFiles = [new SessionFileEntry("AGENTS.md", true)],
+      GlobalSkillDirectories = [new SessionFileEntry(@"C:\skills", false)],
+    });
+
+    Assert.Equal("AGENTS.md", Assert.Single(vm.GlobalSessionFiles).Path);
+    Assert.Equal(@"C:\skills", Assert.Single(vm.GlobalSkillDirectories).Path);
+
+    SettingsUpdate? saved = null;
+    vm.SaveRequested += (_, update) => saved = update;
+    vm.SaveCommand.Execute(null);
+
+    Assert.NotNull(saved);
+    Assert.Equal(new SessionFileEntry("AGENTS.md", true), Assert.Single(saved.GlobalSessionFiles!));
+    Assert.Equal(new SessionFileEntry(@"C:\skills", false),
+        Assert.Single(saved.GlobalSkillDirectories!));
+  }
+
+  [Fact]
+  public void Global_Lists_Are_Empty_When_Nothing_Is_Configured()
+  {
+    SettingsViewModel vm = new(new SettingsValues());
+    SettingsUpdate? saved = null;
+    vm.SaveRequested += (_, update) => saved = update;
+
+    vm.SaveCommand.Execute(null);
+
+    Assert.Empty(vm.GlobalSessionFiles);
+    Assert.Empty(vm.GlobalSkillDirectories);
+    Assert.NotNull(saved);
+    Assert.Empty(saved.GlobalSessionFiles!);
+    Assert.Empty(saved.GlobalSkillDirectories!);
+  }
+
+  [Fact]
+  public void A_Duplicate_Global_Path_Is_Refused_And_Leaves_One_Row()
+  {
+    SettingsViewModel vm = new(new SettingsValues());
+
+    vm.SetPickedGlobalFile(@"C:\notes\AGENTS.md");
+    vm.SetPickedGlobalFile(@"c:\notes\agents.md");
+
+    _ = Assert.Single(vm.GlobalSessionFiles);
+    Assert.NotNull(vm.FileError);
+    Assert.Contains("already configured", vm.FileError, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Global_Rows_Remove_Through_The_Commands()
+  {
+    SettingsViewModel vm = new(new SettingsValues
+    {
+      GlobalSessionFiles = [new SessionFileEntry(@"C:\a.md", true), new SessionFileEntry(@"C:\b.md", true)],
+      GlobalSkillDirectories = [new SessionFileEntry(@"C:\skills", true)],
+    });
+
+    vm.RemoveGlobalFileCommand.Execute(vm.GlobalSessionFiles[0]);
+    vm.RemoveGlobalSkillDirectoryCommand.Execute(vm.GlobalSkillDirectories[0]);
+
+    Assert.Equal(@"C:\b.md", Assert.Single(vm.GlobalSessionFiles).Path);
+    Assert.Empty(vm.GlobalSkillDirectories);
   }
 
   [Fact]

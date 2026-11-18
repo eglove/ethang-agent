@@ -452,6 +452,11 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand OpenSettingsCommand { get; }
 
+  /// <summary>The rail's workspace settings entry: opens the window that edits the session
+  ///     files, skill directories and trusted directories of the workspace this shell is bound
+  ///     to. Disabled while no workspace is bound, because there is nothing to describe.</summary>
+  public IRelayCommand OpenWorkspaceSettingsCommand { get; }
+
   public IRelayCommand ChooseModelSettingsCommand { get; }
 
   public IRelayCommand OpenMcpServersCommand { get; }
@@ -464,6 +469,9 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the settings modal shown.</summary>
   public event EventHandler? SettingsRequested;
+
+  /// <summary>Raised when the shell wants the workspace settings window shown.</summary>
+  public event EventHandler? WorkspaceSettingsRequested;
 
   /// <summary>Raised when the shell wants the selected tab's Model Settings window shown.</summary>
   public event EventHandler? ModelSettingsRequested;
@@ -515,6 +523,7 @@ internal sealed partial class MainViewModel : ObservableObject
     OpenAgentCommand = CreateOpenAgentCommand();
     OpenSessionsCommand = CreateOpenSessionsCommand();
     OpenSettingsCommand = CreateOpenSettingsCommand();
+    OpenWorkspaceSettingsCommand = CreateOpenWorkspaceSettingsCommand();
     ChooseModelSettingsCommand = CreateChooseModelSettingsCommand();
     OpenMcpServersCommand = CreateOpenMcpServersCommand();
     ToggleResourceDetailsCommand = new RelayCommand(() => IsResourceDetailsOpen = !IsResourceDetailsOpen);
@@ -613,6 +622,12 @@ internal sealed partial class MainViewModel : ObservableObject
 
   private RelayCommand CreateOpenSettingsCommand() => new(
       () => SettingsRequested?.Invoke(this, EventArgs.Empty));
+
+  /// <summary>The workspace settings entry: gated on a bound workspace, since every list it
+  ///     edits is scoped to one.</summary>
+  private RelayCommand CreateOpenWorkspaceSettingsCommand() => new(
+      () => WorkspaceSettingsRequested?.Invoke(this, EventArgs.Empty),
+      () => HasWorkspace);
 
   /// <summary>The Model entry: gated on a selected tab (every provider has a picker).</summary>
   private RelayCommand CreateChooseModelSettingsCommand() => new(
@@ -1042,6 +1057,12 @@ internal sealed partial class MainViewModel : ObservableObject
     // The ticked tools (plan #209) are one global preference like the rest: null is an empty
     // selection, which the store expresses as a delete rather than as a written blank.
     await PersistPreferenceAsync(PathToolPreferences.Key, Normalize(update.PathToolsText));
+    // The two lists that apply to EVERY workspace: an empty list deletes its key, so an
+    // unconfigured scope leaves nothing behind for the session factory to read.
+    await PersistFileListAsync(SessionFilePreferences.GlobalKey, update.GlobalSessionFiles ?? [],
+        SessionFilePreferences.Serialize);
+    await PersistFileListAsync(SkillDirectoryPreferences.GlobalKey,
+        update.GlobalSkillDirectories ?? [], SkillDirectoryPreferences.Serialize);
   }
 
   /// <summary>Persists the two scoped settings of a settings-modal update: the
@@ -1335,27 +1356,36 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>Applies the launch dialog's file configuration (E moved out of
-  ///     Settings): persists the confirmed session-file and skill-directory lists
-  ///     to the SAME preference keys the session factory reads at container build,
-  ///     so the NEXT open of any workspace carries them. The lists carry FULL
-  ///     state — an empty list deletes its key (nothing configured), a non-empty
-  ///     one serializes verbatim. Best effort, the same named decision as every
-  ///     other preference write. Call BEFORE OpenAgentAsync so the new session's
-  ///     container build reads the just-saved lists.
-  ///     <para>The workspace root is VALIDATED here, not trusted: the workspace-scoped
-  ///     keys are derived from it, and Path.GetFullPath throws on a null or blank
-  ///     path (the 2026-10-20 crash: an ArgumentNullException inside the dialog's
-  ///     async-void handler took the whole process down). A missing root is a NAMED
-  ///     failure, never an exception, and it persists NOTHING.</para></summary>
-  public async Task<Result<bool>> ApplyLaunchFilesAsync(NewAgentChoice choice)
+  /// <summary>Applies a workspace settings save: persists the three lists that belong to ONE
+  ///     workspace under the workspace-scoped keys the session factory reads at container
+  ///     build, so the NEXT open of that workspace carries them. The lists carry FULL state -
+  ///     an empty list deletes its key (nothing configured), a non-empty one serializes
+  ///     verbatim.
+  ///     <para>REFUSES A FOREIGN ROOT. The keys are derived from the root, so a save naming a
+  ///     directory this window is not bound to would write another workspace's settings from
+  ///     this one; it fails with <c>ForeignWorkspace</c> and persists nothing. A shell bound to
+  ///     nothing has no own root to compare against and accepts the save, exactly as the open
+  ///     path does.</para>
+  ///     <para>The root is VALIDATED, not trusted: an unresolvable path is a NAMED failure
+  ///     (InvalidWorkspace), never an escaping exception.</para>
+  ///     <para>Best effort per list, the same named decision as every other preference write: a
+  ///     failed write logs to stderr rather than failing the save, so the worst case is a
+  ///     setting that did not land rather than a lost window.</para></summary>
+  /// <param name="save">The three lists and the root they belong to.</param>
+  public async Task<Result<bool>> ApplyWorkspaceSettingsAsync(WorkspaceSettingsSave save)
   {
-    ArgumentNullException.ThrowIfNull(choice);
+    ArgumentNullException.ThrowIfNull(save);
 
-    Result<string> root = ResolveWorkspaceRoot(choice.WorkspaceRoot);
+    Result<string> root = ResolveWorkspaceRoot(save.WorkspaceRoot);
     if (!root.IsSuccess)
     {
       return Result.Failure<bool>(root.Error);
+    }
+
+    if (WorkspaceRoot is not null && !WorkspaceIdentity.PathsEqual(WorkspaceRoot, root.Value))
+    {
+      return Result.Failure<bool>(new DomainError("ForeignWorkspace",
+          $"this window is bound to '{WorkspaceRoot}'; it cannot write the settings of '{root.Value}'."));
     }
 
     if (AppPreferences is null)
@@ -1363,21 +1393,15 @@ internal sealed partial class MainViewModel : ObservableObject
       return Result.Success(true); // test seam: nothing is remembered
     }
 
-    await PersistFileListAsync(SessionFilePreferences.GlobalKey, choice.GlobalFiles,
-        SessionFilePreferences.Serialize);
-    await PersistFileListAsync(
-        SessionFilePreferences.WorkspaceKey(root.Value),
-        choice.WorkspaceFiles, SessionFilePreferences.Serialize);
-    await PersistFileListAsync(SkillDirectoryPreferences.GlobalKey, choice.GlobalSkillDirectories,
-        SkillDirectoryPreferences.Serialize);
-    await PersistFileListAsync(
-        SkillDirectoryPreferences.WorkspaceKey(root.Value),
-        choice.WorkspaceSkillDirectories, SkillDirectoryPreferences.Serialize);
+    await PersistFileListAsync(SessionFilePreferences.WorkspaceKey(root.Value),
+        save.SessionFiles, SessionFilePreferences.Serialize);
+    await PersistFileListAsync(SkillDirectoryPreferences.WorkspaceKey(root.Value),
+        save.SkillDirectories, SkillDirectoryPreferences.Serialize);
     // Trusted directories (issue #96) are WORKSPACE-scoped: an approval says 'in THIS
     // workspace the agent may reach this external root', and a global list would widen
     // every other workspace's reach the moment one approves something.
     await PersistTrustedDirectoriesAsync(TrustedDirectoryPreferences.WorkspaceKey(root.Value),
-        choice.TrustedDirectories ?? []);
+        save.TrustedDirectories);
 
     return Result.Success(true);
   }
@@ -1415,8 +1439,11 @@ internal sealed partial class MainViewModel : ObservableObject
   private async Task PersistTrustedDirectoriesAsync(string preferenceKey,
       IReadOnlyList<TrustedDirectoryEntry> entries)
   {
-    IAppPreferenceStore preferences = AppPreferences
-        ?? throw new InvalidOperationException("PersistTrustedDirectoriesAsync requires a preference store.");
+    if (AppPreferences is not { } preferences)
+    {
+      return; // test seam: nothing is remembered
+    }
+
     // Named decision (CA1031): preference persistence must not take the launch down.
 #pragma warning disable CA1031 // Do not catch general exception types
     try
@@ -1443,8 +1470,11 @@ internal sealed partial class MainViewModel : ObservableObject
   private async Task PersistFileListAsync(string preferenceKey,
       IReadOnlyList<SessionFileEntry> entries, Func<IReadOnlyList<SessionFileEntry>, string> serialize)
   {
-    IAppPreferenceStore preferences = AppPreferences
-        ?? throw new InvalidOperationException("PersistFileListAsync requires a preference store.");
+    if (AppPreferences is not { } preferences)
+    {
+      return; // test seam: nothing is remembered
+    }
+
     // Named decision (CA1031): preference persistence must not take the launch down.
 #pragma warning disable CA1031 // Do not catch general exception types
     try

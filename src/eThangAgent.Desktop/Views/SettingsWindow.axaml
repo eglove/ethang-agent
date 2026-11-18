@@ -62,9 +62,57 @@
             </ComboBox>
           </StackPanel>
           <TextBlock Text="Where skill_registry installs go when the tool call names no target. Applies to newly opened agents." Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+          <Separator Margin="0,4,0,0"/>
+          <TextBlock Text="Session files" FontWeight="Bold" Margin="0,4,0,0"/>
+          <TextBlock Text="Every workspace (loaded for every workspace)" Opacity="0.8" FontSize="12"/>
+          <ItemsControl x:Name="GlobalSessionFilesList" ItemsSource="{Binding GlobalSessionFiles}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SessionFileRow">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <CheckBox IsChecked="{Binding Enabled}"/>
+                  <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" MaxWidth="380"
+                             ToolTip.Tip="{Binding Path}"/>
+                  <Button Content="✕"
+                          Command="{Binding $parent[ItemsControl].DataContext.RemoveGlobalFileCommand}"
+                          CommandParameter="{Binding}" Padding="2,0"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button x:Name="PickGlobalFileButton" Content="Add file…"
+                  Command="{Binding PickGlobalFileCommand}" HorizontalAlignment="Left"/>
           <TextBlock
-              Text="Session files and skill directories are configured in the Open Workspace dialog when a workspace is opened."
+              Text="Checked files are read at session start and injected verbatim into the system prompt, before this workspace's own files. Missing or unreadable files are skipped with a note."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+          <Separator Margin="0,4,0,0"/>
+          <TextBlock Text="Skill directories" FontWeight="Bold" Margin="0,4,0,0"/>
+          <TextBlock Text="Every workspace (scanned for every workspace)" Opacity="0.8" FontSize="12"/>
+          <ItemsControl x:Name="GlobalSkillDirectoriesList" ItemsSource="{Binding GlobalSkillDirectories}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SessionFileRow">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <CheckBox IsChecked="{Binding Enabled}"/>
+                  <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" MaxWidth="380"
+                             ToolTip.Tip="{Binding Path}"/>
+                  <Button Content="✕"
+                          Command="{Binding $parent[ItemsControl].DataContext.RemoveGlobalSkillDirectoryCommand}"
+                          CommandParameter="{Binding}" Padding="2,0"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button x:Name="PickGlobalSkillDirectoryButton" Content="Add directory…"
+                  Command="{Binding PickGlobalSkillDirectoryCommand}" HorizontalAlignment="Left"/>
+          <TextBlock
+              Text="Checked directories are scanned at session start for file skills (agentskills.io SKILL.md folders); a workspace directory equal to a global one is scanned once."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+          <TextBlock x:Name="SkillsFileErrorText" Text="{Binding FileError}"
+                     Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12"
+                     IsVisible="{Binding FileError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
         </StackPanel>
       </TabItem>
       <TabItem Header="Language servers">

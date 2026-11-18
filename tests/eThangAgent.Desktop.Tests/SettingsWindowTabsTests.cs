@@ -184,6 +184,50 @@ public class SettingsWindowTabsTests
     Assert.NotNull(target);
   }
 
+  /// <summary>The Skills tab edits the two lists that apply to EVERY workspace, and nothing
+  ///     workspace-scoped: the workspace lists and the trusted directories live in the
+  ///     workspace settings window, which this dialog cannot show because it is reachable with
+  ///     no workspace open.</summary>
+  [AvaloniaFact]
+  public void Skills_Tab_Exposes_The_Two_Global_Lists_And_No_Workspace_List()
+  {
+    SettingsValues values = new()
+    {
+      GlobalSessionFiles = [new SessionFileEntry("AGENTS.md", true)],
+      GlobalSkillDirectories = [new SessionFileEntry(@"C:\skills", false)],
+    };
+    SettingsWindow window = new(values);
+    window.Show();
+    TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
+    tabs.SelectedIndex = 1;
+    Dispatcher.UIThread.RunJobs();
+
+    SettingsViewModel vm = (SettingsViewModel)window.DataContext!;
+    ItemsControl files = window.GetControl<ItemsControl>("GlobalSessionFilesList");
+    ItemsControl directories = window.GetControl<ItemsControl>("GlobalSkillDirectoriesList");
+    Assert.Same(vm.GlobalSessionFiles, files.ItemsSource);
+    Assert.Same(vm.GlobalSkillDirectories, directories.ItemsSource);
+    Assert.Equal("AGENTS.md", Assert.Single(vm.GlobalSessionFiles).Path);
+    Assert.Equal(@"C:\skills", Assert.Single(vm.GlobalSkillDirectories).Path);
+    _ = window.GetControl<Button>("PickGlobalFileButton");
+    _ = window.GetControl<Button>("PickGlobalSkillDirectoryButton");
+
+    // No workspace-scoped list and no trusted-directory list anywhere in the dialog: the
+    // names those lists carry in the workspace settings window are absent here.
+    Assert.DoesNotContain("WorkspaceFilesList", ControlNames(window), StringComparer.Ordinal);
+    Assert.DoesNotContain("WorkspaceSkillDirectoriesList", ControlNames(window), StringComparer.Ordinal);
+    Assert.DoesNotContain("TrustedDirectoriesList", ControlNames(window), StringComparer.Ordinal);
+    Assert.DoesNotContain("PickTrustedDirectoryButton", ControlNames(window), StringComparer.Ordinal);
+  }
+
+  /// <summary>Every named control in a window's visual tree, so a test can assert a control
+  ///     does NOT exist rather than only that one does.</summary>
+  private static List<string> ControlNames(Window window)
+      => [.. window.GetVisualDescendants().OfType<Control>()
+          .Select(control => control.Name)
+          .Where(name => !string.IsNullOrEmpty(name))
+          .Select(name => name!)];
+
   private static bool IsDescendantOf(Avalonia.Visual node, Avalonia.Visual ancestor)
   {
     for (Avalonia.Visual? current = node; current is not null; current = current.GetVisualParent())

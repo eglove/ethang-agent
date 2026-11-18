@@ -3,18 +3,18 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>The persistence side of the skill-directory surface (skill-routing
-///     Phase 1, Task 10 - the dialog rows moved to NewAgentLaunchFilesTests with
-///     the launch surface): a confirmed launch choice persists through
-///     SkillDirectoryPreferences.Serialize to the matching keys (DeleteAsync on an
-///     empty list), a shell without a preference store persists as a silent
-///     no-op, and the prefill loaders read the same keys back.</summary>
+/// <summary>The persistence side of the two skill-directory scopes: the GLOBAL list lives in the
+///     app Settings window and persists through <see cref="MainViewModel.ApplySettingsAsync"/>,
+///     the WORKSPACE list lives in the workspace settings window and persists through
+///     <see cref="MainViewModel.ApplyWorkspaceSettingsAsync"/>. Both delete their key on an
+///     empty list, and both read back through the same loaders the windows prefill from.</summary>
 [Trait("Category", "Process")]
-public class LaunchSkillDirectoriesPersistenceTests
+public class SkillDirectoryScopePersistenceTests
 {
   private const string WsRoot = @"C:\work\skill-directories";
 
@@ -50,17 +50,16 @@ public class LaunchSkillDirectoriesPersistenceTests
     Assert.False(workspaceEntry.Enabled);
   }
 
-  // ── save: the persisted keys and JSON, through the launch choice ──
+  // ── save: the GLOBAL list, through the app settings save ──
 
   [Fact]
-  public async Task LaunchChoice_WritesKeyAndJson()
+  public async Task AppSettings_WritesTheGlobalKeyAndJson()
   {
     FakePreferenceStore store = new();
     MainViewModel shell = CreateSettingsShell(store);
 
-    Result<bool> applied = await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
-        [], [], [new SessionFileEntry(@"C:\skills\global", true)], []));
-    Assert.True(applied.IsSuccess);
+    await shell.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Conventional,
+        GlobalSkillDirectories: [new SessionFileEntry(@"C:\skills\global", true)]));
 
     string expected = SkillDirectoryPreferences.Serialize(
         [new SessionFileEntry(@"C:\skills\global", true)]);
@@ -71,13 +70,33 @@ public class LaunchSkillDirectoriesPersistenceTests
   }
 
   [Fact]
-  public async Task LaunchChoice_WorkspaceScope_UsesWorkspaceKey()
+  public async Task AppSettings_EmptyGlobalList_DeletesTheKey()
+  {
+    FakePreferenceStore store = new();
+    store.Stored[SkillDirectoryPreferences.GlobalKey] = SkillDirectoryPreferences.Serialize(
+        [new SessionFileEntry(@"C:\skills\global", true)]);
+    MainViewModel shell = CreateSettingsShell(store);
+
+    await shell.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Conventional,
+        GlobalSkillDirectories: []));
+
+    // An empty list DELETEs the preference — never an empty-array value.
+    Assert.Contains(SkillDirectoryPreferences.GlobalKey, store.Deletions);
+    Assert.False(store.Stored.ContainsKey(SkillDirectoryPreferences.GlobalKey));
+    Assert.Empty(await shell.GetGlobalSkillDirectoriesAsync());
+  }
+
+  // ── save: the WORKSPACE list, through the workspace settings save ──
+
+  [Fact]
+  public async Task WorkspaceSettings_WritesTheWorkspaceKeyAndJson()
   {
     FakePreferenceStore store = new();
     MainViewModel shell = CreateSettingsShell(store);
+    _ = await OpenShellAsync(shell, WsRoot);
 
-    Result<bool> applied = await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
-        [], [], [], [new SessionFileEntry(@"C:\skills\ws", true)]));
+    Result<bool> applied = await shell.ApplyWorkspaceSettingsAsync(new WorkspaceSettingsSave(WsRoot,
+        [], [new SessionFileEntry(@"C:\skills\ws", true)], []));
     Assert.True(applied.IsSuccess);
 
     string expected = SkillDirectoryPreferences.Serialize(
@@ -89,46 +108,134 @@ public class LaunchSkillDirectoriesPersistenceTests
   }
 
   [Fact]
-  public async Task LaunchChoice_EmptyList_Deletes_The_Key()
+  public async Task WorkspaceSettings_EmptyList_DeletesTheKey()
   {
     FakePreferenceStore store = new();
-    store.Stored[SkillDirectoryPreferences.GlobalKey] = SkillDirectoryPreferences.Serialize(
-        [new SessionFileEntry(@"C:\skills\global", true)]);
+    store.Stored[SkillDirectoryPreferences.WorkspaceKey(WsRoot)] = SkillDirectoryPreferences.Serialize(
+        [new SessionFileEntry(@"C:\skills\ws", true)]);
     MainViewModel shell = CreateSettingsShell(store);
+    _ = await OpenShellAsync(shell, WsRoot);
 
-    Result<bool> applied = await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
-        [], [], [], []));
+    Result<bool> applied = await shell.ApplyWorkspaceSettingsAsync(new WorkspaceSettingsSave(WsRoot,
+        [], [], []));
     Assert.True(applied.IsSuccess);
 
-    // An empty list DELETEs the preference — never an empty-array value.
-    Assert.Contains(SkillDirectoryPreferences.GlobalKey, store.Deletions);
-    Assert.False(store.Stored.ContainsKey(SkillDirectoryPreferences.GlobalKey));
-    Assert.Empty(await shell.GetGlobalSkillDirectoriesAsync());
+    Assert.Contains(SkillDirectoryPreferences.WorkspaceKey(WsRoot), store.Deletions);
+    Assert.False(store.Stored.ContainsKey(SkillDirectoryPreferences.WorkspaceKey(WsRoot)));
+    Assert.Empty(await shell.GetWorkspaceSkillDirectoriesAsync(WsRoot));
   }
 
   [Fact]
-  public async Task NullPreferences_LaunchChoiceIsNoop_NoThrow()
+  public async Task WorkspaceSettings_ForeignRoot_FailsNamed_AndPersistsNothing()
+  {
+    FakePreferenceStore store = new();
+    MainViewModel shell = CreateSettingsShell(store, boundRoot: WsRoot);
+
+    Result<bool> applied = await shell.ApplyWorkspaceSettingsAsync(new WorkspaceSettingsSave(
+        @"C:\work\other", [new SessionFileEntry("AGENTS.md", true)], [], []));
+
+    Assert.False(applied.IsSuccess);
+    Assert.Equal("ForeignWorkspace", applied.Error.Code);
+    Assert.Empty(store.Writes);
+    Assert.Empty(store.Deletions);
+  }
+
+  [Fact]
+  public async Task WorkspaceSettings_BlankRoot_FailsNamed_AndPersistsNothing()
+  {
+    FakePreferenceStore store = new();
+    MainViewModel shell = CreateSettingsShell(store);
+
+    Result<bool> applied = await shell.ApplyWorkspaceSettingsAsync(new WorkspaceSettingsSave(
+        "   ", [], [], []));
+
+    Assert.False(applied.IsSuccess);
+    Assert.Equal("InvalidWorkspace", applied.Error.Code);
+    Assert.Empty(store.Writes);
+    Assert.Empty(store.Deletions);
+  }
+
+  [Fact]
+  public async Task NullPreferences_WorkspaceSettingsIsNoop_NoThrow()
   {
     MainViewModel shell = CreateSettingsShell(preferences: null);
 
-    Exception? failure = await Record.ExceptionAsync(() => shell.ApplyLaunchFilesAsync(
-        new NewAgentChoice("openrouter", WsRoot,
-            [], [], [new SessionFileEntry(@"C:\skills\global", true)],
-            [new SessionFileEntry(@"C:\skills\ws", true)]))).ConfigureAwait(true);
+    Exception? failure = await Record.ExceptionAsync(() => shell.ApplyWorkspaceSettingsAsync(
+        new WorkspaceSettingsSave(WsRoot, [new SessionFileEntry("AGENTS.md", true)],
+            [new SessionFileEntry(@"C:\skills\ws", true)], []))).ConfigureAwait(true);
 
     Assert.Null(failure);
     Assert.Empty(await shell.GetGlobalSkillDirectoriesAsync());
     Assert.Empty(await shell.GetWorkspaceSkillDirectoriesAsync(WsRoot));
   }
 
+  // ── the two scopes are independent: a global list stays empty while a workspace list
+  //    holds a row, and the trusted-directory key is deleted by an empty save ──
+
+  [Fact]
+  public async Task GlobalEmpty_WorkspaceHoldingAGENTSMD_ReadsAsOneEnabledWorkspaceRow()
+  {
+    FakePreferenceStore store = new();
+    store.Stored[SessionFilePreferences.WorkspaceKey(WsRoot)] =
+        SessionFilePreferences.Serialize([new SessionFileEntry("AGENTS.md", true)]);
+    MainViewModel shell = CreateSettingsShell(store, boundRoot: WsRoot);
+
+    // The app Settings window's two lists read as empty: nothing applies to every workspace.
+    Assert.Empty(await shell.GetGlobalSessionFilesAsync());
+    Assert.Empty(await shell.GetGlobalSkillDirectoriesAsync());
+
+    // The workspace settings window reads one enabled row for this workspace.
+    SessionFileEntry row = Assert.Single(await shell.GetWorkspaceSessionFilesAsync());
+    Assert.Equal("AGENTS.md", row.Path);
+    Assert.True(row.Enabled);
+  }
+
+  [Fact]
+  public async Task WorkspaceSettings_EmptyTrustedList_DeletesTheWorkspaceKey()
+  {
+    FakePreferenceStore store = new();
+    string key = TrustedDirectoryPreferences.WorkspaceKey(WsRoot);
+    store.Stored[key] = TrustedDirectoryPreferences.Serialize(
+        [new TrustedDirectoryEntry(@"D:\shared", true, false)]);
+    MainViewModel shell = CreateSettingsShell(store, boundRoot: WsRoot);
+
+    Result<bool> applied = await shell.ApplyWorkspaceSettingsAsync(new WorkspaceSettingsSave(
+        WsRoot, [], [], []));
+
+    Assert.True(applied.IsSuccess);
+    Assert.Contains(key, store.Deletions);
+    Assert.False(store.Stored.ContainsKey(key));
+    Assert.Empty(await shell.GetTrustedDirectoriesAsync());
+  }
+
+  [Fact]
+  public async Task WorkspaceSettings_WritesTheTrustedKeyAndJson()
+  {
+    FakePreferenceStore store = new();
+    MainViewModel shell = CreateSettingsShell(store, boundRoot: WsRoot);
+
+    Result<bool> applied = await shell.ApplyWorkspaceSettingsAsync(new WorkspaceSettingsSave(
+        WsRoot, [], [], [new TrustedDirectoryEntry(@"D:\shared", true, true)]));
+
+    Assert.True(applied.IsSuccess);
+    string key = TrustedDirectoryPreferences.WorkspaceKey(WsRoot);
+    Assert.Equal(TrustedDirectoryPreferences.Serialize(
+            [new TrustedDirectoryEntry(@"D:\shared", true, true)]),
+        store.Stored[key]);
+    TrustedDirectoryEntry reloaded = Assert.Single(await shell.GetTrustedDirectoriesAsync());
+    Assert.True(reloaded.Editable);
+  }
+
   // ── helpers (the EffortSettingsPersistenceTests shell shape: a faked session
   //    delegate for tab opens plus Settings + factory so ApplySettingsAsync persists) ──
 
-  private static MainViewModel CreateSettingsShell(IAppPreferenceStore? preferences)
+  private static MainViewModel CreateSettingsShell(IAppPreferenceStore? preferences,
+      string? boundRoot = null)
       => new((root, provider) => Task.FromResult(Result.Success(BuildSession(root, provider))),
           new MainViewModelOptions
           {
             Preferences = preferences,
+            WorkspaceRoot = boundRoot,
             Settings = Settings(),
             SessionFactory = new AgentSessionFactory(Settings()),
           });

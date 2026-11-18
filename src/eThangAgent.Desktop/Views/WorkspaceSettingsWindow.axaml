@@ -1,0 +1,108 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:eThangAgent.Desktop.ViewModels"
+        x:Class="eThangAgent.Desktop.Views.WorkspaceSettingsWindow"
+        x:DataType="vm:WorkspaceSettingsViewModel"
+        Title="Workspace settings" Width="620" Height="700"
+        MinWidth="480" MinHeight="420"
+        CanResize="True" WindowStartupLocation="CenterOwner">
+  <DockPanel>
+    <!-- Shared footer: the duplicate-path error plus Save/Cancel, outside the lists so it
+         applies to whichever list the user just edited. -->
+    <StackPanel DockPanel.Dock="Bottom" Margin="24,0,24,20" Spacing="8">
+      <TextBlock x:Name="FileErrorText" Text="{Binding FileError}"
+                 Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12"
+                 IsVisible="{Binding FileError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+        <Button x:Name="CancelButton" Content="Cancel" Click="OnCancel"/>
+        <Button x:Name="SaveButton" Content="Save" Command="{Binding SaveCommand}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <ScrollViewer Margin="24,16,24,8">
+      <StackPanel Spacing="10">
+        <TextBlock x:Name="WorkspaceRootText" Text="{Binding WorkspaceRoot}"
+                   FontWeight="Bold" TextTrimming="CharacterEllipsis"
+                   ToolTip.Tip="{Binding WorkspaceRoot}"/>
+        <TextBlock Text="These settings apply to this workspace only."
+                   Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+        <Separator Margin="0,4,0,0"/>
+        <TextBlock Text="Session files" FontWeight="Bold" Margin="0,4,0,0"/>
+        <TextBlock Text="This workspace (loaded for this workspace only)"
+                   Opacity="0.8" FontSize="12"/>
+        <ItemsControl x:Name="SessionFilesList" ItemsSource="{Binding SessionFiles}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:SessionFileRow">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <CheckBox IsChecked="{Binding Enabled}"/>
+                <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" MaxWidth="380"
+                           ToolTip.Tip="{Binding Path}"/>
+                <Button Content="✕"
+                        Command="{Binding $parent[ItemsControl].DataContext.RemoveSessionFileCommand}"
+                        CommandParameter="{Binding}" Padding="2,0"/>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button x:Name="PickSessionFileButton" Content="Add file…"
+                Command="{Binding PickSessionFileCommand}" HorizontalAlignment="Left"/>
+        <TextBlock
+            Text="Checked files are read at session start and injected verbatim into the system prompt after the global ones. Missing or unreadable files are skipped with a note."
+            Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+        <Separator Margin="0,4,0,0"/>
+        <TextBlock Text="Skill directories" FontWeight="Bold" Margin="0,4,0,0"/>
+        <TextBlock Text="This workspace (scanned for this workspace only)"
+                   Opacity="0.8" FontSize="12"/>
+        <ItemsControl x:Name="SkillDirectoriesList" ItemsSource="{Binding SkillDirectories}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:SessionFileRow">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <CheckBox IsChecked="{Binding Enabled}"/>
+                <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" MaxWidth="380"
+                           ToolTip.Tip="{Binding Path}"/>
+                <Button Content="✕"
+                        Command="{Binding $parent[ItemsControl].DataContext.RemoveSkillDirectoryCommand}"
+                        CommandParameter="{Binding}" Padding="2,0"/>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button x:Name="PickSkillDirectoryButton" Content="Add directory…"
+                Command="{Binding PickSkillDirectoryCommand}" HorizontalAlignment="Left"/>
+        <TextBlock
+            Text="Checked directories are scanned at session start for file skills (agentskills.io SKILL.md folders); a workspace directory equal to a global one is scanned once."
+            Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+        <Separator Margin="0,4,0,0"/>
+        <TextBlock Text="Trusted directories" FontWeight="Bold" Margin="0,4,0,0"/>
+        <TextBlock Text="This workspace only" Opacity="0.8" FontSize="12"/>
+        <ItemsControl x:Name="TrustedDirectoriesList" ItemsSource="{Binding TrustedDirectories}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:TrustedDirectoryRow">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <CheckBox IsChecked="{Binding Enabled}" ToolTip.Tip="Enabled"/>
+                <CheckBox IsChecked="{Binding Editable}" Content="write"
+                          ToolTip.Tip="Allow the edit/write tools inside this root"/>
+                <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" MaxWidth="330"
+                           ToolTip.Tip="{Binding Path}"/>
+                <Button Content="✕"
+                        Command="{Binding $parent[ItemsControl].DataContext.RemoveTrustedDirectoryCommand}"
+                        CommandParameter="{Binding}" Padding="2,0"/>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button x:Name="PickTrustedDirectoryButton" Content="Add directory…"
+                Command="{Binding PickTrustedDirectoryCommand}" HorizontalAlignment="Left"/>
+        <TextBlock
+            Text="Approved external roots the file tools may reach directly, so recurring outside work needs no exec workaround. A checked row is readable; 'write' also allows edits. Nothing outside the workspace and these roots is reachable."
+            Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

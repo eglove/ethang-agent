@@ -171,6 +171,27 @@ public class ShellUiPolishTests
         "New Agent must be disabled with no workspace bound");
   }
 
+  /// <summary>The workspace settings entry is visible only while a workspace is bound, and it
+  ///     is the only rail entry that opens the window editing this workspace's lists.</summary>
+  [AvaloniaFact]
+  public void Rail_WorkspaceSettingsEntry_IsVisibleOnlyWhileAWorkspaceIsBound()
+  {
+    MainWindow bound = CreateBoundShellWindow(@"C:\work\alpha");
+    bound.Show();
+    Dispatcher.UIThread.RunJobs();
+    Button workspaceSettings = bound.GetControl<Button>("WorkspaceSettingsMenuItem");
+    Assert.True(workspaceSettings.IsVisible);
+    Assert.True(workspaceSettings.IsEffectivelyEnabled);
+    Assert.Contains("Workspace settings", ToolTip.GetTip(workspaceSettings) as string,
+        StringComparison.Ordinal);
+
+    MainWindow unbound = CreateBoundShellWindow(null);
+    unbound.Show();
+    Dispatcher.UIThread.RunJobs();
+    Assert.False(unbound.GetControl<Button>("WorkspaceSettingsMenuItem").IsVisible,
+        "the workspace settings entry must be hidden with no workspace bound");
+  }
+
   [AvaloniaFact]
   public void EmptyState_NamesTheWorkspace_AndNoLongerPointsAtOpenWorkspace()
   {
