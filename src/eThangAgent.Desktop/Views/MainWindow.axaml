@@ -43,17 +43,23 @@
                 Margin="0,2" Command="{Binding OpenMcpServersCommand}"
                 IsVisible="{Binding HasSelectedTab}"
                 ToolTip.Tip="MCP Servers — configured servers and their live state"/>
+        <Button x:Name="SettingsMenuItem" Classes="menu-item" DockPanel.Dock="Bottom" Content="⚙"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
+                Margin="0,2,0,8" Command="{Binding OpenSettingsCommand}"
+                ToolTip.Tip="Settings"/>
+        <Button x:Name="CloseWorkspaceMenuItem" Classes="menu-item" DockPanel.Dock="Bottom" Content="✖"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
+                Margin="0,2" Command="{Binding CloseWorkspaceCommand}"
+                IsVisible="{Binding HasWorkspace}"
+                ToolTip.Tip="Close workspace — stop every agent and return to the launcher"/>
         <Button x:Name="WorkspaceSettingsMenuItem" Classes="menu-item" DockPanel.Dock="Bottom" Content="🗂"
                 Width="40" Height="34" Padding="0" FontSize="18"
                 HorizontalAlignment="Center"
                 Margin="0,2" Command="{Binding OpenWorkspaceSettingsCommand}"
                 IsVisible="{Binding HasWorkspace}"
                 ToolTip.Tip="Workspace settings — session files, skill directories and trusted directories for this workspace"/>
-        <Button x:Name="SettingsMenuItem" Classes="menu-item" DockPanel.Dock="Bottom" Content="⚙"
-                Width="40" Height="34" Padding="0" FontSize="18"
-                HorizontalAlignment="Center"
-                Margin="0,2,0,8" Command="{Binding OpenSettingsCommand}"
-                ToolTip.Tip="Settings"/>
       </DockPanel>
     </Border>
 

@@ -90,7 +90,11 @@ public class ShellUiPolishTests
     window.Show();
     Dispatcher.UIThread.RunJobs(); // real geometry: bounds only exist after layout
 
-    foreach (string name in new[] { "OpenAgentMenuItem", "SessionsMenuItem", "ModelSettingsMenuItem", "SettingsMenuItem" })
+    foreach (string name in new[]
+    {
+      "OpenAgentMenuItem", "SessionsMenuItem", "ModelSettingsMenuItem", "SettingsMenuItem",
+      "CloseWorkspaceMenuItem", "WorkspaceSettingsMenuItem",
+    })
     {
       Button item = window.GetControl<Button>(name);
       if (!item.IsVisible)

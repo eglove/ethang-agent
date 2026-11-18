@@ -51,7 +51,15 @@ internal partial class MainWindow : Window
     vm.ModelSettingsRequested += async (_, _) => await ShowModelSettingsDialogAsync();
     vm.McpServersRequested += async (_, _) => await ShowMcpServersDialogAsync();
     vm.LanguageServersRequested += async (_, languageId) => await ShowLanguageServersAsync(languageId);
+    // The rail's close-workspace entry runs the shell's teardown through its command; the
+    // announcement follows the teardown, so a host that reacts to it finds no agent running.
+    vm.WorkspaceClosed += (_, _) => CloseWorkspaceRequested?.Invoke(this, EventArgs.Empty);
   }
+
+  /// <summary>Raised when the user asks to close the workspace: every agent is torn down and the
+  ///     process stays alive. The window does not close itself - the host decides what to show
+  ///     next - so this is an announcement, not a close.</summary>
+  public event EventHandler? CloseWorkspaceRequested;
 
   /// <summary>Shows the Sessions dialog (persisted root sessions, already-open ones
   ///     greyed) and resumes the pick. A cancelled dialog is a no-op. Failures surface

@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
+using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
@@ -118,6 +120,144 @@ public class AppShutdownContainmentTests
       {
         // best effort: a still-draining host may pin the directory
       }
+    }
+  }
+
+  /// <summary>Closing the WORKSPACE tears every agent down and leaves the process alive: two
+  ///     agents, two real host processes, both dead afterwards, the tab strip empty, and exactly
+  ///     one report that the workspace is closed.</summary>
+  [Fact]
+  public async Task CloseWorkspace_StopsEveryHost_AndReportsOnce()
+  {
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
+    host.ClaimHostsForCurrentTest();
+    _ = await host.StartAsync();
+    string ws = TestTempRoot.CreateDirectory("ethang-close-workspace-ws").FullName;
+    AgentSettings settings = host.BuildSettings();
+    AgentSessionFactory factory = new(settings, new AppDatabase(host.DatabasePath));
+    MainViewModel shell = new(createSession: null, new MainViewModelOptions
+    {
+      WorkspaceRoot = ws,
+      PreferredProviderId = Providers.OpenRouter,
+      Settings = settings,
+      SessionFactory = factory,
+    });
+    int closed = 0;
+    shell.WorkspaceClosed += (_, _) => closed++;
+
+    try
+    {
+      for (int i = 0; i < 2; i++)
+      {
+        Result<AgentTabViewModel> opened = await shell.OpenAgentInWorkspaceAsync()
+            .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+        Assert.True(opened.IsSuccess, opened.Error?.Message);
+      }
+
+      // TWO AGENTS ARE TWO HOST PROCESSES: the teardown below has two things to stop.
+      List<int> pids = [.. shell.Tabs.SelectMany(t => t.Snapshot())
+          .Select(c => c.Container is null ? null : HostPidOf(c.Container))
+          .OfType<int>()];
+      Assert.Equal(2, pids.Count);
+      Assert.All(pids, pid => Assert.True(IsAlive(pid), $"host {pid} must be running before the close"));
+
+      await shell.CloseWorkspaceCommand.ExecuteAsync(null)
+          .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      Assert.Empty(shell.Tabs);
+      foreach (int pid in pids)
+      {
+        Task exit = WaitForDeathAsync(pid);
+        bool died = await Task.WhenAny(exit, Task.Delay(TestCeiling.Value,
+            TestContext.Current.CancellationToken)).ConfigureAwait(true) == exit;
+        Assert.True(died, $"the session's host process {pid} must be dead after closing the workspace");
+        Assert.False(IsAlive(pid));
+      }
+
+      Assert.Equal(1, closed);
+    }
+    finally
+    {
+      try
+      {
+        Directory.Delete(ws, recursive: true);
+      }
+      catch (IOException)
+      {
+        // best effort: a still-draining host may pin the directory
+      }
+    }
+  }
+
+  /// <summary>A second close-workspace request while the first runs is the same request: the
+  ///     teardown is entered once and the workspace is reported closed once.</summary>
+  [Fact]
+  public async Task CloseWorkspace_RunsTheTeardownOnce_WhenAskedTwiceWhileItRuns()
+  {
+    GatedLifecycle lifecycle = new(new TestFixtures.StubStore());
+    AgentSession session = SessionOver(lifecycle, @"C:\work\alpha");
+    MainViewModel shell = new(createSession: (_, _) => Task.FromResult(Result.Success(session)),
+        new MainViewModelOptions { WorkspaceRoot = @"C:\work\alpha" });
+    int closed = 0;
+    shell.WorkspaceClosed += (_, _) => closed++;
+
+    Result<AgentTabViewModel> opened = await shell.OpenAgentInWorkspaceAsync()
+        .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(opened.IsSuccess, opened.Error?.Message);
+
+    Task first = shell.CloseWorkspaceCommand.ExecuteAsync(null);
+    await lifecycle.Entered.Task.WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true);
+
+    // THE SECOND REQUEST ARRIVES WHILE THE FIRST IS STILL INSIDE THE TEARDOWN.
+    Task second = shell.CloseWorkspaceCommand.ExecuteAsync(null);
+    await Task.Delay(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken)
+        .ConfigureAwait(true);
+
+    _ = lifecycle.Release.TrySetResult();
+    await Task.WhenAll(first, second).WaitAsync(TestCeiling.Value,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.Equal(1, lifecycle.Completions);
+    Assert.Equal(1, closed);
+    Assert.Empty(shell.Tabs);
+
+    // AND THE SAME TEARDOWN IS WHAT A LATER CALLER AWAITS: one walk per shell, whatever asked.
+    Assert.Same(shell.ShutdownAllAsync(), shell.ShutdownAllAsync());
+  }
+
+  /// <summary>An <see cref="AgentSession"/> over a throwaway container, carrying the lifecycle the
+  ///     test watches.</summary>
+  private static AgentSession SessionOver(RootSessionLifecycle lifecycle, string root)
+    => new(new ServiceCollection().BuildServiceProvider(), AgentId.NewId(), new Conversation(),
+        Handler: null!,
+        Lifecycle: lifecycle,
+        Model: ModelConfig.Create("test/model", 128, 0.1f, 8192).Value!,
+        WorkspaceRoot: root,
+        ProviderName: Providers.OpenRouter,
+        Inbox: new BoundedAgentMailbox(),
+        ChildRuntime: new TestFixtures.StubAgentRuntime());
+
+  /// <summary>A lifecycle whose completion is held open by the test, so the teardown can be
+  ///     observed while it is genuinely running.</summary>
+  private sealed class GatedLifecycle(IAgentStore store) : RootSessionLifecycle(store)
+  {
+    private int _completions;
+
+    public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public int Completions => Volatile.Read(ref _completions);
+
+    public override async Task CompleteAsync(AgentId rootId, Action<string> reportError)
+    {
+      _ = Interlocked.Increment(ref _completions);
+      _ = Entered.TrySetResult();
+      await Release.Task.ConfigureAwait(false);
+      await base.CompleteAsync(rootId, reportError).ConfigureAwait(false);
     }
   }
 

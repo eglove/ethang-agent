@@ -283,6 +283,16 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     walked its tabs, so a cell added afterwards would hold a host nothing disposes.</summary>
   private bool _shuttingDown;
 
+  /// <summary>The teardown this shell has begun, or null before the first request. Every request
+  ///     after the first awaits this one task, so the walk runs exactly once whatever asked for
+  ///     it - the window's close and the rail's close-workspace share it.</summary>
+  private Task? _shutdownTask;
+
+  /// <summary>The close-workspace request this shell has begun, or null before the first. A
+  ///     second request while it runs is the same request, so it awaits this task and the
+  ///     teardown - and the notification that follows it - happen once.</summary>
+  private Task? _closeWorkspaceTask;
+
   /// <summary>Resume hook mirroring the creation delegate: derived from the factory so
   ///     saved keys rebind future resumes; a host without a factory gets a structured
   ///     ResumeUnavailable failure instead of a crash.</summary>
@@ -461,6 +471,11 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     to. Disabled while no workspace is bound, because there is nothing to describe.</summary>
   public IRelayCommand OpenWorkspaceSettingsCommand { get; }
 
+  /// <summary>The rail's close-workspace entry: tears every agent down and reports the teardown
+  ///     finished through <see cref="WorkspaceClosed"/>, leaving the process alive. Disabled while
+  ///     no workspace is bound, because there is nothing to close.</summary>
+  public IAsyncRelayCommand CloseWorkspaceCommand { get; }
+
   public IRelayCommand ChooseModelSettingsCommand { get; }
 
   public IRelayCommand OpenMcpServersCommand { get; }
@@ -476,6 +491,11 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the workspace settings window shown.</summary>
   public event EventHandler? WorkspaceSettingsRequested;
+
+  /// <summary>Raised once every agent this shell opened has been torn down and every host
+  ///     process it started has been stopped. The process stays alive: a host that returns to a
+  ///     launcher reacts to this, and only the window's own close ends the process.</summary>
+  public event EventHandler? WorkspaceClosed;
 
   /// <summary>Raised when the shell wants the selected tab's Model Settings window shown.</summary>
   public event EventHandler? ModelSettingsRequested;
@@ -528,6 +548,7 @@ internal sealed partial class MainViewModel : ObservableObject
     OpenSessionsCommand = CreateOpenSessionsCommand();
     OpenSettingsCommand = CreateOpenSettingsCommand();
     OpenWorkspaceSettingsCommand = CreateOpenWorkspaceSettingsCommand();
+    CloseWorkspaceCommand = new AsyncRelayCommand(CloseWorkspaceAsync, () => HasWorkspace);
     ChooseModelSettingsCommand = CreateChooseModelSettingsCommand();
     OpenMcpServersCommand = CreateOpenMcpServersCommand();
     ToggleResourceDetailsCommand = new RelayCommand(() => IsResourceDetailsOpen = !IsResourceDetailsOpen);
@@ -4399,7 +4420,17 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     session instead of appending a cell into a shell nobody will walk again.</para>
   ///     <para>Best effort per tab, matching every other teardown path: one session's
   ///     failure must never leave the others running. Must run on the UI thread.</para></summary>
-  public async Task ShutdownAllAsync()
+  public Task ShutdownAllAsync()
+  {
+    // ONE TEARDOWN PER SHELL: a second request while the first runs is the same request, so it
+    // awaits the walk already in flight instead of walking a half-emptied tab list again.
+    _shutdownTask ??= ShutdownTabsAsync();
+    return _shutdownTask;
+  }
+
+  /// <summary>The walk <see cref="ShutdownAllAsync"/> and <see cref="CloseWorkspaceCommand"/>
+  ///     share: closes every tab, which completes each session and disposes each container.</summary>
+  private async Task ShutdownTabsAsync()
   {
     _shuttingDown = true;
     await StartsSettledAsync().ConfigureAwait(true);
@@ -4425,6 +4456,22 @@ internal sealed partial class MainViewModel : ObservableObject
       // Reusing it means app shutdown and tab close can never drift apart.
       await CloseTabAsync(tab).ConfigureAwait(true);
     }
+  }
+
+  /// <summary>Closes the workspace this shell is bound to: the same teardown as
+  ///     <see cref="ShutdownAllAsync"/>, then <see cref="WorkspaceClosed"/>. The process keeps
+  ///     running, so a host that shows a launcher again can do so.
+  ///     <para>A second request while the first runs is the same request: both await the one
+  ///     teardown, and the event is raised once.</para></summary>
+  private Task CloseWorkspaceAsync() =>
+      _closeWorkspaceTask ??= CloseWorkspaceCoreAsync();
+
+  /// <summary>The close-workspace walk: the teardown, then the one notification that it is
+  ///     over. Reached once per shell, because every later request awaits this same task.</summary>
+  private async Task CloseWorkspaceCoreAsync()
+  {
+    await ShutdownAllAsync().ConfigureAwait(true);
+    WorkspaceClosed?.Invoke(this, EventArgs.Empty);
   }
 
   /// <summary>Single-session convenience: a shell whose only tab opens over a
