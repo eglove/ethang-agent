@@ -15,7 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>The resource indicator's place in the window chrome (spec D14): the bar
-///     sits ABOVE the tab strip, it shows the usage, the level, and a reachable
+///     sits ABOVE the agent surface, it shows the usage, the level, and a reachable
 ///     details toggle, and the details carry the consumers and the governor's
 ///     decisions. The indicator is READ-ONLY: the chrome offers nothing that would
 ///     let the user act on the governor (the user declined a manual reclaim).</summary>
@@ -23,19 +23,21 @@ namespace eThangAgent.Desktop.Tests;
 public sealed class ResourceIndicatorChromeTests
 {
   [AvaloniaFact]
-  public void ResourceBar_SitsAboveTheTabStrip()
+  public void ResourceBar_SitsAboveTheAgentSurface()
   {
     MainWindow window = new(CreateShell());
     window.Show();
     Dispatcher.UIThread.RunJobs();
 
     Border bar = Control<Border>(window, "ResourceBar");
-    TabControl tabs = Control<TabControl>(window, "AgentTabs");
+    Border addStrip = Control<Border>(window, "AddAgentStrip");
+    ItemsControl grid = Control<ItemsControl>(window, "KeepAliveHost");
 
-    // The bar is in the row ABOVE the tabs: the budget is app-wide, so it is not
-    // per-tab and must not sit inside one.
+    // The bar is in the row ABOVE the agent surface: the budget is app-wide, so it is not
+    // one agent's and must not sit inside one.
     Assert.Equal(0, Grid.GetRow(bar));
-    Assert.Equal(1, Grid.GetRow(tabs));
+    Assert.Equal(1, Grid.GetRow(addStrip));
+    Assert.Equal(2, Grid.GetRow(grid));
   }
 
   [AvaloniaFact]

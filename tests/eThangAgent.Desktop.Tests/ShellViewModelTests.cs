@@ -163,11 +163,11 @@ public class ShellViewModelTests
           });
 
   [Fact]
-  public async Task OpenAgentCommand_OpensAnAgentInTheBoundWorkspace()
+  public async Task AddAgentCommand_OpensAnAgentInTheBoundWorkspace()
   {
     MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
 
-    await vm.OpenAgentCommand.ExecuteAsync(null);
+    await vm.AddAgentCommand.ExecuteAsync(null);
 
     AgentTabViewModel tab = Assert.Single(vm.Tabs);
     Assert.Equal(@"C:\work\alpha", tab.WorkspaceRoot);
@@ -197,17 +197,37 @@ public class ShellViewModelTests
     Assert.Equal(tab, vm.SelectedTab);
   }
 
+  /// <summary>ONE WINDOW IS ONE GRID: a second start appends a card to the grid that exists
+  ///     rather than opening another, so the window holds one grid however many agents run in
+  ///     it.</summary>
   [Fact]
-  public async Task OpenAgentInWorkspaceAsync_Twice_CreatesTwoTabsInTheSameWorkspace()
+  public async Task OpenAgentInWorkspaceAsync_Twice_AddsACardToTheSameGrid()
   {
     MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
 
     _ = await vm.OpenAgentInWorkspaceAsync();
     _ = await vm.OpenAgentInWorkspaceAsync();
 
-    Assert.Equal(2, vm.Tabs.Count);
-    Assert.All(vm.Tabs, t => Assert.Equal(@"C:\work\alpha", t.Container.WorkspaceRoot));
-    Assert.Equal(vm.Tabs[1], vm.SelectedTab);
+    AgentTabViewModel grid = Assert.Single(vm.Tabs);
+    Assert.Equal(@"C:\work\alpha", grid.WorkspaceRoot);
+    Assert.Equal(grid, vm.SelectedTab);
+  }
+
+  /// <summary>The '+' control starts an agent and returns the card it occupies, appending to
+  ///     the window's grid rather than opening a second one.</summary>
+  [Fact]
+  public async Task AddAgentInWorkspaceAsync_AppendsACard_ToTheWindowGrid()
+  {
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+
+    Result<AgentCellViewModel> first = await vm.AddAgentInWorkspaceAsync();
+    Result<AgentCellViewModel> second = await vm.AddAgentInWorkspaceAsync();
+
+    Assert.True(first.IsSuccess, first.Error?.Message);
+    Assert.True(second.IsSuccess, second.Error?.Message);
+    AgentTabViewModel grid = Assert.Single(vm.Tabs);
+    Assert.Equal(2, grid.Cells.Count);
+    Assert.NotEqual(first.Value.RootId, second.Value.RootId);
   }
 
   [Fact]
@@ -278,8 +298,10 @@ public class ShellViewModelTests
     Assert.Empty(await CreateBoundShell(null, preferences: preferences).GetWorkspaceSessionFilesAsync());
   }
 
+  /// <summary>The window's grid is named after its workspace folder: one window is one
+  ///     workspace, so the folder is the only name the grid can have.</summary>
   [Fact]
-  public async Task OpenAgent_Creates_Tab_Selects_It_And_Reports_HasTabs()
+  public async Task OpenAgent_CreatesTheGrid_SelectsIt_And_Reports_HasTabs()
   {
     MainViewModel vm = CreateShell((root, _) => FakeSession(root));
 
@@ -289,7 +311,7 @@ public class ShellViewModelTests
     _ = Assert.Single(vm.Tabs);
     Assert.Equal(vm.Tabs[0], vm.SelectedTab);
     Assert.True(vm.HasTabs);
-    Assert.Equal("Agent 1", opened.Value.Title);
+    Assert.Equal("alpha", opened.Value.Title);
   }
 
   [Fact]
@@ -315,30 +337,20 @@ public class ShellViewModelTests
     Assert.Equal(vm.Tabs[0], second.Value);
   }
 
+  /// <summary>A window is bound to ONE workspace, so a second directory is refused rather
+  ///     than opened: there is no strip for it to join, and the window's grid is this
+  ///     workspace's.</summary>
   [Fact]
-  public async Task Opening_A_Second_Directory_Adds_Another_Tab()
+  public async Task Opening_A_Second_Directory_IsRefused()
   {
-    MainViewModel vm = CreateShell((root, _) => FakeSession(root));
+    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
-    _ = await vm.OpenAgentAsync(@"C:\work\beta", "openrouter");
 
-    Assert.Equal(2, vm.Tabs.Count);
-    Assert.Equal("Agent 2", vm.SelectedTab!.Title); // newest tab selected
-  }
+    Result<AgentTabViewModel> second = await vm.OpenAgentAsync(@"C:\work\beta", "openrouter");
 
-  [Fact]
-  public async Task CloseTab_Removes_Tab_And_Falls_Back_Selection_To_Last()
-  {
-    MainViewModel vm = CreateShell((root, _) => FakeSession(root));
-    AgentTabViewModel alpha = (await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter")).Value!;
-    AgentTabViewModel beta = (await vm.OpenAgentAsync(@"C:\work\beta", "openrouter")).Value!;
-    Assert.Equal(beta, vm.SelectedTab);
-
-    await vm.CloseTabAsync(beta);
-
-    Assert.DoesNotContain(beta, vm.Tabs);
-    Assert.Equal(alpha, vm.SelectedTab);
-    Assert.True(vm.HasTabs);
+    Assert.False(second.IsSuccess);
+    Assert.Equal("ForeignWorkspace", second.Error.Code);
+    _ = Assert.Single(vm.Tabs);
   }
 
   [Fact]
@@ -354,57 +366,38 @@ public class ShellViewModelTests
     Assert.Null(vm.SelectedTab);
   }
 
-  /// <summary>Every tab the shell opens is named by its ordinal, in the order the tabs were
-  ///     opened. The workspace directory cannot name a tab: every tab in a window belongs to
-  ///     the window's one workspace, so they would all read the same.</summary>
+  /// <summary>Closing a card leaves the window's grid in place: the grid is the WINDOW's, so
+  ///     it outlives every agent that runs in it and the next start appends beside what is
+  ///     left.</summary>
   [Fact]
-  public async Task Tabs_AreNamedByOrdinal_InTheOrderTheyWereOpened()
+  public async Task ClosingACard_KeepsTheGrid_ForTheNextAgent()
   {
     MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
+    _ = await vm.AddAgentInWorkspaceAsync();
+    _ = await vm.AddAgentInWorkspaceAsync();
+    AgentTabViewModel grid = Assert.Single(vm.Tabs);
 
-    _ = await vm.OpenAgentInWorkspaceAsync();
-    _ = await vm.OpenAgentInWorkspaceAsync();
-    _ = await vm.OpenAgentInWorkspaceAsync();
+    await vm.CloseCellAsync(grid.Cells[0]);
+    Result<AgentCellViewModel> added = await vm.AddAgentInWorkspaceAsync();
 
-    string[] expected = ["Agent 1", "Agent 2", "Agent 3"];
-    Assert.Equal(expected, vm.Tabs.Select(tab => tab.Title));
+    Assert.True(added.IsSuccess, added.Error?.Message);
+    Assert.Same(grid, Assert.Single(vm.Tabs));
+    Assert.Equal(2, grid.Cells.Count);
   }
 
-  /// <summary>Closing a tab frees the ordinal it held, so the next agent takes the lowest one
-  ///     nothing is using rather than counting past the highest ever opened.</summary>
+  /// <summary>Closing the last card leaves the window's grid holding no agent, so the empty
+  ///     pane renders and the '+' is still the way to start another.</summary>
   [Fact]
-  public async Task ClosingAMiddleTab_FreesItsOrdinalForTheNextAgent()
+  public async Task ClosingTheLastCard_LeavesAnEmptyGrid()
   {
     MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
-    _ = await vm.OpenAgentInWorkspaceAsync();
-    _ = await vm.OpenAgentInWorkspaceAsync();
-    _ = await vm.OpenAgentInWorkspaceAsync();
+    _ = await vm.AddAgentInWorkspaceAsync();
+    AgentTabViewModel grid = Assert.Single(vm.Tabs);
 
-    await vm.CloseTabAsync(vm.Tabs[1]);
-    Result<AgentTabViewModel> opened = await vm.OpenAgentInWorkspaceAsync();
+    await vm.CloseCellAsync(Assert.Single(grid.Cells));
 
-    Assert.True(opened.IsSuccess);
-    Assert.Equal("Agent 2", opened.Value.Title);
-    // The new tab is APPENDED to the strip; only the name it takes is the freed one.
-    string[] expected = ["Agent 1", "Agent 3", "Agent 2"];
-    Assert.Equal(expected, vm.Tabs.Select(tab => tab.Title));
-  }
-
-  [Fact]
-  public async Task ClosingTheFirstTab_FreesItsOrdinalForTheNextAgent()
-  {
-    MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
-    _ = await vm.OpenAgentInWorkspaceAsync();
-    _ = await vm.OpenAgentInWorkspaceAsync();
-    _ = await vm.OpenAgentInWorkspaceAsync();
-
-    await vm.CloseTabAsync(vm.Tabs[0]);
-    Result<AgentTabViewModel> opened = await vm.OpenAgentInWorkspaceAsync();
-
-    Assert.True(opened.IsSuccess);
-    Assert.Equal("Agent 1", opened.Value.Title);
-    string[] expected = ["Agent 2", "Agent 3", "Agent 1"];
-    Assert.Equal(expected, vm.Tabs.Select(tab => tab.Title));
+    Assert.Same(grid, Assert.Single(vm.Tabs));
+    Assert.True(grid.IsEmpty, "the grid must report itself empty once its last card is closed");
   }
 
   /// <summary>A host that builds a tab directly keeps the name it always had: the workspace
@@ -432,19 +425,20 @@ public class ShellViewModelTests
     Assert.Contains(tab.Container.RootId.ToString(), tab.Tooltip, StringComparison.Ordinal);
   }
 
+  /// <summary>Every card in the window is a distinct agent: five starts leave five cards,
+  ///     each with its own session, so no two cards can address the same conversation.</summary>
   [Fact]
-  public async Task TwoOpenTabs_NeverShareATitle()
+  public async Task EveryCard_IsADistinctAgent()
   {
     MainViewModel vm = CreateBoundShell(@"C:\work\alpha", (root, _) => FakeSession(root));
     for (int i = 0; i < 5; i++)
     {
-      _ = await vm.OpenAgentInWorkspaceAsync();
+      _ = await vm.AddAgentInWorkspaceAsync();
     }
 
-    await vm.CloseTabAsync(vm.Tabs[2]);
-    _ = await vm.OpenAgentInWorkspaceAsync();
-
-    Assert.Equal(vm.Tabs.Count, vm.Tabs.Select(tab => tab.Title).Distinct(StringComparer.Ordinal).Count());
+    AgentTabViewModel grid = Assert.Single(vm.Tabs);
+    Assert.Equal(5, grid.Cells.Count);
+    Assert.Equal(5, grid.Cells.Select(cell => cell.RootId).Distinct().Count());
   }
 
   [Fact]
@@ -596,7 +590,7 @@ public class ShellViewModelTests
         new MainViewModelOptions { AvailableProviders = [] });
 
     Assert.False(vm.HasConfiguredProvider);
-    Assert.False(vm.OpenAgentCommand.CanExecute(null));
+    Assert.False(vm.AddAgentCommand.CanExecute(null));
   }
 
   // ── Model choice (item 117: the picker folded into Model Settings; the shell

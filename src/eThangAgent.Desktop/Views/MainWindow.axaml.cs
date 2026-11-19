@@ -1,5 +1,4 @@
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Media;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
@@ -322,19 +321,6 @@ internal partial class MainWindow : Window
     Button okButton = (Button)((StackPanel)dialog.Content).Children[^1];
     okButton.Click += (_, _) => dialog.Close();
     await dialog.ShowDialog(this);
-  }
-
-  private void OnCloseTab(object? sender, RoutedEventArgs e)
-  {
-    if (_vm is null)
-    {
-      return;
-    }
-
-    if (sender is Button { DataContext: AgentTabViewModel tab })
-    {
-      _ = _vm.CloseTabAsync(tab);
-    }
   }
 
   /// <summary>Tears the app down BEFORE the process exits (issue #274).

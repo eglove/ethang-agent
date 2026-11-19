@@ -201,26 +201,6 @@ internal sealed partial class AgentTabViewModel : ObservableObject
   [ObservableProperty]
   public partial bool IsSelected { get; set; }
 
-  /// <summary>The tab's unread-steering badge, attached by the shell against the
-  ///     session's agent-event stream (W4.4). Null when no stream is wired
-  ///     (headless/test hosts construct nothing).</summary>
-  [ObservableProperty]
-  public partial TabBadgeViewModel? Badge { get; private set; }
-
-  /// <summary>How many of this workspace's chains are PARKED - waiting for a human (issue #312
-  ///     D6). Mirrored from the rail's own count, so the two can never disagree.
-  ///     <para>WHY IT IS ON THE TAB AND NOT IN A CELL'S STATUS BAR: the rail is workspace-scoped
-  ///     (D6), so the count is a fact about the WORKSPACE. A cell status bar is per AGENT, and a
-  ///     tab with three cells would then show the same number three times - three places to
-  ///     disagree instead of one to trust. The tab's header strip is always visible whenever the
-  ///     tab is, which is what D6 actually requires: a chain waiting for a human cannot depend on
-  ///     the user having opened a particular view.</para></summary>
-  [ObservableProperty]
-  public partial int ParkedChains { get; private set; }
-
-  /// <summary>Whether the parked badge shows at all.</summary>
-  public bool HasParkedChains => ParkedChains > 0;
-
   /// <summary>Adds a cell for a session this app OWNS (issue #307 D2). The cell is appended,
   ///     so the grid's existing cells keep their positions.
   ///     <para>EVERY SESSION THIS APP STARTS IN A TAB COMES THROUGH HERE (issue #332): a chain
@@ -282,51 +262,19 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     return cell;
   }
 
-  /// <summary>Starts one more agent in this workspace when the user clicks "+" (issue #333).
-  ///     Null when the tab has no shell attached, which is when <see cref="CanAddAgent"/> is
-  ///     false and the control does not render.</summary>
-  public Func<Task>? AddAgentRequested { get; private set; }
+  /// <summary>Closes one card when the user clicks its x: the shell stops the agent and
+  ///     releases its host, then removes the card. Null when the grid has no shell attached, so
+  ///     a grid hosted on its own renders no close control.</summary>
+  public Func<AgentCellViewModel, Task>? CloseCellRequested { get; private set; }
 
-  /// <summary>Sets the "+" launch for this tab. Calling again replaces the request; a tab
-  ///     holds at most one, so a click starts at most one agent.</summary>
-  /// <param name="request">Starts one agent in this tab's workspace.</param>
-  public void AttachAddAgent(Func<Task> request)
+  /// <summary>Sets the close request for this grid. Calling again replaces it, so a grid holds
+  ///     at most one and a click closes at most one agent.</summary>
+  /// <param name="request">Closes one card of this grid.</param>
+  public void AttachCloseCell(Func<AgentCellViewModel, Task> request)
   {
     ArgumentNullException.ThrowIfNull(request);
-    AddAgentRequested = request;
-    OnPropertyChanged(nameof(CanAddAgent));
+    CloseCellRequested = request;
   }
-
-  /// <summary>Whether a "+" click would start an agent: true once the shell has attached a
-  ///     request. The control renders only while this is true.</summary>
-  public bool CanAddAgent => AddAgentRequested is not null;
-
-  /// <summary>Why the last "+" click started nothing (issue #333), or null when it started an
-  ///     agent. It lives on the tab rather than in a cell's transcript because a refused click
-  ///     produces no cell. Cleared by the next click.</summary>
-  [ObservableProperty]
-  public partial string? AddAgentNotice { get; private set; }
-
-  /// <summary>Whether the tab renders the "+" refusal.</summary>
-  public bool HasAddAgentNotice => !string.IsNullOrWhiteSpace(AddAgentNotice);
-
-  /// <summary>Re-raises the derived visibility flag when the refusal moves: it is a computed
-  ///     property, so the generated setter's own notification says nothing about it.</summary>
-  /// <param name="value">The notice just assigned.</param>
-  partial void OnAddAgentNoticeChanged(string? value) => OnPropertyChanged(nameof(HasAddAgentNotice));
-
-  /// <summary>Records why a "+" click started no agent, so the tab renders the reason.
-  ///     </summary>
-  /// <param name="message">Why the agent was not started.</param>
-  public void ReportAddAgentFailure(string message)
-  {
-    ArgumentException.ThrowIfNullOrWhiteSpace(message);
-    AddAgentNotice = message;
-  }
-
-  /// <summary>Clears the previous "+" refusal, so no stale reason renders beside a later
-  ///     agent.</summary>
-  public void ClearAddAgentNotice() => AddAgentNotice = null;
 
   /// <summary>Retires one cell's session (issue #332): the card stops naming the container the
   ///     shell is about to dispose, stays where it is as a finished record, and the tab
@@ -427,17 +375,6 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     OnPropertyChanged(nameof(Tooltip));
   }
 
-  /// <summary>Subscribes the badge to this session's event stream. Called once by the shell
-  ///     after the tab is created; calling again detaches the prior badge.
-  ///     The render callback posts through the UI Dispatcher - events arrive on stream
-  ///     threads, transcript/badge mutation is UI-thread-only.</summary>
-  public void AttachBadge(IAgentEvents? events)
-  {
-    Badge?.Dispose();
-    Badge = TabBadgeViewModel.Attach(events, Container.RootId, apply => count =>
-      Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(count)));
-  }
-
   /// <summary>The tab's statusline branch watcher (issue 1). Attached by the shell's
   ///     attach path when the session exposes a git query seam; disposed on close.
   ///     Null when the shell wired none (headless/test hosts construct nothing).</summary>
@@ -505,43 +442,6 @@ internal sealed partial class AgentTabViewModel : ObservableObject
     }
 
     _chainAdvanceLeases.Clear();
-  }
-
-  /// <summary>Mirrors the rail's parked-chain count into <see cref="ParkedChains"/> (issue
-  ///     #312 D6). Called by the shell at attach; idempotent because the subscription replaces
-  ///     the previous one rather than adding a second.
-  ///     <para>The render posts through the UI Dispatcher: the rail's refresh completes on pool
-  ///     threads, and the badge is bound by the view.</para></summary>
-  /// <param name="chains">The tab's chain view, whose count is the one source of truth.</param>
-  public void AttachParkedChains(ChainsViewViewModel? chains)
-  {
-    _parkedChainsFrom?.ParkedCountChanged -= HandleParkedCountChanged;
-    _parkedChainsFrom = chains;
-    if (chains is null)
-    {
-      ParkedChains = 0;
-      return;
-    }
-
-    chains.ParkedCountChanged += HandleParkedCountChanged;
-    ParkedChains = chains.ParkedCount;
-  }
-
-  /// <summary>The view whose count this tab mirrors, so a re-attach can unsubscribe.</summary>
-  private ChainsViewViewModel? _parkedChainsFrom;
-
-  private void HandleParkedCountChanged(int count)
-    => Avalonia.Threading.Dispatcher.UIThread.Post(() => ParkedChains = count);
-
-  /// <summary>Re-raises the derived visibility flag whenever the count moves, so the view never
-  ///     has to compare the number itself.
-  ///     <para>The generator's own hook, so every assignment - the attach's initial read and the
-  ///     mirrored change alike - goes through one place.</para></summary>
-  /// <param name="value">The new parked count.</param>
-  partial void OnParkedChainsChanged(int value)
-  {
-    _ = value;
-    OnPropertyChanged(nameof(HasParkedChains));
   }
 
   /// <summary>Attaches the statusline branch watcher over the tab's workspace.

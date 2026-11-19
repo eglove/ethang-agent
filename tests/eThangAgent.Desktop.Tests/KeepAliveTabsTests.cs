@@ -1,4 +1,3 @@
-using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -11,11 +10,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>Regression for the tab-switch delay (grand-plan BUG 2): switching tabs
-///     must not rebuild the transcript view. Tab content is keep-alive: one AgentView
-///     per open tab, created at open, retained across selection changes — switches are
-///     visibility toggles, so no re-render storm and no spinner/timer restart.
-/// </summary>
+/// <summary>Every agent in the window renders LIVE at once: the grid shows all its cards
+///     simultaneously, so there is no selection to switch and no background tab whose view
+///     could be torn down and rebuilt. Each card's view is built once and retained for as long
+///     as the card exists.</summary>
 [Trait("Category", "Process")]
 public class KeepAliveTabsTests
 {
@@ -38,24 +36,17 @@ public class KeepAliveTabsTests
   {
     static Task<Result<AgentSession>> create(string root, string provider)
         => Task.FromResult(Result.Success(FakeSession(root)));
-    return new MainViewModel(create);
+    return new MainViewModel(create, new MainViewModelOptions { WorkspaceRoot = @"C:\work\one" });
   }
-
-  /// <summary>The text the tab strip currently renders, one entry per realized header.
-  ///     </summary>
-  /// <param name="tabs">The strip.</param>
-  private static List<string> Headers(TabControl tabs)
-      => [.. tabs.GetVisualDescendants().OfType<TextBlock>()
-          .Select(block => block.Text ?? string.Empty)];
 
   private static AgentView? FindViewFor(Avalonia.Visual root, AgentSessionViewModel vm)
       => root.GetVisualDescendants().OfType<AgentView>()
           .FirstOrDefault(v => ReferenceEquals(v.DataContext, vm));
 
-  /// <summary>Pumps the dispatcher until the view for <paramref name="vm"/> is in the visual tree,
-  ///     or the ceiling is spent. A single <c>RunJobs</c> only guarantees the queued jobs ran; the
-  ///     layout pass that builds the tab content is scheduled behind them, so on a loaded machine
-  ///     the view is not there yet and the lookup answers null for a correct shell.</summary>
+  /// <summary>Pumps the dispatcher until the view for <paramref name="vm"/> is in the visual
+  ///     tree, or the ceiling is spent. A single <c>RunJobs</c> only guarantees the queued jobs
+  ///     ran; the layout pass that builds the card is scheduled behind them, so on a loaded
+  ///     machine the view is not there yet and the lookup answers null for a correct shell.</summary>
   /// <param name="root">The window to search.</param>
   /// <param name="vm">The session view-model whose view is awaited.</param>
   private static AgentView? AwaitViewFor(Avalonia.Visual root, AgentSessionViewModel vm)
@@ -72,84 +63,72 @@ public class KeepAliveTabsTests
     return view;
   }
 
+  /// <summary>Every card renders at once: two agents in the window are two live views in the
+  ///     visual tree, with no selection needed to make either one appear.</summary>
   [AvaloniaFact]
-  public async Task Tab_Switch_Retains_The_Same_AgentView_Instance()
+  public async Task EveryCard_RendersAtOnce()
   {
     MainViewModel shell = CreateShell();
     MainWindow window = new(shell);
     window.Show();
-    _ = await shell.OpenAgentAsync(@"C:\work\one", "openrouter").ConfigureAwait(true);
-    _ = await shell.OpenAgentAsync(@"C:\work\two", "openrouter").ConfigureAwait(true);
+    _ = await shell.AddAgentInWorkspaceAsync().ConfigureAwait(true);
+    _ = await shell.AddAgentInWorkspaceAsync().ConfigureAwait(true);
     Dispatcher.UIThread.RunJobs();
 
-    AgentSessionViewModel one = shell.Tabs[0].ViewModel;
-    AgentView? viewOne = AwaitViewFor(window, one);
-    Assert.NotNull(viewOne);
+    AgentTabViewModel grid = Assert.Single(shell.Tabs);
+    Assert.Equal(2, grid.Cells.Count);
+    Assert.NotNull(AwaitViewFor(window, grid.Cells[0].ViewModel));
+    Assert.NotNull(AwaitViewFor(window, grid.Cells[1].ViewModel));
+    window.Close();
+  }
 
-    // Switch away and back: the SAME view instance must still render the tab.
-    shell.SelectedTab = shell.Tabs[1];
-    Dispatcher.UIThread.RunJobs();
-    shell.SelectedTab = shell.Tabs[0];
+  /// <summary>A card's view is RETAINED: adding a second agent must not rebuild the first
+  ///     one's view, so a reader's transcript is never torn down and re-rendered underneath
+  ///     them.</summary>
+  [AvaloniaFact]
+  public async Task AddingACard_DoesNotRebuildTheExistingViews()
+  {
+    MainViewModel shell = CreateShell();
+    MainWindow window = new(shell);
+    window.Show();
+    _ = await shell.AddAgentInWorkspaceAsync().ConfigureAwait(true);
     Dispatcher.UIThread.RunJobs();
 
-    AgentView? viewAfter = AwaitViewFor(window, one);
+    AgentTabViewModel grid = Assert.Single(shell.Tabs);
+    AgentSessionViewModel first = grid.Cells[0].ViewModel;
+    AgentView? viewBefore = AwaitViewFor(window, first);
+    Assert.NotNull(viewBefore);
+
+    _ = await shell.AddAgentInWorkspaceAsync().ConfigureAwait(true);
+    Dispatcher.UIThread.RunJobs();
+
+    AgentView? viewAfter = AwaitViewFor(window, first);
     Assert.NotNull(viewAfter);
-    Assert.True(ReferenceEquals(viewOne, viewAfter),
-        "tab content must be keep-alive: the same AgentView instance survives selection changes");
+    Assert.True(ReferenceEquals(viewBefore, viewAfter),
+        "a card's view must survive another agent arriving beside it");
+    window.Close();
   }
 
-  /// <summary>THE STRIP RENDERS THE ORDINAL: the header the user reads is the tab's title, and
-  ///     every tab in a window belongs to that window's one workspace, so the directory name
-  ///     would read the same on all of them.</summary>
+  /// <summary>A busy card keeps its spinner ticking while the user works in another one:
+  ///     every card renders live, so nothing pauses because it is not the focused one.</summary>
   [AvaloniaFact]
-  public async Task Tab_Headers_Render_TheOrdinalTitle()
+  public async Task ABusyCard_KeepsTicking_WhileAnotherIsWorkedIn()
   {
     MainViewModel shell = CreateShell();
     MainWindow window = new(shell);
     window.Show();
-    _ = await shell.OpenAgentAsync(@"C:\work\one", "openrouter").ConfigureAwait(true);
-    _ = await shell.OpenAgentAsync(@"C:\work\two", "openrouter").ConfigureAwait(true);
+    _ = await shell.AddAgentInWorkspaceAsync().ConfigureAwait(true);
+    _ = await shell.AddAgentInWorkspaceAsync().ConfigureAwait(true);
     Dispatcher.UIThread.RunJobs();
 
-    TabControl tabs = window.GetControl<TabControl>("AgentTabs");
-    // A tab's header is built by the layout pass, which is scheduled behind the jobs a single
-    // RunJobs drains, so the headers are awaited rather than read once.
-    DateTimeOffset deadline = DateTimeOffset.UtcNow + TestCeiling.Value;
-    List<string> rendered = Headers(tabs);
-    while (!rendered.Contains("Agent 2") && DateTimeOffset.UtcNow < deadline)
-    {
-      await Task.Delay(5).ConfigureAwait(true);
-      Dispatcher.UIThread.RunJobs();
-      rendered = Headers(tabs);
-    }
-
-    Assert.Contains("Agent 1", rendered);
-    Assert.Contains("Agent 2", rendered);
-    Assert.Equal(["Agent 1", "Agent 2"], shell.Tabs.Select(tab => tab.Title));
-  }
-
-  [AvaloniaFact]
-  public async Task Background_Tab_Spinner_Keeps_Ticking_While_Busy()
-  {
-    MainViewModel shell = CreateShell();
-    MainWindow window = new(shell);
-    window.Show();
-    _ = await shell.OpenAgentAsync(@"C:\work\one", "openrouter").ConfigureAwait(true);
-    _ = await shell.OpenAgentAsync(@"C:\work\two", "openrouter").ConfigureAwait(true);
-    Dispatcher.UIThread.RunJobs();
-
-    // Tab 0 runs a busy turn (thinking phase); the user watches tab 1.
-    AgentSessionViewModel one = shell.Tabs[0].ViewModel;
-    shell.SelectedTab = shell.Tabs[1];
-    Dispatcher.UIThread.RunJobs();
-
-    one.Status.Phase = TurnPhase.Thinking;
-    one.IsBusy = true;
-    string frameBefore = one.Status.Spinner;
+    AgentTabViewModel grid = Assert.Single(shell.Tabs);
+    AgentSessionViewModel busy = grid.Cells[0].ViewModel;
+    busy.Status.Phase = TurnPhase.Thinking;
+    busy.IsBusy = true;
+    string frameBefore = busy.Status.Spinner;
     Assert.NotEqual(string.Empty, frameBefore);
 
-    // The keep-alive view's timer must still tick the background tab's spinner. The
-    // assertion is that the frame MOVED, so the loop waits for a frame that differs
+    // The assertion is that the frame MOVED, so the loop waits for a frame that differs
     // rather than for a duration: a fixed delay can land on a frame count that wraps the
     // ten-frame cycle back to where it started, and on a loaded machine it can land
     // before the timer has fired at all.
@@ -159,9 +138,10 @@ public class KeepAliveTabsTests
     {
       await Task.Delay(20).ConfigureAwait(true);
       Dispatcher.UIThread.RunJobs();
-      frameAfter = one.Status.Spinner;
+      frameAfter = busy.Status.Spinner;
     }
 
     Assert.NotEqual(frameBefore, frameAfter);
+    window.Close();
   }
 }

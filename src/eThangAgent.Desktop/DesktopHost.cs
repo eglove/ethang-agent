@@ -325,8 +325,9 @@ internal static class DesktopHost
     // The indicator shows the conversation's NAME, not its id: a raw id is not a
     // name, and a full id is not a name either.
     vm.Resource.ConversationNames = conversationId => vm.Tabs
-        .Where(tab => string.Equals(tab.Container.RootId.ToString(), conversationId, StringComparison.Ordinal))
-        .Select(tab => tab.Title)
+        .SelectMany(tab => tab.Snapshot())
+        .Where(cell => string.Equals(cell.RootId.ToString(), conversationId, StringComparison.Ordinal))
+        .Select(cell => cell.Title)
         .FirstOrDefault();
     ResourceGovernor governor = new(
         new MachineResources(), observation, enactment, boot.WatchdogEvents,
@@ -478,7 +479,7 @@ internal static class DesktopHost
   private static List<ResourceHostHandle> LiveHosts(MainViewModel vm)
   {
     List<ResourceHostHandle> handles = [];
-    foreach (AgentSession container in vm.Tabs.Select(tab => tab.Container))
+    foreach (AgentSession container in LiveContainers(vm))
     {
       RemoteHostSupervisor? supervisor = container.Services.GetService<RemoteHostSupervisor>();
       if (supervisor?.HostProcessId is { } processId)
@@ -490,12 +491,23 @@ internal static class DesktopHost
     return handles;
   }
 
+  /// <summary>Every live session this window holds, one per agent card.
+  ///     <para>EVERY CARD, NOT THE GRID'S FIRST: a window holds one grid of several agents, so
+  ///     reading the grid's own container would see one host and report the others as absent -
+  ///     the governor would then neither account for their memory nor be able to stop them.
+  ///     </para></summary>
+  /// <param name="vm">The window's shell.</param>
+  private static IEnumerable<AgentSession> LiveContainers(MainViewModel vm)
+      => vm.Tabs.SelectMany(tab => tab.Snapshot())
+          .Select(cell => cell.Container)
+          .OfType<AgentSession>();
+
   /// <summary>The supervisor owning one conversation's host, by conversation id. Null
   ///     when no open tab serves that conversation - the enactment then refuses with a
   ///     named error instead of acting on the wrong host.</summary>
   private static ResourceHostRegistration? FindHost(MainViewModel vm, string conversationId)
   {
-    foreach (AgentSession container in vm.Tabs.Select(tab => tab.Container))
+    foreach (AgentSession container in LiveContainers(vm))
     {
       if (!string.Equals(container.RootId.ToString(), conversationId, StringComparison.Ordinal))
       {

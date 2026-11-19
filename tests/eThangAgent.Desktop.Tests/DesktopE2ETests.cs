@@ -246,18 +246,20 @@ public class WorkspaceLauncherE2ETests
     Assert.False(launcher.IsVisible, "the launcher closes on the handoff");
     Assert.Same(session.Window, lifetime.MainWindow);
 
-    // 3. TWO AGENTS ARE TWO TABS IN THAT ONE WINDOW, named by ordinal.
+    // 3. TWO AGENTS ARE TWO CARDS IN THAT ONE WINDOW'S GRID: one window is one workspace and
+    // one grid, so a second agent joins the grid rather than opening a second one.
     MainViewModel vm = Assert.IsType<MainViewModel>(session.Window.DataContext);
     Assert.Empty(vm.Tabs);
     for (int i = 0; i < 2; i++)
     {
-      Result<AgentTabViewModel> tab = await vm.OpenAgentInWorkspaceAsync()
+      Result<AgentCellViewModel> added = await vm.AddAgentInWorkspaceAsync()
           .WaitAsync(TestCeiling.Value, ct).ConfigureAwait(true);
-      Assert.True(tab.IsSuccess, tab.Error?.Message);
+      Assert.True(added.IsSuccess, added.Error?.Message);
     }
 
-    Assert.Equal(["Agent 1", "Agent 2"], vm.Tabs.Select(t => t.Title));
-    Assert.All(vm.Tabs, tab => Assert.Equal(root, tab.Container.WorkspaceRoot));
+    AgentTabViewModel grid = Assert.Single(vm.Tabs);
+    Assert.Equal(2, grid.Cells.Count);
+    Assert.Equal(root, grid.WorkspaceRoot);
 
     // 4. CLOSING THE WORKSPACE RETURNS TO THE LAUNCHER, and the directory is now remembered.
     bool closed = await host.CloseWorkspaceAsync().WaitAsync(TestCeiling.Value, ct).ConfigureAwait(true);

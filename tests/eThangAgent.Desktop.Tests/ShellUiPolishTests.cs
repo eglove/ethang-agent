@@ -64,15 +64,16 @@ public class ShellUiPolishTests
     Assert.Null(window.FindControl<Button>("ModelMenuItem"));
     Assert.Null(window.FindControl<Button>("EffortMenuItem"));
 
+    // NO NEW AGENT ENTRY: the window's '+' control is the only way to start an agent, so the
+    // rail carries no second control that could drift from it.
+    Assert.Null(window.FindControl<Button>("OpenAgentMenuItem"));
     Button[] items =
     [
-            window.GetControl<Button>("OpenAgentMenuItem"),
             window.GetControl<Button>("SessionsMenuItem"),
             window.GetControl<Button>("ModelSettingsMenuItem"),
             window.GetControl<Button>("SettingsMenuItem"),
         ];
     Assert.Collection(items,
-        b => Assert.Equal("\u2795", b.Content),
         b => Assert.Equal("\uD83D\uDCAC", b.Content),
         b => Assert.Equal("\uD83C\uDF9B", b.Content),
         b => Assert.Equal("\u2699", b.Content));
@@ -92,7 +93,7 @@ public class ShellUiPolishTests
 
     foreach (string name in new[]
     {
-      "OpenAgentMenuItem", "SessionsMenuItem", "ModelSettingsMenuItem", "SettingsMenuItem",
+      "SessionsMenuItem", "ModelSettingsMenuItem", "SettingsMenuItem",
       "CloseWorkspaceMenuItem", "WorkspaceSettingsMenuItem",
     })
     {
@@ -158,21 +159,24 @@ public class ShellUiPolishTests
     Assert.Equal("eThang Agent", CreateBoundShellWindow(null).Title);
   }
 
+  /// <summary>The window's '+' is the only start control, and it renders only where there is
+  ///     a workspace to start an agent in - a window bound to nothing has nowhere to put one.
+  ///     </summary>
   [AvaloniaFact]
-  public void Rail_NewAgentEntry_IsLabelledAndEnabledOnlyWhileAWorkspaceIsBound()
+  public void TheAddControl_IsVisibleOnlyWhileAWorkspaceIsBound()
   {
     MainWindow bound = CreateBoundShellWindow(@"C:\work\alpha");
     bound.Show();
     Dispatcher.UIThread.RunJobs();
-    Button newAgent = bound.GetControl<Button>("OpenAgentMenuItem");
-    Assert.Contains("New Agent", ToolTip.GetTip(newAgent) as string, StringComparison.Ordinal);
-    Assert.True(newAgent.IsEffectivelyEnabled, "New Agent must be usable in a bound window");
+    Button add = bound.GetControl<Button>("AddAgentButton");
+    Assert.Contains("Start another agent", ToolTip.GetTip(add) as string, StringComparison.Ordinal);
+    Assert.True(add.IsVisible, "the + must render in a bound window");
 
     MainWindow unbound = CreateBoundShellWindow(null);
     unbound.Show();
     Dispatcher.UIThread.RunJobs();
-    Assert.False(unbound.GetControl<Button>("OpenAgentMenuItem").IsEffectivelyEnabled,
-        "New Agent must be disabled with no workspace bound");
+    Assert.False(unbound.GetControl<Button>("AddAgentButton").IsVisible,
+        "the + must be hidden with no workspace bound");
   }
 
   /// <summary>The workspace settings entry is visible only while a workspace is bound, and it
@@ -211,18 +215,16 @@ public class ShellUiPolishTests
     Assert.DoesNotContain("Open Workspace", text, StringComparison.Ordinal);
   }
 
+  /// <summary>The window renders no tab strip at all: one window is one workspace and one
+  ///     agent grid, so there is no strip to switch between agents.</summary>
   [AvaloniaFact]
-  public void Tab_Headers_Render_At_Reduced_Font_Size()
+  public void TheWindow_RendersNoTabStrip()
   {
     MainWindow window = new();
-    TabControl tabs = window.GetControl<TabControl>("AgentTabs");
-    Assert.Contains("compact-tabs", tabs.Classes);
-
-    TabItem tab = new() { Header = "session" };
-    _ = tabs.Items.Add(tab);
     window.Show();
+    Dispatcher.UIThread.RunJobs();
 
-    Assert.True(tab.FontSize < 13,
-        $"tab header text must render smaller than the default, FontSize={tab.FontSize}");
+    Assert.Null(window.FindControl<TabControl>("AgentTabs"));
+    Assert.Empty(window.GetVisualDescendants().OfType<TabControl>());
   }
 }

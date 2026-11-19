@@ -17,13 +17,13 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>Issue #333, the RENDER half: a tab carries a "+" control that adds one agent by
-///     hand, and the click really reaches the shell's launch.
-///     <para>THE VISUAL TREE IS THE ASSERTION, not the view-model. The defect this issue closes
-///     is a missing SURFACE - AddCellAsync had no caller and the grid had no control - so a
-///     view-model test alone would be green while no button existed to click. Each test here
-///     hosts the real <see cref="WorkspaceTabView"/> in a headless window and drives the
-///     control the way a user does.</para>
+/// <summary>The window's "+" control: one click starts one agent in the bound workspace, and
+///     the click really reaches the shell's launch.
+///     <para>THE VISUAL TREE IS THE ASSERTION, not the view-model. The defect this covers is a
+///     missing SURFACE - a launch path with no control to reach it - so a view-model test alone
+///     would be green while no button existed to click. Each test here hosts the real
+///     <see cref="MainWindow"/> in a headless window and drives the control the way a user does.
+///     </para>
 ///     <para>THE CLICK IS A REAL POINTER CLICK where it can be: raising Button.ClickEvent
 ///     directly bypasses hit-testing, so it passes even when the control is covered, clipped,
 ///     or zero-sized. The control sits outside the scrolling grid precisely so it stays
@@ -31,9 +31,8 @@ namespace eThangAgent.Desktop.Tests;
 [Trait("Category", "Process")]
 public class AddAgentControlTests
 {
-  /// <summary>The control is on the tab and reachable at ANY cell count: with a grid tall
-  ///     enough to scroll, the "+" is still laid out inside the window and still answers a
-  ///     pointer click.
+  /// <summary>The control is reachable at ANY cell count: with a grid tall enough to scroll,
+  ///     the "+" is still laid out inside the window and still answers a pointer click.
   ///     <para>WHY THE SCROLLED CASE IS THE ONE THAT MATTERS: a control placed at the end of the
   ///     scrolling cell row would be the first thing a full grid pushes out of reach, and a
   ///     test that only ever shows one cell would never see it.</para></summary>
@@ -41,15 +40,14 @@ public class AddAgentControlTests
   public async Task TheAddControl_IsReachable_WhenTheGridScrolls()
   {
     Shell shell = new();
-    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 9; i++)
     {
-      Result<AgentCellViewModel> added = await shell.ViewModel.AddCellAsync(tab, prompt: null)
+      Result<AgentCellViewModel> added = await shell.ViewModel.AddAgentInWorkspaceAsync()
           .ConfigureAwait(true);
       Assert.True(added.IsSuccess, added.Error?.Message);
     }
 
-    Window window = Show(tab, width: 900, height: 600);
+    Window window = shell.Show(width: 900, height: 600);
     ScrollViewer grid = CellScroll(window);
     Assert.True(grid.Extent.Height > grid.Viewport.Height,
         $"precondition: nine cells at 900x600 must overflow the grid " +
@@ -64,7 +62,7 @@ public class AddAgentControlTests
     window.Close();
   }
 
-  /// <summary>Clicking "+" appends EXACTLY ONE agent cell, idle, after the ones already
+  /// <summary>Clicking "+" appends EXACTLY ONE agent card, idle, after the ones already
   ///     there - and the click path is what produced it, not a direct call.
   ///     <para>COUNTED FROM THE VISUAL TREE: the collection can hold two cards while the grid
   ///     renders one, which is the failure mode this file exists for.</para></summary>
@@ -72,23 +70,24 @@ public class AddAgentControlTests
   public async Task ClickingAdd_AppendsOneIdleAgentCell()
   {
     Shell shell = new();
-    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
-    AgentCellViewModel original = Assert.Single(tab.Cells);
-    Window window = Show(tab, width: 1200, height: 800);
+    _ = await shell.ViewModel.AddAgentInWorkspaceAsync().ConfigureAwait(true);
+    AgentTabViewModel grid = Assert.Single(shell.ViewModel.Tabs);
+    AgentCellViewModel original = Assert.Single(grid.Cells);
+    Window window = shell.Show(width: 1200, height: 800);
     Assert.True(RenderedFrames(window).Count == 1, "precondition: one cell renders one frame");
 
     ClickAdd(window);
-    PumpUntil(() => tab.Cells.Count == 2);
+    PumpUntil(() => grid.Cells.Count == 2);
     Dispatcher.UIThread.RunJobs();
 
-    Assert.Equal(2, tab.Cells.Count);
+    Assert.Equal(2, grid.Cells.Count);
     Assert.Equal(2, RenderedFrames(window).Count);
-    AgentCellViewModel added = tab.Cells[^1];
-    // APPENDED AFTER, never in place of: the agent that was there keeps its cell.
-    Assert.Same(original, tab.Cells[0]);
+    AgentCellViewModel added = grid.Cells[^1];
+    // APPENDED AFTER, never in place of: the agent that was there keeps its card.
+    Assert.Same(original, grid.Cells[0]);
     Assert.False(added.IsFinished, "a hand-added agent starts live, not as a finished card");
     Assert.False(added.IsStreaming, "a hand-added agent is idle until the user types");
-    Assert.Equal(tab.Container.WorkspaceRoot, added.ViewModel.WorkspaceRoot);
+    Assert.Equal(grid.WorkspaceRoot, added.ViewModel.WorkspaceRoot);
     window.Close();
   }
 
@@ -100,21 +99,22 @@ public class AddAgentControlTests
   public async Task TheAddedAgent_StartsNoTurn()
   {
     Shell shell = new();
-    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
-    Window window = Show(tab, width: 1200, height: 800);
+    _ = await shell.ViewModel.AddAgentInWorkspaceAsync().ConfigureAwait(true);
+    AgentTabViewModel grid = Assert.Single(shell.ViewModel.Tabs);
+    Window window = shell.Show(width: 1200, height: 800);
 
     ClickAdd(window);
-    PumpUntil(() => tab.Cells.Count == 2);
+    PumpUntil(() => grid.Cells.Count == 2);
 
-    AgentSessionViewModel added = tab.Cells[^1].ViewModel;
+    AgentSessionViewModel added = grid.Cells[^1].ViewModel;
     Assert.Empty(added.Transcript.Entries.OfType<UserMessageEntry>());
     Assert.False(added.IsBusy, "a hand-added agent must not be running a turn");
     Assert.Equal(0, shell.TurnsRun);
     window.Close();
   }
 
-  /// <summary>The click never steals the view (parent D2): the grid is still scrolled to its
-  ///     origin and no cell's input holds focus.
+  /// <summary>The click never steals the view: the grid is still scrolled to where the reader
+  ///     left it and no cell's input holds focus.
   ///     <para>THE SCROLL OFFSET IS SET DELIBERATELY FIRST. Asserting zero on a grid that was
   ///     never scrolled proves nothing: the defect is a click that MOVES a reader, so the test
   ///     puts the grid where a reader would be and then checks the click left it there.</para>
@@ -123,33 +123,34 @@ public class AddAgentControlTests
   public async Task ClickingAdd_NeitherScrollsNorFocuses()
   {
     Shell shell = new();
-    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 9; i++)
     {
-      _ = await shell.ViewModel.AddCellAsync(tab, prompt: null).ConfigureAwait(true);
+      _ = await shell.ViewModel.AddAgentInWorkspaceAsync().ConfigureAwait(true);
     }
 
-    Window window = Show(tab, width: 900, height: 600);
-    ScrollViewer grid = CellScroll(window);
-    grid.Offset = grid.Offset.WithY(240);
+    AgentTabViewModel grid = Assert.Single(shell.ViewModel.Tabs);
+    Window window = shell.Show(width: 900, height: 600);
+    ScrollViewer scroller = CellScroll(window);
+    scroller.Offset = scroller.Offset.WithY(240);
     Dispatcher.UIThread.RunJobs();
-    double before = grid.Offset.Y;
+    double before = scroller.Offset.Y;
     Assert.True(before > 0, "precondition: the grid must really be scrolled");
 
     ClickAdd(window);
-    PumpUntil(() => tab.Cells.Count == 10);
+    PumpUntil(() => grid.Cells.Count == 10);
     Dispatcher.UIThread.RunJobs();
 
-    Assert.Equal(before, grid.Offset.Y, 0.5);
+    Assert.Equal(before, scroller.Offset.Y, 0.5);
     Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), input => input.IsFocused);
     window.Close();
   }
 
-  /// <summary>A creation that fails renders a notice ON THE TAB rather than doing nothing
-  ///     visible: the click produced no cell, so there is no transcript to carry the reason.
+  /// <summary>A creation that fails renders a notice BESIDE THE CONTROL rather than doing
+  ///     nothing visible: the click produced no card, so there is no transcript to carry the
+  ///     reason.
   ///     <para>THE NOTICE MUST BE ABSENT BEFORE THE CLICK AND PRESENT AFTER IT, and that pair
   ///     is the assertion. A test that only reads the block after the failure is green through
-  ///     a block that is ALWAYS visible: the text would be there, on a tab with nothing wrong
+  ///     a block that is ALWAYS visible: the text would be there, on a window with nothing wrong
   ///     with it, and the 'visible notice' claim would be satisfied by a permanent label.
   ///     </para>
   ///     <para>THE BLOCK EXISTS IN THE TREE EVEN WHEN HIDDEN, which is why the visibility is
@@ -157,20 +158,22 @@ public class AddAgentControlTests
   [AvaloniaFact]
   public async Task AFailedAdd_RendersAVisibleNotice()
   {
-    Shell shell = new() { FailLaunches = true };
-    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
-    Window window = Show(tab, width: 1200, height: 800);
-    Assert.True(tab.Cells.Count == 1, "precondition: the tab holds its one agent");
+    Shell shell = new();
+    _ = await shell.ViewModel.AddAgentInWorkspaceAsync().ConfigureAwait(true);
+    AgentTabViewModel grid = Assert.Single(shell.ViewModel.Tabs);
+    Window window = shell.Show(width: 1200, height: 800);
+    Assert.True(grid.Cells.Count == 1, "precondition: the window holds its one agent");
 
     SelectableTextBlock notice = window.GetVisualDescendants().OfType<SelectableTextBlock>()
         .First(block => block.Name == "AddAgentNoticeText");
-    Assert.False(notice.IsEffectivelyVisible, "a tab with no refusal must render no notice");
+    Assert.False(notice.IsEffectivelyVisible, "a window with no refusal must render no notice");
 
+    shell.FailLaunches = true;
     ClickAdd(window);
-    PumpUntil(() => tab.HasAddAgentNotice);
+    PumpUntil(() => shell.ViewModel.HasAddAgentNotice);
     Dispatcher.UIThread.RunJobs();
 
-    Assert.True(tab.Cells.Count == 1, "a refused click must not append a cell");
+    Assert.True(grid.Cells.Count == 1, "a refused click must not append a card");
     Assert.True(notice.IsEffectivelyVisible, "the refusal must render, not merely be assigned");
     Assert.Contains("SessionLaunchFailed", notice.Text, StringComparison.Ordinal);
     window.Close();
@@ -181,43 +184,24 @@ public class AddAgentControlTests
   [AvaloniaFact]
   public async Task ASuccessfulAdd_ClearsTheEarlierNotice()
   {
-    Shell shell = new() { FailLaunches = true };
-    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
-    Window window = Show(tab, width: 1200, height: 800);
+    Shell shell = new();
+    _ = await shell.ViewModel.AddAgentInWorkspaceAsync().ConfigureAwait(true);
+    AgentTabViewModel grid = Assert.Single(shell.ViewModel.Tabs);
+    Window window = shell.Show(width: 1200, height: 800);
 
+    shell.FailLaunches = true;
     ClickAdd(window);
-    PumpUntil(() => tab.HasAddAgentNotice);
+    PumpUntil(() => shell.ViewModel.HasAddAgentNotice);
 
     shell.FailLaunches = false;
     ClickAdd(window);
-    PumpUntil(() => tab.Cells.Count == 2);
+    PumpUntil(() => grid.Cells.Count == 2);
     Dispatcher.UIThread.RunJobs();
 
-    Assert.False(tab.HasAddAgentNotice, "a successful click must not leave the old refusal up");
+    Assert.False(shell.ViewModel.HasAddAgentNotice, "a successful click must not leave the old refusal up");
     SelectableTextBlock notice = window.GetVisualDescendants().OfType<SelectableTextBlock>()
         .First(block => block.Name == "AddAgentNoticeText");
     Assert.False(notice.IsEffectivelyVisible, "the cleared refusal must not render");
-    window.Close();
-  }
-
-  /// <summary>A tab with no shell attached renders NO control: a button whose click goes
-  ///     nowhere is worse than an absent one.</summary>
-  [AvaloniaFact]
-  public void ATabWithNoShell_RendersNoAddControl()
-  {
-    AgentTabViewModel tab = TestFixtures.CreateTab();
-    Window window = new() { Width = 900, Height = 600, Content = new WorkspaceTabView { DataContext = tab } };
-    window.Show();
-    Dispatcher.UIThread.RunJobs();
-
-    Assert.False(tab.CanAddAgent);
-    // A collapsed control is not in the visual tree at all, so this looks for it either way
-    // and then requires that nothing renders: an absent control and a hidden one are the same
-    // fact to a user, and either is acceptable - a VISIBLE one is not.
-    Button? add = window.GetVisualDescendants().OfType<Button>()
-        .FirstOrDefault(button => button.Name == "AddAgentButton");
-    Assert.True(add is null || !add.IsEffectivelyVisible,
-        "a + with nothing behind it must not render");
     window.Close();
   }
 
@@ -226,11 +210,9 @@ public class AddAgentControlTests
   ///     functional while reading as garbage - the defect the rail's chevron already shipped
   ///     once.</summary>
   [AvaloniaFact]
-  public async Task TheAddControl_Content_IsTheGlyphItself()
+  public void TheAddControl_Content_IsTheGlyphItself()
   {
-    Shell shell = new();
-    AgentTabViewModel tab = await shell.OpenAsync(@"C:\work\alpha").ConfigureAwait(true);
-    Window window = Show(tab, width: 1200, height: 800);
+    MainWindow window = new Shell().Show(width: 1200, height: 800);
 
     string content = AddButton(window).Content as string ?? "";
     Assert.Equal("+", content);
@@ -263,7 +245,7 @@ public class AddAgentControlTests
   private static List<Border> RenderedFrames(Window window)
       => [.. window.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "CellFrame")];
 
-  /// <summary>The tab's cell grid's scroll viewer, which is what a click could move.</summary>
+  /// <summary>The grid's scroll viewer, which is what a click could move.</summary>
   /// <param name="window">The hosting window.</param>
   private static ScrollViewer CellScroll(Window window)
       => window.GetVisualDescendants().OfType<ScrollViewer>().First(view => view.Name == "CellScroll");
@@ -284,28 +266,10 @@ public class AddAgentControlTests
     Assert.True(condition(), "the click path never completed.");
   }
 
-  /// <summary>Shows the tab in a headless window so the cell template and the control are
-  ///     really built.</summary>
-  /// <param name="tab">The tab to host.</param>
-  /// <param name="width">Window width.</param>
-  /// <param name="height">Window height.</param>
-  private static Window Show(AgentTabViewModel tab, double width, double height)
-  {
-    Window window = new()
-    {
-      Width = width,
-      Height = height,
-      Content = new WorkspaceTabView { DataContext = tab },
-    };
-    window.Show();
-    Dispatcher.UIThread.RunJobs();
-    return window;
-  }
-
   /// <summary>The shell under test: a session factory that answers every launch, so the click
   ///     path under test is the shell's own. <see cref="FailLaunches"/> turns every launch
-  ///     AFTER the tab is open into a typed refusal, which is what the notice path needs -
-  ///     refusing the OPEN as well would leave no tab to click on.</summary>
+  ///     AFTER the window is set up into a typed refusal, which is what the notice path needs -
+  ///     refusing the first launch as well would leave no grid to click on.</summary>
   private sealed class Shell
   {
     public FakeRootTurnChannel Host { get; } = new([], holdOpen: false);
@@ -320,24 +284,19 @@ public class AddAgentControlTests
           Task.FromResult(FailLaunches
               ? Result.Failure<AgentSession>(new DomainError("SessionLaunchFailed",
                   "the workspace could not be opened."))
-              : Result.Success(Session(root, provider))));
+              : Result.Success(Session(root, provider))),
+          new MainViewModelOptions { WorkspaceRoot = @"C:\work\alpha" });
 
-    /// <summary>Opens the tab with launches answering, so the tab exists to click in.
-    ///     </summary>
-    /// <param name="root">The workspace root.</param>
-    /// <param name="provider">The provider name.</param>
-    public async Task<AgentTabViewModel> OpenAsync(string root, string provider = "openrouter")
+    /// <summary>Shows the real window over this shell, so the control and the grid are really
+    ///     built.</summary>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    public MainWindow Show(double width, double height)
     {
-      bool refusing = FailLaunches;
-      FailLaunches = false;
-      try
-      {
-        return (await ViewModel.OpenAgentAsync(root, provider).ConfigureAwait(true)).Value!;
-      }
-      finally
-      {
-        FailLaunches = refusing;
-      }
+      MainWindow window = new(ViewModel) { Width = width, Height = height };
+      window.Show();
+      Dispatcher.UIThread.RunJobs();
+      return window;
     }
 
     private AgentSession Session(string root, string provider)

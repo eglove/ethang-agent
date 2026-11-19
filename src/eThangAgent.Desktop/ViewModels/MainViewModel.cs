@@ -136,6 +136,11 @@ internal sealed record MainViewModelOptions
   ///     dropping the summary it exists to carry.</summary>
   public SeededSessionCreator? SeededSessionCreator { get; init; }
 
+  /// <summary>Reopens a persisted session by id (test seam). Null falls back to the session
+  ///     factory's own resume, which is the production path; a host that composed its sessions
+  ///     itself has no factory and reports resume as unavailable.</summary>
+  public Func<AgentId, Task<Result<AgentSession>>>? ResumeSessionCreator { get; init; }
+
   /// <summary>The mechanical advance (issue #301 D1/D2): answers the advance service for one
   ///     SESSION, or null when that session's container wired no chain machinery. Null (tests,
   ///     headless hosts) means no chain is ever advanced and the shell behaves exactly as
@@ -349,6 +354,11 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public ObservableCollection<AgentTabViewModel> Tabs { get; } = [];
 
+  /// <summary>The window's single agent grid: the one tab this window holds, or null before
+  ///     the first agent starts. One window is one workspace and one grid, so this is what
+  ///     every start and resume appends to rather than opening another.</summary>
+  public AgentTabViewModel? Grid => Tabs.Count > 0 ? Tabs[0] : null;
+
   /// <summary>The app-wide memory indicator (spec D14): usage against the derived
   ///     limit, the largest consumers, and the decisions the governor has taken.
   ///     App-wide, because the budget is app-wide: one indicator serves every
@@ -380,7 +390,7 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>How many conversations are open right now. The governor's per-
   ///     conversation share is derived from this count, so the indicator and the
   ///     governor always agree on how the budget is split.</summary>
-  public int OpenConversationCount => Tabs.Count;
+  public int OpenConversationCount => Tabs.Sum(tab => tab.Snapshot().Length);
 
   /// <summary>Whether the indicator's details (the consumers and the governor's
   ///     decisions) are shown. A toggle in the same bar, not a separate panel: the
@@ -458,9 +468,22 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     Loaded from preferences at construction; updated when settings save.</summary>
   public CommitStyle ConfiguredCommitStyle { get; private set; }
 
-  /// <summary>The rail's New Agent entry: opens an agent in the bound workspace. Disabled
-  ///     while no workspace is bound, because there is nowhere to open one.</summary>
-  public IAsyncRelayCommand OpenAgentCommand { get; }
+  /// <summary>The window's '+' control: starts one more agent in the bound workspace. Disabled
+  ///     while no workspace is bound, no provider is configured, or an open is in flight.</summary>
+  public IAsyncRelayCommand AddAgentCommand { get; }
+
+  /// <summary>Why the last '+' click started nothing, or null when it started an agent. A
+  ///     refused click appends no card, so the reason renders beside the control rather than
+  ///     in a transcript that does not exist yet.</summary>
+  [ObservableProperty]
+  public partial string? AddAgentNotice { get; private set; }
+
+  /// <summary>Whether the window renders the '+' refusal.</summary>
+  public bool HasAddAgentNotice => !string.IsNullOrWhiteSpace(AddAgentNotice);
+
+  /// <summary>Re-raises the derived visibility flag when the refusal moves.</summary>
+  /// <param name="value">The notice just assigned.</param>
+  partial void OnAddAgentNoticeChanged(string? value) => OnPropertyChanged(nameof(HasAddAgentNotice));
 
   public IRelayCommand OpenSessionsCommand { get; }
 
@@ -537,11 +560,11 @@ internal sealed partial class MainViewModel : ObservableObject
     _sessionCatalog = options?.SessionCatalog;
     _createSession = CreateSessionDelegate(createSession);
     _createSeededSession = SeededDelegate(options, createSession);
-    _resumeSession = CreateResumeDelegate();
+    _resumeSession = ResolveResumeDelegate(options);
 
     // Commands exist before the observable properties: setting those raises the
     // changed hooks, which requery command availability.
-    OpenAgentCommand = CreateOpenAgentCommand();
+    AddAgentCommand = CreateAddAgentCommand();
     OpenSessionsCommand = CreateOpenSessionsCommand();
     OpenSettingsCommand = CreateOpenSettingsCommand();
     OpenWorkspaceSettingsCommand = CreateOpenWorkspaceSettingsCommand();
@@ -614,28 +637,32 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     settings-save rebind reaches future resumes. A host composing sessions itself
   ///     (no factory) degrades to a structured failure — resume needs the shared store
   ///     the factory owns.</summary>
+  private Func<AgentId, Task<Result<AgentSession>>> ResolveResumeDelegate(MainViewModelOptions? options)
+      => options?.ResumeSessionCreator ?? CreateResumeDelegate();
+
   private Func<AgentId, Task<Result<AgentSession>>> CreateResumeDelegate()
       => sessionId => _sessionFactory is null
           ? Task.FromResult(Result.Failure<AgentSession>(new DomainError("ResumeUnavailable",
               "this host composed its sessions without a shared store; sessions cannot be resumed.")))
           : _sessionFactory.ResumeAsync(sessionId);
 
-  /// <summary>The New Agent command: gated on a bound workspace, no open in flight, and at
-  ///     least one configured provider. A failure is reported on the app-level warning bar so
-  ///     the user learns why nothing opened.</summary>
-  private AsyncRelayCommand CreateOpenAgentCommand() => new(
-      OpenAgentFromRailAsync,
+  /// <summary>The '+' command: gated on a bound workspace, no open in flight, and at least one
+  ///     configured provider. A refusal is recorded on the window, because a refused click
+  ///     produces no card to carry the reason.</summary>
+  private AsyncRelayCommand CreateAddAgentCommand() => new(
+      AddAgentFromWindowAsync,
       () => !IsOpeningAgent && HasConfiguredProvider && HasWorkspace);
 
-  /// <summary>Opens one agent in the bound workspace and surfaces a refusal on the warning
-  ///     bar. The rail is a fire-and-forget entry point, so a structured failure has no caller
-  ///     left to return it to.</summary>
-  private async Task OpenAgentFromRailAsync()
+  /// <summary>Starts one agent in the bound workspace and surfaces a refusal beside the
+  ///     control. The '+' is a fire-and-forget entry point, so a structured failure has no
+  ///     caller left to return it to.</summary>
+  private async Task AddAgentFromWindowAsync()
   {
-    Result<AgentTabViewModel> opened = await OpenAgentInWorkspaceAsync().ConfigureAwait(true);
-    if (!opened.IsSuccess)
+    AddAgentNotice = null;
+    Result<AgentCellViewModel> added = await AddAgentInWorkspaceAsync().ConfigureAwait(true);
+    if (!added.IsSuccess)
     {
-      AppWarning = opened.Error.Message;
+      AddAgentNotice = $"Error [{added.Error.Code}]: no agent was added - {added.Error.Message}";
     }
   }
 
@@ -685,10 +712,10 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
   // Command availability depends on both; requery on every change.
-  partial void OnIsOpeningAgentChanged(bool value) => OpenAgentCommand.NotifyCanExecuteChanged();
+  partial void OnIsOpeningAgentChanged(bool value) => AddAgentCommand.NotifyCanExecuteChanged();
 
   partial void OnAvailableProvidersChanged(IReadOnlyList<ProviderOption> value) =>
-      OpenAgentCommand.NotifyCanExecuteChanged();
+      AddAgentCommand.NotifyCanExecuteChanged();
 
   partial void OnSelectedTabChanged(AgentTabViewModel? value)
   {
@@ -1045,9 +1072,14 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     carrier (headless stubs) skip the push silently.</summary>
   private void PushLiveKeys(string? openRouterKey, string? managementKey)
   {
-    foreach (AgentTabViewModel tab in Tabs)
+    foreach (AgentCellViewModel cell in Tabs.SelectMany(tab => tab.Snapshot()))
     {
-      IServiceProvider services = tab.Container.Services;
+      if (cell.Container is not { } container)
+      {
+        continue;
+      }
+
+      IServiceProvider services = container.Services;
       if (services.GetService<OpenRouterApiKeyCarrier>() is { } modelKey)
       {
         modelKey.Current = openRouterKey;
@@ -1131,15 +1163,38 @@ internal sealed partial class MainViewModel : ObservableObject
   public async Task<Result<AgentTabViewModel>> OpenAgentAsync(string workspaceRoot, string providerName)
       => await OpenAgentCoreAsync(workspaceRoot, providerName, reuseExistingTab: true).ConfigureAwait(true);
 
-  /// <summary>Opens one more agent in the workspace this shell is bound to, with the
-  ///     preferred provider. Every call adds a TAB: the rail's New Agent entry is how the user
-  ///     asks for another agent, and selecting an existing one instead would refuse the
-  ///     request. Fails with <c>NoWorkspace</c> when the host bound no root.</summary>
+  /// <summary>Starts one more agent in the workspace this shell is bound to, with the
+  ///     preferred provider, and returns the CARD it occupies.
+  ///     <para>ONE GRID PER WINDOW: the first agent creates the window's grid and the rest
+  ///     append a card to it, so a window holding five agents still has one grid. Fails with
+  ///     <c>NoWorkspace</c> when the host bound no root.</para></summary>
+  public async Task<Result<AgentCellViewModel>> AddAgentInWorkspaceAsync()
+  {
+    if (WorkspaceRoot is null)
+    {
+      return Result.Failure<AgentCellViewModel>(new DomainError("NoWorkspace",
+          "this window is not bound to a workspace; open one from the launcher."));
+    }
+
+    if (Grid is { } grid)
+    {
+      return await AddCellAsync(grid, prompt: null).ConfigureAwait(true);
+    }
+
+    Result<AgentTabViewModel> opened = await OpenAgentInWorkspaceAsync().ConfigureAwait(true);
+    return opened.IsSuccess
+        ? Result.Success(opened.Value.Cells[0])
+        : Result.Failure<AgentCellViewModel>(opened.Error);
+  }
+
+  /// <summary>Opens the workspace's agent grid, or returns the one already open. The grid is
+  ///     the window's single one, so a second call returns the grid that exists rather than
+  ///     opening another. Fails with <c>NoWorkspace</c> when the host bound no root.</summary>
   public Task<Result<AgentTabViewModel>> OpenAgentInWorkspaceAsync()
       => WorkspaceRoot is null
           ? Task.FromResult(Result.Failure<AgentTabViewModel>(new DomainError("NoWorkspace",
               "this window is not bound to a workspace; open one from the launcher.")))
-          : OpenAgentCoreAsync(WorkspaceRoot, PreferredProviderId, reuseExistingTab: false);
+          : OpenAgentCoreAsync(WorkspaceRoot, PreferredProviderId, reuseExistingTab: true);
 
   /// <summary>The open path both entry points share. <paramref name="reuseExistingTab"/> false
   ///     always appends: a caller that asked for another agent gets one.</summary>
@@ -1355,11 +1410,12 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     it.</summary>
   public async Task<Result<AgentTabViewModel>> ResumeSessionAsync(AgentId sessionId)
   {
-    AgentTabViewModel? existing = Tabs.FirstOrDefault(t => t.Container.RootId == sessionId);
-    if (existing is not null)
+    // A SESSION ALREADY SHOWING IS NOT RESUMED AGAIN (it would fork the conversation): the
+    // window's grid is selected, and the caller learns the grid that holds it.
+    if (Grid is { } open && open.FindCell(sessionId) is not null)
     {
-      SelectedTab = existing;
-      return Result.Success(existing);
+      SelectedTab = open;
+      return Result.Success(open);
     }
 
     IsOpeningAgent = true;
@@ -1379,9 +1435,21 @@ internal sealed partial class MainViewModel : ObservableObject
       }
 
       Result<AgentSession> resumed = await scheduled;
-      return resumed.IsSuccess
-          ? Result.Success(await AttachSessionAsync(resumed.Value))
-          : Result.Failure<AgentTabViewModel>(resumed.Error);
+      if (!resumed.IsSuccess)
+      {
+        return Result.Failure<AgentTabViewModel>(resumed.Error);
+      }
+
+      // RESUMING BRINGS AN AGENT BACK AS A CARD in the window's grid - the same act as '+',
+      // carrying the old transcript. There is no strip for it to open into.
+      if (Grid is { } grid)
+      {
+        _ = await AppendSessionAsync(grid, resumed.Value, Tabs.IndexOf(grid), prompt: null,
+            new AppendOptions(Supersedes: false)).ConfigureAwait(true);
+        return Result.Success(grid);
+      }
+
+      return Result.Success(await AttachSessionAsync(resumed.Value));
     }
     // Named decision (CA1031): a failed resume is INFORMATION, not a crash - the same
     // rule as a fresh open, for the same reason (the UI dispatcher has no handler).
@@ -1670,8 +1738,11 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     names none and the tab's first live cell is the one replaced.</param>
   /// <param name="Launch">The presentation a model's own launch names (issue #338). PRESENT
   ///     MEANS SIBLING: that launch supersedes nothing and retires no cell.</param>
+  /// <param name="Supersedes">Whether this launch replaces an agent already in the grid. False
+  ///     for a resume, which brings a session BACK beside the ones there rather than continuing
+  ///     one of them.</param>
   private sealed record AppendOptions(ChainStepRole? Role = null, ChainPlacement? ChainStep = null,
-      AgentId? PredecessorId = null, AgentLaunchPresentation? Launch = null);
+      AgentId? PredecessorId = null, AgentLaunchPresentation? Launch = null, bool Supersedes = true);
 
   /// <summary>The cell this launch supersedes, or null when it supersedes nothing (issue
   ///     #338). A sibling retires no cell: it continues no session, so the caller keeps its
@@ -1684,7 +1755,7 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <param name="tab">The tab the launch lands in.</param>
   /// <param name="options">The launch's own facts.</param>
   private static AgentCellViewModel? SupersededCell(AgentTabViewModel tab, AppendOptions options)
-    => options.Launch is not null
+    => options.Launch is not null || !options.Supersedes
         ? null
         : NamedOrFirstLive(tab, options.PredecessorId);
 
@@ -2084,6 +2155,56 @@ internal sealed partial class MainViewModel : ObservableObject
     return new ChainPlacement(chain.Id, chain.Title, 0, chain.Steps.Count);
   }
 
+  /// <summary>Closes one agent card, tearing its session down (the card's x).
+  ///     <para>THE TEARDOWN IS THE POINT: the card is the window's only close control, so
+  ///     removing it without stopping the agent would leave a host process running with no
+  ///     surface to see or steer it. A host agent owns no container here, so it is only
+  ///     detached from its poller.</para>
+  ///     <para>THE LAST CARD IS ORDINARY: closing it leaves the window open on its empty pane,
+  ///     with the '+' still there to start another.</para>
+  ///     <para>Must run on the UI thread.</para></summary>
+  /// <param name="cell">The card being closed.</param>
+  public async Task CloseCellAsync(AgentCellViewModel cell)
+  {
+    ArgumentNullException.ThrowIfNull(cell);
+    AgentTabViewModel? grid = Tabs.FirstOrDefault(t => t.FindCell(cell.RootId) is not null);
+    if (grid is null)
+    {
+      return;
+    }
+
+    if (!cell.RunsInOwnHost)
+    {
+      // After the guard: a stale double-close must not detach a NEWER watchdog bound to the
+      // same root id (a closed session becomes resumable, so the id can be live again).
+      _sessionClosed?.Invoke(cell.RootId);
+    }
+
+    if (!grid.DismissCell(cell))
+    {
+      return;
+    }
+
+    if (cell.Container is not { } container)
+    {
+      return;
+    }
+
+    cell.RetireContainer();
+    // Named decision (CA1031): teardown is best effort - a failing persistence write must not
+    // keep a closed card on screen.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      await cell.ViewModel.ShutdownAsync().ConfigureAwait(true);
+    }
+    catch { /* teardown never throws */ }
+#pragma warning restore CA1031
+    // ONE DISPOSAL PER SESSION (issue #368): a start that outlived the shutdown disposes its
+    // own container, and this walk reaches the same session through its card.
+    _ = await container.TryDisposeContainerAsync().ConfigureAwait(true);
+  }
+
   /// <summary>Re-enters an IDLE chain step's session with a turn (stakeholder decision,
   ///     2026-10-31), which is what makes root supervision's nudge rung real.
   ///     <para>WHY A TURN AND NOT AN INBOX POST: the inbox is drained DURING a turn, and the
@@ -2146,9 +2267,9 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     that supersedes one already in the tab, so each of those also retires the card it
   ///     replaced. This path supersedes nothing - the caller simply wants another agent - which
   ///     is why it takes no predecessor.</para>
-  ///     <para>ITS CALLER IS THE TAB'S "+" CONTROL (issue #333), through
-  ///     <see cref="AddAgentFromControlAsync"/>: one click, one new agent, in this tab's
-  ///     workspace and provider, idle until the user types.</para>
+  ///     <para>ITS CALLER IS THE WINDOW'S "+" CONTROL, through <see cref="AddAgentInWorkspaceAsync"/>:
+  ///     one click, one new agent, in this window's workspace and provider, idle until the user
+  ///     types.</para>
   ///     <para>Must run on the UI thread.</para></summary>
   public async Task<Result<AgentCellViewModel>> AddCellAsync(AgentTabViewModel tab, string? prompt)
   {
@@ -2231,23 +2352,6 @@ internal sealed partial class MainViewModel : ObservableObject
     finally
     {
       EndStart();
-    }
-  }
-
-  /// <summary>The tab's "+" control (issue #333): starts one more agent in that workspace and
-  ///     appends its cell, idle, after the cells already there. Nothing is focused or scrolled.
-  ///     A refused launch records the reason on the tab, because a refused click produces no
-  ///     cell to carry it.</summary>
-  /// <param name="tab">The tab whose "+" was clicked.</param>
-  private async Task AddAgentFromControlAsync(AgentTabViewModel tab)
-  {
-    ArgumentNullException.ThrowIfNull(tab);
-    tab.ClearAddAgentNotice();
-    Result<AgentCellViewModel> added = await AddCellAsync(tab, prompt: null).ConfigureAwait(true);
-    if (!added.IsSuccess)
-    {
-      tab.ReportAddAgentFailure(
-          $"Error [{added.Error.Code}]: no agent was added - {added.Error.Message}");
     }
   }
 
@@ -2906,7 +3010,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // conversation) renders into the transcript view. A fresh session replays nothing.
     sessionVm.Transcript.Restore(session.Conversation.Messages);
 
-    AgentTabViewModel tab = new(session, sessionVm, workbench, NextTabTitle());
+    AgentTabViewModel tab = new(session, sessionVm, workbench, GridTitle(session.WorkspaceRoot));
     // Publish the tab to the view-model's new-session seams (issue #234): both resolve it
     // lazily because the tab is constructed FROM this view-model.
     attachedTab = tab;
@@ -2919,26 +3023,15 @@ internal sealed partial class MainViewModel : ObservableObject
     return tab;
   }
 
-  /// <summary>The name a tab opened now takes: <c>Agent &lt;n&gt;</c>, where n is the
-  ///     smallest positive integer no open tab already answers to.
-  ///     <para>A title an open tab already holds is skipped whatever put it there, so two
-  ///     tabs never share a name.</para></summary>
-  private string NextTabTitle()
+  /// <summary>The grid's name: the window's workspace folder. The grid is the window's one
+  ///     grid, so nothing else in the window could share the name.</summary>
+  /// <param name="workspaceRoot">The workspace the window is bound to.</param>
+  private static string GridTitle(string workspaceRoot)
   {
-    HashSet<string> taken = [.. Tabs.Select(tab => tab.Title)];
-    int ordinal = 1;
-    while (taken.Contains(TabTitle(ordinal)))
-    {
-      ordinal++;
-    }
-
-    return TabTitle(ordinal);
+    string name = Path.GetFileName(
+        workspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    return name.Length > 0 ? name : workspaceRoot;
   }
-
-  /// <summary>The tab name for one ordinal.</summary>
-  /// <param name="ordinal">The number the name states.</param>
-  private static string TabTitle(int ordinal)
-      => string.Create(CultureInfo.InvariantCulture, $"Agent {ordinal}");
 
   /// <summary>Builds ONE workbench rail for a workspace tab (issue #307 D6). The rail is
   ///     workspace-scoped - plans, git, PRs, and the database are the workspace's, not any one
@@ -3302,14 +3395,9 @@ internal sealed partial class MainViewModel : ObservableObject
       AgentSessionViewModel sessionVm)
   {
     ArgumentNullException.ThrowIfNull(sessionVm);
-    tab.AttachBadge(session.Services.GetService<IAgentEvents>());
     AttachAgentCells(session, tab);
     tab.AttachBranchWatcher(session.Services.GetService<IGitQueryAccess>());
-    // Issue #312 D6: a parked chain badges the tab header, because the rail may be closed and a
-    // chain waiting for a human is the one thing here that needs attention.
-    tab.AttachParkedChains(tab.Workbench.Chains);
-    // The tab's "+" control (issue #333) starts one more agent in this workspace.
-    tab.AttachAddAgent(() => AddAgentFromControlAsync(tab));
+    tab.AttachCloseCell(CloseCellAsync);
     // ROOT SUPERVISION IS THE SESSION'S OWN (issue #329): its clock is the turn facts of the
     // view-model passed here, which is the cell THIS session occupies - never the tab's primary.
     if (AttachRootSupervision(session, sessionVm) is { } rootWatchdog)
@@ -3620,10 +3708,13 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>The ids of the sessions currently open in tabs — the Sessions dialog
-  ///     greys these out, since resuming an open session would fork it.</summary>
+  /// <summary>The ids of the sessions currently open in this window — the Sessions dialog
+  ///     greys these out, since resuming an open session would fork it.
+  ///     <para>EVERY CARD, not the grid's first one: a window holds one grid of several
+  ///     agents, and a card past the first is just as open as the one the grid resolves to.
+  ///     </para></summary>
   public IReadOnlySet<AgentId> OpenSessionIds =>
-      Tabs.Select(t => t.Container.RootId).ToHashSet();
+      Tabs.SelectMany(t => t.Snapshot()).Select(cell => cell.RootId).ToHashSet();
 
   /// <summary>Remembers the chosen provider as the next dialog's default. Best effort:
   ///     the preference only seeds a default, so a failed write never fails the open —
@@ -4116,7 +4207,6 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
     }
 
-    tab.Badge?.Dispose();
     tab.DetachBranchWatcher();
     tab.DetachChainAdvance();
     tab.DetachAgentCells();

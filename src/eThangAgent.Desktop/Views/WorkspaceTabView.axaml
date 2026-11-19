@@ -84,25 +84,6 @@
          the 480 x 360 minimum the grid scrolls; there is no cell maximum (D8). -->
     <Panel Grid.Column="0">
       <DockPanel>
-        <!-- THE "+" CONTROL (issue #333, parent D11): the user adds an agent by hand. It sits
-             in a strip ABOVE the scrolling cell grid, so it stays put at any cell count and any
-             scroll offset and never covers a cell's header. Hidden while no request is attached
-             (a tab with no shell). -->
-        <Border DockPanel.Dock="Top" Background="#15000000" Padding="6,3">
-          <DockPanel>
-            <Button x:Name="AddAgentButton" DockPanel.Dock="Left" Content="+" Padding="8,1"
-                    FontSize="14" VerticalAlignment="Center"
-                    IsVisible="{Binding CanAddAgent}"
-                    Click="OnAddAgentClick"
-                    ToolTip.Tip="Start another agent in this workspace"/>
-            <!-- Why the last "+" click started no agent. A refused click appends no cell, so
-                 the reason renders here rather than in a transcript. -->
-            <SelectableTextBlock x:Name="AddAgentNoticeText" Text="{Binding AddAgentNotice}"
-                                 Margin="6,0,0,0" VerticalAlignment="Center"
-                                 FontSize="11" Foreground="#FF8A80" TextWrapping="Wrap"
-                                 IsVisible="{Binding HasAddAgentNotice}"/>
-          </DockPanel>
-        </Border>
         <!-- THE EMPTY TAB (issue #339): a tab whose last card was closed is an ordinary
              state, so it says so and names the '+' rather than rendering a blank pane that
              reads as a failure. -->

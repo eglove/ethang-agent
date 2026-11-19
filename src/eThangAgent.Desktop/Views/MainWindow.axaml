@@ -21,11 +21,6 @@
          docked explicitly. -->
     <Border Grid.Column="0" x:Name="SideMenu" Background="#FF1B1B2F" Width="48">
       <DockPanel LastChildFill="False">
-        <Button x:Name="OpenAgentMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="➕"
-                Width="40" Height="34" Padding="0" FontSize="18"
-                HorizontalAlignment="Center"
-                Margin="0,8,0,2" Command="{Binding OpenAgentCommand}"
-                ToolTip.Tip="New Agent — open another agent in this workspace"/>
         <Button x:Name="SessionsMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="💬"
                 Width="40" Height="34" Padding="0" FontSize="18"
                 HorizontalAlignment="Center"
@@ -130,56 +125,23 @@
         </StackPanel>
       </Border>
 
-      <TabControl x:Name="AgentTabs" Classes="compact-tabs" Grid.Row="1"
-                  ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
-        <TabControl.Styles>
-          <Style Selector="TabControl.compact-tabs TabItem">
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Padding" Value="8,3"/>
-            <Setter Property="MinHeight" Value="28"/>
-          </Style>
-          <Style Selector="TabControl.compact-tabs TabItem > StackPanel > Button">
-            <Setter Property="FontSize" Value="10"/>
-            <Setter Property="Padding" Value="3,0"/>
-          </Style>
-        </TabControl.Styles>
-        <TabControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:AgentTabViewModel">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
-              <!-- W4.4: unread-steering badge - pushed by the session's agent-event
-                   stream (deliver raises, drain/settle clear), never polled. -->
-              <Border CornerRadius="8" Padding="5,0" Background="#4C8CFF"
-                      VerticalAlignment="Center"
-                      IsVisible="{Binding Badge.HasUnread}">
-                <TextBlock Text="{Binding Badge.UnreadCount}" FontSize="10"
-                           Foreground="White"/>
-              </Border>
-              <!-- Issue #312 D6: the parked-chain badge. A chain waiting for a human is the one
-                   thing in this application that needs attention, so it cannot depend on the user
-                   having opened the rail - the tab header is visible whenever the tab is. Amber
-                   rather than the unread badge's blue: waiting-for-you is not unread-mail. -->
-              <Border CornerRadius="8" Padding="5,0" Background="#FFB454"
-                      VerticalAlignment="Center"
-                      IsVisible="{Binding HasParkedChains}"
-                      ToolTip.Tip="Chains waiting for you: open the Chains view in the workbench">
-                <TextBlock Text="{Binding ParkedChains}" FontSize="10"
-                           Foreground="#1B1B2F"/>
-              </Border>
-              <!-- The tooltip names the workspace, the provider and the session. -->
-              <Button Content="✕" Padding="3,0" Background="Transparent" BorderThickness="0"
-                      Click="OnCloseTab" ToolTip.Tip="{Binding Tooltip}"/>
-            </StackPanel>
-          </DataTemplate>
-        </TabControl.ItemTemplate>
-        <!-- Content is keep-alive in the panel below; the tab control renders
-             the header strip only. -->
-        <TabControl.ContentTemplate>
-          <DataTemplate>
-            <Panel/>
-          </DataTemplate>
-        </TabControl.ContentTemplate>
-      </TabControl>
+      <!-- THE '+' CONTROL: the only way to start an agent, and it lives on the WINDOW
+           rather than inside the grid - a window holding no agent still has to offer it,
+           and there is no grid to hold it until the first agent exists. It sits in a strip
+           above the scrolling grid, so it stays put at any cell count and any scroll offset. -->
+      <Border x:Name="AddAgentStrip" Grid.Row="1" Background="#15000000" Padding="6,3">
+        <DockPanel>
+          <Button x:Name="AddAgentButton" DockPanel.Dock="Left" Content="+" Padding="8,1"
+                  FontSize="14" VerticalAlignment="Center"
+                  IsVisible="{Binding HasWorkspace}"
+                  Command="{Binding AddAgentCommand}"
+                  ToolTip.Tip="Start another agent in this workspace"/>
+          <SelectableTextBlock x:Name="AddAgentNoticeText" Text="{Binding AddAgentNotice}"
+                               Margin="6,0,0,0" VerticalAlignment="Center"
+                               FontSize="11" Foreground="#FF8A80" TextWrapping="Wrap"
+                               IsVisible="{Binding HasAddAgentNotice}"/>
+        </DockPanel>
+      </Border>
 
       <ItemsControl x:Name="KeepAliveHost" Grid.Row="2" ItemsSource="{Binding Tabs}"
                     Focusable="False">
@@ -190,11 +152,12 @@
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:AgentTabViewModel">
-            <!-- The wrapper owns the visibility binding (it reads the tab VM); the tab
+            <!-- The wrapper owns the visibility binding (it reads the grid's VM); the tab
                  view's own DataContext switch must not re-scope it.
-                 Issue #307 D1: a tab renders the AGENT GRID plus the workbench rail, not one
-                 chat. The tab view binds the tab itself, because the grid and the rail are
-                 both the tab's - the cells inside it bind their own sessions. -->
+                 ONE WINDOW IS ONE GRID: this collection holds the window's single agent grid,
+                 created when the first agent starts and kept for the window's life. The grid
+                 and the workbench rail are both the grid's - the cells inside it bind their
+                 own sessions. -->
             <Panel IsVisible="{Binding IsSelected}">
               <views:WorkspaceTabView DataContext="{Binding}"/>
             </Panel>
@@ -202,7 +165,8 @@
         </ItemsControl.ItemTemplate>
       </ItemsControl>
 
-      <!-- Empty shell: shown when no tab is open. -->
+      <!-- Empty shell: shown while this window holds no agent. The '+' above is what starts
+           the first one, so the pane names it rather than reading as a failure. -->
       <StackPanel x:Name="EmptyState" Grid.Row="2" VerticalAlignment="Center" Spacing="10"
                   IsVisible="{Binding !HasTabs}">
         <TextBlock x:Name="EmptyStateText"

@@ -124,8 +124,8 @@ public class AppShutdownContainmentTests
   }
 
   /// <summary>Closing the WORKSPACE tears every agent down and leaves the process alive: two
-  ///     agents, two real host processes, both dead afterwards, the tab strip empty, and exactly
-  ///     one report that the workspace is closed.</summary>
+  ///     agents in the window's one grid, two real host processes, both dead afterwards, the grid
+  ///     gone, and exactly one report that the workspace is closed.</summary>
   [Fact]
   public async Task CloseWorkspace_StopsEveryHost_AndReportsOnce()
   {
@@ -151,9 +151,9 @@ public class AppShutdownContainmentTests
     {
       for (int i = 0; i < 2; i++)
       {
-        Result<AgentTabViewModel> opened = await shell.OpenAgentInWorkspaceAsync()
+        Result<AgentCellViewModel> added = await shell.AddAgentInWorkspaceAsync()
             .WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken).ConfigureAwait(true);
-        Assert.True(opened.IsSuccess, opened.Error?.Message);
+        Assert.True(added.IsSuccess, added.Error?.Message);
       }
 
       // TWO AGENTS ARE TWO HOST PROCESSES: the teardown below has two things to stop.
