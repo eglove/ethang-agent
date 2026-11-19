@@ -82,6 +82,39 @@ public class PlanRealtimeWiringTests
     Assert.Equal(created.Value.Id, change.PlanId);
   }
 
+  /// <summary>A step marked done publishes the fact that says so, and a step ADDED
+  ///     publishes a different one.
+  ///     <para>THE TWO ARE NOT INTERCHANGEABLE: a chain reader treats a step change as a
+  ///     completion, so an append that arrived carrying no kind was read as one - the chain
+  ///     settled its step and completed while the session was still working. The kind is what
+  ///     separates 'the plan's steps moved' from 'this step is finished'.</para></summary>
+  [Fact]
+  public async Task AStepMarkedDone_AndAStepAdded_PublishDifferentKinds()
+  {
+    using ServiceProvider services = Build();
+    IAgentEvents events = services.GetRequiredService<IAgentEvents>();
+    PlanService plans = services.GetRequiredService<PlanService>();
+    RecordingSubscriber recorder = new();
+    using IDisposable lease = events.Subscribe(recorder);
+    DateTimeOffset now = DateTimeOffset.UtcNow;
+
+    Result<Plan> created = await plans.CreateAsync("kinds", "goal", "sess-1",
+        [("one", null)], now, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(created.IsSuccess, created.Error?.Message ?? "expected success");
+    Result<Plan> added = await plans.AddStepAsync(created.Value.Id, "two", null,
+        created.Value.Version, now, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(added.IsSuccess, added.Error?.Message ?? "expected success");
+    Result<Plan> done = await plans.UpdateStepAsync(created.Value.Id, 1,
+        step => step with { Status = PlanStepStatus.Done }, added.Value.Version, now,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.True(done.IsSuccess, done.Error?.Message ?? "expected success");
+
+    List<PlanChangedEvent> facts = [.. recorder.Events.OfType<PlanChangedEvent>()];
+    Assert.Contains(facts, fact => fact.StepChange == "added");
+    Assert.Contains(facts, fact => fact.StepChange == "updated");
+    Assert.DoesNotContain(facts, fact => fact.Change == "steps" && fact.StepChange is null);
+  }
+
   private sealed class RecordingSubscriber : IAgentEventSubscriber
   {
     public List<AgentEvent> Events { get; } = [];

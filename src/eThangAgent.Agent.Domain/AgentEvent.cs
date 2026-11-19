@@ -67,8 +67,14 @@ public sealed record MailboxDrainedEvent(AgentId Id, DateTimeOffset At, IReadOnl
 ///     <para>Published by the Composition's <c>PlanChangePublisher</c> over the Plan
 ///     Domain's own events: the Plan Domain cannot reference this assembly, so the
 ///     translation lives at the composition root (the same shape the state-change
-///     adapter uses).</para></summary>
-public sealed record PlanChangedEvent(AgentId Id, DateTimeOffset At, int PlanId, string Change, string? Status)
+///     adapter uses).</para>
+///     <para><paramref name="StepChange"/> names WHAT a step change was
+///     (added | moved | updated | removed), and is null for every other change. The tag
+///     alone says a plan's steps moved, which is true of a step being ADDED and of a step
+///     being marked Done - two facts a chain reader must never confuse, because only the
+///     second is a completion.</para></summary>
+public sealed record PlanChangedEvent(AgentId Id, DateTimeOffset At, int PlanId, string Change, string? Status,
+    string? StepChange = null)
     : AgentEvent(Id, At);
 
 /// <summary>A durable CHAIN record changed (issue #312): created, a step claimed/settled/

@@ -49,8 +49,36 @@ public sealed class SingleInstanceGate : IDisposable
     _mutex = mutex;
     _name = name;
     _pipeName = pipeName;
-    _server = Task.Run(() => ServeAsync(_cts.Token), _cts.Token);
+    // THE PIPE IS LISTENING BEFORE OWNERSHIP IS HANDED OUT. A signaller may arrive the
+    // instant the gate exists, and TrySignal's short window assumes an owner that is
+    // running is listening. Creating the instance on a worker thread left a window where
+    // the owner held the name and had no pipe, so the signal was lost and the launch it
+    // came from started a second window on the same workspace - the one thing this gate
+    // exists to prevent. Constructing it HERE puts the kernel object in place before
+    // TryAcquire returns, whatever the thread pool is doing.
+    _server = Task.Run(() => ServeAsync(Listen(), _cts.Token), _cts.Token);
   }
+
+  /// <summary>The first listening instance, or null when the pipe cannot be created - the
+  ///     loop then creates its own, exactly as it did before readiness was guaranteed.
+  ///     <para>A PIPE THAT CANNOT BE CREATED IS NOT A FAILED ACQUISITION: the name is owned
+  ///     either way, and a signal that finds no pipe reports itself as no owner, which is the
+  ///     answer the caller already handles.</para></summary>
+  private NamedPipeServerStream? Listen()
+  {
+    try
+    {
+      return CreateServer();
+    }
+    catch (IOException)
+    {
+      return null;
+    }
+  }
+
+  /// <summary>One listening instance of this gate's pipe.</summary>
+  private NamedPipeServerStream CreateServer() =>
+      new(_pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
   /// <summary>The pipe name a signaller connects to for <paramref name="name"/>.</summary>
   /// <param name="name">The instance name.</param>
@@ -146,25 +174,30 @@ public sealed class SingleInstanceGate : IDisposable
     return "eThangAgent.ws." + Convert.ToHexString(hash)[..16];
   }
 
-  private async Task ServeAsync(CancellationToken ct)
+  private async Task ServeAsync(NamedPipeServerStream? ready, CancellationToken ct)
   {
+    NamedPipeServerStream? listening = ready;
     while (!ct.IsCancellationRequested)
     {
+      NamedPipeServerStream? server = listening;
+      listening = null;
       try
       {
         // Named decision (CA2007): the server's lifetime is the loop's, and its disposal
         // must not be deferred to a continuation.
 #pragma warning disable CA2007
-        await using NamedPipeServerStream server = new(_pipeName, PipeDirection.In, 1,
-            PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-        await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
-        using StreamReader reader = new(server, Encoding.UTF8);
-        string? payload = await reader.ReadLineAsync(ct).ConfigureAwait(false);
-#pragma warning restore CA2007
-        if (!string.IsNullOrEmpty(payload))
+        server ??= CreateServer();
+        await using (server)
         {
-          Signalled?.Invoke(this, new SignalledEventArgs(payload));
+          await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
+          using StreamReader reader = new(server, Encoding.UTF8);
+          string? payload = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+          if (!string.IsNullOrEmpty(payload))
+          {
+            Signalled?.Invoke(this, new SignalledEventArgs(payload));
+          }
         }
+#pragma warning restore CA2007
       }
       catch (OperationCanceledException)
       {

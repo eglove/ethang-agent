@@ -9,9 +9,17 @@ namespace eThangAgent.Desktop;
 ///     reaches the app carrying the authoring agent id (the Composition's
 ///     <c>PlanChangePublisher</c> raises it, and the host forwards it over the wire), so a
 ///     poller would re-derive what is already published and race the write.</para>
-///     <para>ONLY A STEP CHANGE IS A COMPLETION. The plan's events are created / steps /
+///     <para>ONLY A STEP MARKED DONE IS A COMPLETION. The plan's events are created / steps /
 ///     status; 'created' and 'status' say nothing about a step, and treating them as
 ///     completions would advance a chain on a plan rename.</para>
+///     <para>AND OF THE STEP CHANGES, ONLY AN UPDATE CAN BE ONE. A step ADDED, MOVED, or
+///     REMOVED is a structure edit - the very edits the structure lock exists to bound - so
+///     reading them as completions advanced a chain on a step the session had not finished.
+///     A chain step that appends to its own plan therefore ended its chain: the append
+///     arrived as a completion, settled the step, and the chain completed before the
+///     session could mark anything done. The update is the only step change that can carry
+///     a Done, and the ownership gate is what decides whether THIS session's Done counts.
+///     </para>
 ///     <para>THE POSITION IS READ FROM THE RECORD, not from the payload: the event carries
 ///     the plan id and the author, and the chain store already knows which step THAT author
 ///     holds. Reading it from the payload would trust a value the event does not carry.</para>
@@ -29,7 +37,7 @@ internal sealed class ChainAdvanceSubscriber(
   public async Task OnEventAsync(AgentEvent evt, string workspaceId, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(evt);
-    if (evt is not PlanChangedEvent { Change: "steps" } plan)
+    if (evt is not PlanChangedEvent { Change: "steps", StepChange: "updated" } plan)
     {
       return;
     }

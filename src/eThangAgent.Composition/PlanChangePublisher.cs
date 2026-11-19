@@ -43,7 +43,8 @@ public sealed class PlanChangePublisher : IDisposable
 
   private void OnCreated(PlanCreated e) => Publish(e.PlanId, "created", status: null, e.At);
 
-  private void OnStepChanged(PlanStepChanged e) => Publish(e.PlanId, "steps", status: null, e.At);
+  private void OnStepChanged(PlanStepChanged e) =>
+      _events.Publish(new PlanChangedEvent(_author(), e.At, e.PlanId, "steps", Status: null, e.Kind));
 
   private void OnStatusChanged(PlanStatusChanged e) => Publish(e.PlanId, "status", e.To.ToString(), e.At);
 
