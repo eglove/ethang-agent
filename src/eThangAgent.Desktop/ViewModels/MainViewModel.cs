@@ -3202,6 +3202,9 @@ internal sealed partial class MainViewModel : ObservableObject
           ChildRuntime = session.ChildRuntime,
           StatusModelUpdater = updateStatusModel,
           ModelPreferences = session.Preferences,
+          // The session's model vision fact: an image surface answers from it before any turn
+          // has built an agent in this container.
+          VisionCache = session.Services.GetService<SessionVisionCache>(),
           CommandRunner = session.CommandRunner,
           SkillInvocation = session.SkillInvocation,
           ReferenceCatalogSource = (trigger, query) => ReferenceOptionsOf(session, fileIndex, trigger, query),
@@ -3384,6 +3387,14 @@ internal sealed partial class MainViewModel : ObservableObject
     if (restoredSettings is not null)
     {
       preferences.ProviderSettings = restoredSettings;
+    }
+
+    // The restored selection is what the next turn will use, so the session's vision fact is
+    // resolved from it now: an image surface answered before any turn runs must not disagree
+    // with the model that will serve.
+    if (session.Services.GetService<SessionVisionCache>() is { } vision)
+    {
+      await vision.RefreshAsync(CancellationToken.None).ConfigureAwait(true);
     }
   }
 

@@ -1418,6 +1418,10 @@ public static class AgentComposition
                 () => Path.Combine(AppContext.BaseDirectory, "eThangAgent.ComputerUse.Host.exe"),
                 BrokerRegistry.DefaultPipeNameFor)))
         .AddSingleton<SessionModelPreferences>()
+        // The vision fact an image-bearing surface answers from when no turn runs in this
+        // container: the app hands every turn to a conversation host, so the root agent here is
+        // never built and the session's own selection is what states the capability.
+        .AddSingleton<SessionVisionCache>()
         .AddSingleton<RootSessionIdentity>()
         // Spec D9: ONE continuous transcript sink per container, shared by the root agent
         // (which subscribes it to the conversation) and the end-of-turn lifecycle (which

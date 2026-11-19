@@ -43,6 +43,11 @@ internal sealed record AgentSessionViewModelOptions
   ///     pickers.</summary>
   public SessionModelPreferences? ModelPreferences { get; init; }
 
+  /// <summary>The session's model vision fact, refreshed whenever the selection changes so a
+  ///     capability answered outside a running turn follows the model the next turn will use.
+  ///     Null = nothing to refresh (headless stubs, or a container with no catalog).</summary>
+  public SessionVisionCache? VisionCache { get; init; }
+
   /// <summary>The language catalog the per-workspace prompt names a language from. Null =
   ///     no prompt (a headless stub, or a container with no language-server seam).</summary>
   public ILanguageServerCatalog? LanguageCatalog { get; init; }
@@ -254,6 +259,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Func<UiStreamEvent, Task> _streamSink;
   private readonly Action<string>? _statusModelUpdater;
   private readonly SessionModelPreferences? _modelPreferences;
+
+  /// <summary>The model vision fact this session refreshes on every selection change. Null when
+  ///     the container wired none.</summary>
+  private readonly SessionVisionCache? _vision;
 
   /// <summary>The models this session has dropped: a refusing model is not tried again for the
   ///     rest of the session, and its drop never reaches the stored preference.</summary>
@@ -687,10 +696,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     });
     _modelPreferences = options.ModelPreferences;
+    _vision = options.VisionCache;
     _usageQueries = options.UsageQueries;
     SessionDefaultModelId = modelId;
     // The session's model is ALWAYS NAMED (2026-10-22) - see ResolveServingModel.
     string servingModel = ResolveServingModel(_modelPreferences, modelId);
+    // The selection is now STATED, so the vision fact behind every image-bearing surface can be
+    // answered before the first turn builds an agent.
+    RefreshVision();
     Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort))
     {
       // The bar names the retention tier in force from the first render, so a session that never
@@ -1492,7 +1505,37 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // The bar names the tier in force for all three, so a session that has loosened its policy
     // says so instead of showing silence.
     Status.ServingRetention = RetentionBadge(EffectiveRetention(_modelPreferences));
+    // The capability follows the pick: a turn's model and the image surfaces' answer must not
+    // disagree about whether the model can see.
+    RefreshVision();
     Transcript.AddNotice(ChoiceNotice(chosen, modelIds.Count, variant));
+  }
+
+  /// <summary>Re-resolves the session's model vision fact from the current selection. Fire and
+  ///     forget: the fact is read synchronously by image tools, so a slow catalog read must never
+  ///     hold the UI thread that committed the choice.</summary>
+  private void RefreshVision()
+  {
+    if (_vision is null)
+    {
+      return;
+    }
+
+    _ = Task.Run(async () =>
+    {
+      try
+      {
+        // The refresh outlives the turn that triggered it and is not part of it, so it takes
+        // no turn token: a committed choice must be reflected even between turns.
+        await _vision.RefreshAsync(CancellationToken.None).ConfigureAwait(false);
+      }
+#pragma warning disable CA1031 // Named decision: a capability refresh must never fail the session.
+      catch (Exception)
+#pragma warning restore CA1031
+      {
+        // The fact keeps its previous answer; the next selection change retries.
+      }
+    }, CancellationToken.None);
   }
 
   /// <summary>The number of entries a preference names, or zero when it names no list. Extracted
