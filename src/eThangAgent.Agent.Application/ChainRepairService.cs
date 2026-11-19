@@ -27,11 +27,16 @@ public sealed record ChainRepairOutcome(int ChainId, ChainRepairKind Kind, int? 
 ///     that would disagree.</para></summary>
 /// <param name="chains">The chain application service.</param>
 /// <param name="launch">Starts the session a step repair needs.</param>
-public sealed class ChainRepairService(ChainService chains, IChainResumeLaunchPort launch)
+/// <param name="sessionIsLive">Answers whether a step's session still exists, or null when the
+///     host cannot tell. A null probe never reaps a running step, because a caller that cannot
+///     answer is not allowed to take work from a session that may still be doing it.</param>
+public sealed class ChainRepairService(ChainService chains, IChainResumeLaunchPort launch,
+    Func<string, bool>? sessionIsLive = null)
 {
   private readonly ChainService _chains = chains ?? throw new ArgumentNullException(nameof(chains));
   private readonly IChainResumeLaunchPort _launch = launch
       ?? throw new ArgumentNullException(nameof(launch));
+  private readonly Func<string, bool>? _sessionIsLive = sessionIsLive;
 
   /// <summary>Repairs the chain at <paramref name="chainId"/>, or refuses naming why there is
   ///     nothing to repair.
@@ -59,7 +64,7 @@ public sealed class ChainRepairService(ChainService chains, IChainResumeLaunchPo
   /// <param name="ct">Cancellation.</param>
   private async Task<Result<ChainRepairOutcome>> RepairLoadedAsync(Chain chain, DateTimeOffset now,
       CancellationToken ct) =>
-      ChainStuckPolicy.RepairFor(chain) is { } repair
+      ChainStuckPolicy.RepairFor(chain, _sessionIsLive) is { } repair
           ? await EnactAsync(chain, repair, now, ct).ConfigureAwait(false)
           : Result.Failure<ChainRepairOutcome>(NotStuck(chain));
 
@@ -92,6 +97,8 @@ public sealed class ChainRepairService(ChainService chains, IChainResumeLaunchPo
       {
         ChainRepairKind.StartStep =>
             await StartAsync(chain, repair.Position!.Value, now, ct).ConfigureAwait(false),
+        ChainRepairKind.RearmStep =>
+            await RearmAsync(chain, repair, now, ct).ConfigureAwait(false),
         ChainRepairKind.CompleteChain =>
             await CompleteAsync(chain, now, ct).ConfigureAwait(false),
         ChainRepairKind.ParkChain =>
@@ -141,6 +148,40 @@ public sealed class ChainRepairService(ChainService chains, IChainResumeLaunchPo
             + $"claim could not be corrected to it ({reassigned.Error.Code}: "
             + $"{reassigned.Error.Message}); the step is still held by a placeholder and will be "
             + "adopted when that session opens."));
+  }
+
+  /// <summary>Takes a stranded step back from the session that no longer holds it and starts a
+  ///     fresh one.
+  ///     <para>THE RELEASE COMES FIRST. A step still Running cannot be claimed, so the claim has to
+  ///     be cleared before the new session can own it - and clearing it is the record's own way of
+  ///     saying the old session is gone.</para>
+  ///     <para>THE ATTEMPT COUNT IS KEPT, because the launch that stranded the step was an attempt.
+  ///     A step whose budget is spent still parks, which is the existing rule and not this
+  ///     repair's to widen.</para></summary>
+  /// <param name="chain">The chain being repaired.</param>
+  /// <param name="repair">The re-arm decision, which names the step and why.</param>
+  /// <param name="now">The clock.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<ChainRepairOutcome>> RearmAsync(Chain chain, ChainRepair repair,
+      DateTimeOffset now, CancellationToken ct)
+  {
+    int position = repair.Position!.Value;
+    Result<Chain> released = await _chains
+        .ReleaseStepAsync(chain.Id, position, ChainActor.Harness, now, ct).ConfigureAwait(false);
+    if (!released.IsSuccess)
+    {
+      return Result.Failure<ChainRepairOutcome>(released.Error);
+    }
+
+    Result<ChainRepairOutcome> started = await StartAsync(released.Value, position, now, ct)
+        .ConfigureAwait(false);
+    return started.IsSuccess
+        ? Result.Success(started.Value with
+        {
+          Kind = ChainRepairKind.RearmStep,
+          Reason = repair.Reason,
+        })
+        : started;
   }
 
   /// <summary>Marks an all-settled chain Completed: the work finished and the last write did not

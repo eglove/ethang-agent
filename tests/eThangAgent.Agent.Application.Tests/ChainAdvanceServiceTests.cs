@@ -182,6 +182,27 @@ public class ChainAdvanceServiceTests
   }
 
   [Fact]
+  public async Task OnCompletionAsync_ForAStepThatAlreadySettled_MovesNothing()
+  {
+    // A COMPLETION IS IDEMPOTENT. A session that says 'done' twice - after a fault, or after
+    // recording a verdict and then completing as well - must not start a second successor for one
+    // piece of work. Nothing is refused: the fact was already recorded.
+    (ChainAdvanceService service, FakeStore store, FakeHost host, Chain chain) =
+        await NewAsync(1, 2);
+    _ = await store.SaveAsync(chain.ClaimStep(1, "session-a", T0), chain.Version,
+        TestContext.Current.CancellationToken);
+
+    _ = Must(await service.OnCompletionAsync("session-a", planId: 3, T0,
+        TestContext.Current.CancellationToken));
+    ChainAdvance second = Must(await service.OnCompletionAsync("session-a", planId: 3, T0,
+        TestContext.Current.CancellationToken));
+
+    Assert.Equal(ChainAdvanceKind.AlreadySettled, second.Kind);
+    // ONE SUCCESSOR, NOT TWO: the second completion started nothing.
+    Assert.Equal(2, Assert.Single(host.Started).Position);
+  }
+
+  [Fact]
   public async Task OnCompletionAsync_OfTheLastStep_CompletesTheChainAndClosesTheSession()
   {
     (ChainAdvanceService service, FakeStore store, FakeHost host, Chain chain) = await NewAsync(1);

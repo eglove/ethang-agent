@@ -81,6 +81,50 @@ public class PlanStructureLockTests
   }
 
   [Fact]
+  public async Task SetStatus_Completed_WhileAChainIsStillRunning_IsRefusedNamingTheChain()
+  {
+    // A PLAN MARKED COMPLETE WHILE ITS CHAIN RUNS CLAIMS WORK IS DONE THAT NOTHING HAS FINISHED,
+    // and the chain then advances under a plan nobody is watching for. Batch #222 did exactly
+    // that: the plan read Completed while both its chains were still Running.
+    (PlanCapabilityProvider provider, _) = await SeededAsync(executingChain: 9);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("set-status",
+        /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsError);
+    Assert.Contains(PlanCapabilityProvider.LiveChainCode, result.Content, StringComparison.Ordinal);
+    Assert.Contains("chain #9", result.Content, StringComparison.Ordinal);
+    // THE REFUSAL NAMES THE EXIT, and leaves the stored status untouched.
+    Assert.Contains("chain.abandon", result.Content, StringComparison.Ordinal);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show",
+        /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken)
+        .ConfigureAwait(true);
+    Assert.Contains("| Active |", shown.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SetStatus_Completed_WithNoChainRunning_Succeeds()
+  {
+    (PlanCapabilityProvider provider, _) = await SeededAsync(executingChain: null);
+    // THE PLAN'S OWN INVARIANT STILL HOLDS: every step settled. This test is about the CHAIN check
+    // not firing when no chain is running, so the steps are settled to leave only that question.
+    foreach (int position in new[] { 1, 2 })
+    {
+      _ = await provider.InvokeAsync("update-step",
+          $"{{ \"id\": 1, \"position\": {position}, \"status\": \"Skipped\" }}",
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("set-status",
+        /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal("[plan] #1 is now Completed", result.Content);
+  }
+
+  [Fact]
   public async Task AddStep_AppendingPastTheChainsLastPosition_IsAllowed()
   {
     (PlanCapabilityProvider provider, _) = await SeededAsync(executingChain: 9);

@@ -77,14 +77,22 @@ public class ChainRepairServiceTests
   }
 
   private static async Task<(ChainRepairService Service, FakeStore Store, FakeLaunch Launch,
-      Chain Chain)> NewAsync(params int[] positions)
+      Chain Chain)> NewAsync(params int[] positions) =>
+      await NewAsync(null, positions).ConfigureAwait(true);
+
+  /// <summary>The same fixture with an explicit liveness probe, so a test can say whether a
+  ///     step's session is still alive.</summary>
+  /// <param name="sessionIsLive">Answers whether a session is alive, or null when unknown.</param>
+  /// <param name="positions">The plan positions the chain executes.</param>
+  private static async Task<(ChainRepairService Service, FakeStore Store, FakeLaunch Launch,
+      Chain Chain)> NewAsync(Func<string, bool>? sessionIsLive, params int[] positions)
   {
     FakeStore store = new();
     FakeLaunch launch = new();
     ChainService chains = new(store);
     Chain chain = Must(await chains.CreateAsync(ChainCreation.Implementing("C:\\ws", 3, 1, "t",
         "session-root", positions), T0, TestContext.Current.CancellationToken).ConfigureAwait(true));
-    return (new ChainRepairService(chains, launch), store, launch, chain);
+    return (new ChainRepairService(chains, launch, sessionIsLive), store, launch, chain);
   }
 
   private static async Task<Chain> SettleAsync(ChainService chains, Chain chain, int position,
@@ -194,6 +202,69 @@ public class ChainRepairServiceTests
     Assert.False(outcome.IsSuccess);
     Assert.Equal(ChainRepairCode.AlreadyMoving, outcome.Error.Code);
     Assert.Contains("step(s) 1", outcome.Error.Message, StringComparison.Ordinal);
+    Assert.Empty(launch.Started);
+  }
+
+  [Fact]
+  public async Task Repair_RearmsAStepWhoseSessionIsDead_AndStartsAFreshOne()
+  {
+    // THE SESSION DIED AND THE STEP STAYED RUNNING. Nothing can complete it, resume-parked refuses
+    // a chain that is not parked, and the advance sees a step somebody holds - so the chain sits
+    // Running forever while its work is finished. Re-arming it is the only exit.
+    (ChainRepairService service, FakeStore store, FakeLaunch launch, Chain chain) =
+        await NewAsync(sessionId => sessionId != "session-a", 1, 2).ConfigureAwait(true);
+    ChainService chains = new(store);
+    _ = Must(await chains.ClaimStepAsync(chain.Id, 1, "session-a", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    ChainRepairOutcome outcome = Must(await service.RepairAsync(chain.Id, T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Assert.Equal(ChainRepairKind.RearmStep, outcome.Kind);
+    Assert.Equal(1, outcome.Position);
+    Assert.Equal("session-repaired", outcome.SessionId);
+    Assert.Equal(1, Assert.Single(launch.Started).Position);
+    Chain stored = Must(await store.GetAsync(chain.Id, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true));
+    Assert.Equal(ChainStepStatus.Running, stored.StepAt(1)!.Status);
+    Assert.Equal("session-repaired", stored.StepAt(1)!.SessionId);
+  }
+
+  [Fact]
+  public async Task Repair_RearmsAStepHeldByAPlaceholderClaim_EvenWithNoLivenessProbe()
+  {
+    // A PLACEHOLDER IS ALWAYS STRANDED: the harness claims under a provisional id and corrects it
+    // when the launch answers, so one still holding it is a launch whose correction never landed.
+    (ChainRepairService service, FakeStore store, _, Chain chain) =
+        await NewAsync(1, 2).ConfigureAwait(true);
+    ChainService chains = new(store);
+    _ = Must(await chains.ClaimStepAsync(chain.Id, 1, ChainStep.PlaceholderPrefix + "abc", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    ChainRepairOutcome outcome = Must(await service.RepairAsync(chain.Id, T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Assert.Equal(ChainRepairKind.RearmStep, outcome.Kind);
+    Assert.Equal(1, outcome.Position);
+    Assert.Contains("placeholder", outcome.Reason!, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Repair_LeavesALiveSessionsStepAlone()
+  {
+    // A RUNNING STEP WITH A LIVE SESSION IS WORKING. Re-arming it would start a second session for
+    // work somebody is already doing, which is the duplicate the old refusal existed to prevent.
+    (ChainRepairService service, FakeStore store, FakeLaunch launch, Chain chain) =
+        await NewAsync(_ => true, 1, 2).ConfigureAwait(true);
+    ChainService chains = new(store);
+    _ = Must(await chains.ClaimStepAsync(chain.Id, 1, "session-a", T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    Result<ChainRepairOutcome> outcome = await service.RepairAsync(chain.Id, T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(outcome.IsSuccess);
+    Assert.Equal(ChainRepairCode.AlreadyMoving, outcome.Error.Code);
     Assert.Empty(launch.Started);
   }
 

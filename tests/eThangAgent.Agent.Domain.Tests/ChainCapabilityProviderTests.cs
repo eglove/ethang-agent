@@ -382,20 +382,47 @@ public class ChainCapabilityProviderTests
   }
 
   [Fact]
-  public async Task Create_FromASessionExecutingAChainStep_IsRefusedAsNested()
+  public async Task Create_FromASessionExecutingAChainStep_OverItsOwnPosition_IsRefused()
   {
-    (ChainCapabilityProvider provider, FakeStore store, _, _) = New(1);
+    // ONE SESSION CANNOT HOLD TWO CURSORS OVER THE SAME STEP. The ownership gate resolves 'which
+    // step is this session executing' to exactly one, so a second chain over that position would
+    // have two sessions claiming one step.
+    (ChainCapabilityProvider provider, FakeStore store, _, _) = New(1, 2);
     Chain existing = Must(await new ChainService(store).CreateAsync(
         ChainCreation.Implementing("C:\\ws", 3, 1, "outer", "session-creator", [1]), T0,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
     _ = Must(await store.SaveAsync(existing.ClaimStep(1, "session-creator", T0), existing.Version,
         TestContext.Current.CancellationToken).ConfigureAwait(true));
 
-    CapabilityInvocationResult result = await InvokeAsync(provider, Plan(7)).ConfigureAwait(true);
+    CapabilityInvocationResult result = await InvokeAsync(provider, Plan(7, Step(1)))
+        .ConfigureAwait(true);
 
     Assert.True(result.IsError);
     Assert.Contains("ChainStepCannotCreateChain", result.Content, StringComparison.Ordinal);
     Assert.Contains("chain #1", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Create_FromASessionExecutingAChainStep_OverALaterPosition_IsAllowed()
+  {
+    // THE HINGE'S SHAPE: a step reads the real work count and hands the REST of it to a chain. The
+    // refusal this replaces made that impossible, so the batch pipeline had to launch a sibling
+    // agent purely to make the call - the harness refusing a legitimate act and the skill routing
+    // around it.
+    (ChainCapabilityProvider provider, FakeStore store, _, FakeStart start) = New(1, 2);
+    Chain existing = Must(await new ChainService(store).CreateAsync(
+        ChainCreation.Implementing("C:\\ws", 3, 1, "outer", "session-creator", [1]), T0,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+    _ = Must(await store.SaveAsync(existing.ClaimStep(1, "session-creator", T0), existing.Version,
+        TestContext.Current.CancellationToken).ConfigureAwait(true));
+
+    CapabilityInvocationResult result = await InvokeAsync(provider, Plan(7, Step(2)))
+        .ConfigureAwait(true);
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Contains("created #2", result.Content, StringComparison.Ordinal);
+    // THE NEW CHAIN STARTED ITS OWN STEP, which is the work the hinge handed on.
+    Assert.Equal(2, Assert.Single(start.Started).Position);
   }
 
   [Fact]

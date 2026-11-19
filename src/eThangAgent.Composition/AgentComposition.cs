@@ -708,7 +708,17 @@ public static class AgentComposition
         .AddSingleton<ChainResumeService>()
         // THE REPAIR PATH (issue #313): a chain that is Running with nothing running is the one
         // state neither the advance nor the resume can leave, and abandoning was the only exit.
-        .AddSingleton<ChainRepairService>()
+        // IT ASKS THE AGENT STORE WHETHER A STEP'S SESSION IS STILL ALIVE, because a Running step
+        // is not proof of progress: a session that died leaves the step Running forever, and
+        // without this the repair refuses with ChainAlreadyMoving over a session that is gone.
+        .AddSingleton(sp => new ChainRepairService(
+            sp.GetRequiredService<ChainService>(),
+            sp.GetRequiredService<IChainResumeLaunchPort>(),
+            sessionId => SessionIsLive(sp, sessionId)))
+        // THE VERDICT'S OWN ENACTMENT: recording a review verdict settles the review step and
+        // moves the cursor, so a reviewer never has to close its own step after a denial - which
+        // is the shape that froze a chain with its work finished.
+        .AddSingleton<ChainVerdictService>()
         .AddSingleton(sp => new ChainCapabilityProvider(
             sp.GetRequiredService<ChainService>(),
             sp.GetRequiredService<IChainPlanSource>(),
@@ -731,8 +741,79 @@ public static class AgentComposition
                     chainId => ResumeChainAsync(sp, chainId),
                     chainId => RepairChainAsync(sp, chainId)),
                 // A review step records its verdict through this, and the advance reads it back.
-                Reviews: sp.GetRequiredService<ChainReviewService>())));
+                Reviews: sp.GetRequiredService<ChainReviewService>(),
+                // AND RECORDING IT MOVES THE CHAIN. A verdict the cursor only reads once the step
+                // settles left the step Running whenever the reviewer obeyed the rule against
+                // closing it after a denial, so the chain froze with its work done.
+                Verdicts: new ChainVerdictActions((chainId, sessionId, ct) =>
+                    EnactVerdictAsync(sp, chainId, sessionId, ct)))));
   }
+
+  /// <summary>True when <paramref name="sessionId"/> still names a session that could complete
+  ///     its step. A session the store cannot read, or one whose row is terminal, is not live.
+  ///     <para>A RUNNING OR QUEUED ROW IS LIVE. Those are the two non-terminal statuses, and a
+  ///     queued session has been admitted and will run - reaping it would start a second session
+  ///     for work the harness has already scheduled.</para>
+  ///     <para>AN UNREADABLE ROW READS AS DEAD, deliberately: the probe exists so a stranded step
+  ///     can be re-armed, and treating a store fault as 'alive' would leave the chain stuck on the
+  ///     one state the repair exists to clear. The re-arm is safe - the old session is gone or it
+  ///     is not, and a step claimed twice is caught by the ownership gate.</para></summary>
+  /// <param name="sp">The container.</param>
+  /// <param name="sessionId">The session the chain step records as its claimant.</param>
+  private static bool SessionIsLive(IServiceProvider sp, string sessionId) =>
+      sp.GetService<IAgentStore>() is { } store
+      && Guid.TryParse(sessionId, out Guid parsed)
+      && store.GetAsync(new AgentId(parsed)).ConfigureAwait(false).GetAwaiter().GetResult()
+          is { IsSuccess: true } record
+      && record.Value.Status is AgentStatus.Running or AgentStatus.Queued;
+
+  /// <summary>The <c>chain.judge</c> action's second half: settle the review step and enact the
+  ///     verdict it recorded.
+  ///     <para>A CONTAINER WITH NO VERDICT SERVICE REFUSES BY NAME, never a success: reporting
+  ///     'recorded' while moving nothing would leave the chain exactly where the verdict found it,
+  ///     and the reviewer - told its verdict landed - would have no reason to look again.</para></summary>
+  /// <param name="sp">The container.</param>
+  /// <param name="chainId">The chain the verdict was recorded on.</param>
+  /// <param name="sessionId">The reviewing session.</param>
+  /// <param name="ct">Cancellation.</param>
+  private static async Task<CapabilityInvocationResult> EnactVerdictAsync(IServiceProvider sp,
+      int chainId, string sessionId, CancellationToken ct)
+  {
+    if (sp.GetService<ChainVerdictService>() is not { } verdicts)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [ReviewUnsupported]: this host cannot act on a recorded verdict, so the review step "
+          + "was NOT settled and the chain did not move. Mark the step done to let the cursor read it.");
+    }
+
+    Result<ChainVerdictOutcome> enacted = await verdicts
+        .EnactAsync(chainId, sessionId, DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
+    return enacted.IsSuccess
+        ? CapabilityInvocationResult.Ok(RenderVerdict(enacted.Value))
+        : CapabilityInvocationResult.Fail(
+            $"Error [{enacted.Error.Code}]: {enacted.Error.Message}");
+  }
+
+  /// <summary>What recording a verdict did, stated so the reviewer knows the chain already moved.
+  ///     <para>EVERY SHAPE SAYS 'DO NOT COMPLETE YOUR STEP', because the step is already settled:
+  ///     a reviewer that completed it again would be answered with 'already settled', and one that
+  ///     went looking for the next step itself would race the session this call started.</para>
+  ///     </summary>
+  /// <param name="outcome">What the enactment produced.</param>
+  private static string RenderVerdict(ChainVerdictOutcome outcome) =>
+      outcome.Kind switch
+      {
+        ChainReviewDecisionKind.SendBack =>
+            $"[chain] recorded review for chain #{outcome.ChainId}: fail, so step {outcome.Target} was reopened and a fix session started as {outcome.SessionId}. Your step is settled - do NOT mark it done.",
+        ChainReviewDecisionKind.ParkAtCap =>
+            $"[chain] recorded review for chain #{outcome.ChainId}: fail, and the round-trip cap is spent, so the chain is parked waiting for a human. {outcome.Reason}",
+        ChainReviewDecisionKind.Advance when outcome.SessionId is { } started =>
+            $"[chain] recorded review for chain #{outcome.ChainId}: pass, so step {outcome.Target ?? 0} was started as {started}. Your step is settled - do NOT mark it done.",
+        ChainReviewDecisionKind.Advance or ChainReviewDecisionKind.Refused =>
+            $"[chain] recorded review for chain #{outcome.ChainId}: pass, and the chain has nothing left to start. Your step is settled - do NOT mark it done.",
+        _ =>
+            $"[chain] recorded review for chain #{outcome.ChainId}: {outcome.Kind}. Your step is settled - do NOT mark it done.",
+      };
 
   /// <summary>The <c>chain.repair</c> action's work: repair a chain that cannot move on its own,
   ///     and report what it did.
@@ -773,6 +854,10 @@ public static class AgentComposition
         ChainRepairKind.CompleteChain => string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
             $"[chain] repaired #{outcome.ChainId}: marked it Completed (every step had settled)"),
+        ChainRepairKind.RearmStep => string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"[chain] repaired #{outcome.ChainId}: step {outcome.Position} was stranded, so it was "
+            + $"re-armed and started as session {outcome.SessionId}. {outcome.Reason}"),
         ChainRepairKind.ParkChain => string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
             $"[chain] repaired #{outcome.ChainId}: parked at step {outcome.Position} - "

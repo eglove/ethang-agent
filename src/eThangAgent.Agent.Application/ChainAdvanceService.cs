@@ -166,6 +166,14 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       DateTimeOffset now, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(chain);
+    // A COMPLETION IS IDEMPOTENT. The step may already be settled - the session said so twice, or
+    // the settle reconciler got there first - and re-deciding from a settled step is how one piece
+    // of work starts two successors. Nothing was refused: the fact was already recorded.
+    if (AlreadySettled(chain, position))
+    {
+      return Result.Success(ChainAdvance.Settled());
+    }
+
     // EVERYTHING THAT MUST HOLD BEFORE THE STEP SETTLES, in one place: a member's worktree has to
     // be committed, and a review step has to have recorded a verdict. Each refusal leaves the step
     // Running and the session open, so the same session can fix what the refusal names and
@@ -214,13 +222,25 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
     // A GROUP'S MEMBERS START TOGETHER (D2): the completion that makes the group runnable starts
     // every member that has not started yet, not just the first one the cursor offers. A group
     // whose members started one per completion would be a sequential chain with extra machinery.
-    if (GroupToStart(settled.Value) is { } group)
-    {
-      return Result.Success(await StartGroupAsync(settled.Value, group, sessionId, now, ct)
-          .ConfigureAwait(false));
-    }
+    return GroupToStart(settled.Value) is { } group
+        ? Result.Success(await StartGroupAsync(settled.Value, group, sessionId, now, ct)
+            .ConfigureAwait(false))
+        : await EnactAsync(settled.Value, position, sessionId, now, ct).ConfigureAwait(false);
+  }
 
-    ChainAdvance decision = ChainAdvancePolicy.Decide(settled.Value, position, sessionId);
+  /// <summary>Enacts what the cursor decided after the step settled: park a blocked chain, start the
+  ///     next step, or complete the chain.
+  ///     <para>SPLIT OUT so <see cref="AdvanceAsync"/> reads as the sequence it is - guard, precheck,
+  ///     settle, decide - rather than carrying every enactment branch inline.</para></summary>
+  /// <param name="chain">The chain as it stands after the step settled.</param>
+  /// <param name="position">The step position that settled.</param>
+  /// <param name="sessionId">The session that reported the completion.</param>
+  /// <param name="now">The clock.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<Result<ChainAdvance>> EnactAsync(Chain chain, int position, string sessionId,
+      DateTimeOffset now, CancellationToken ct)
+  {
+    ChainAdvance decision = ChainAdvancePolicy.Decide(chain, position, sessionId);
     if (decision.Kind == ChainAdvanceKind.Blocked)
     {
       // A SIBLING STILL RUNNING IS NOT A REASON TO PARK (D2). The group's other members are
@@ -229,27 +249,31 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       // A BLOCKED CHAIN WITH NOTHING RUNNING IS PARKED, not left Running (issue #303 D3/D9):
       // nothing is available to start and nothing can complete, so the work is waiting for a
       // human. 'Waiting for a human' and 'broken' must not look alike, which is what Parked is for.
-      return Result.Success(await ParkOrWaitAsync(settled.Value, decision, now, ct)
-          .ConfigureAwait(false));
+      return Result.Success(await ParkOrWaitAsync(chain, decision, now, ct).ConfigureAwait(false));
     }
 
-    if (!decision.IsActionable)
-    {
-      // A refusal leaves the session OPEN on purpose: the model must be able to read why its
-      // completion was rejected and correct itself. Closing it here would answer a question
-      // nobody could then ask.
-      return Result.Success(decision);
-    }
-
-    // D4: the session that completed its step is closed - ONCE. A sequential advance closes
-    // it by REPLACING it (the successor takes its cell, and the replacement retires the
-    // predecessor), so closing here as well would tear the same session down twice. A chain
-    // that completes or blocks has no successor, so that is where the close is explicit.
-    return decision.Kind == ChainAdvanceKind.CompleteChain
-        ? Result.Success(await CompleteAsync(settled.Value, sessionId, now, ct).ConfigureAwait(false))
-        : Result.Success(await StartStepAsync(settled.Value, decision.Position!.Value, sessionId, now, ct)
-            .ConfigureAwait(false));
+    // A REFUSAL LEAVES THE SESSION OPEN ON PURPOSE: the model must be able to read why its
+    // completion was rejected and correct itself. Closing it here would answer a question nobody
+    // could then ask.
+    // D4: THE SESSION THAT COMPLETED ITS STEP IS CLOSED - ONCE. A sequential advance closes it by
+    // REPLACING it (the successor takes its cell, and the replacement retires the predecessor), so
+    // closing here as well would tear the same session down twice. A chain that completes or blocks
+    // has no successor, so that is where the close is explicit.
+    return decision.IsActionable
+        ? Result.Success(await StartOrCompleteAsync(chain, decision, sessionId, now, ct)
+            .ConfigureAwait(false))
+        : Result.Success(decision);
   }
+
+  /// <summary>The two actionable outcomes: finish the chain, or start the step the cursor named.
+  ///     <para>SPLIT FROM THE REFUSAL BRANCH so neither reads as a nested conditional, and so the
+  ///     order - chain write before any session close - stays visible in one place.</para></summary>
+  private async Task<ChainAdvance> StartOrCompleteAsync(Chain chain, ChainAdvance decision,
+      string sessionId, DateTimeOffset now, CancellationToken ct) =>
+      decision.Kind == ChainAdvanceKind.CompleteChain
+          ? await CompleteAsync(chain, sessionId, now, ct).ConfigureAwait(false)
+          : await StartStepAsync(chain, decision.Position!.Value, sessionId, now, ct)
+              .ConfigureAwait(false);
 
   /// <summary>The verdict a review step's session recorded, or null when this is not a review
   ///     step or the host wired no review store.
@@ -307,6 +331,17 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
           + "to act on. Record it with chain.judge (verdict pass|fail and findings with citations) "
           + "before marking the step done.")
       : null;
+
+  /// <summary>True when the step at <paramref name="position"/> has already settled, so a
+  ///     completion naming it moves nothing.
+  ///     <para>A DONE OR SKIPPED STEP IS FINISHED. Re-deciding from it would start a second
+  ///     successor for one piece of work, which is what a session that completes twice - after a
+  ///     fault, or after recording a verdict and then marking its step done - would otherwise do.
+  ///     </para></summary>
+  /// <param name="chain">The chain to read the step from.</param>
+  /// <param name="position">The 1-based step position.</param>
+  private static bool AlreadySettled(Chain chain, int position) =>
+      chain.StepAt(position)?.Status is ChainStepStatus.Done or ChainStepStatus.Skipped;
 
   /// <summary>True when the step at <paramref name="position"/> judges work rather than doing it.
   ///     A position the chain does not hold is NOT a review step: the aggregate refuses it by
@@ -401,6 +436,7 @@ public sealed class ChainAdvanceService(ChainService chains, IChainAdvanceHost h
       ChainAdvanceKind.Refused => ChainAdvance.Refused(next.Code ?? ChainAdvanceCode.StepNotDone,
           next.Reason ?? "the chain cannot advance past this review."),
       ChainAdvanceKind.NotInAChain => ChainAdvance.NoChain(),
+      ChainAdvanceKind.AlreadySettled => ChainAdvance.Settled(),
       _ => ChainAdvance.Refused("UnknownAdvanceKind",
           $"{next.Kind} is not a chain advance kind; the set is closed."),
     };

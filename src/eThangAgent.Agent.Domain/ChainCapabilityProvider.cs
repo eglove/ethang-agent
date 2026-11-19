@@ -90,6 +90,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   private readonly ChainWorkspaceGit? _workspaceGit = hooks?.WorkspaceGit;
   private readonly ChainRecoveryActions? _recovery = hooks?.Recovery;
   private readonly ChainReviewService? _reviews = hooks?.Reviews;
+  private readonly ChainVerdictActions? _verdicts = hooks?.Verdicts;
 
   public string Id => ProviderId;
 
@@ -103,7 +104,8 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
             A REFINE step makes the plan executable: it reads the plan, resolves what is ambiguous, and sharpens each remaining step until it states what must be observably true. It advances into implementation and returns no verdict.
             A REVIEW step judges work that was already built: it records pass or fail with cited findings through chain.judge, and the harness acts on that verdict - a pass starts what follows, a fail reopens the judged step for a fix session seeded with the findings, and a step sent back three times parks the chain. A review step cannot fix what it reviews.
             'group' marks a step as a member of a parallel group: every member of one group starts at the same moment and runs in its own git worktree, and nothing after the group starts until every member has settled. A group needs at least two members, may not contain a refine step, and must be followed immediately by a step with no group - that next step is the RECONCILER, which merges the members' branches into the workspace checkout. The workspace must be a git repository to declare a group (ChainGroupNeedsRepository). Refusals: ChainGroupTooSmall, ChainGroupRefineMember, ChainGroupReconcilerMissing, ChainReconcilerNotAdjacent, ChainGroupNeedsRepository.
-            Validation is total and refuses before anything is created: a plan with no executable step (ChainNoExecutableSteps), a position the plan does not have (ChainStepMissing), a position the plan already records Done or Skipped (ChainStepAlreadyDone), nothing left to execute (ChainNothingToExecute), one position declared with two roles (ChainStepRoleConflict), an unreadable plan (ChainPlanUnreadable). A session that is itself executing a chain step may not create a chain (ChainStepCannotCreateChain).
+            Validation is total and refuses before anything is created: a plan with no executable step (ChainNoExecutableSteps), a position the plan does not have (ChainStepMissing), a position the plan already records Done or Skipped (ChainStepAlreadyDone), nothing left to execute (ChainNothingToExecute), one position declared with two roles (ChainStepRoleConflict), an unreadable plan (ChainPlanUnreadable).
+            A SESSION EXECUTING A CHAIN STEP MAY START ANOTHER CHAIN over positions AFTER the one it holds, which is how one step hands the rest of the work on. It is refused only when the new chain would take a position it already holds or an earlier one (ChainStepCannotCreateChain), because one session cannot own two cursors over the same step.
             Output contract:
             [chain] created #<id> from plan #<planId> v<version>: <n> step(s), step 1 started as session <sessionId>
             The creating session may close immediately; the chain is unaffected.
@@ -170,12 +172,12 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
              [IdParam, ReasonParam]),
       new("judge", "Record an implementation review's verdict on the work this step judges.",
             """
-            A review step's verdict is the work: the harness reads the RECORD after this session closes, so a verdict written only in prose reaches nothing and the chain refuses to advance past the step.
+            A review step's verdict IS the work, and recording it MOVES THE CHAIN. This action settles your review step and enacts the verdict in one call, so there is nothing else to do afterwards: do not mark your own step done, and do not start the next step yourself.
             verdict is exactly pass | fail. A pass advances the chain past this review step. A fail reopens the STEP THIS REVIEW JUDGES - the nearest preceding completed step - for a fix session seeded with your findings, so the work is redone rather than patched over. A step sent back three times parks the chain for a human: a disagreement that has survived three rounds is not going to be settled by a fourth.
-            findings is an array of { 'text' (what is wrong), 'citation' (a requirement id, file path, test name, or step position) }. Every finding needs a citation - a finding with none is refused, because the fix session has to know where to look. A pass may carry no findings; a fail must carry at least one, and a fail with none is refused when the step completes.
-            RECORD THE VERDICT BEFORE COMPLETING THE STEP. Completing first settles the step with no verdict on record, and the refusal names that.
+            findings is an array of { 'text' (what is wrong), 'citation' (a requirement id, file path, test name, or step position) }. Every finding needs a citation - a finding with none is refused, because the fix session has to know where to look. A pass may carry no findings; a fail must carry at least one.
+            RECORDING TWICE IS HARMLESS: a second verdict on a step that already settled reports that and moves nothing.
             Output contract:
-            [chain] recorded <pass|fail> review for chain #<id> (<n> finding(s)); COMPLETE YOUR STEP to let the chain act on it
+            [chain] recorded <pass|fail> review for chain #<id> (<n> finding(s)) - <what happened next>
             Errors: InvalidActionInput (bad params), ReviewUnsupported (this host has no review store), ChainReviewNotAReviewStep (this session holds no review step, so its verdict moves no chain), UncitedFinding, ChainNotFound, StorageUnavailable.
             """,
             [
@@ -276,22 +278,30 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
         .RecordAsync(session, new ChainReviewRecord(verdict, findings), _clock.GetUtcNow(), ct)
         .ConfigureAwait(false);
     return recorded.IsSuccess
-      ? CapabilityInvocationResult.Ok(string.Create(CultureInfo.InvariantCulture,
-          $"[chain] recorded {verdict} review for chain #{recorded.Value.Id} "
-          + $"({findings.Count} finding(s)); COMPLETE YOUR STEP to let the chain act on it"))
+      ? await EnactVerdictAsync(recorded.Value.Id, session, ct).ConfigureAwait(false)
       : Gutter(recorded.Error);
   }
+
+  /// <summary>Settles the review step and enacts the verdict just recorded.
+  ///     <para>A HOST WITH NO ENACTMENT PATH REFUSES BY NAME. Reporting 'recorded' while moving
+  ///     nothing would leave the chain exactly where the verdict found it, and the reviewer - told
+  ///     its verdict landed - would have no reason to look again.</para></summary>
+  /// <param name="chainId">The chain the verdict was recorded on.</param>
+  /// <param name="sessionId">The reviewing session.</param>
+  /// <param name="ct">Cancellation.</param>
+  private Task<CapabilityInvocationResult> EnactVerdictAsync(int chainId, string sessionId,
+      CancellationToken ct) =>
+      _verdicts is null
+          ? Task.FromResult(Gutter(new DomainError("ReviewUnsupported",
+              "this host cannot act on a recorded verdict, so the review step was NOT settled and "
+              + "the chain did not move. Mark the step done to let the cursor read the verdict.")))
+          : _verdicts.Enact(chainId, sessionId, ct);
 
   private async Task<CapabilityInvocationResult> CreateAsync(string json, CancellationToken ct)
   {
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(PlanIdParam, StepsParam));
     int planId = ReqPlanId(args);
     string? creating = _sessionId();
-    if (await NestedChainRefusalAsync(creating, ct).ConfigureAwait(false) is { } nested)
-    {
-      return nested;
-    }
-
     Result<ChainPlanFacts> plan = await _plans.GetPlanAsync(planId, ct).ConfigureAwait(false);
     if (!plan.IsSuccess)
     {
@@ -302,9 +312,16 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
 
     bool isRepository = await WorkspaceIsRepositoryAsync(ct).ConfigureAwait(false);
     Result<IReadOnlyList<ChainStepSeed>> steps = OptSteps(args, plan.Value, isRepository);
-    return steps.IsSuccess
-        ? await CreateAndStartAsync(plan.Value, steps.Value, creating, ct).ConfigureAwait(false)
-        : Gutter(steps.Error);
+    if (!steps.IsSuccess)
+    {
+      return Gutter(steps.Error);
+    }
+
+    // THE NESTED-CHAIN CHECK RUNS AFTER THE STEPS ARE KNOWN, because what is refused is a chain
+    // that would take a position this session already holds - not a chain as such.
+    return await NestedChainRefusalAsync(creating, steps.Value, ct).ConfigureAwait(false) is { } nested
+        ? nested
+        : await CreateAndStartAsync(plan.Value, steps.Value, creating, ct).ConfigureAwait(false);
   }
 
   /// <summary>D9's enforcement: a session executing a chain step may not start a chain.
@@ -315,7 +332,7 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
   ///     <para>A chain-store fault REFUSES rather than permits: letting the creation through
   ///     on an unreadable record would nest a chain nobody can see.</para></summary>
   private async Task<CapabilityInvocationResult?> NestedChainRefusalAsync(string? sessionId,
-      CancellationToken ct)
+      IReadOnlyList<ChainStepSeed> steps, CancellationToken ct)
   {
     if (sessionId is null)
     {
@@ -326,27 +343,43 @@ public sealed class ChainCapabilityProvider(ChainService chains, IChainPlanSourc
     return !found.IsSuccess
         ? Gutter(new DomainError(ChainCreationCode.NestedChain,
             $"the chain record could not be read, so this session's standing is unknown: {found.Error.Message}"))
-        : AlreadyExecutingRefusal(found.Value, sessionId);
+        : AlreadyExecutingRefusal(found.Value, sessionId, steps);
   }
 
   /// <summary>The refusal for a session that IS executing a chain step, or null for one that
   ///     is not. Extracted so the read's two failure shapes stay separate statements rather
-  ///     than a nested conditional.</summary>
-  private static CapabilityInvocationResult? AlreadyExecutingRefusal(Chain? chain, string sessionId) =>
-      chain is null
-          ? null
-          : Gutter(new DomainError(ChainCreationCode.AlreadyExecuting,
-              $"this session is executing step {AssignedPosition(chain, sessionId)} of chain #{chain.Id}, "
-              + "and a chain step may not start a chain. Finish this step and let the harness advance the chain."));
+  ///     than a nested conditional.
+  ///     <para>A CHAIN STEP MAY START A CHAIN OVER POSITIONS PAST ITS OWN. The rule this replaces
+  ///     refused every chain from a chain step, which made the one shape a batch pipeline needs -
+  ///     read the real work count, then hand the rest of it to a chain - impossible to express
+  ///     without launching a sibling agent to make the call on the step's behalf. That workaround
+  ///     was the harness refusing a legitimate act and the skill routing around it.</para>
+  ///     <para>WHAT IS STILL REFUSED IS THE ACT THAT WOULD GIVE ONE SESSION TWO CURSORS: a chain
+  ///     whose steps include the step this session is executing, or any position before it. The
+  ///     ownership gate resolves 'which step is this session executing' to exactly one, so a
+  ///     second chain over that position would have two sessions claiming one step.</para></summary>
+  /// <param name="chain">The chain the session holds, or null.</param>
+  /// <param name="sessionId">The creating session.</param>
+  /// <param name="steps">The steps the new chain would execute.</param>
+  private static CapabilityInvocationResult? AlreadyExecutingRefusal(Chain? chain, string sessionId,
+      IReadOnlyList<ChainStepSeed> steps)
+  {
+    if (chain is null)
+    {
+      return null;
+    }
 
-  /// <summary>The position this session holds in <paramref name="chain"/>, for the refusal
-  ///     message. A session the record does not name cannot reach here (the store found the
-  ///     chain BY that session id), so the fallback is a stated unknown rather than a guess.</summary>
-  private static string AssignedPosition(Chain chain, string? sessionId) =>
-      chain.Steps.FirstOrDefault(step => string.Equals(step.SessionId, sessionId, StringComparison.Ordinal))
-          is { } step
-        ? step.Position.ToString(CultureInfo.InvariantCulture)
-        : "an unnamed";
+    int held = chain.Steps
+        .FirstOrDefault(step => string.Equals(step.SessionId, sessionId, StringComparison.Ordinal))
+        ?.Position ?? 0;
+    return steps.Any(step => step.Position <= held)
+        ? Gutter(new DomainError(ChainCreationCode.AlreadyExecuting,
+            $"this session is executing step {held} of chain #{chain.Id}, and a new chain may not "
+            + $"include position {steps.Min(step => step.Position)}: one session cannot hold two cursors "
+            + "over the same step. Declare only positions after "
+            + $"{held}, which is the work this step is handing on."))
+        : null;
+  }
 
   /// <summary>Creates the record, then claims and starts step 1.
   ///     <para>ORDER IS LOAD-BEARING (the #301 advance's rule, applied at creation): the
@@ -865,5 +898,23 @@ public sealed record ChainRecoveryActions(
 /// <param name="WorkspaceGit">The git seam and the workspace directory it is asked of.</param>
 /// <param name="Recovery">The two actions that move a chain nothing else can move.</param>
 /// <param name="Reviews">Records and reads an implementation review.</param>
+/// <param name="Verdicts">Settles a review step and enacts its verdict, which recording alone
+///     does not do.</param>
 public sealed record ChainProviderHooks(ChainWorkspaceGit? WorkspaceGit = null,
-    ChainRecoveryActions? Recovery = null, ChainReviewService? Reviews = null);
+    ChainRecoveryActions? Recovery = null, ChainReviewService? Reviews = null,
+    ChainVerdictActions? Verdicts = null);
+
+/// <summary>What recording a verdict does to the chain, as a delegate the provider cannot
+///     implement itself.
+///     <para>RECORDING IS NOT ENOUGH, and that is the defect this exists to close. A verdict the
+///     cursor reads only when the review step settles left the step Running forever whenever the
+///     reviewer obeyed the rule against closing it after a denial - so the chain froze with its
+///     work done. The enactment settles the review step and moves the cursor in one act, and it
+///     lives in the application layer because starting a session is not a domain act.</para>
+///     <para>REQUIRED WHERE A REVIEW STORE IS WIRED. A host that can record a verdict but not
+///     act on it would report success and move nothing, which is the silent discard the whole
+///     review path exists to prevent.</para></summary>
+/// <param name="Enact">Settles the review step and enacts its verdict, answering with the
+///     report the reviewer reads.</param>
+public sealed record ChainVerdictActions(
+    Func<int, string, CancellationToken, Task<CapabilityInvocationResult>> Enact);

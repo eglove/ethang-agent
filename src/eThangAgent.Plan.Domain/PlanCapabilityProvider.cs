@@ -50,6 +50,9 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   ///     are unfinished' from 'your gate is not current'.</summary>
   public const string CompletionGateCode = "CompletionGateNotFresh";
 
+  /// <summary>A chain is still executing the plan, so the plan is not complete.</summary>
+  public const string LiveChainCode = "PlanChainStillRunning";
+
   /// <summary>The typed code a completion refused because the session was not assigned the
   ///     step carries (issue #301 D3). Distinct from InvalidTransition so a caller can tell
   ///     'your steps are unfinished' from 'this is not your step'.</summary>
@@ -443,7 +446,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     // Abandoned is deliberately never gated: it is the named exit every refusal points
     // at, and gating it would trap a user in a plan they want to stop.
     if (target == PlanStatus.Completed
-        && await CompletionGateRefusalAsync().ConfigureAwait(false) is { } refusal)
+        && await CompletionRefusalAsync(id).ConfigureAwait(false) is { } refusal)
     {
       return refusal;
     }
@@ -688,6 +691,27 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     return _ownershipGate is null || _sessionId() is not { } session
         ? null
         : await _ownershipGate.EvaluateAsync(planId, position, session).ConfigureAwait(false);
+  }
+
+  /// <summary>Everything that must hold before a plan may be marked Completed: no chain is
+  ///     still executing it, and the completion gate allows it.
+  ///     <para>A LIVE CHAIN MAKES COMPLETION A LIE. The plan is the work list and the chain is
+  ///     what is executing it, so a plan marked Completed while its chain is Running claims work
+  ///     is done that nothing has finished - and the chain then advances under a plan nobody is
+  ///     watching for. This is refused rather than cascaded: abandoning the chains would throw
+  ///     away work the caller may simply have forgotten about, and the refusal names them.</para>
+  ///     <para>THE CHAIN CHECK COMES FIRST, because it is a fact about the record the caller can
+  ///     act on; the gate's answer is about the workspace and would only obscure it.</para></summary>
+  /// <param name="planId">The plan being completed.</param>
+  private async Task<CapabilityInvocationResult?> CompletionRefusalAsync(int planId)
+  {
+    return _executionLock is not null
+        && await _executionLock.ExecutionAsync(planId).ConfigureAwait(false) is { } held
+        ? CapabilityInvocationResult.Fail(
+            $"Error [{LiveChainCode}]: chain #{held.ChainId} is still executing plan #{planId}, so the "
+            + "plan is not complete - its work is in progress. Let the chain finish, or abandon it "
+            + "(chain.abandon) if the work is being dropped, and then mark the plan Completed.")
+        : await CompletionGateRefusalAsync().ConfigureAwait(false);
   }
 
   /// <summary>Asks the completion gate; null means 'proceed'. A plan provider with no

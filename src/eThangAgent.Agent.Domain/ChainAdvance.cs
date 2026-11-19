@@ -53,6 +53,13 @@ public enum ChainAdvanceKind
   ///     the user and the model to ignore the notice that actually matters. Nothing was refused
   ///     here - there was simply no chain.</para></summary>
   NotInAChain,
+
+  /// <summary>The step was ALREADY settled when this completion arrived, so nothing moved.
+  ///     <para>A COMPLETION IS IDEMPOTENT. A session that completes its step, and then says so
+  ///     again - because it retried after a fault, or because it recorded its verdict and then
+  ///     marked the step done as well - must not advance the chain a second time. Re-deciding
+  ///     from a settled step is how one piece of work starts two successors.</para></summary>
+  AlreadySettled,
 }
 
 /// <summary>The advance decision (issue #301 D1): a kind plus the facts the enactment needs.
@@ -77,6 +84,11 @@ public sealed record ChainAdvance(ChainAdvanceKind Kind, int? Position, string? 
   /// <summary>The answer for a session that executes no chain step: no code, no reason, and
   ///     nothing for a caller to report.</summary>
   public static ChainAdvance NoChain() => new(ChainAdvanceKind.NotInAChain, null, null, null);
+
+  /// <summary>The answer for a completion whose step had already settled: no code, no reason,
+  ///     and nothing for a caller to report. A second completion of the same step is the same
+  ///     fact, so it is answered the same way rather than refused.</summary>
+  public static ChainAdvance Settled() => new(ChainAdvanceKind.AlreadySettled, null, null, null);
 
   public override string ToString()
   {
