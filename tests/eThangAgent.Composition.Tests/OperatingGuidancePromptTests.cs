@@ -6,10 +6,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace eThangAgent.Composition.Tests;
 
 /// <summary>The three always-on operating rules the harness supplies itself: computed
-///     values are run rather than reasoned about, every session closes with a
-///     retrospective that names a mechanical replacement, and the user is addressed as
-///     the stakeholder rather than as a fellow implementer. Each rides the composite
-///     prompt of a real composition, so a provider dropped from the wiring fails here.</summary>
+///     values are run rather than reasoned about, what a session trips over is fixed at
+///     its cause in the same session, and the user is addressed as the stakeholder rather
+///     than as a fellow implementer. Each rides the composite prompt of a real
+///     composition, so a provider dropped from the wiring fails here.</summary>
 [Trait("Category", "Process")]
 public class OperatingGuidancePromptTests
 {
@@ -49,33 +49,32 @@ public class OperatingGuidancePromptTests
       Assert.Contains(ComputedValuesPromptProvider.Guidance, SessionPrompt(), StringComparison.Ordinal);
 
   [Fact]
-  public void Retrospective_AsksForMechanicalReplacements()
+  public void Hardening_NamesTheMechanismsThatCloseAGap()
   {
-    string guidance = RetrospectivePromptProvider.Guidance;
+    string guidance = HardeningPromptProvider.Guidance;
 
-    Assert.Contains("retrospective", guidance, StringComparison.Ordinal);
-    Assert.Contains("script", guidance, StringComparison.Ordinal);
-    Assert.Contains("lint", guidance, StringComparison.Ordinal);
     Assert.Contains("test", guidance, StringComparison.Ordinal);
-    Assert.Contains("by hand", guidance, StringComparison.Ordinal);
+    Assert.Contains("lint", guidance, StringComparison.Ordinal);
+    Assert.Contains("script", guidance, StringComparison.Ordinal);
+    Assert.Contains("gate", guidance, StringComparison.Ordinal);
+    Assert.Contains("in the same session", guidance, StringComparison.Ordinal);
   }
 
   [Fact]
-  public void Retrospective_SeparatesUnfinishedWorkFromAMechanismFinding()
+  public void Hardening_ForbidsDeferringTheFix()
   {
-    // A gap the model could still close is unfinished work, not a retrospective finding:
-    // without that boundary the section becomes a place to defer work while implying it is
-    // done. The three phrases are the boundary itself, so they are pinned.
-    string guidance = RetrospectivePromptProvider.Guidance;
+    // The rule is a fix, not a report: a session that writes the gap up as a suggestion
+    // for later has done nothing about it.
+    string guidance = HardeningPromptProvider.Guidance;
 
-    Assert.Contains("You own the implementation", guidance, StringComparison.Ordinal);
-    Assert.Contains("unfinished work", guidance, StringComparison.Ordinal);
-    Assert.Contains("A task is anything you could have done", guidance, StringComparison.Ordinal);
+    Assert.Contains("do not write it up as a suggestion for later", guidance, StringComparison.Ordinal);
+    Assert.Contains("one line in your summary", guidance, StringComparison.Ordinal);
+    Assert.DoesNotContain("retrospective", guidance, StringComparison.OrdinalIgnoreCase);
   }
 
   [Fact]
-  public void Retrospective_ReachesTheSessionPrompt() =>
-      Assert.Contains(RetrospectivePromptProvider.Guidance, SessionPrompt(), StringComparison.Ordinal);
+  public void Hardening_ReachesTheSessionPrompt() =>
+      Assert.Contains(HardeningPromptProvider.Guidance, SessionPrompt(), StringComparison.Ordinal);
 
   [Fact]
   public void StakeholderVoice_AddressesTheStakeholderAndOwnsImplementation()

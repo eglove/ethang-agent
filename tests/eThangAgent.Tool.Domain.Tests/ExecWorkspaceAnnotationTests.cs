@@ -3,7 +3,7 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Tool.Domain.Tests;
 
-// ---- workspace vs launch-directory guard (session 4ebb01ae retrospective) ----
+// ---- workspace vs launch-directory guard ----
 // A script that touches Directory.GetCurrentDirectory() gets the APP's launch
 // directory, not the session workspace. The formatter must surface both paths so
 // the model sees the mismatch instead of silently reading the wrong directory.

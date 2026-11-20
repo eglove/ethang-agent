@@ -50,15 +50,13 @@ public static class ChainFinalBriefRenderer
       $"- The full plan, including every step and its status: plan.show id={facts.PlanId}",
       $"- This chain's ledger: state.get key=\"{facts.LedgerKey}\"",
       "",
-      "## Retrospective",
+      "## Harden what this chain tripped over",
       "",
-      "Write a summary of the work done and a retrospective of how the agent itself handled the session.",
-      "Evaluate bugs in behavior, gaps in the tool surface, and missing workflow support, naming a capability, not a one-off fix.",
-      "Place the work against the project's overall goal, guiding philosophy, and architecture principles, naming the concrete site wherever the work drifted.",
+      "If running this chain surfaced something that would go wrong again - a step redone for the same reason, a check that was missing, a command re-run by hand - fix the cause now: add the test, the lint or static-analysis rule, the script, the validation, or the gate. Report each change in one line in the summary. Where nothing went wrong, say nothing.",
       "",
       "## How to finish",
       "",
-      "Present the summary and the retrospective, then hand control back to the user. Do not mark any step done:",
+      "Present the summary, then hand control back to the user. Do not mark any step done:",
       "the chain is already complete, and there is no step left to complete.",
     ]);
     return string.Join('\n', lines);

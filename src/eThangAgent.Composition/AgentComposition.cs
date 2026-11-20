@@ -1350,7 +1350,7 @@ public static class AgentComposition
 
   /// <summary>The composite system prompt: skills bootstrap and listing, the static identity and
   ///     stakeholder-voice guidance, the exec guide, context hygiene, computed values, the
-  ///     closing retrospective, trusted directories, the chain contract, and any
+  ///     hardening rule, trusted directories, the chain contract, and any
   ///     frontend-appended providers.
   /// </summary>
   private static IServiceCollection AddSystemPrompts(IServiceCollection wired, AgentHostOptions host)
@@ -1371,10 +1371,10 @@ public static class AgentComposition
                 new ExecGuidePromptProvider(
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
                 new ContextHygienePromptProvider(),
-                // Computed values and the closing retrospective are operating rules like
-                // hygiene: always on, for root and children alike.
+                // Computed values and the hardening rule are operating rules like hygiene:
+                // always on, for root and children alike.
                 new ComputedValuesPromptProvider(),
-                new RetrospectivePromptProvider(),
+                new HardeningPromptProvider(),
                  // Trusted directories (issue #96): renders EMPTY when nothing is approved,
                  // so a session with no approvals keeps a byte-identical prompt.
                  new TrustedDirectoriesPromptProvider(

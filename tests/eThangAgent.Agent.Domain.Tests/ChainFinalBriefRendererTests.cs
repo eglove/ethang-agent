@@ -3,8 +3,8 @@ using eThangAgent.AgentDomain;
 namespace eThangAgent.Agent.Domain.Tests;
 
 /// <summary>RED: the final agent's brief (chain completed). These pin the TEXT: the final
-///     agent is seeded with a summary of the work done and a retrospective instruction,
-///     and it must NOT carry a completion contract (there is no step left to mark).</summary>
+///     agent is seeded with a summary of the work done and the hardening rule, and it must
+///     NOT carry a completion contract (there is no step left to mark).</summary>
 public sealed class ChainFinalBriefRendererTests
 {
   private static ChainBriefFacts Facts(
@@ -40,13 +40,22 @@ public sealed class ChainFinalBriefRendererTests
   }
 
   [Fact]
-  public void Render_ForFinal_InstructsARetrospectiveAndHandBack()
+  public void Render_ForFinal_InstructsHardeningAndHandBack()
   {
     ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
 
-    Assert.Contains("## Retrospective", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("## Harden what this chain tripped over", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("fix the cause now", brief.Content, StringComparison.Ordinal);
     Assert.Contains("hand control back to the user", brief.Content, StringComparison.Ordinal);
-    Assert.Contains("summary of the work done", brief.Content, StringComparison.Ordinal);
+    Assert.Contains("## Summary of the work done", brief.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Render_ForFinal_AsksForNoRetrospective()
+  {
+    ChainBrief brief = ChainBriefRenderer.Render(Facts()).Value!;
+
+    Assert.DoesNotContain("Retrospective", brief.Content, StringComparison.OrdinalIgnoreCase);
   }
 
   [Fact]

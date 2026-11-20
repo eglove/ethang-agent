@@ -184,7 +184,7 @@ public sealed class AnnouncedToolsSessionTests
               new Lazy<ICapabilityRegistry>(services.GetRequiredService<ICapabilityRegistry>)),
           new ContextHygienePromptProvider(),
           new ComputedValuesPromptProvider(),
-          new RetrospectivePromptProvider(),
+          new HardeningPromptProvider(),
           new TrustedDirectoriesPromptProvider(services.GetRequiredService<ResolvedTrustedDirectories>().List),
           new SessionFilesPromptProvider(workspaceRoot, null, null),
       ]).Build();

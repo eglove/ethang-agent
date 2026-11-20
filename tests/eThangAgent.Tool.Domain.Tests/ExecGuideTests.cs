@@ -75,8 +75,8 @@ public partial class ExecGuideTests
   [Fact]
   public void Guide_DocumentsWorkspaceVsLaunchDirectoryAnnotation()
   {
-    // The workspace-vs-launch-directory trap (session 4ebb01ae): the guide must
-    // teach the rule AND the [exec: workspace note] annotation that surfaces it.
+    // The workspace-vs-launch-directory trap: the guide must teach the rule AND the
+    // [exec: workspace note] annotation that surfaces it.
     Assert.Contains("Directory.GetCurrentDirectory() is", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("APP's launch directory", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("[exec: workspace note", ExecGuide.Text, StringComparison.Ordinal);

@@ -169,10 +169,9 @@ public static class ExecResultFormatter
   ///     references <c>Directory.GetCurrentDirectory()</c>: that call returns the APP's
   ///     launch directory, not the session workspace, and a script that reads it for
   ///     workspace files silently gets the wrong directory. The annotation states both
-  ///     paths so the model sees the mismatch instead of a silent wrong answer
-  ///     (session 4ebb01ae retrospective). Skipped when the engine supplied no snapshot
-  ///     (legacy fakes) or when the launch directory IS the workspace — there the
-  ///     distinction is moot.</summary>
+  ///     paths so the model sees the mismatch instead of a silent wrong answer. Skipped
+  ///     when the engine supplied no snapshot (legacy fakes) or when the launch directory
+  ///     IS the workspace — there the distinction is moot.</summary>
   private static void AppendWorkspaceAnnotation(StringBuilder sb, ExecRunResult run, ExecProgram? program)
   {
     if (program is null || run.WorkspaceRoot is null || run.LaunchDirectory is null)

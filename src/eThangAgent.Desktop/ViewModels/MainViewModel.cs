@@ -2007,8 +2007,8 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
   /// <summary>Starts the FINAL agent for a completed chain: a new agent seeded with the final
-  ///     brief (a summary of the work done and a retrospective), which hands control back to
-  ///     the user. It executes no step, so it carries no contract and no role.</summary>
+  ///     brief (a summary of the work done and the hardening rule), which hands control back
+  ///     to the user. It executes no step, so it carries no contract and no role.</summary>
   /// <param name="chain">The completed chain.</param>
   /// <param name="predecessorSessionId">The session whose completion completed the chain.</param>
   public async Task<Result<string>> StartFinalSessionAsync(Chain chain, string predecessorSessionId)

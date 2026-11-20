@@ -188,7 +188,7 @@ public sealed class AvailableToolsPromptProviderTests
             new Lazy<ICapabilityRegistry>(services.GetRequiredService<ICapabilityRegistry>)),
         new ContextHygienePromptProvider(),
         new ComputedValuesPromptProvider(),
-        new RetrospectivePromptProvider(),
+        new HardeningPromptProvider(),
         new TrustedDirectoriesPromptProvider(services.GetRequiredService<ResolvedTrustedDirectories>().List),
     ]).Build();
 
