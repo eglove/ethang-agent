@@ -55,6 +55,22 @@ public sealed class ProcessTreeGuardTests
     Assert.StartsWith("Error [ProcessCeiling]", result.Stderr, StringComparison.Ordinal);
   }
 
+  // A ceiling verdict names the limit AND the peak that broke it: without the peak the
+  // model cannot tell a run that overshot by one from one that overshot by thousands,
+  // so it cannot size the command that would have stayed inside.
+  [Fact]
+  public void Shell_ProcessCeilingError_NamesThePeakThatBrokeIt()
+  {
+    ScriptGlobals globals = new(NoopRegistry(), TestTempRoot.Root, TestTempRoot.Root,
+        ceilings: new ScriptCeilings(2, 256 * 1024, 8L * 1024 * 1024));
+
+    ShellResult result = globals.Shell(PwshPath(), "-NoLogo", "-NoProfile", "-Command",
+        "1..6 | ForEach-Object { Start-Process ping -ArgumentList '-n','60','127.0.0.1' -WindowStyle Hidden }; Start-Sleep -Seconds 20");
+
+    Assert.Equal(-1, result.ExitCode);
+    Assert.Contains("process ceiling (peak observed: ", result.Stderr, StringComparison.Ordinal);
+  }
+
   // FINDING 1 (critical): the timer is PERIODIC and keeps firing after the kill, so a
   // post-kill sample of the now-empty tree must never clear the breach. Without the
   // terminal latch the caller's CeilingFailure() sees a clean outcome and the model

@@ -454,7 +454,8 @@ public sealed class ScriptGlobals
       outcome.ProcessCountExceeded
           ? new ShellResult(-1, stdout, WithProgramStderr(
               "Error [ProcessCeiling]: the program exceeded its " + Ceilings.SpawnProcessCount
-              + " process ceiling and was stopped.", stderr))
+              + " process ceiling (peak observed: " + outcome.PeakProcesses
+              + ") and was stopped.", stderr))
           : null;
 
   /// <summary>The ceiling line with the program's own stderr appended after it, so a
