@@ -1,9 +1,12 @@
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using StubBroker;
 
-// Stub broker host for supervision tests: serves authenticate + hello, echoes a canned
-// reply per request; a request whose method is 'crash' kills the process without replying.
+// Stub broker host for supervision tests. It models the REAL broker's controller lease:
+// one owner per connection, input refused with controller_busy unless the calling
+// connection owns it, and controller_stop/stop_computer_control releasing it. A request
+// whose method is 'crash' kills the process without replying.
 // The auth token arrives via ETHANG_COMPUTER_USE_TOKEN (as the real broker receives it).
 if (args.Length < 1)
 {
@@ -12,25 +15,13 @@ if (args.Length < 1)
 
 using NamedPipeServerStream server = new(args[0], PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 await server.WaitForConnectionAsync();
-string auth = await ReadLineAsync(server);
-bool authorized;
-using (JsonDocument d = JsonDocument.Parse(auth))
-{
-    string token = d.RootElement.GetProperty("params").GetProperty("token").GetString() ?? "";
-    authorized = token == Environment.GetEnvironmentVariable("ETHANG_COMPUTER_USE_TOKEN");
-}
-
-await WriteAsync(server, "{" + Q("id") + ":0," + Q("result") + ":" + (authorized
-    ? "{" + Q("ok") + ":true}"
-    : "{" + Q("error") + ":{" + Q("code") + ":" + Q("not_authorized") + "," + Q("message") + ":" + Q("bad token") + "}}") + "}");
-if (!authorized)
+if (!await AuthenticateAsync(server))
 {
     return 3;
 }
 
-string hello = await ReadLineAsync(server);
-int helloId = GetId(hello);
-await WriteAsync(server, Reply(helloId, "{" + Q("protocol") + ":1," + Q("platform") + ":" + Q("windows") + "}"));
+await HandshakeAsync(server);
+LeaseState lease = new();
 while (true)
 {
     string line = await ReadLineAsync(server);
@@ -39,23 +30,37 @@ while (true)
         return 9;
     }
 
-    if (line.Contains("deny", StringComparison.Ordinal))
-    {
-        await WriteAsync(server, Reply(GetId(line), "{" + Q("action_sent") + ":false," + Q("dispatch_status") + ":" + Q("possibly_sent") + "," + Q("effect_evidence") + ":" + Q("unchanged") + "}"));
-        continue;
-    }
-
-    await WriteAsync(server, Reply(GetId(line), "{" + Q("action_sent") + ":true," + Q("dispatch_status") + ":" + Q("accepted") + "}"));
+    await HandleAsync(server, lease, line);
 }
 
-static string Q(string name) => "\"" + name + "\"";
-
-static string Reply(int id, string resultJson) => "{" + Q("id") + ":" + id.ToString(System.Globalization.CultureInfo.InvariantCulture) + "," + Q("result") + ":" + resultJson + "}";
-
-static int GetId(string frame)
+static async Task<bool> AuthenticateAsync(NamedPipeServerStream server)
 {
-    using JsonDocument d = JsonDocument.Parse(frame);
-    return d.RootElement.GetProperty("id").GetInt32();
+    string auth = await ReadLineAsync(server);
+    bool authorized;
+    using (JsonDocument d = JsonDocument.Parse(auth))
+    {
+        string token = d.RootElement.GetProperty("params").GetProperty("token").GetString() ?? string.Empty;
+        authorized = token == Environment.GetEnvironmentVariable("ETHANG_COMPUTER_USE_TOKEN");
+    }
+
+    await WriteAsync(server, authorized
+        ? Wire.Reply(0, new { ok = true })
+        : Wire.Fail(0, "not_authorized", "bad token"));
+    return authorized;
+}
+
+static async Task HandshakeAsync(NamedPipeServerStream server)
+{
+    int helloId = Wire.GetId(await ReadLineAsync(server));
+    await WriteAsync(server, Wire.Reply(helloId, new { protocol = 1, platform = "windows" }));
+}
+
+static async Task HandleAsync(NamedPipeServerStream server, LeaseState lease, string line)
+{
+    using JsonDocument frame = JsonDocument.Parse(line);
+    int id = frame.RootElement.GetProperty("id").GetInt32();
+    string method = frame.RootElement.GetProperty("method").GetString() ?? string.Empty;
+    await WriteAsync(server, lease.Route(id, method));
 }
 
 static async Task<string> ReadLineAsync(NamedPipeServerStream server)

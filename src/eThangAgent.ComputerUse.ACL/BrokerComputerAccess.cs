@@ -23,7 +23,10 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
   private readonly ObservationLedger _ledger = new();
   private readonly FrameRegistry _frames = new();
   private readonly bool _ownsSupervisor = ownsSupervisor;
-  private bool _hasLease;
+
+  /// <summary>The connection generation this client took the controller lease on, or null
+  ///     when it holds none. A grant is valid only on the connection it was made on.</summary>
+  private int? _leaseGeneration;
 
   /// <summary>Per-command ReturnState readers, keyed by the sealed case's runtime
   ///     type: the dispatch-table form of the flat switch chain.</summary>
@@ -120,7 +123,7 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
 
   private async Task<ComputerOutcome> StopAsync(CancellationToken ct)
   {
-    if (!_hasLease)
+    if (!HoldsLease)
     {
       // Nothing held: an honest no-op receipt (nothing was dispatched).
       return new ComputerOutcome.Receipt(ActionSent: false, BrokerActionReceipt.Accepted, null, null);
@@ -129,7 +132,7 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     ComputerOutcome outcome = await RequestAsync("stop_computer_control", null, ct).ConfigureAwait(false);
     if (outcome is ComputerOutcome.Receipt)
     {
-      _hasLease = false;
+      _leaseGeneration = null;
     }
 
     return outcome;
@@ -398,17 +401,22 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     new() { ["action_name"] = a.Action };
 
   private Task<ComputerOutcome?> EnsureLeaseAsync(CancellationToken ct) =>
-    _hasLease ? Task.FromResult<ComputerOutcome?>(null) : TakeOverAsync(ct);
+    HoldsLease ? Task.FromResult<ComputerOutcome?>(null) : TakeOverAsync(ct);
+
+  /// <summary>True only while the lease this client took is still bound to the connection
+  ///     currently serving it. A discarded connection voids the grant.</summary>
+  private bool HoldsLease => _leaseGeneration == _supervisor.ConnectionGeneration;
 
   private async Task<ComputerOutcome?> TakeOverAsync(CancellationToken ct)
   {
+    int generation = _supervisor.ConnectionGeneration;
     ComputerOutcome outcome = await RequestAsync("controller_takeover", null, ct).ConfigureAwait(false);
     if (outcome is ComputerOutcome.Failure failure)
     {
       return failure;
     }
 
-    _hasLease = true;
+    _leaseGeneration = generation;
     return null;
   }
 

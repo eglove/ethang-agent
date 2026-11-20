@@ -33,14 +33,15 @@ public class BrokerPipeFramingTests
     string pipeName = "ethang-cu-host-test-" + Guid.NewGuid().ToString("N");
     await using HostHarness harness = HostHarness.Start(pipeName);
     NdjsonPipeClient client = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", notReady: NotReadyPolicy.LoadTolerant(), ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
-    JsonElement parameters = JsonSerializer.SerializeToElement(new { note = "naïve 中文 ok" });
-    // type_text is an input method (task 17 dispatch): on the skeleton it reaches the
-    // input path and comes back input_busy or a receipt; either way the frame was
-    // decoded correctly enough to route it. What must NOT happen is a decode error or
-    // an invalid_request about the frame itself.
+    JsonElement parameters = JsonSerializer.SerializeToElement(new { text = "naïve 中文 ok" });
+    // type_text is an input method: it reaches the input path and comes back a receipt,
+    // input_busy, or a typed refusal from the sender. What must NOT happen is a decode
+    // error or an invalid_request about the frame itself.
     BrokerReply reply = await client.RequestAsync("type_text", parameters, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(reply.Error is null || reply.Error.Code is "input_busy" or "unimplemented" or "controller_busy",
+    Assert.True(reply.Error is null || reply.Error.Code is "input_busy" or "unimplemented" or "controller_busy" or "invalid_request",
       "expected the UTF-8 frame to route cleanly, got: " + (reply.Error?.Code ?? "result"));
+    Assert.False(reply.Error is { Code: "invalid_request", Message: var m } && m.Contains("frame", StringComparison.Ordinal),
+      "the UTF-8 frame itself must decode, not fail as a frame error: " + reply.Error?.Message);
     await client.DisposeAsync().ConfigureAwait(true);
   }
 

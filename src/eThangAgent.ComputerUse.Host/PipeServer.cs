@@ -74,14 +74,16 @@ public sealed class PipeServer
   ];
 
   private readonly BrokerConfig _config;
+  private readonly Action<string>? _log;
   private readonly Lock _gate = new();
   private readonly HashSet<int> _authenticated = [];
   private readonly bool _targetedInput;
 
-  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, InputHooks? hooks = null, bool targetedInput = false)
+  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, InputHooks? hooks = null, bool targetedInput = false, Action<string>? log = null)
   {
     _config = config ?? throw new ArgumentNullException(nameof(config));
     _targetedInput = targetedInput;
+    _log = log;
     InputSerializer = new InputSerializer();
     Lease = new ControllerLease();
     // Re-review resolution contract: ZERO hooks => the REAL NativeInput surface on
@@ -319,16 +321,54 @@ public sealed class PipeServer
   private BrokerResponse HandleControllerTakeover(int connectionId)
   {
     LeaseAcquireResult result = Lease.TryAcquire(connectionId);
-    return result.Acquired
-      ? BrokerResponse.Ok(JsonSerializer.SerializeToElement(new { owned = true }))
-      : BrokerResponse.Fail("controller_busy", $"another connection holds the controller lease (owner={result.Owner.GetValueOrDefault()}).", $"owner={result.Owner.GetValueOrDefault()}");
+    if (result.Acquired)
+    {
+      LogLease("lease taken", connectionId);
+      return BrokerResponse.Ok(JsonSerializer.SerializeToElement(new { owned = true }));
+    }
+
+    LogLease("lease refused", result.Owner, "requester=" + OwnerText(connectionId));
+    return BrokerResponse.Fail("controller_busy", $"another connection holds the controller lease (owner={result.Owner.GetValueOrDefault()}).", $"owner={result.Owner.GetValueOrDefault()}");
   }
+
+  /// <summary>One lease line for the broker log: the transition, the owner it names, and
+  ///     any extra context. A failing sink never throws into the serve path.</summary>
+  private void LogLease(string transition, int? owner, string? extra = null)
+  {
+    if (_log is null)
+    {
+      return;
+    }
+
+    string line = transition + ": owner=" + OwnerText(owner) + (extra is null ? string.Empty : " " + extra);
+    try
+    {
+      _log(line);
+    }
+#pragma warning disable CA1031 // Named decision: a failing log sink must never break dispatch; the boundary is the log call.
+    catch (Exception)
+    {
+      // Swallowed by contract: diagnostics, not dispatch.
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>The owner id as the wire and the log spell it: the connection id, or
+  ///     "none" when the lease is free. Every refusal and every log line uses this one
+  ///     rendering, so the log and the errors can never disagree.</summary>
+  private static string OwnerText(int? owner) =>
+    owner?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none";
 
   private BrokerResponse HandleControllerStop(int connectionId)
   {
-    return Lease.Release(connectionId)
-      ? BrokerResponse.Ok(JsonSerializer.SerializeToElement(new { owned = false }))
-      : BrokerResponse.Fail("controller_busy", "this connection does not hold the controller lease.");
+    if (!Lease.Release(connectionId))
+    {
+      LogLease("lease release refused", Lease.Owner, "requester=" + OwnerText(connectionId));
+      return BrokerResponse.Fail("controller_busy", "this connection does not hold the controller lease.");
+    }
+
+    LogLease("lease released", connectionId);
+    return BrokerResponse.Ok(JsonSerializer.SerializeToElement(new { owned = false }));
   }
 
   /// <summary>stop_computer_control by a non-owner is an honest refusal naming the lease
@@ -339,9 +379,10 @@ public sealed class PipeServer
     int? owner = Lease.Owner;
     if (owner != connectionId)
     {
+      LogLease("lease release refused", owner, "requester=" + OwnerText(connectionId));
       return BrokerResponse.Fail(
         "invalid_request",
-        $"stop_computer_control ignored: this connection does not hold the controller lease (owner=" + (owner?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none") + "); nothing was dispatched.",
+        $"stop_computer_control ignored: this connection does not hold the controller lease (owner=" + OwnerText(owner) + "); nothing was dispatched.",
         "action_sent=false");
     }
 
@@ -349,6 +390,7 @@ public sealed class PipeServer
     // StopAsync recognizes it and clears the lease flag - {owned:false} parsed as a
     // success result but never a receipt, leaving the flag stuck on.
     _ = Lease.Release(connectionId);
+    LogLease("lease released", connectionId);
     return BrokerResponse.Ok(JsonSerializer.SerializeToElement(new
     {
       action_sent = true,
@@ -458,21 +500,47 @@ public sealed class PipeServer
   private BrokerResponse HandleInputMethod(int id, string method, JsonElement? parameters, int connectionId)
   {
     _ = id;
-    if (Lease.Owner != connectionId)
+    if (EnsureLeaseForInput(connectionId) is { } leaseRefusal)
     {
-      // M7 contract (spec 4): controller_busy names the owner in BOTH the message and the
-      // details string - same format as HandleControllerTakeover's takeover race.
-      int? owner = Lease.Owner;
-      return BrokerResponse.Fail(
-        "controller_busy",
-        $"input requires the controller lease; take over first (owner={owner.GetValueOrDefault()}).",
-        $"owner={owner.GetValueOrDefault()}");
+      return leaseRefusal;
     }
 
     using InputOperation? operation = InputSerializer.TryBegin(method);
     return operation is null
       ? InputBusy(operationOwner: InputSerializer.CurrentMethod)
       : RouteStartedInput(method, operation, parameters);
+  }
+
+  /// <summary>The input path's lease gate: an unowned lease is taken by the connection
+  ///     driving input; a lease held by another connection is refused with controller_busy
+  ///     naming that owner in the same rendering stop uses.</summary>
+  private BrokerResponse? EnsureLeaseForInput(int connectionId)
+  {
+    int? owner = Lease.Owner;
+    if (owner == connectionId)
+    {
+      return null;
+    }
+
+    if (owner is null)
+    {
+      LeaseAcquireResult acquired = Lease.TryAcquire(connectionId);
+      if (acquired.Acquired)
+      {
+        LogLease("lease taken", connectionId, "via=input");
+        return null;
+      }
+
+      owner = acquired.Owner;
+    }
+
+    // M7 contract (spec 4): controller_busy names the owner in BOTH the message and the
+    // details string - same format as HandleControllerTakeover's takeover race.
+    LogLease("lease refused", owner, "requester=" + OwnerText(connectionId) + " via=input");
+    return BrokerResponse.Fail(
+      "controller_busy",
+      $"another connection holds the controller lease (owner={OwnerText(owner)}); nothing was dispatched.",
+      $"owner={OwnerText(owner)}");
   }
 
   /// <summary>The serialization gate passed: paste routes through its own gate chain;

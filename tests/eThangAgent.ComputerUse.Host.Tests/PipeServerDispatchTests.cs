@@ -214,12 +214,16 @@ public class PipeServerDispatchTests
   }
 
   [Fact]
-  public void InputMethod_RequiresControllerLease()
+  public void InputMethod_OnLeaseHeldByAnotherConnection_IsControllerBusy()
   {
-    PipeServer server = FakeConnectionFactory.Authorized(4);
-    BrokerResponse reply = server.Dispatch(2, "press_key", JsonElement.Parse("""{"key":"a"}"""), connectionId: 4);
+    // An unowned lease is taken by the connection driving input; the refusal that remains
+    // is a lease genuinely held by another connection.
+    PipeServer server = FakeConnectionFactory.Authorized(1, 4);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "press_key", JsonElement.Parse("""{"key":"a"}"""), connectionId: 4);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("controller_busy", reply.Error.Value.Code);
+    Assert.Equal("owner=1", reply.Error.Value.Details);
   }
 
   [Fact]

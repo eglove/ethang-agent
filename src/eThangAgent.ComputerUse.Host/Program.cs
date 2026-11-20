@@ -37,8 +37,8 @@ PipeServer broker = options.TargetedInput
             TargetedInputDelivery.SendDrag,
             TargetedInputDelivery.SendMouseButtonAt,
             TargetedInputDelivery.SendWheelAt),
-        targetedInput: true)
-    : new PipeServer(new BrokerConfig(options.PipeName, options.Token), observer);
+        targetedInput: true, log: log.Write)
+    : new PipeServer(new BrokerConfig(options.PipeName, options.Token), observer, log: log.Write);
 broker.InputDispatch.SetElementOps(observer.CreateElementOps());
 
 // C6 (production): one broker per workspace serves concurrent connections for the broker's

@@ -33,6 +33,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   private Task<NdjsonPipeClient>? _connecting;
   private string _token = NewToken();
   private int _crashes;
+  private int _generation;
   private bool _disposed;
 
   // ---- Integration-test seams (InternalsVisibleTo only): the second-controller test
@@ -153,6 +154,25 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     _crashes = 0;
     return reply;
   }
+  /// <summary>Increments whenever a live connection is discarded. Per supervisor and
+  ///     monotonic; it never resets, so a caller can tell whether the connection its own
+  ///     state was bound to is still the one serving.</summary>
+  public int ConnectionGeneration
+  {
+    get
+    {
+      _gate.Enter();
+      try
+      {
+        return _generation;
+      }
+      finally
+      {
+        _gate.Exit();
+      }
+    }
+  }
+
   private Task<NdjsonPipeClient> GetClientAsync(CancellationToken ct)
   {
     _gate.Enter();
@@ -225,6 +245,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
       dead = _client;
       _client = null;
       _connecting = null;
+      _generation++;
     }
     finally
     {
