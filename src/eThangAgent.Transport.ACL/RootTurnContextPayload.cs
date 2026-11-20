@@ -14,8 +14,7 @@ public sealed record RootTurnContextBreakdownPayload(int? SystemPromptTokens, in
 /// <summary>The JSON payload of a <c>context</c> event (issue #255): the session's
 ///     provider-scored context accounting - the last request's input tokens, the
 ///     accumulated session totals, the model's catalog window, the utilization, the
-///     prompt-cache and reasoning counts (issue #262), and the estimated bucket
-///     breakdown.
+///     session's prompt-cache count, and the estimated bucket breakdown.
 /// <para>WHY IT TRAVELS: the conversation's agent runs in the HOST process (spec D6), so
 ///     the loop's <c>OnContextUpdate</c> callback fires on the host's side. Before this
 ///     carrier existed the app had no event kind for it, so only the in-process path
@@ -25,9 +24,9 @@ public sealed record RootTurnContextBreakdownPayload(int? SystemPromptTokens, in
 ///     <see cref="ContextStatus"/>: the transport speaks its own vocabulary and the two
 ///     sides convert through <see cref="From"/> / <see cref="ToSnapshot"/>, the one
 ///     writer beside the one reader, so the two cannot drift.</para>
-/// <para>The cache/reasoning members are nullable AND defaulted on the record: a host
-///     of an older build omits them, and the app then reads them as unreported - which
-///     is exactly what they were.</para></summary>
+/// <para>The cache member is nullable AND defaulted on the record: a host of an older
+///     build omits it, and the app then reads it as unreported - which is exactly what it
+///     was.</para></summary>
 public sealed record RootTurnContextPayload(
     int? LastInputTokens,
     long TotalInputTokens,
@@ -35,10 +34,7 @@ public sealed record RootTurnContextPayload(
     int? ContextWindow,
     double? UtilizationPercent,
     RootTurnContextBreakdownPayload? Breakdown,
-    int? LastCachedInputTokens = null,
-    long TotalCachedInputTokens = 0,
-    int? LastReasoningTokens = null,
-    long TotalReasoningTokens = 0)
+    long? TotalCachedInputTokens = null)
 {
   /// <summary>Projects one domain snapshot onto its wire form - the host's emission shape.</summary>
   public static RootTurnContextPayload From(ContextSnapshot snapshot)
@@ -51,15 +47,13 @@ public sealed record RootTurnContextPayload(
             ? new RootTurnContextBreakdownPayload(breakdown.SystemPromptTokens,
                 breakdown.MessageTokens, breakdown.ToolTokens)
             : null,
-        status.LastCachedInputTokens, status.TotalCachedInputTokens,
-        status.LastReasoningTokens, status.TotalReasoningTokens);
+        status.TotalCachedInputTokens);
   }
 
   /// <summary>Rebuilds the domain snapshot the status bar consumes.</summary>
   public ContextSnapshot ToSnapshot()
       => new(new ContextStatus(LastInputTokens, TotalInputTokens, TotalOutputTokens,
-              ContextWindow, UtilizationPercent, LastCachedInputTokens,
-              TotalCachedInputTokens, LastReasoningTokens, TotalReasoningTokens),
+              ContextWindow, UtilizationPercent, TotalCachedInputTokens),
           Breakdown is { } breakdown
               ? new ContextBreakdown(breakdown.SystemPromptTokens, breakdown.MessageTokens,
                   breakdown.ToolTokens)

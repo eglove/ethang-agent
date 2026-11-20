@@ -68,37 +68,41 @@ public class ContextAccountantTests
   }
 
   [Fact]
-  public void CacheAndReasoning_AccumulateAcrossCalls_AndKeepTheLastValue()
+  public void CacheHitPercent_CoversTheWholeSession_NotTheLastRequest()
   {
+    // The reported rate is the session's: 400 of the 1,100 prompt tokens billed so far
+    // came from cache. The LAST request's own rate is 0%, so a rate taken from it would
+    // read 0 here.
     ContextAccountant accountant = new(1000);
     ContextComposition composition = new(1, 1, 1);
 
-    accountant.OnRequestUsage(new TokenUsage(500, 20, 400, null, 15), composition);
-    accountant.OnRequestUsage(new TokenUsage(600, 30, 500, null, 25), composition);
+    accountant.OnRequestUsage(new TokenUsage(500, 20, 400), composition);
+    accountant.OnRequestUsage(new TokenUsage(600, 30, 0), composition);
 
     ContextStatus status = accountant.Status;
-    Assert.Equal(500, status.LastCachedInputTokens);
-    Assert.Equal(900, status.TotalCachedInputTokens);
-    Assert.Equal(25, status.LastReasoningTokens);
-    Assert.Equal(40, status.TotalReasoningTokens);
-    Assert.Equal(83.33, status.CacheHitPercent);
+    Assert.Equal(400, status.TotalCachedInputTokens);
+    Assert.Equal(36.36, status.CacheHitPercent);
   }
 
   [Fact]
-  public void UnreportedCounts_StayNull_AndTotalsAddNothing()
+  public void UnreportedCache_StaysNull_AndAddsNothingToTheTotal()
   {
-    // A provider that reports no cache and no reasoning must not be recorded as
-    // measured-cold: the last values stay null and the totals stay zero.
+    // A provider that reports no cache count on a call must not be recorded as
+    // measured-cold: the session total keeps only what was reported, and a session that
+    // never reported one stays null rather than claiming a 0% hit rate.
     ContextAccountant accountant = new(1000);
-    accountant.OnRequestUsage(new TokenUsage(500, 20, 400, null, 15), new ContextComposition(1, 1, 1));
+    accountant.OnRequestUsage(new TokenUsage(500, 20, 400), new ContextComposition(1, 1, 1));
     accountant.OnRequestUsage(new TokenUsage(600, 30), new ContextComposition(1, 1, 1));
 
     ContextStatus status = accountant.Status;
-    Assert.Null(status.LastCachedInputTokens);
-    Assert.Null(status.LastReasoningTokens);
-    Assert.Null(status.CacheHitPercent);
     Assert.Equal(400, status.TotalCachedInputTokens);
-    Assert.Equal(15, status.TotalReasoningTokens);
+    Assert.Equal(36.36, status.CacheHitPercent);
+
+    ContextAccountant silent = new(1000);
+    silent.OnRequestUsage(new TokenUsage(500, 20), new ContextComposition(1, 1, 1));
+
+    Assert.Null(silent.Status.TotalCachedInputTokens);
+    Assert.Null(silent.Status.CacheHitPercent);
   }
 
   [Fact]
@@ -107,24 +111,20 @@ public class ContextAccountantTests
     // cached_tokens: 0 is a real prompt-cache miss and must render as 0%, which is a
     // different fact from the provider saying nothing at all.
     ContextAccountant accountant = new(1000);
-    accountant.OnRequestUsage(new TokenUsage(500, 20, 0, null, 0), new ContextComposition(1, 1, 1));
+    accountant.OnRequestUsage(new TokenUsage(500, 20, 0), new ContextComposition(1, 1, 1));
 
     ContextStatus status = accountant.Status;
-    Assert.Equal(0, status.LastCachedInputTokens);
+    Assert.Equal(0, status.TotalCachedInputTokens);
     Assert.Equal(0.0, status.CacheHitPercent);
-    Assert.Equal(0, status.LastReasoningTokens);
   }
 
   [Fact]
-  public void BeforeFirstReport_CacheAndReasoningAreUnreported()
+  public void BeforeFirstReport_CacheIsUnreported()
   {
     ContextStatus status = new ContextAccountant(1000).Status;
 
-    Assert.Null(status.LastCachedInputTokens);
-    Assert.Null(status.LastReasoningTokens);
+    Assert.Null(status.TotalCachedInputTokens);
     Assert.Null(status.CacheHitPercent);
-    Assert.Equal(0, status.TotalCachedInputTokens);
-    Assert.Equal(0, status.TotalReasoningTokens);
   }
 
   [Fact]

@@ -43,25 +43,24 @@ public class ContextStatusTests
   }
 
   [Fact]
-  public void SetContext_WithReportedCacheAndReasoning_AppendsBothSegments()
+  public void SetContext_WithReportedCache_AppendsTheSessionSegment()
   {
-    // issue #262: the two provider-scored numbers the note calls decisive appear on
-    // the status line, in a fixed order after the utilization.
+    // The cache segment follows the utilization, and covers the whole session: 120K of
+    // the session's 148.2K prompt tokens were served from cache.
     StatusViewModel s = new("OpenRouter", "m", "Model default");
     s.SetContext(new ContextSnapshot(
         new ContextStatus(148_200, 148_200, 9_000, 1_000_000, 14.82,
-            LastCachedInputTokens: 120_000, TotalCachedInputTokens: 120_000,
-            LastReasoningTokens: 1_200, TotalReasoningTokens: 1_200),
+            TotalCachedInputTokens: 120_000),
         null));
 
-    Assert.Equal("CTX 148.2K/1M, 15%, cache 81%, reasoning 1.2K", s.ContextDisplay);
+    Assert.Equal("CTX 148.2K/1M, 15%, cache 81%", s.ContextDisplay);
   }
 
   [Fact]
-  public void SetContext_NoReportedCacheOrReasoning_RendersExactlyAsBefore()
+  public void SetContext_NoReportedCache_RendersExactlyAsBefore()
   {
-    // The pre-#262 rendering is byte-identical when the provider reports neither
-    // number: no dangling separator, no empty label.
+    // The plain rendering is byte-identical when the provider reports no cache count:
+    // no dangling separator, no empty label.
     StatusViewModel s = new("OpenRouter", "m", "Model default");
     s.SetContext(new ContextSnapshot(
         new ContextStatus(148_200, 148_200, 9_000, 1_000_000, 14.82), null));
@@ -75,12 +74,10 @@ public class ContextStatusTests
     // A reported cold cache is a measurement, not silence: 0% renders.
     StatusViewModel s = new("OpenRouter", "m", "Model default");
     s.SetContext(new ContextSnapshot(
-        new ContextStatus(1000, 1000, 10, 10_000, 10.0,
-            LastCachedInputTokens: 0, TotalCachedInputTokens: 0,
-            LastReasoningTokens: 0, TotalReasoningTokens: 0),
+        new ContextStatus(1000, 1000, 10, 10_000, 10.0, TotalCachedInputTokens: 0),
         null));
 
-    Assert.Equal("CTX 1K/10K, 10%, cache 0%, reasoning 0", s.ContextDisplay);
+    Assert.Equal("CTX 1K/10K, 10%, cache 0%", s.ContextDisplay);
   }
 
   [Fact]
@@ -88,8 +85,7 @@ public class ContextStatusTests
   {
     StatusViewModel s = new("OpenRouter", "m", "Model default");
     s.SetContext(new ContextSnapshot(
-        new ContextStatus(4_000, 4_000, 10, null, null,
-            LastCachedInputTokens: 3_000, TotalCachedInputTokens: 3_000),
+        new ContextStatus(4_000, 4_000, 10, null, null, TotalCachedInputTokens: 3_000),
         null));
 
     Assert.Equal("CTX 4K total, cache 75%", s.ContextDisplay);

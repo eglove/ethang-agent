@@ -65,23 +65,19 @@ public class RootTurnContextPayloadTests
   }
 
   [Fact]
-  public void Serialize_RoundTripsCacheAndReasoningCounts()
+  public void Serialize_RoundTripsTheSessionCacheCount()
   {
-    // issue #262: the cache and reasoning counts travel with the rest of the
-    // accounting, so the CTX line's new segments advance in a HOST-run session too.
+    // The session's cache count travels with the rest of the accounting, so the CTX
+    // line's cache segment advances in a HOST-run session too.
     ContextSnapshot snapshot = new(
         new ContextStatus(148_200, 300_000, 9_000, 1_000_000, 14.82,
-            LastCachedInputTokens: 120_000, TotalCachedInputTokens: 250_000,
-            LastReasoningTokens: 1_200, TotalReasoningTokens: 3_400),
+            TotalCachedInputTokens: 250_000),
         null);
 
     RootTurnContextPayload parsed = Assert.IsType<RootTurnContextPayload>(
         RootTurnContextPayload.Parse(RootTurnContextPayload.Serialize(snapshot)));
 
-    Assert.Equal(120_000, parsed.LastCachedInputTokens);
     Assert.Equal(250_000, parsed.TotalCachedInputTokens);
-    Assert.Equal(1_200, parsed.LastReasoningTokens);
-    Assert.Equal(3_400, parsed.TotalReasoningTokens);
     Assert.Equal(snapshot, parsed.ToSnapshot());
   }
 
@@ -95,10 +91,7 @@ public class RootTurnContextPayloadTests
     RootTurnContextPayload parsed = Assert.IsType<RootTurnContextPayload>(
         RootTurnContextPayload.Parse(older));
 
-    Assert.Null(parsed.LastCachedInputTokens);
-    Assert.Null(parsed.LastReasoningTokens);
-    Assert.Equal(0, parsed.TotalCachedInputTokens);
-    Assert.Equal(0, parsed.TotalReasoningTokens);
+    Assert.Null(parsed.TotalCachedInputTokens);
     Assert.Null(parsed.ToSnapshot().Status.CacheHitPercent);
   }
 
