@@ -28,8 +28,8 @@ public class ModelSettingsWindowTests
     ModelSettingsViewModel vm = new(
         new SessionModelPreferences(), "openrouter",
         persist: _ => { },
-        modelSection: new ModelSectionSeams(_ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
-            [Entry("alpha/model")]))));
+        modelSection: new ModelSectionSeams((_, _) => Task.FromResult(
+            Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry("alpha/model")]))));
     Views.ModelSettingsWindow window = new(vm);
 
     window.Show();
@@ -62,7 +62,8 @@ public class ModelSettingsWindowTests
         new SessionModelPreferences(), "openrouter",
         persist: _ => { },
         modelSection: new ModelSectionSeams(
-            _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry("alpha/model")])),
+            (_, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
+                [Entry("alpha/model")])),
             CurrentRetention: tier));
     Views.ModelSettingsWindow window = new(vm);
 
@@ -89,13 +90,13 @@ public class ModelSettingsWindowTests
         new SessionModelPreferences(), "openrouter",
         persist: _ => { },
         modelSection: new ModelSectionSeams(
-            _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
+            (_, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
             [
               Entry("alpha/model"),
               Entry("zeta/model", "ProviderA"),
               Entry("zeta/model", "ProviderB"),
             ])),
-            CurrentModelIds: ["zeta/model"],
+            CurrentEntries: [new ModelSelectionEntry("zeta/model")],
             CurrentVariant: ModelVariant.Nitro));
     Views.ModelSettingsWindow window = new(vm);
 

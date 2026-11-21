@@ -234,10 +234,10 @@ internal partial class MainWindow : Window
     // priced at. A host with no catalog loader supplies no section at all, and a tab with no
     // ledger supplies no evidence - the sentence then states the documented default rung.
     ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
-        ? new ModelSectionSeams(loadCatalog, preferences.ModelIds,
+        ? new ModelSectionSeams(loadCatalog, preferences.Entries ?? [],
             _vm.SelectedTabCatalogRefresher, preferences.ModelVariant,
             preferences.Retention ?? RetentionPolicy.ZeroDataRetention,
-            CheapestEvidenceLoader(tab))
+            CheapestEvidenceLoader(tab), _vm.OfferedModelVendors, tab.Container.ProviderName)
         : null;
     ModelSettingsViewModel vm = new(
         preferences,

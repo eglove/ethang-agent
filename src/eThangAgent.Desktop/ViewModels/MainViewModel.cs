@@ -904,31 +904,96 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>Loads the selected tab's provider catalog for the model picker, or null
-  ///     when no tab is selected. The loader escapes collection evaluation in the
-  ///     picker's view-model, which runs it off the UI thread.</summary>
-  public Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogLoader
+  /// <summary>The vendors whose models this shell can offer: every vendor whose credential is
+  ///     configured. A vendor with no credential is absent entirely, so the model search never
+  ///     lists a model no configured provider could serve.
+  ///     <para>THE LIST IS READ FROM THE SETTINGS THE SESSIONS WERE BUILT WITH, so clearing a
+  ///     credential removes the vendor from what the next load offers.</para></summary>
+  public IReadOnlyList<string> OfferedModelVendors
+  {
+    get
+    {
+      List<string> vendors = [];
+      if (_settings?.OpenRouter is not null)
+      {
+        vendors.Add(ModelVendors.OpenRouter);
+      }
+
+      if (_settings?.HasCloudflare is true)
+      {
+        vendors.Add(ModelVendors.Cloudflare);
+      }
+
+      return vendors;
+    }
+  }
+
+  /// <summary>Loads one vendor's catalog for the model picker, or null when no tab is
+  ///     selected. The loader escapes collection evaluation in the picker's view-model, which
+  ///     runs it off the UI thread.
+  ///     <para>A VENDOR WITH NO TRANSPORT IS A NAMED FAILURE, not an exception: the picker
+  ///     states that vendor's failure and keeps the other vendor's rows.</para></summary>
+  public Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogLoader
   {
     get
     {
       AgentTabViewModel? tab = SelectedTab;
       return tab is null
           ? null
-          : ct => tab.Container.Services.GetRequiredService<IModelCatalog>().GetAsync(ct);
+          : (vendor, ct) => ReadCatalogAsync(tab, vendor, ct);
     }
   }
 
 
-  /// <summary>Joins source revalidation for the selected tab's settings dialog.</summary>
-  public Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogRefresher
+  /// <summary>Joins source revalidation for one vendor, for the selected tab's settings
+  ///     dialog.</summary>
+  public Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogRefresher
   {
     get
     {
       AgentTabViewModel? tab = SelectedTab;
-      return tab is null ? null
-          : ct => tab.Container.Services.GetRequiredService<IModelCatalog>().RefreshAsync(ct);
+      return tab is null
+          ? null
+          : (vendor, ct) => RefreshCatalogAsync(tab, vendor, ct);
     }
   }
+
+  /// <summary>Reads one vendor's catalog for a tab, or the named failure that says this tab
+  ///     has no transport for it. A missing credential is the usual cause, and it is reported as
+  ///     that fact rather than as an exception.
+  ///     </summary>
+  /// <param name="tab">The tab whose container answers the resolution.</param>
+  /// <param name="vendor">The vendor id.</param>
+  /// <param name="ct">The read's cancellation.</param>
+  private static Task<Result<IReadOnlyList<ModelProviderEntry>>> ReadCatalogAsync(
+      AgentTabViewModel tab, string vendor, CancellationToken ct)
+  {
+    Result<IModelCatalog> catalog = CatalogOf(tab, vendor);
+    return catalog.IsSuccess
+        ? catalog.Value.GetAsync(ct)
+        : Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(catalog.Error));
+  }
+
+  /// <summary>Joins one vendor's source revalidation for a tab, or the named failure that says
+  ///     this tab has no transport for it.</summary>
+  /// <param name="tab">The tab whose container answers the resolution.</param>
+  /// <param name="vendor">The vendor id.</param>
+  /// <param name="ct">The read's cancellation.</param>
+  private static Task<Result<IReadOnlyList<ModelProviderEntry>>> RefreshCatalogAsync(
+      AgentTabViewModel tab, string vendor, CancellationToken ct)
+  {
+    Result<IModelCatalog> catalog = CatalogOf(tab, vendor);
+    return catalog.IsSuccess
+        ? catalog.Value.RefreshAsync(ct)
+        : Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(catalog.Error));
+  }
+
+  /// <summary>The catalog one vendor names, or the named failure that says this tab has none.
+  ///     </summary>
+  /// <param name="tab">The tab whose container answers the resolution.</param>
+  /// <param name="vendor">The vendor id.</param>
+  private static Result<IModelCatalog> CatalogOf(AgentTabViewModel tab, string vendor)
+      => tab.Container.Services.GetRequiredService<IModelProviderResolver>().Catalog(vendor);
 
   /// <summary>Applies a picker choice to the selected tab and persists it per
   ///     workspace + provider (best effort — the same named decision as the other
@@ -938,25 +1003,36 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     tier is half a decision, so the stored value carries all three and a later open
   ///     restores all three.</para>
   ///     </summary>
-  /// <param name="modelIds">The ordered model list to serve: entry 1 runs, the rest are the
-  ///     ordered backups. Never empty - a session with no model has nothing to serve.</param>
+  /// <param name="entries">The ordered model+vendor list to serve: entry 1 runs, the rest are
+  ///     the ordered backups. Never empty - a session with no model has nothing to serve.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
   /// <param name="retention">The retention tier to enforce, or null to keep the session's
   ///     current tier.</param>
-  public async Task ApplyModelChoiceAsync(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
-      RetentionPolicy? retention = null)
+  public async Task ApplyModelChoiceAsync(IReadOnlyList<ModelSelectionEntry> entries,
+      ModelVariant? variant = null, RetentionPolicy? retention = null)
   {
-    ArgumentNullException.ThrowIfNull(modelIds);
+    ArgumentNullException.ThrowIfNull(entries);
     AgentTabViewModel? tab = SelectedTab;
     if (tab is null)
     {
       return;
     }
 
-    tab.ViewModel.ApplyModelChoice(modelIds, variant, retention);
+    tab.ViewModel.ApplyModelChoice(entries, variant, retention);
     await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot,
-        modelIds, variant, retention);
+        entries, variant, retention);
   }
+
+  /// <summary>Applies a choice stated as bare model ids, with every entry naming no vendor so
+  ///     the session's own binding serves them.</summary>
+  /// <param name="modelIds">The ordered model ids to serve.</param>
+  /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
+  /// <param name="retention">The retention tier to enforce, or null to keep the session's
+  ///     current tier.</param>
+  public Task ApplyModelChoiceAsync(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
+      RetentionPolicy? retention = null)
+      => ApplyModelChoiceAsync([.. modelIds.Select(id => new ModelSelectionEntry(id))], variant,
+          retention);
 
   /// <summary>Applies an effort-picker choice to the selected tab and persists it per
   ///     workspace + provider (best effort — the same named decision as the other
@@ -1004,8 +1080,8 @@ internal sealed partial class MainViewModel : ObservableObject
     // the chosen id. Same apply + per-workspace persistence the old picker used.
     if (snapshot.Model is { Kind: ModelChoiceKind.Pinned } model)
     {
-      tab.ViewModel.ApplyModelChoice(model.ModelIds, model.Variant, model.Retention);
-      await PersistModelChoiceAsync(providerName, workspaceRoot, model.ModelIds, model.Variant,
+      tab.ViewModel.ApplyModelChoice(model.Entries, model.Variant, model.Retention);
+      await PersistModelChoiceAsync(providerName, workspaceRoot, model.Entries, model.Variant,
           model.Retention);
     }
 
@@ -3815,7 +3891,8 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     cleared choice come back from the legacy value on the next open, which is the silent
   ///     resurrection the null-deletes contract exists to prevent.</para></summary>
   private async Task PersistModelChoiceAsync(string providerName, string workspaceRoot,
-      IReadOnlyList<string> modelIds, ModelVariant? variant, RetentionPolicy? retention = null)
+      IReadOnlyList<ModelSelectionEntry> entries, ModelVariant? variant,
+      RetentionPolicy? retention = null)
   {
     if (AppPreferences is null)
     {
@@ -3827,7 +3904,7 @@ internal sealed partial class MainViewModel : ObservableObject
     try
     {
       string key = ModelChoiceKey(providerName, workspaceRoot);
-      Result<ModelSelection> created = ModelSelection.Create(modelIds,
+      Result<ModelSelection> created = ModelSelection.Create(entries,
           variant ?? ModelVariant.Standard, retention ?? RetentionPolicy.ZeroDataRetention);
       if (!created.IsSuccess)
       {

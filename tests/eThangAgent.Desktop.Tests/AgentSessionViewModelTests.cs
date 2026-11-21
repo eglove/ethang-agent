@@ -312,7 +312,7 @@ public class AgentSessionViewModelTests
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
-    vm.ApplyModelChoice([]);
+    vm.ApplyModelChoice(Array.Empty<ModelSelectionEntry>());
 
     Assert.Equal(["alpha/model"], preferences.ModelIds);
     Assert.Equal("alpha/model", vm.Status.ModelId);

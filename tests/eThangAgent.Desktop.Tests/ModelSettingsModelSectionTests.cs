@@ -21,9 +21,14 @@ public class ModelSettingsModelSectionTests
       IntelligenceScore: null, CodingScore: null, AgenticScore: null, LatencyMs: null,
       ThroughputTokensPerSec: null, Description: null);
 
-  private static Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> Loader(
+  private static Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> Loader(
       params ModelProviderEntry[] entries)
-      => _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries));
+      => (_, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries));
+
+  /// <summary>The ordered list a test seeds: every entry names no vendor, so the section's own
+  ///     offered vendor serves them.</summary>
+  private static IReadOnlyList<ModelSelectionEntry> Entries(params string[] modelIds)
+      => [.. modelIds.Select(id => new ModelSelectionEntry(id))];
 
   private const string ProvidersOpenRouter = "openrouter";
 
@@ -34,14 +39,14 @@ public class ModelSettingsModelSectionTests
         new SessionModelPreferences(), ProvidersOpenRouter,
         persist: _ => { },
         modelSection: new ModelSectionSeams(Loader(Entry("alpha/model"), Entry("zeta/model")),
-            ["zeta/model"]));
+            Entries("zeta/model")));
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     Assert.False(vm.ModelSection!.IsLoading);
     Assert.Null(vm.ModelSection.LoadError);
     Assert.Equal(["alpha/model", "zeta/model"],
-        vm.ModelSection.FilteredRows.Select(r => r.DisplayName));
+        vm.ModelSection.FilteredRows.Select(r => r.ModelId));
     ModelPickerRow? selected = vm.ModelSection.SelectedRow;
     Assert.Equal("zeta/model", selected!.ModelId); // live choice pre-selected
   }
@@ -52,8 +57,8 @@ public class ModelSettingsModelSectionTests
     ModelSettingsViewModel vm = new(
         new SessionModelPreferences(), ProvidersOpenRouter,
         persist: _ => { },
-        modelSection: new ModelSectionSeams(_ => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
-            new DomainError("Catalog", "down")))));
+        modelSection: new ModelSectionSeams((_, _) => Task.FromResult(
+            Result.Failure<IReadOnlyList<ModelProviderEntry>>(new DomainError("Catalog", "down")))));
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
@@ -67,7 +72,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
-        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), ["alpha/model"]));
+        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), Entries("alpha/model")));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     bool saved = vm.TrySave(out string? error);
@@ -76,7 +81,7 @@ public class ModelSettingsModelSectionTests
     Assert.NotNull(received!.Model);
     Assert.Equal(ModelChoiceKind.Unchanged, received.Model.Kind);
     // Unchanged carries no value; the shell's existing model persistence is untouched.
-    Assert.Empty(received.Model.ModelIds);
+    Assert.Empty(received.Model.Entries);
   }
 
   [Fact]
@@ -87,7 +92,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(Loader(Entry("alpha/model"), Entry("beta/model")),
-            ["alpha/model"]));
+            Entries("alpha/model")));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     // The save is over the ORDERED LIST, so the edit is an addition to it - selecting a catalog row
     // is how a model is offered, not how the decision is stated.
@@ -99,7 +104,7 @@ public class ModelSettingsModelSectionTests
     Assert.True(saved, error ?? "no error");
     Assert.NotNull(received!.Model);
     Assert.Equal(ModelChoiceKind.Pinned, received.Model.Kind);
-    Assert.Equal(["alpha/model", "beta/model"], received.Model.ModelIds);
+    Assert.Equal(["alpha/model", "beta/model"], received.Model.Entries.Select(e => e.ModelId));
     Assert.Equal(["alpha/model", "beta/model"], live.ModelIds); // applied to the live preferences
   }
 
@@ -115,7 +120,7 @@ public class ModelSettingsModelSectionTests
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
             Loader(Entry("alpha/model", "ProviderA"), Entry("alpha/model", "ProviderB")),
-            ["alpha/model"]));
+            Entries("alpha/model")));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     // The model pre-selects from the session's live choice; the user then states the tradeoff.
     vm.ModelSection!.SelectedVariantOption = vm.ModelSection.VariantOptions
@@ -126,7 +131,7 @@ public class ModelSettingsModelSectionTests
     Assert.True(saved, error ?? "no error");
     Assert.NotNull(received);
     Assert.Equal(ModelChoiceKind.Pinned, received.Model!.Kind);
-    Assert.Equal(["alpha/model"], received.Model.ModelIds);
+    Assert.Equal(["alpha/model"], received.Model.Entries.Select(e => e.ModelId));
     Assert.Equal(ModelVariant.Floor, received.Model.Variant);
     Assert.Equal(ModelVariant.Floor, live.ModelVariant); // applied to the live preferences
   }
@@ -143,7 +148,7 @@ public class ModelSettingsModelSectionTests
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
             Loader(Entry("alpha/model")),
-            CurrentModelIds: ["alpha/model"], CurrentVariant: ModelVariant.Standard));
+            CurrentEntries: Entries("alpha/model"), CurrentVariant: ModelVariant.Standard));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     vm.ModelSection!.SelectedVariantOption = vm.ModelSection.VariantOptions
@@ -151,7 +156,7 @@ public class ModelSettingsModelSectionTests
     Assert.True(vm.TrySave(out string? error), error);
 
     Assert.Equal(ModelChoiceKind.Pinned, received!.Model!.Kind);
-    Assert.Equal(["alpha/model"], received.Model.ModelIds);
+    Assert.Equal(["alpha/model"], received.Model.Entries.Select(e => e.ModelId));
     Assert.Equal(ModelVariant.Nitro, received.Model.Variant);
     Assert.Equal(ModelVariant.Nitro, live.ModelVariant);
   }
@@ -168,7 +173,7 @@ public class ModelSettingsModelSectionTests
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
             Loader(Entry("alpha/model")),
-            CurrentModelIds: ["alpha/model"], CurrentVariant: ModelVariant.Nitro));
+            CurrentEntries: Entries("alpha/model"), CurrentVariant: ModelVariant.Nitro));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     Assert.True(vm.TrySave(out string? error), error);
@@ -188,13 +193,91 @@ public class ModelSettingsModelSectionTests
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         modelSection: new ModelSectionSeams(
-            Loader(Entry("alpha/model"), Entry("beta/model")), CurrentModelIds: ["alpha/model"]));
+            Loader(Entry("alpha/model"), Entry("beta/model")), CurrentEntries: Entries("alpha/model")));
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     Assert.True(vm.TrySave(out string? error), error);
     Assert.Equal(ModelChoiceKind.Unchanged, received!.Model!.Kind);
   }
 
+
+  // ── the vendor is part of the choice the save carries ─────────────────────
+
+  [Fact]
+  public async Task Save_CarriesEachEntriesVendor_AndLandsItOnTheLivePreferences()
+  {
+    // A model picked from a vendor's catalog must still name that vendor after the save, or the
+    // walk would resolve it through whichever provider the session happens to be bound to.
+    SessionModelPreferences live = new();
+    ModelSettingsSnapshot? received = null;
+    ModelSettingsViewModel vm = new(
+        live, ProvidersOpenRouter, persist: s => received = s,
+        modelSection: new ModelSectionSeams(
+            (vendor, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
+                vendor == ModelVendors.Cloudflare
+                    ? [Entry("meta/llama-3.1-8b-instruct", ModelVendors.Cloudflare)]
+                    : [Entry("alpha/model")])),
+            [new ModelSelectionEntry("alpha/model", ModelVendors.OpenRouter)],
+            Vendors: [ModelVendors.OpenRouter, ModelVendors.Cloudflare]));
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+    vm.ModelSection!.SearchText = "llama";
+    vm.ModelSection.SelectedRow = vm.ModelSection.FilteredRows.First(
+        row => row.Vendor == ModelVendors.Cloudflare);
+    vm.ModelSection.AddModelCommand.Execute(null);
+
+    Assert.True(vm.TrySave(out string? error), error);
+
+    Assert.Equal([ModelVendors.OpenRouter, ModelVendors.Cloudflare],
+        received!.Model!.Entries.Select(entry => entry.Vendor));
+    Assert.Equal([ModelVendors.OpenRouter, ModelVendors.Cloudflare],
+        live.Entries!.Select(entry => entry.Vendor));
+  }
+
+  [Fact]
+  public async Task ReorderingBetweenTwoVendorsRowsOfTheSameModel_IsARealEdit()
+  {
+    // The same model under two vendors is two entries; swapping them changes which vendor serves
+    // the turn, so a comparison over bare model ids would report 'unchanged' and drop the edit.
+    const string Shared = "meta/llama-3.1-8b-instruct";
+    SessionModelPreferences live = new();
+    ModelSettingsSnapshot? received = null;
+    ModelSettingsViewModel vm = new(
+        live, ProvidersOpenRouter, persist: s => received = s,
+        modelSection: new ModelSectionSeams(
+            (vendor, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
+                [Entry(Shared, vendor)])),
+            [
+              new ModelSelectionEntry(Shared, ModelVendors.OpenRouter),
+              new ModelSelectionEntry(Shared, ModelVendors.Cloudflare),
+            ],
+            Vendors: [ModelVendors.OpenRouter, ModelVendors.Cloudflare]));
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+    vm.ModelSection!.SelectedModel = vm.ModelSection.SelectedModels[1];
+    vm.ModelSection.MoveUpCommand.Execute(null);
+
+    Assert.True(vm.TrySave(out string? error), error);
+
+    Assert.Equal(ModelChoiceKind.Pinned, received!.Model!.Kind);
+    Assert.Equal([ModelVendors.Cloudflare, ModelVendors.OpenRouter],
+        live.Entries!.Select(entry => entry.Vendor));
+  }
+
+  [Fact]
+  public async Task ACloudflareCatalogFailure_IsStated_AndTheOpenRouterRowsStay()
+  {
+    ModelSettingsViewModel vm = new(
+        new SessionModelPreferences(), ProvidersOpenRouter, persist: _ => { },
+        modelSection: new ModelSectionSeams(
+            (vendor, _) => Task.FromResult(vendor == ModelVendors.Cloudflare
+                ? Result.Failure<IReadOnlyList<ModelProviderEntry>>(
+                    new DomainError("CatalogUnavailable", "Cloudflare refused the read"))
+                : Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry("alpha/model")])),
+            Vendors: [ModelVendors.OpenRouter, ModelVendors.Cloudflare]));
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(["alpha/model"], vm.ModelSection!.FilteredRows.Select(row => row.ModelId));
+    Assert.Contains("Cloudflare", vm.ModelSection.LoadError!, StringComparison.Ordinal);
+  }
   [Theory]
   [InlineData(false)]
   [InlineData(true)]
@@ -205,9 +288,10 @@ public class ModelSettingsModelSectionTests
     ModelSettingsSnapshot? saved = null;
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, s => saved = s,
         modelSection: new ModelSectionSeams(
-            Loader(Entry("alpha/model"), Entry("beta/model")), ["alpha/model"], ct =>
+            Loader(Entry("alpha/model"), Entry("beta/model")), Entries("alpha/model"),
+            (_, ct) =>
             {
-              _ = ready.TrySetResult();
+              ready.SetResult();
               return refresh.Task.WaitAsync(ct);
             }));
     Task load = vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);

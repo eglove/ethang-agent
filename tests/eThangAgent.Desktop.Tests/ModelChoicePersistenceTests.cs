@@ -48,7 +48,8 @@ public class ModelChoicePersistenceTests
     Assert.True(vm.TrySave(out string? error), error);
 
     Assert.Equal(ModelChoiceKind.Pinned, captured!.Model!.Kind);
-    Assert.Equal(["alpha/model", "beta/other", "gamma/third"], captured.Model.ModelIds);
+    Assert.Equal(["alpha/model", "beta/other", "gamma/third"],
+        captured.Model.Entries.Select(entry => entry.ModelId));
     Assert.Equal(ModelVariant.Standard, captured.Model.Variant);
     Assert.Equal(RetentionPolicy.ZeroDataRetention, captured.Model.Retention);
     Assert.Equal(["alpha/model", "beta/other", "gamma/third"], live.ModelIds);
@@ -101,7 +102,7 @@ public class ModelChoicePersistenceTests
     Assert.True(vm.TrySave(out string? error), error);
 
     Assert.Equal(ModelChoiceKind.Pinned, captured!.Model!.Kind);
-    Assert.Equal(["beta/other", "alpha/model"], captured.Model.ModelIds);
+    Assert.Equal(["beta/other", "alpha/model"], captured.Model.Entries.Select(entry => entry.ModelId));
     Assert.Equal(["beta/other", "alpha/model"], live.ModelIds);
   }
 
@@ -227,7 +228,7 @@ public class ModelChoicePersistenceTests
         "OpenRouter", "alpha/model",
         new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = live });
 
-    vm.ApplyModelChoice([]);
+    vm.ApplyModelChoice(Array.Empty<ModelSelectionEntry>());
 
     Assert.Equal(["alpha/model"], live.ModelIds);
     Assert.Equal("alpha/model", vm.Status.ModelId);
@@ -277,7 +278,7 @@ public class ModelChoicePersistenceTests
       => new(live, Provider, persist,
           modelSection: new ModelSectionSeams(
               Loader(Entry("alpha/model"), Entry("beta/other"), Entry("gamma/third")),
-              currentModelIds));
+              [.. currentModelIds.Select(id => new ModelSelectionEntry(id))]));
 
   private static ModelProviderEntry Entry(string modelId) => new(
       modelId, "ProviderA", 0.000003m, null, 0.000015m, 200_000, 8192,
@@ -285,9 +286,9 @@ public class ModelChoicePersistenceTests
       IntelligenceScore: null, CodingScore: null, AgenticScore: null, LatencyMs: null,
       ThroughputTokensPerSec: null, Description: null);
 
-  private static Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> Loader(
+  private static Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> Loader(
       params ModelProviderEntry[] entries)
-      => _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries));
+      => (_, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries));
 
   private static MainViewModel CreateShell(IAppPreferenceStore preferences,
       SessionModelPreferences sessionPreferences)

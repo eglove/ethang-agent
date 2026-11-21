@@ -488,15 +488,17 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     decision, because the variant is what states the tradeoff the user chose it for. An
   ///     uncommitted variant travels as null (UNSET, resolved to Standard) rather than being
   ///     guessed - the same rule the model choice follows.</para></summary>
-  internal sealed record ModelChoice(ModelChoiceKind Kind, IReadOnlyList<string> ModelIds,
+  internal sealed record ModelChoice(ModelChoiceKind Kind,
+      IReadOnlyList<ModelSelectionEntry> Entries,
       ModelVariant? Variant = null,
       RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
   {
     public static readonly ModelChoice Unchanged = new(ModelChoiceKind.Unchanged, []);
 
-    public static ModelChoice Pinned(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
+    public static ModelChoice Pinned(IReadOnlyList<ModelSelectionEntry> entries,
+        ModelVariant? variant = null,
         RetentionPolicy retention = RetentionPolicy.ZeroDataRetention)
-        => new(ModelChoiceKind.Pinned, modelIds, variant, retention);
+        => new(ModelChoiceKind.Pinned, entries, variant, retention);
   }
   // Knob name constants — the single vocabulary shared by tests, the AXAML keys,
   // and the snapshot's knob-text map.
@@ -538,7 +540,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   private bool _catalogLoadStarted;
 
 
-  private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? _refreshCatalog;
+  private readonly Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? _refreshCatalog;
   private readonly SessionModelPreferences _live;
   private readonly Action<ModelSettingsSnapshot> _persist;
   /// <summary>The embedded model section: the same searchable catalog view-model
@@ -562,25 +564,30 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       CapturePreselection();
     }
 
-    if (_refreshCatalog is not null)
+    if (_refreshCatalog is not null && ModelSection is not null)
     {
-      Result<IReadOnlyList<ModelProviderEntry>> refreshed;
+      // EVERY OFFERED VENDOR IS REVALIDATED, so one vendor's failure is stated for that vendor
+      // and leaves the other vendor's rows as the load left them.
+      foreach (string vendor in ModelSection.Vendors)
+      {
+        Result<IReadOnlyList<ModelProviderEntry>> refreshed;
 #pragma warning disable CA1031 // A background loader fault must remain visible in the dialog.
-      try
-      {
-        refreshed = await _refreshCatalog(ct);
-      }
-      catch (OperationCanceledException) when (ct.IsCancellationRequested)
-      {
-        return; // Closing the window abandons this waiter, not the shared refresh.
-      }
-      catch (Exception ex)
-      {
-        refreshed = Result.Failure<IReadOnlyList<ModelProviderEntry>>(new DomainError(
-            "CatalogUnavailable", ex.Message));
-      }
+        try
+        {
+          refreshed = await _refreshCatalog(vendor, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+          return; // Closing the window abandons this waiter, not the shared refresh.
+        }
+        catch (Exception ex)
+        {
+          refreshed = Result.Failure<IReadOnlyList<ModelProviderEntry>>(new DomainError(
+              "CatalogUnavailable", ex.Message));
+        }
 #pragma warning restore CA1031
-      ApplyCatalogRefresh(refreshed);
+        ApplyCatalogRefresh(vendor, refreshed);
+      }
     }
   }
 
@@ -780,8 +787,8 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   private static ModelPickerViewModel? BuildModelSection(ModelSectionSeams? seams)
       => seams is null
           ? null
-          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentModelIds ?? [], seams.CurrentVariant,
-              seams.CurrentRetention, seams.LoadCheapestEvidence);
+          : new ModelPickerViewModel(seams.LoadCatalog, seams.CurrentEntries ?? [], seams.CurrentVariant,
+              seams.CurrentRetention, seams.LoadCheapestEvidence, seams.Vendors, seams.SessionVendor);
 
   /// <summary>Prefills the summary picker from the persisted level: the matching
   ///     row when the level is known, the provider-default row otherwise. Kept out
@@ -849,11 +856,11 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     edit: the preselected PAIR follows the refresh only while the user has not moved off
   ///     it (issue #296), so a refresh never turns an untouched window into a Pinned save.
   ///     </summary>
-  private void ApplyCatalogRefresh(Result<IReadOnlyList<ModelProviderEntry>> refreshed)
+  private void ApplyCatalogRefresh(string vendor, Result<IReadOnlyList<ModelProviderEntry>> refreshed)
   {
-    IReadOnlyList<string> before = ModelSection?.CurrentSelection().ModelIds ?? [];
-    bool unchanged = before.SequenceEqual(_preselectedModelIds, StringComparer.Ordinal);
-    ModelSection?.ApplyRefresh(refreshed);
+    IReadOnlyList<ModelSelectionEntry> before = ModelSection?.CurrentSelection().Entries ?? [];
+    bool unchanged = SameEntries(before, _preselectedEntries);
+    ModelSection?.ApplyRefresh(vendor, refreshed);
     if (unchanged)
     {
       CapturePreselection();
@@ -865,7 +872,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     after a catalog refresh that did not move the selection.</summary>
   private void CapturePreselection()
   {
-    _preselectedModelIds = ModelSection?.CurrentSelection().ModelIds ?? [];
+    _preselectedEntries = ModelSection?.CurrentSelection().Entries ?? [];
     _preselectedVariant = ModelSection?.SelectedVariantOption?.Variant;
     _preselectedRetention = RetentionFromSection();
   }
@@ -873,11 +880,12 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   /// <summary>The ordered model list the section pre-selected when it loaded: the session's live
   ///     selection. A save that still shows this list carries Unchanged — the user opened the
   ///     window and changed nothing.
-  ///     <para>IDENTITY IS THE ORDERED IDS, NOT THE ROW OBJECTS OR THE COLLECTION. The rows are
-  ///     rebuilt whenever the catalog or its rates are re-resolved, so reference equality
-  ///     reported "changed" for a window nobody touched; the ids in order are what the choice
-  ///     actually is, and a REORDER is therefore a real edit.</para></summary>
-  private IReadOnlyList<string> _preselectedModelIds = [];
+  ///     <para>IDENTITY IS THE ORDERED (MODEL, VENDOR) PAIRS, NOT THE ROW OBJECTS OR THE
+  ///     COLLECTION. The rows are rebuilt whenever the catalog or its rates are re-resolved, so
+  ///     reference equality reported "changed" for a window nobody touched; the pairs in order are
+  ///     what the choice actually is, so a REORDER is a real edit and so is moving a model between
+  ///     two vendors that both serve it.</para></summary>
+  private IReadOnlyList<ModelSelectionEntry> _preselectedEntries = [];
 
   /// <summary>The routing VARIANT the section pre-selected when it loaded.
   ///     <para>THE PAIR IS THE DECISION, so "nothing changed" must mean BOTH halves are
@@ -899,15 +907,15 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     save time - the picker view-model keeps no separate dirty flag.</summary>
   private ModelChoice ModelChoiceFromSection()
   {
-    if (ModelSection is not { } section || section.CurrentSelection().ModelIds.Count == 0)
+    if (ModelSection is not { } section || section.CurrentSelection().Entries.Count == 0)
     {
       return ModelChoice.Unchanged; // no section, or no model - the shell's state is untouched
     }
 
-    IReadOnlyList<string> modelIds = section.CurrentSelection().ModelIds;
+    IReadOnlyList<ModelSelectionEntry> entries = section.CurrentSelection().Entries;
     ModelVariant? variant = section.SelectedVariantOption?.Variant;
     RetentionPolicy retention = RetentionFromSection();
-    bool sameModels = modelIds.SequenceEqual(_preselectedModelIds, StringComparer.Ordinal);
+    bool sameModels = SameEntries(entries, _preselectedEntries);
     bool sameVariant = variant == _preselectedVariant;
     // THE RETENTION POLICY IS PART OF THE CHOICE, not a side effect of touching the model
     // list: a user who opens the window and only moves the retention control has made a real
@@ -915,8 +923,21 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     bool sameRetention = retention == _preselectedRetention;
     return sameModels && sameVariant && sameRetention
         ? ModelChoice.Unchanged // opened on this choice, still on it
-        : ModelChoice.Pinned(modelIds, variant, retention);
+        : ModelChoice.Pinned(entries, variant, retention);
   }
+
+  /// <summary>True when two ordered lists name the same (model, vendor) pairs in the same
+  ///     order. The vendor is part of the comparison: the same model under two vendors is two
+  ///     different choices, so a move between them is an edit rather than 'unchanged'.
+  ///     </summary>
+  /// <param name="left">The list being compared.</param>
+  /// <param name="right">The list it is compared with.</param>
+  private static bool SameEntries(IReadOnlyList<ModelSelectionEntry> left,
+      IReadOnlyList<ModelSelectionEntry> right)
+      => left.Count == right.Count
+          && left.Zip(right).All(pair =>
+              string.Equals(pair.First.ModelId, pair.Second.ModelId, StringComparison.Ordinal)
+              && string.Equals(pair.First.Vendor, pair.Second.Vendor, StringComparison.Ordinal));
 
   /// <summary>The retention tier the section is showing, or the session's own tier when the
   ///     host supplied no section at all.</summary>
@@ -944,7 +965,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       // reported a tradeoff the user chose. A null variant CLEARS it - the user moved to a model
       // with no variant selected, and keeping the old one would silently keep routing under a
       // tradeoff they just moved away from.
-      _live.ModelIds = modelChoice.ModelIds;
+      _live.Entries = modelChoice.Entries;
       _live.ModelVariant = modelChoice.Variant;
     }
 

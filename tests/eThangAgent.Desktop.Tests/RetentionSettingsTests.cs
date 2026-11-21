@@ -29,14 +29,15 @@ public class RetentionSettingsTests
       IntelligenceScore: null, CodingScore: null, AgenticScore: null, LatencyMs: null,
       ThroughputTokensPerSec: null, Description: null);
 
-  private static Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> Loader(
+  private static Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> Loader(
       params ModelProviderEntry[] entries)
-      => _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries));
+      => (_, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries));
 
   private static ModelSettingsViewModel Settings(SessionModelPreferences live,
       Action<ModelSettingsSnapshot> persist, RetentionPolicy? currentRetention = null)
       => new(live, ProvidersOpenRouter, persist,
-          modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), ["alpha/model"],
+          modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")),
+              [new ModelSelectionEntry("alpha/model")],
               CurrentRetention: currentRetention ?? RetentionPolicy.ZeroDataRetention));
 
   // ── the dropdown: three rows, and the tier it opens on ─────────────────────
@@ -91,7 +92,8 @@ public class RetentionSettingsTests
   {
     // The seams default is the strict tier, which is what an unstated policy means.
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, _ => { },
-        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")), ["alpha/model"]));
+        modelSection: new ModelSectionSeams(Loader(Entry("alpha/model")),
+            [new ModelSelectionEntry("alpha/model")]));
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
@@ -132,7 +134,7 @@ public class RetentionSettingsTests
 
     Assert.True(saved, error ?? "no error");
     Assert.Equal(ModelChoiceKind.Pinned, received!.Model!.Kind);
-    Assert.Equal(["alpha/model"], received.Model.ModelIds);
+    Assert.Equal(["alpha/model"], received.Model.Entries.Select(entry => entry.ModelId));
     Assert.Equal(RetentionPolicy.SafetyRetention, received.Model.Retention);
     Assert.Equal(RetentionPolicy.SafetyRetention, live.Retention);
   }

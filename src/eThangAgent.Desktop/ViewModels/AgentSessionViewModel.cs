@@ -1451,35 +1451,37 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// caller that names only a model states nothing about retention, so the session keeps the
   /// policy it had rather than having one invented for it.</para>
   /// </summary>
-  /// <param name="modelIds">The ordered model list to serve: entry 1 runs and the rest are
-  ///     the ordered backups. An empty list is refused, because a session with no model has
+  /// <param name="entries">The ordered model+vendor list to serve: entry 1 runs and the rest
+  ///     are the ordered backups. An empty list is refused, because a session with no model has
   ///     nothing to serve and no empty state to fall back to.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
   /// <param name="retention">The retention tier to enforce, or null to keep the session's
   ///     current tier.</param>
-  public void ApplyModelChoice(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
+  public void ApplyModelChoice(IReadOnlyList<ModelSelectionEntry> entries, ModelVariant? variant = null,
       RetentionPolicy? retention = null)
   {
-    ArgumentNullException.ThrowIfNull(modelIds);
+    ArgumentNullException.ThrowIfNull(entries);
     if (_modelPreferences is null)
     {
       Transcript.AddNotice("Model choice is unavailable in this session (no model preferences wired).");
       return;
     }
 
-    if (modelIds.Count == 0)
+    if (entries.Count == 0)
     {
       Transcript.AddNotice("A session needs at least one model; the model list was left unchanged.");
       return;
     }
 
+    IReadOnlyList<string> modelIds = [.. entries.Select(entry => entry.ModelId)];
     // The list lands whole: a reopened or relaunched session serves the same models in the
-    // same order. The status bar names the HEAD, because entry 1 is the model that runs - a
-    // backup that answered one turn never becomes the head.
+    // same order, each under the vendor it names. The status bar names the HEAD, because entry 1
+    // is the model that runs - a backup that answered one turn never becomes the head.
     string chosen = modelIds[0];
     // A picked list is the whole list again: every model a turn dropped returns.
     _modelDrops.Clear();
-    _modelPreferences.ModelIds = [.. modelIds];
+    _modelPreferences.Entries =
+        [.. entries.Select(entry => new ModelSelectionEntry(entry.ModelId, entry.Vendor))];
     _modelPreferences.ModelVariant = variant;
     // Null means the caller stated no tier (a picker that only names a model), and the
     // session keeps whatever it had - which, for a session that never stated one, is the
@@ -1503,6 +1505,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     RefreshVision();
     Transcript.AddNotice(ChoiceNotice(chosen, modelIds.Count, variant));
   }
+
+  /// <summary>Applies a choice stated as bare model ids, with every entry naming no vendor so
+  ///     the session's own binding serves them.</summary>
+  /// <param name="modelIds">The ordered model ids to serve.</param>
+  /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
+  /// <param name="retention">The retention tier to enforce, or null to keep the session's
+  ///     current tier.</param>
+  public void ApplyModelChoice(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
+      RetentionPolicy? retention = null)
+      => ApplyModelChoice([.. modelIds.Select(id => new ModelSelectionEntry(id))], variant,
+          retention);
 
   /// <summary>Re-resolves the session's model vision fact from the current selection. Fire and
   ///     forget: the fact is read synchronously by image tools, so a slow catalog read must never
