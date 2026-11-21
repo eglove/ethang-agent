@@ -271,6 +271,56 @@ public class ModelChoicePersistenceTests
     Assert.DoesNotContain(store.Writes, w => w.Key == ModelChoiceKey);
   }
 
+  // ── the vendors survive the whole hop ─────────────────────────────────────
+
+  [Fact]
+  public async Task ASavedSelection_KeepsEveryEntrysVendor_ThroughTheStoreAndTheReopen()
+  {
+    // The hop is picker -> preference -> reopen, and a vendor lost at either end turns a
+    // Cloudflare model into an anonymous id that the session's own binding would serve.
+    FakePreferenceStore store = new();
+    SessionModelPreferences live = new();
+    MainViewModel writer = CreateShell(store, live);
+    _ = await OpenAsync(writer).ConfigureAwait(true);
+
+    await writer.ApplyModelChoiceAsync(
+        [new ModelSelectionEntry("alpha/model"),
+         new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)]).ConfigureAwait(true);
+
+    // What landed in the store carries both vendors, in order.
+    ModelSelection stored = ModelSelection.Parse(store.Stored[ModelChoiceKey]).Value!;
+    Assert.Equal([new ModelSelectionEntry("alpha/model"),
+        new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)], stored.Entries);
+
+    // A reopened workspace restores them into the live preference, and the bar names the
+    // head's vendor - the entry that will serve the next turn.
+    SessionModelPreferences reopened = new();
+    MainViewModel reader = CreateShell(store, reopened);
+    AgentTabViewModel tab = await OpenAsync(reader).ConfigureAwait(true);
+
+    Assert.Equal([new ModelSelectionEntry("alpha/model"),
+        new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)], reopened.Entries);
+    Assert.Equal("alpha/model", tab.ViewModel.Status.ModelId);
+    // The head names no vendor, so the bar states none rather than inventing the session's.
+    Assert.Equal(string.Empty, tab.ViewModel.Status.ServingVendor);
+  }
+
+  [Fact]
+  public async Task AReopenedSelectionWhoseHeadNamesAVendor_NamesItInTheStatusBar()
+  {
+    FakePreferenceStore store = new();
+    store.Stored[ModelChoiceKey] = ModelSelection.Create(
+        [new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)]).Value!.Serialize();
+    SessionModelPreferences live = new();
+    MainViewModel shell = CreateShell(store, live);
+
+    AgentTabViewModel tab = await OpenAsync(shell).ConfigureAwait(true);
+
+    Assert.Equal([new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)], live.Entries);
+    Assert.Equal(ModelVendors.DisplayName(ModelVendors.Cloudflare),
+        tab.ViewModel.Status.ServingVendor);
+  }
+
   // ── helpers ───────────────────────────────────────────────────────────────
 
   private static ModelSettingsViewModel Settings(SessionModelPreferences live,

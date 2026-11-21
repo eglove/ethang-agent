@@ -417,6 +417,8 @@ internal static class DesktopHost
     {
       OpenRouterKey = settings.OpenRouter.ApiKey,
       OpenRouterManagementKey = settings.OpenRouter.ManagementKey,
+      CloudflareAccountId = settings.Cloudflare?.AccountId,
+      CloudflareApiToken = settings.Cloudflare?.ApiToken,
       OpenRouterBaseUrlText = settings.OpenRouter.BaseUrl.ToString(),
       CommitStyle = boot.CommitStyle,
       CompactionModels = [CompactionModelOption.Automatic],

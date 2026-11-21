@@ -4,6 +4,16 @@ using eThangAgent.Storage.ACL;
 
 namespace eThangAgent.Desktop;
 
+/// <summary>The normalized secrets a settings save wrote, so the caller applies exactly what
+///     landed rather than re-reading the store. A null member means the field was blank, which
+///     is how a cleared credential is expressed.</summary>
+/// <param name="OpenRouterKey">The OpenRouter API key.</param>
+/// <param name="ManagementKey">The optional OpenRouter management key.</param>
+/// <param name="CloudflareAccountId">The Cloudflare account id.</param>
+/// <param name="CloudflareApiToken">The Cloudflare API token.</param>
+internal sealed record PersistedSettings(string? OpenRouterKey, string? ManagementKey,
+    string? CloudflareAccountId, string? CloudflareApiToken);
+
 /// <summary>Writes a confirmed <see cref="SettingsUpdate"/> to the app preference store.
 ///     <para>ONE WRITER, TWO CALLERS. The main window's shell and the launcher's Settings entry
 ///     are the same dialog over the same store, so a save from either lands through this one
@@ -20,22 +30,25 @@ internal sealed class SettingsPersistence(IAppPreferenceStore? preferences, IApi
   private readonly IAppPreferenceStore? _preferences = preferences;
   private readonly IApiKeyProtector? _keyProtector = keyProtector;
 
-  /// <summary>Persists every field of the update: the two keys (protected) and every plaintext
-  ///     knob, the global file lists included. Returns the normalized keys the caller applies to
-  ///     its live settings, so one normalization serves both the write and the rebind.</summary>
+  /// <summary>Persists every field of the update: the four secrets (protected) and every
+  ///     plaintext knob, the global file lists included. Returns the normalized values the caller
+  ///     applies to its live settings, so one normalization serves both the write and the
+  ///     rebind.</summary>
   /// <param name="update">The confirmed update.</param>
   /// <param name="preferredProviderId">The provider the scoped compaction choice belongs to.</param>
-  public async Task<(string? OpenRouterKey, string? ManagementKey)> ApplyAsync(
-      SettingsUpdate update, string preferredProviderId)
+  public async Task<PersistedSettings> ApplyAsync(SettingsUpdate update, string preferredProviderId)
   {
     ArgumentNullException.ThrowIfNull(update);
     ArgumentException.ThrowIfNullOrWhiteSpace(preferredProviderId);
-    string? openRouterKey = Normalize(update.OpenRouterApiKey);
-    string? managementKey = Normalize(update.OpenRouterManagementKey);
+    PersistedSettings persisted = new(
+        Normalize(update.OpenRouterApiKey),
+        Normalize(update.OpenRouterManagementKey),
+        Normalize(update.CloudflareAccountId),
+        Normalize(update.CloudflareApiToken));
 
-    await PersistTextAsync(update, openRouterKey, managementKey).ConfigureAwait(false);
+    await PersistTextAsync(update, persisted).ConfigureAwait(false);
     PersistScoped(update, preferredProviderId);
-    return (openRouterKey, managementKey);
+    return persisted;
   }
 
   /// <summary>Trims a field and reads a blank as 'cleared'.</summary>
@@ -84,11 +97,17 @@ internal sealed class SettingsPersistence(IAppPreferenceStore? preferences, IApi
   }
 
   /// <summary>Persists every non-scoped field of the update.</summary>
-  private async Task PersistTextAsync(SettingsUpdate update, string? openRouterKey,
-      string? managementKey)
+  private async Task PersistTextAsync(SettingsUpdate update, PersistedSettings persisted)
   {
-    await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, openRouterKey).ConfigureAwait(false);
-    await PersistApiKeyAsync(OpenRouterSettings.ManagementKeyPreferenceKey, managementKey)
+    await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, persisted.OpenRouterKey)
+        .ConfigureAwait(false);
+    await PersistApiKeyAsync(OpenRouterSettings.ManagementKeyPreferenceKey, persisted.ManagementKey)
+        .ConfigureAwait(false);
+    // The Cloudflare credential is a secret on the same terms as the OpenRouter key: stored
+    // protected, cleared by a blank field, and app-wide rather than per workspace.
+    await PersistApiKeyAsync(CloudflareSettings.AccountIdPreferenceKey, persisted.CloudflareAccountId)
+        .ConfigureAwait(false);
+    await PersistApiKeyAsync(CloudflareSettings.ApiTokenPreferenceKey, persisted.CloudflareApiToken)
         .ConfigureAwait(false);
     await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
         update.CommitStyle.ToString()).ConfigureAwait(false);

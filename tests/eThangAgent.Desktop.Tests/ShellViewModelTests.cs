@@ -453,17 +453,20 @@ public class ShellViewModelTests
     Assert.Empty(vm.Tabs);
   }
 
+  /// <summary>Opening an agent writes NO provider preference. A session's provider comes from
+  ///     the vendor each of its models names, so there is no choice left to remember - and the
+  ///     retired key is neither rewritten nor deleted, which is what keeps a stored value from an
+  ///     older build readable instead of silently discarded.</summary>
   [Fact]
-  public async Task OpenAgent_PersistsChosenProvider_AsAppPreference()
+  public async Task OpenAgent_WritesNoProviderPreference()
   {
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(root, provider), preferences);
 
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    (string key, string value) = Assert.Single(preferences.Writes);
-    Assert.Equal(Providers.PreferenceKey, key);
-    Assert.Equal("openrouter", value);
+    Assert.DoesNotContain(preferences.Writes, w => w.Key == Providers.PreferenceKey);
+    Assert.DoesNotContain(preferences.Deletions, k => k == Providers.PreferenceKey);
   }
 
   [Fact]
@@ -505,6 +508,7 @@ public class ShellViewModelTests
     // update leaves unset all delete.
     Assert.Equal(
         [OpenRouterSettings.ManagementKeyPreferenceKey,
+         CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
@@ -532,6 +536,7 @@ public class ShellViewModelTests
 
     Assert.Equal(
         [OpenRouterSettings.PreferenceKey, OpenRouterSettings.ManagementKeyPreferenceKey,
+         CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
@@ -571,6 +576,7 @@ public class ShellViewModelTests
         preferences.Writes);
     Assert.Equal(
         [OpenRouterSettings.ManagementKeyPreferenceKey,
+         CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,

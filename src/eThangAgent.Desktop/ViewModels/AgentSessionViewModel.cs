@@ -39,6 +39,11 @@ internal sealed record AgentSessionViewModelOptions
   /// <summary>Updates the status bar when root model resolution picks a model.</summary>
   public Action<string>? StatusModelUpdater { get; init; }
 
+  /// <summary>Updates the status bar's vendor when the model that serves is attributed to one.
+  ///     Null = this host shows no vendor (headless stubs and tests that assert the model alone).
+  ///     </summary>
+  public Action<string>? ServingVendorUpdater { get; init; }
+
   /// <summary>The session's live model/effort preferences backing the Model and Effort
   ///     pickers.</summary>
   public SessionModelPreferences? ModelPreferences { get; init; }
@@ -258,6 +263,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Conversation _conversation;
   private readonly Func<UiStreamEvent, Task> _streamSink;
   private readonly Action<string>? _statusModelUpdater;
+  private readonly Action<string>? _servingVendorUpdater;
   private readonly SessionModelPreferences? _modelPreferences;
 
   /// <summary>The model vision fact this session refreshes on every selection change. Null when
@@ -678,6 +684,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     ArgumentNullException.ThrowIfNull(options);
     WorkspaceRoot = options.WorkspaceRoot;
     _statusModelUpdater = options.StatusModelUpdater;
+    _servingVendorUpdater = options.ServingVendorUpdater;
     // Turns must never run on the UI thread: their awaits would post back to
     // Avalonia's SynchronizationContext and one blocking tool call would freeze
     // the whole shell (see DesktopHost.OffUiThread). The schedule wraps EVERY
@@ -715,6 +722,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       BackupCountText = BackupCountText(ModelCountOf(_modelPreferences)),
       // At construction nothing has been dropped, so this is the stored list.
       SurvivingModelIds = [.. SurvivingModels()],
+      // The vendor the bar names is the head entry's, so the first frame already says which
+      // vendor will serve. An entry that names none renders nothing rather than a guess.
+      ServingVendor = VendorTextOf(servingModel),
+      // The bar's own model moves when a usage row names the model that actually served, so the
+      // vendor moves with it through the same resolution.
+      ServingVendorUpdater = _servingVendorUpdater is null
+          ? null
+          : modelId => _servingVendorUpdater(VendorTextOf(modelId)),
     };
     // The per-workspace prompt: the languages this repository holds and this machine
     // cannot serve, named once and installable from here. A workspace that needs nothing
@@ -1488,6 +1503,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // strict default the overlay applies.
     _modelPreferences.Retention = retention ?? _modelPreferences.Retention;
     Status.ModelId = chosen;
+    Status.ServingVendor = VendorTextOf(chosen);
     Status.BackupCountText = BackupCountText(modelIds.Count);
     Status.SurvivingModelIds = [.. modelIds];
     // The status line names the routing the request will actually carry, by its bare name
@@ -1542,6 +1558,29 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         // The fact keeps its previous answer; the next selection change retries.
       }
     }, CancellationToken.None);
+  }
+
+  /// <summary>Re-attributes the status bar's vendor to <paramref name="modelId"/>: the model the
+  ///     bar names and the vendor beside it always describe the same entry.</summary>
+  /// <param name="modelId">The model the bar now names.</param>
+  public void RefreshServingVendor(string modelId) => _servingVendorUpdater?.Invoke(VendorTextOf(modelId));
+
+  /// <summary>The vendor that serves <paramref name="modelId"/>, as the status bar names it, or
+  ///     empty when no entry in the session's list attributes that model to a vendor.
+  ///     <para>THE ATTRIBUTION COMES FROM THE LIST, not from the session's recorded binding: two
+  ///     vendors can serve the same model id at different prices and quotas, so the row the user
+  ///     picked is the only thing that says which one is in play.</para></summary>
+  /// <param name="modelId">The model id the bar names.</param>
+  private string VendorTextOf(string modelId)
+  {
+    if (_modelPreferences?.Entries is not { Count: > 0 } entries)
+    {
+      return string.Empty;
+    }
+
+    ModelSelectionEntry? match = entries.FirstOrDefault(
+        entry => string.Equals(entry.ModelId, modelId, StringComparison.Ordinal));
+    return match?.Vendor is { } vendor ? ModelVendors.DisplayName(vendor) : string.Empty;
   }
 
   /// <summary>The number of entries a preference names, or zero when it names no list. Extracted
@@ -1667,23 +1706,29 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     <para>THE VENDOR IS STATED WHENEVER AN ENTRY NAMES ONE, because the same model id served
   ///     by two vendors is two rows and they differ in price and quota: a line naming only the id
   ///     would leave the user unable to tell which of their two rows was removed. An entry that
-  ///     names none renders no parenthetical rather than an invented vendor; the turn loop's own
-  ///     line states the vendor it resolved for that entry.</para></summary>
-  private static string DropNotice(ModelSelectionEntry entry, string code, int surviving) =>
+  ///     names none states the vendor the session's own list attributes to that model, and no
+  ///     parenthetical at all when the list attributes none.</para></summary>
+  private string DropNotice(ModelSelectionEntry entry, string code, int surviving) =>
       $"{Label(entry)} was {VerdictPhrase(code)}; removed for this session - "
       + $"{surviving} {(surviving == 1 ? "model" : "models")} left";
 
   /// <summary>One entry as a transcript line names it: the model id, and the vendor in
-  ///     parentheses when the entry names one.</summary>
-  private static string Label(ModelSelectionEntry entry) =>
-      entry.Vendor is { } vendor
-          ? $"{entry.ModelId} ({ModelVendors.DisplayName(vendor)})"
-          : entry.ModelId;
+  ///     parentheses when the entry names one. An entry that names none takes the vendor the
+  ///     session's own list attributes to that model, and states nothing when the list does not
+  ///     attribute it to any - a line never invents a vendor for a model nobody named one for.
+  ///     </summary>
+  private string Label(ModelSelectionEntry entry)
+  {
+    string vendor = entry.Vendor is { } named
+        ? ModelVendors.DisplayName(named)
+        : VendorTextOf(entry.ModelId);
+    return vendor.Length > 0 ? $"{entry.ModelId} ({vendor})" : entry.ModelId;
+  }
 
   /// <summary>The transcript line a spent list writes: the last model's verdict, and the one act
   ///     that resolves it. The provider's own failure line follows it, so the fault's detail is
   ///     never lost.</summary>
-  private static string ExhaustedNotice(string code, IReadOnlyList<ModelSelectionEntry> surviving) =>
+  private string ExhaustedNotice(string code, IReadOnlyList<ModelSelectionEntry> surviving) =>
       $"{Label(surviving[0])} was {VerdictPhrase(code)} and no other model is left to serve "
       + "this turn - pick another model in Model Settings.";
 
@@ -2583,11 +2628,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         // Notices arrive through the bridge (turn thread) and apply here on the sink's
         // thread — the UI thread in production — so the transcript mutation honors the
         // UI-thread-only contract, exactly like every other turn-voice event.
-        Transcript.AddNotice(n.Text);
-        if (_statusModelUpdater is not null && TryExtractModelId(n.Text) is { } resolved)
-        {
-          _statusModelUpdater(resolved);
-        }
+        ApplyNotice(n.Text);
         break;
       case UiStreamEvent.ModelDropped d:
         // The walk's drop arrives the same way and for the same reason: the walk runs on the
@@ -2597,6 +2638,21 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       default:
         break;
     }
+  }
+
+  /// <summary>Writes one turn-voice notice and, when it states a resolved model, moves the bar's
+  ///     model and its vendor together so the two never describe different entries.</summary>
+  /// <param name="text">The notice's text.</param>
+  private void ApplyNotice(string text)
+  {
+    Transcript.AddNotice(text);
+    if (TryExtractModelId(text) is not { } resolved)
+    {
+      return;
+    }
+
+    _statusModelUpdater?.Invoke(resolved);
+    _servingVendorUpdater?.Invoke(VendorTextOf(resolved));
   }
 
   /// <summary>Parses the resolved model id from a RootAgentResolver notice so the status

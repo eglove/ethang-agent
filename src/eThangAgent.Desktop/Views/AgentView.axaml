@@ -86,6 +86,13 @@
           <TextBlock x:Name="CostText" Text="{Binding Status.CostDisplay}" ToolTip.Tip="{Binding Status.CostBreakdownText}" IsVisible="{Binding Status.CostDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock Text="{Binding Status.Provider}" DockPanel.Dock="Left" Margin="0,0,12,0"/>
+          <!-- The vendor that serves the model this bar names: the same model id can be served
+               by two vendors at different prices and quotas, so the bar says which one is in
+               play. Hidden when the selection attributes the model to no vendor. -->
+          <TextBlock x:Name="ServingVendorText" Text="{Binding Status.ServingVendor}"
+                     ToolTip.Tip="The vendor serving the model named beside it"
+                     IsVisible="{Binding Status.ServingVendor, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                     DockPanel.Dock="Left" Margin="0,0,12,0"/>
           <TextBlock x:Name="ModelIdText" Text="{Binding Status.ModelId}" DockPanel.Dock="Left" Margin="0,0,12,0" TextTrimming="CharacterEllipsis"/>
           <!-- How many ordered backups the workspace's model list carries. Hidden for a
                one-entry list, so a session with no failover reads exactly as it did before. -->

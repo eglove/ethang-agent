@@ -104,6 +104,20 @@ public sealed record AgentSettings(
         apiToken ?? Cloudflare?.ApiToken),
   };
 
+  /// <summary>Returns the same settings with the Cloudflare credential replaced by exactly what
+  ///     the caller states. A null on either side clears that half, and both null clears the
+  ///     credential entirely: a settings save carries FULL field state, so the form is the whole
+  ///     truth about what is configured and a cleared field must not be restored from the
+  ///     previous value.</summary>
+  /// <param name="accountId">The account id, or null when the field was cleared.</param>
+  /// <param name="apiToken">The API token, or null when the field was cleared.</param>
+  public AgentSettings WithCloudflareCredentialSaved(string? accountId, string? apiToken) => this with
+  {
+    Cloudflare = accountId is null && apiToken is null
+        ? null
+        : new CloudflareSettings(accountId, apiToken),
+  };
+
   /// <summary>Returns the same settings with the provider API key overlaid. Null
   ///     clears the key — the provider stops being offered. Hosts use this to lift
   ///     the key from their own credential source (app preferences) onto the loaded

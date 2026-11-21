@@ -135,6 +135,8 @@ internal partial class MainWindow : Window
     SettingsWindow dialog = new(new SettingsValues
     {
       OpenRouterKey = _vm!.ConfiguredOpenRouterKey,
+      CloudflareAccountId = _vm.ConfiguredCloudflareAccountId,
+      CloudflareApiToken = _vm.ConfiguredCloudflareApiToken,
       CommitStyle = _vm.ConfiguredCommitStyle,
       CompactionModels = await _vm.GetCompactionOptionsAsync(),
       SelectedCompactionModel = await _vm.GetSelectedCompactionModelAsync(),

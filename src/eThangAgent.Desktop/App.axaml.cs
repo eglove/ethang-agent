@@ -104,14 +104,16 @@ internal class App : Application
       return; // user cancelled — no-op
     }
 
-    (string? openRouterKey, string? managementKey) = await new SettingsPersistence(
+    PersistedSettings persisted = await new SettingsPersistence(
         boot.Preferences, boot.ApiKeys)
         .ApplyAsync(update, boot.PreferredProviderId).ConfigureAwait(true);
 
-    // The next workspace's agents read the key from the bootstrap's settings, so the save is
-    // applied here as well as persisted: a key entered with no workspace open is in force the
-    // moment a workspace opens.
-    AgentSettings applied = boot.Settings.WithApiKeys(openRouterKey).WithManagementKey(managementKey);
+    // The next workspace's agents read the credentials from the bootstrap's settings, so the save
+    // is applied here as well as persisted: a credential entered with no workspace open is in
+    // force the moment a workspace opens.
+    AgentSettings applied = boot.Settings.WithApiKeys(persisted.OpenRouterKey)
+        .WithManagementKey(persisted.ManagementKey)
+        .WithCloudflareCredentialSaved(persisted.CloudflareAccountId, persisted.CloudflareApiToken);
     host.Bootstrap = boot with
     {
       Settings = applied,

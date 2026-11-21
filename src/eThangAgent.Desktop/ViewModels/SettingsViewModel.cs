@@ -38,6 +38,15 @@ internal sealed record CompactionModelOption(string? ModelId, string Display)
 internal sealed record SettingsValues
 {
   public string? OpenRouterKey { get; init; }
+
+  /// <summary>The Cloudflare account id the dialog opens with, or null when none is stored.
+  ///     App-wide like the OpenRouter key: it is not scoped to a workspace.</summary>
+  public string? CloudflareAccountId { get; init; }
+
+  /// <summary>The Cloudflare API token the dialog opens with, or null when none is stored.
+  ///     Masked exactly as the OpenRouter key is.</summary>
+  public string? CloudflareApiToken { get; init; }
+
   public CommitStyle CommitStyle { get; init; } = CommitStyle.Conventional;
   public IReadOnlyList<CompactionModelOption>? CompactionModels { get; init; }
   public CompactionModelOption? SelectedCompactionModel { get; init; }
@@ -102,7 +111,9 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     string? RetentionWindowText = null,
     string? PathToolsText = null,
     IReadOnlyList<SessionFileEntry>? GlobalSessionFiles = null,
-    IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null);
+    IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null,
+    string? CloudflareAccountId = null,
+    string? CloudflareApiToken = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -187,6 +198,43 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(SignInStatus))]
   [NotifyPropertyChangedFor(nameof(ShowsSignInButton))]
   public partial string OpenRouterKey { get; set; }
+
+  /// <summary>The Cloudflare account id as raw text - blank means cleared. The credential is
+  ///     app-wide and is stored protected, exactly as the OpenRouter key is.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  [NotifyPropertyChangedFor(nameof(HasCloudflareCredential))]
+  [NotifyPropertyChangedFor(nameof(CloudflareStatus))]
+  public partial string CloudflareAccountId { get; set; }
+
+  /// <summary>The Cloudflare API token as raw text - blank means cleared. Masked by the same
+  ///     password character as the OpenRouter key.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  [NotifyPropertyChangedFor(nameof(HasCloudflareCredential))]
+  [NotifyPropertyChangedFor(nameof(CloudflareStatus))]
+  public partial string CloudflareApiToken { get; set; }
+
+  /// <summary>Whether both halves of the Cloudflare credential are present in the form. The
+  ///     provider is offered only when both are, so the dialog states which half is missing
+  ///     rather than leaving a user to guess why no Cloudflare model appears.</summary>
+  public bool HasCloudflareCredential =>
+      !string.IsNullOrWhiteSpace(CloudflareAccountId) && !string.IsNullOrWhiteSpace(CloudflareApiToken);
+
+  /// <summary>The Cloudflare state in words: configured, or which half is missing.</summary>
+  public string CloudflareStatus => (HasCloudflareCredential, IsCloudflareHalfFilled) switch
+  {
+    (true, _) => "Cloudflare is configured",
+    (false, true) => "Cloudflare needs both an account id and an API token",
+    _ => "No Cloudflare credential configured",
+  };
+
+  /// <summary>Whether exactly one half of the Cloudflare credential is filled in. A half-filled
+  ///     credential configures nothing, and the dialog says so instead of saving silently.</summary>
+  private bool IsCloudflareHalfFilled =>
+      string.IsNullOrWhiteSpace(CloudflareAccountId) != string.IsNullOrWhiteSpace(CloudflareApiToken);
 
   /// <summary>The OpenRouter MANAGEMENT key (provisioning-key API) as raw text -
   ///     blank means cleared; the same no-internal-whitespace rule applies.</summary>
@@ -373,6 +421,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public string? ValidationError =>
       Validate(OpenRouterKey)
       ?? Validate(OpenRouterManagementKey)
+      ?? Validate(CloudflareAccountId)
+      ?? Validate(CloudflareApiToken)
       ?? ValidateMaxConcurrent(MaxConcurrentAgentsText)
       ?? ValidateDuration(WatchdogTickText, "Tick interval")
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
@@ -410,6 +460,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText),
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
                 Normalize(OpenRouterBaseUrlText), ComputerUse,
+                CloudflareAccountId: Normalize(CloudflareAccountId),
+                CloudflareApiToken: Normalize(CloudflareApiToken),
                 SkillRegistryDefaultTarget: SkillRegistryTarget,
                 OpenRouterManagementKey: Normalize(OpenRouterManagementKey),
                 RootTurnIdleText: Normalize(RootTurnIdleText),
@@ -518,6 +570,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
   {
     OpenRouterKey = values.OpenRouterKey ?? string.Empty;
     OpenRouterManagementKey = values.OpenRouterManagementKey ?? string.Empty;
+    CloudflareAccountId = values.CloudflareAccountId ?? string.Empty;
+    CloudflareApiToken = values.CloudflareApiToken ?? string.Empty;
     OpenRouterBaseUrlText = values.OpenRouterBaseUrlText ?? string.Empty;
     SkillRegistryTarget = values.SkillRegistryDefaultTarget ?? string.Empty;
   }
@@ -564,6 +618,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnIsSigningInChanged(bool value) => SignInCommand.NotifyCanExecuteChanged();
 
   partial void OnOpenRouterManagementKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnCloudflareAccountIdChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnCloudflareApiTokenChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnMaxConcurrentAgentsTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 

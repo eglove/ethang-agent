@@ -454,6 +454,14 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     absolute URI, or the provider default when none is stored.</summary>
   public string? ConfiguredOpenRouterBaseUrl => _settings?.OpenRouter.BaseUrl.ToString();
 
+  /// <summary>The configured Cloudflare account id — the settings modal's prefill (null when
+  ///     unset or settings editing is disabled).</summary>
+  public string? ConfiguredCloudflareAccountId => _settings?.Cloudflare?.AccountId;
+
+  /// <summary>The configured Cloudflare API token — the settings modal's prefill (null when
+  ///     unset or settings editing is disabled).</summary>
+  public string? ConfiguredCloudflareApiToken => _settings?.Cloudflare?.ApiToken;
+
   public bool ConfiguredComputerUse => _settings?.ComputerUse ?? false;
 
   /// <summary>The compaction-handoff choice the settings modal prefills (issue #234).
@@ -1117,7 +1125,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // ONE WRITER FOR BOTH SURFACES: the launcher's Settings entry saves through this same
     // SettingsPersistence, so a key configured before any workspace exists lands exactly as a
     // key configured from a shell does.
-    (string? openRouterKey, string? managementKey) = await new SettingsPersistence(
+    PersistedSettings persisted = await new SettingsPersistence(
         AppPreferences, _keyProtector).ApplyAsync(update, PreferredProviderId).ConfigureAwait(true);
     ConfiguredCommitStyle = update.CommitStyle;
     ConfiguredCompactionHandoff = update.CompactionHandoff;
@@ -1133,10 +1141,15 @@ internal sealed partial class MainViewModel : ObservableObject
     AgentSettings rebuilt = AppPreferences is not null
         ? await AgentSettingsLoader.LoadAsync(AppPreferences)
         : BindFromUpdate(update); // test seam: no store, same strict binders
-    _settings = rebuilt.WithApiKeys(openRouterKey).WithManagementKey(managementKey);
+    // The Cloudflare credential is overlaid from the SAVE, not from the loader: the loader reads
+    // the protected blob and cannot decrypt it, and a field the user cleared must not be
+    // restored from the value it replaced.
+    _settings = rebuilt.WithApiKeys(persisted.OpenRouterKey)
+        .WithManagementKey(persisted.ManagementKey)
+        .WithCloudflareCredentialSaved(persisted.CloudflareAccountId, persisted.CloudflareApiToken);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
-    PushLiveKeys(openRouterKey, managementKey);
+    PushLiveKeys(persisted.OpenRouterKey, persisted.ManagementKey);
     RefreshProviderSurface(_settings);
   }
 
@@ -1218,9 +1231,29 @@ internal sealed partial class MainViewModel : ObservableObject
             AgentPreferenceKeys.OpenRouterBaseUrl, OpenRouterSettings.DefaultBaseUrl)),
 #pragma warning restore S1075
         subAgents,
-        Watchdog: watchdog);
+        Watchdog: watchdog,
+        Cloudflare: BindCloudflare(update));
   }
 
+  /// <summary>The Cloudflare credential a store-less rebind carries, or null when the update
+  ///     states neither half. Blank text is a cleared field, not a configured one.</summary>
+  /// <param name="update">The confirmed update.</param>
+  private static CloudflareSettings? BindCloudflare(SettingsUpdate update)
+  {
+    string? accountId = Normalize(update.CloudflareAccountId);
+    string? apiToken = Normalize(update.CloudflareApiToken);
+    return accountId is null && apiToken is null
+        ? null
+        : new CloudflareSettings(accountId, apiToken);
+  }
+
+  /// <summary>The vendors this build can serve a session with, as the shell's own surfaces name
+  ///     them. Every vendor is offered when its credential is configured: a session's models are
+  ///     chosen per row in Model Settings, so no surface asks which provider to use.
+  ///     <para>THE LIST IS NOT A SELECTION CONTROL. It gates opening an agent (a shell with no
+  ///     configured vendor has nothing to serve a turn) and it is what the model picker reads to
+  ///     know which catalogs exist.</para></summary>
+  /// <param name="settings">The settings the shell is currently bound to.</param>
   private static List<ProviderOption> ProvidersFrom(AgentSettings settings)
   {
     List<ProviderOption> providers = [];
@@ -1228,6 +1261,12 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       providers.Add(new ProviderOption(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter)));
     }
+
+    if (settings.HasCloudflare)
+    {
+      providers.Add(new ProviderOption(Providers.Cloudflare, Providers.DisplayName(Providers.Cloudflare)));
+    }
+
     return providers;
   }
 
@@ -1897,6 +1936,7 @@ internal sealed partial class MainViewModel : ObservableObject
         () => freshVmRef ??
             throw new InvalidOperationException("session view-model not initialized"),
         id => freshVmRef!.Status.ModelId = id,
+        vendor => freshVmRef!.Status.ServingVendor = vendor,
         () => tab);
     freshVmRef = freshVm;
     session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
@@ -2405,6 +2445,7 @@ internal sealed partial class MainViewModel : ObservableObject
           () => cellVmRef ??
               throw new InvalidOperationException("session view-model not initialized"),
           id => cellVmRef!.Status.ModelId = id,
+          vendor => cellVmRef!.Status.ServingVendor = vendor,
           () => tab);
       cellVmRef = cellVm;
       session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
@@ -3070,6 +3111,7 @@ internal sealed partial class MainViewModel : ObservableObject
         () => sessionVmRef ??
             throw new InvalidOperationException("session view-model not initialized"),
         id => sessionVmRef!.Status.ModelId = id,
+        vendor => sessionVmRef!.Status.ServingVendor = vendor,
         () => attachedTab);
     sessionVmRef = sessionVm;
     // Notices from construction (issue #317 D5/D6): a workspace that moved or was copied is
@@ -3095,7 +3137,6 @@ internal sealed partial class MainViewModel : ObservableObject
     _sessionOpened?.Invoke(session);
     SelectedTab = tab;
 
-    await PersistProviderPreferenceAsync(session.ProviderName).ConfigureAwait(false);
     return tab;
   }
 
@@ -3248,7 +3289,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   private AgentSessionViewModel BuildSessionViewModel(AgentSession session,
       WorkbenchViewModel workbench, Func<AgentSessionViewModel> currentViewModel,
-      Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab)
+      Action<string> updateStatusModel, Action<string> updateServingVendor,
+      Func<AgentTabViewModel?> currentTab)
   {
     // The popup's workspace file cache: one enumeration per session, ranked on demand.
     // A container without file search (a bare test stub) offers no files at all.
@@ -3277,6 +3319,7 @@ internal sealed partial class MainViewModel : ObservableObject
           Inbox = session.Inbox,
           ChildRuntime = session.ChildRuntime,
           StatusModelUpdater = updateStatusModel,
+          ServingVendorUpdater = updateServingVendor,
           ModelPreferences = session.Preferences,
           // The session's model vision fact: an image surface answers from it before any turn
           // has built an agent in this container.
@@ -3429,14 +3472,21 @@ internal sealed partial class MainViewModel : ObservableObject
     if (restoredChoice is not null)
     {
       // The selection restores whole: a reopened workspace serves the same models in the same
-      // order, under the same variant and the same retention tier.
-      preferences.ModelIds = restoredChoice.ModelIds;
-      sessionVm.Status.BackupCountText = AgentSessionViewModel.BackupCountText(restoredChoice.ModelIds.Count);
+      // order, under the same vendor, the same variant and the same retention tier.
+      //
+      // THE ENTRIES ARE WHAT RESTORES. Assigning ModelIds would replace the list with
+      // vendor-unset entries, so a Cloudflare model would come back as an anonymous id and the
+      // walk would serve it with whichever provider the session happened to record.
+      preferences.Entries = restoredChoice.Entries;
+      sessionVm.Status.BackupCountText = AgentSessionViewModel.BackupCountText(restoredChoice.Entries.Count);
       preferences.ModelVariant = restoredChoice.Variant == ModelVariant.Standard
           ? null
           : restoredChoice.Variant;
       preferences.Retention = restoredChoice.Retention;
       sessionVm.Status.ModelId = restoredChoice.Head;
+      // The bar's vendor follows the restored head: the entry that will serve the next turn is
+      // what attributes the model, not the session's recorded binding.
+      sessionVm.RefreshServingVendor(restoredChoice.Head);
       sessionVm.Status.ServingVariant = restoredChoice.Variant == ModelVariant.Standard
           ? string.Empty
           : ModelVariants.Describe(restoredChoice.Variant);
@@ -3802,33 +3852,6 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     </para></summary>
   public IReadOnlySet<AgentId> OpenSessionIds =>
       Tabs.SelectMany(t => t.Snapshot()).Select(cell => cell.RootId).ToHashSet();
-
-  /// <summary>Remembers the chosen provider as the next dialog's default. Best effort:
-  ///     the preference only seeds a default, so a failed write never fails the open —
-  ///     it logs to stderr instead (named decision, CA1031 scope kept tight).</summary>
-  private async Task PersistProviderPreferenceAsync(string providerName)
-  {
-    if (AppPreferences is null)
-    {
-      return;
-    }
-
-    // Named decision (CA1031): preference persistence must not take the shell down.
-#pragma warning disable CA1031 // Do not catch general exception types
-    try
-    {
-      bool persisted = await AppPreferences.SetAsync(Providers.PreferenceKey, providerName);
-      if (!persisted)
-      {
-        await Console.Error.WriteLineAsync($"provider preference write failed for '{providerName}'");
-      }
-    }
-    catch (Exception ex)
-    {
-      await Console.Error.WriteLineAsync($"provider preference write failed for '{providerName}': {ex.Message}");
-    }
-#pragma warning restore CA1031
-  }
 
   /// <summary>Composite preference key of the per-workspace model + provider choice: the
   ///     same directory may be open under both providers, and their lineups differ, so the
