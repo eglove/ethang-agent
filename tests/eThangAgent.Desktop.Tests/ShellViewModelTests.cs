@@ -845,14 +845,12 @@ public class ShellViewModelTests
         }).ConfigureAwait(true);
 
     // The carrier the sibling will hand its host, read through the production codec, is the whole
-    // list with the session's variant applied once per entry - the same `models` array the
-    // launching session's turns carry.
+    // ordered list plus the variant the launching session walks it under.
     SessionModelPreferences siblingPreferences = tab.Cells[^1].Container!.Preferences!;
     SessionModelPreferences carried =
         SessionModelPreferencesJson.Deserialize(SessionModelPreferencesJson.Serialize(siblingPreferences)).Value!;
     Assert.Equal(["alpha/model", "beta/other"], carried.ModelIds);
-    Assert.Equal(["alpha/model:nitro", "beta/other:nitro"],
-        ModelSelection.Create(carried.ModelIds!, carried.ModelVariant ?? ModelVariant.Standard).Value!.WireModelIds);
+    Assert.Equal(ModelVariant.Nitro, carried.ModelVariant);
   }
 
   /// <summary>A shell whose sessions carry a host channel and a workspace identity, which are

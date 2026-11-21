@@ -333,10 +333,10 @@ public class ModelWalkTests
   }
 
   /// <summary>NO TURN SENDS MORE THAN ONE MODEL IN ONE REQUEST: every attempt's config names
-  ///     exactly one model and carries no fallback list, whatever the session's list holds.
+  ///     exactly one model, whatever the session's list holds.
   ///     </summary>
   [Fact]
-  public async Task EveryAttempt_NamesExactlyOneModel_AndCarriesNoFallbackList()
+  public async Task EveryAttempt_NamesExactlyOneModel()
   {
     List<ModelConfig> seen = [];
     ScriptedProvider head = new(A, new Reply("RateLimited", null));
@@ -353,7 +353,6 @@ public class ModelWalkTests
 
     Assert.True(result.IsSuccess);
     Assert.Equal(2, seen.Count);
-    Assert.All(seen, config => Assert.Empty(config.FallbackModelIds));
     Assert.Equal([A, B], seen.Select(config => config.ModelId));
   }
 

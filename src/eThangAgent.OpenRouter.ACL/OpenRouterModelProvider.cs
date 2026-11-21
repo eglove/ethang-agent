@@ -280,16 +280,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   private async Task<Result<Dictionary<string, object?>>> BuildRequestBodyAsync(ModelConfig config,
       ModelRequest request, bool stream, CancellationToken ct)
   {
-    if (config.FallbackModelIds.Count + 1 > ModelSelection.MaxModels)
-    {
-      // THE PROVIDER TAKES AT MOST THREE ENTRIES and refuses a longer list with a 400 before any
-      // model serves, so the request is never built: the turn fails naming the limit instead of
-      // spending a round trip on a body the provider will reject.
-      return Result.Failure<Dictionary<string, object?>>(new DomainError("ModelListTooLong",
-          $"the model list names {config.FallbackModelIds.Count + 1} models; at most "
-          + $"{ModelSelection.MaxModels} can be sent on one request."));
-    }
-
     Dictionary<string, object?> bodyDict = BaseBody(config, request);
     DomainError? fault = AttachSessionId(bodyDict, request);
     if (fault is null)
@@ -643,13 +633,10 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   /// <summary>The base body fields; the system prompt rides the responses API's
   ///     system channel — a single top-level instruction string instead of a
   ///     system-role message in the array.
-  ///     <para><c>model</c> ALWAYS CARRIES THE HEAD AS A STRING, and <c>models</c> is the ordered
-  ///     list the provider falls through when that head cannot serve. The list is built from the
-  ///     head plus the config's fallbacks, never assembled independently, so the two fields cannot
-  ///     disagree about which model comes first.</para>
-  ///     <para><c>models</c> IS OMITTED ENTIRELY WHEN NOTHING FOLLOWS THE HEAD: a single-model
-  ///     request keeps the exact body it has always sent, and a one-element array beside
-  ///     <c>model</c> is a form the provider documents no behaviour for.</para></summary>
+  ///     <para><c>model</c> CARRIES EXACTLY ONE MODEL AS A STRING, and no <c>models</c> array is
+  ///     ever sent. Fall-through belongs to the harness: a turn walks the session's list one model
+  ///     at a time, so a request that named several would hide a refusal the walk has to see in
+  ///     order to drop that model and continue.</para></summary>
   private static Dictionary<string, object?> BaseBody(ModelConfig config, ModelRequest request)
   {
     Dictionary<string, object?> bodyDict = new()
@@ -664,11 +651,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
     {
       bodyDict["instructions"] = request.SystemPrompt;
-    }
-
-    if (config.FallbackModelIds.Count > 0)
-    {
-      bodyDict["models"] = new List<string>([config.ModelId, .. config.FallbackModelIds]);
     }
 
     return bodyDict;

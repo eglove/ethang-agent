@@ -17,7 +17,8 @@ namespace eThangAgent.ModelDomain;
 ///     <para>THE VARIANT IS STORED SEPARATELY FROM THE IDS even though the wire form combines
 ///     them: the catalog is keyed on the BASE model id, while the wire carries the intent, so
 ///     each id stays the catalog key and no consumer re-derives a variant by string surgery.
-///     Only <see cref="WireModelIds"/> carries suffixes.</para></summary>
+///     The suffix is written onto the wire by <see cref="ModelVariants.ApplyTo"/>, once, when a
+///     turn builds the request.</para></summary>
 /// <param name="Entries">The ordered model+vendor pairs, most preferred first, each model id
 ///     never carrying a routing-variant suffix. Always holds at least one entry.</param>
 /// <param name="Variant">The routing variant every entry is served under, or
@@ -29,12 +30,6 @@ public sealed record ModelSelection(IReadOnlyList<ModelSelectionEntry> Entries,
     ModelVariant Variant = ModelVariant.Standard,
     RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
 {
-  /// <summary>The most models a selection may name: the head plus two backups.
-  ///     <para>THE PROVIDER ACCEPTS THREE. Its routing list is documented as taking at most three
-  ///     entries, and a longer one is refused with a 400 before any model serves, so a fourth
-  ///     entry is a list that can never run.</para></summary>
-  public const int MaxModels = 3;
-
   private const string ModelsMember = "Models";
   private const string ModelIdMember = "ModelId";
   private const string ProviderMember = "Provider";
@@ -84,14 +79,6 @@ public sealed record ModelSelection(IReadOnlyList<ModelSelectionEntry> Entries,
   ///     turn served by a backup leaves the list itself unchanged.</summary>
   public string Head => Entries[0].ModelId;
 
-  /// <summary>The ids to send to a provider that accepts a list: every entry's base id in order
-  ///     with the selection's variant applied.
-  ///     <para>APPLYING IS IDEMPOTENT because <see cref="ModelVariants.ApplyTo"/> strips any
-  ///     existing routing suffix before appending its own, so re-applying a variant cannot double
-  ///     it.</para></summary>
-  public IReadOnlyList<string> WireModelIds
-      => [.. Entries.Select(entry => ModelVariants.ApplyTo(Variant, entry.ModelId))];
-
   /// <summary>Renders the selection for the preference store: a JSON object carrying the whole
   ///     ordered list with the variant and the tier.
   ///     <para>THE STRING-ARRAY SHAPE IS WRITTEN WHENEVER NO ENTRY NAMES A VENDOR, so a
@@ -133,8 +120,8 @@ public sealed record ModelSelection(IReadOnlyList<ModelSelectionEntry> Entries,
   ///     id, so it is removed; an id that is empty after trimming is refused rather than
   ///     compacted away, because a blank row the user added is a mistake they can see and a
   ///     silently shortened list is not.</para>
-  ///     <para>AN UNKNOWN VENDOR IS REFUSED BEFORE THE DUPLICATE AND CAP CHECKS, so the refusal
-  ///     names the real fault rather than a consequence of it.</para>
+  ///     <para>AN UNKNOWN VENDOR IS REFUSED BEFORE THE DUPLICATE CHECK, so the refusal names the
+  ///     real fault rather than a consequence of it.</para>
   ///     <para>A REPEATED ENTRY IS REFUSED AND NAMED: the second occurrence can never serve,
   ///     because the first already covered it. A repeat is the same model id under the SAME
   ///     vendor — the same model under two vendors is two legal entries.</para></summary>
@@ -163,15 +150,17 @@ public sealed record ModelSelection(IReadOnlyList<ModelSelectionEntry> Entries,
       ];
 
   /// <summary>The first refusal a trimmed entry list earns, or null when it may be committed.
-  ///     <para>A BLANK ID IS ASKED FIRST, then an unknown vendor, then a repeat, then the cap: the
-  ///     order is the order the faults matter in, so the refusal names the real problem rather
-  ///     than a consequence of it.</para></summary>
+  ///     <para>A BLANK ID IS ASKED FIRST, then an unknown vendor, then a repeat: the order is the
+  ///     order the faults matter in, so the refusal names the real problem rather than a
+  ///     consequence of it.</para>
+  ///     <para>THE LIST HAS NO UPPER BOUND. A selection names as many models as the user wants,
+  ///     and the turn walks them one at a time, so a long list is a long walk rather than a
+  ///     request the provider would refuse.</para></summary>
   /// <param name="entries">The trimmed entries.</param>
   private static DomainError? EntryRefusal(List<ModelSelectionEntry> entries)
       => BlankIdRefusal(entries)
           ?? UnknownVendorRefusal(entries)
-          ?? DuplicateRefusal(entries)
-          ?? TooManyRefusal(entries);
+          ?? DuplicateRefusal(entries);
 
   /// <summary>The refusal for an entry that names no model, or null when every entry does.
   ///     </summary>
@@ -256,15 +245,9 @@ public sealed record ModelSelection(IReadOnlyList<ModelSelectionEntry> Entries,
     }
 
     Result<ModelVariant> variant = ResolveVariant(StringMember(root, VariantMember), entries.Value);
-    if (!variant.IsSuccess)
-    {
-      return Result.Failure<ModelSelection>(variant.Error);
-    }
-
-    // A LIST LONGER THAN THE PROVIDER ACCEPTS RESTORES AS ITS FIRST ENTRIES: the surplus could
-    // never serve, and refusing the whole value would drop a head the user did choose.
-    return Result.Success(new ModelSelection(
-        [.. entries.Value.Take(MaxModels)], variant.Value, tier.Value));
+    return variant.IsSuccess
+        ? Result.Success(new ModelSelection(entries.Value, variant.Value, tier.Value))
+        : Result.Failure<ModelSelection>(variant.Error);
   }
 
   /// <summary>The ordered entries a stored document names, from its <c>Models</c> array when it
@@ -499,20 +482,6 @@ public sealed record ModelSelection(IReadOnlyList<ModelSelectionEntry> Entries,
         $"the model '{repeated.Key.ModelId}' appears more than once in the list{vendor}; "
         + "a repeated model can never serve, so remove the extra entry.");
   }
-
-  /// <summary>The refusal for a list longer than the provider accepts, or null when it fits.
-  ///     </summary>
-  /// <param name="entries">The trimmed entries.</param>
-  private static DomainError? TooManyRefusal(List<ModelSelectionEntry> entries)
-      => entries.Count > MaxModels ? TooManyModels(entries.Count) : null;
-
-  /// <summary>The refusal for a selection longer than the provider accepts, naming the count and
-  ///     the limit so the surplus entries can be removed rather than guessed at.</summary>
-  /// <param name="count">How many models the list names.</param>
-  private static DomainError TooManyModels(int count)
-      => new(InvalidChoiceCode,
-          $"the model list names {count} models; at most {MaxModels} can be selected, because the "
-          + "provider accepts no more than that on one request. Remove the extra entries.");
 
   private static DomainError NoModel()
       => new(InvalidChoiceCode,

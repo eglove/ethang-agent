@@ -295,10 +295,10 @@ public class RootAgentResolverTests
     Assert.Equal("alpha/model:nitro", resolution.Value.Config.ModelId);
   }
   [Fact]
-  public async Task AnOrderedPreference_ResolvesItsHeadAndCarriesTheRestInOrder()
+  public async Task AnOrderedPreference_ResolvesItsHead_AndTheConfigNamesOnlyIt()
   {
-    // The head is the model that runs and the tail is the ordered fallback the provider falls
-    // through, so the list has to survive resolution in the order the user stated it.
+    // The head is the model this turn runs, and the config it resolves to names that one model:
+    // the rest of the list is the walk's to attempt, not the provider's to fall through.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     SessionModelPreferences preferences = new()
@@ -312,29 +312,10 @@ public class RootAgentResolverTests
 
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
     Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
-    Assert.Equal(["beta/other", "gamma/third"], resolution.Value.Config.FallbackModelIds);
   }
 
   [Fact]
-  public async Task ASingleModelPreference_ResolvesToAnEmptyFallbackList()
-  {
-    // One entry is every workspace's shape today, and empty is what makes the request carry no
-    // models array at all.
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"] };
-    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
-
-    Result<(ModelConfig Config, string? Notice)> resolution =
-        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
-
-    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
-    Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
-    Assert.Empty(resolution.Value.Config.FallbackModelIds);
-  }
-
-  [Fact]
-  public async Task NoLivePreference_ServesThePin_WithNoFallbacks()
+  public async Task NoLivePreference_ServesThePin_AsTheOnlyModel()
   {
     // A resumed session has no live list; the persisted pin is what served and it names ONE
     // model, so the turn must not inherit a list from anywhere.
@@ -351,7 +332,6 @@ public class RootAgentResolverTests
 
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
     Assert.Equal("pinned/model", resolution.Value.Config.ModelId);
-    Assert.Empty(resolution.Value.Config.FallbackModelIds);
   }
 
   [Fact]

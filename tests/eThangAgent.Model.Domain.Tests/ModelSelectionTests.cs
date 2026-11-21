@@ -75,37 +75,27 @@ public class ModelSelectionTests
     Assert.DoesNotContain("ZeroDataRetention\":", serialized, StringComparison.Ordinal);
   }
 
-  // ── the wire form ────────────────────────────────────────────────────────
+  // ── the stored form ──────────────────────────────────────────────────────
 
   [Fact]
-  public void TheWireIds_ApplyTheVariantToEveryEntryInOrder()
+  public void TheVariantIsStoredBesideTheIds_SoEveryEntryStaysACatalogKey()
   {
+    // The suffix is a wire spelling of the variant, written once when a turn builds its request.
+    // A selection that baked it into its entries would key the catalog on an id no catalog has.
     ModelSelection nitro = ModelSelection.Create(["alpha/model", "beta/other"], ModelVariant.Nitro)
         .ValueOrNull!;
 
-    Assert.Equal(["alpha/model:nitro", "beta/other:nitro"], nitro.WireModelIds);
+    Assert.Equal(["alpha/model", "beta/other"], nitro.ModelIds);
+    Assert.Equal(ModelVariant.Nitro, nitro.Variant);
   }
 
   [Fact]
-  public void TheWireIdsOfAStandardSelection_CarryNoSuffix()
+  public void AStandardSelection_CarriesTheStandardVariantAndBareIds()
   {
     ModelSelection standard = Selection("alpha/model", "beta/other");
 
-    Assert.Equal(["alpha/model", "beta/other"], standard.WireModelIds);
-  }
-
-  [Fact]
-  public void ApplyingAVariantTwice_DoesNotDoubleTheSuffix_AndSwitchingReplacesIt()
-  {
-    // The variant is stored beside the ids, never inside them, so an id that already carries a
-    // suffix must not end up with two, and switching variant must replace rather than stack.
-    ModelSelection nitro = Selection("alpha/model:nitro") with { Variant = ModelVariant.Nitro };
-    ModelSelection again = nitro with { Variant = ModelVariant.Nitro };
-    ModelSelection floor = nitro with { Variant = ModelVariant.Floor };
-
-    Assert.Equal(["alpha/model:nitro"], nitro.WireModelIds);
-    Assert.Equal(["alpha/model:nitro"], again.WireModelIds);
-    Assert.Equal(["alpha/model:floor"], floor.WireModelIds);
+    Assert.Equal(["alpha/model", "beta/other"], standard.ModelIds);
+    Assert.Equal(ModelVariant.Standard, standard.Variant);
   }
 
   [Fact]
@@ -114,7 +104,7 @@ public class ModelSelectionTests
     ModelSelection cacheFloor = ModelSelection.Create(["alpha/model", "beta/other"],
         ModelVariant.CacheFloor).ValueOrNull!;
 
-    Assert.Equal(["alpha/model", "beta/other"], cacheFloor.WireModelIds);
+    Assert.Equal(["alpha/model", "beta/other"], cacheFloor.ModelIds);
     Assert.Equal(ModelVariant.CacheFloor, cacheFloor.Variant);
   }
 
@@ -177,7 +167,7 @@ public class ModelSelectionTests
   // ── the provider's three-model limit ─────────────────────────────────────
 
   [Fact]
-  public void AThreeEntryList_IsAccepted_BecauseTheProviderTakesThree()
+  public void AThreeEntryList_IsAccepted()
   {
     Result<ModelSelection> created = ModelSelection.Create(["alpha/model", "beta/other", "gamma/third"]);
 
@@ -186,31 +176,33 @@ public class ModelSelectionTests
   }
 
   [Fact]
-  public void AFourthModel_IsANamedFailure_NamingTheCountAndTheLimit()
+  public void AnyNumberOfEntries_IsAccepted_BecauseTheListHasNoUpperBound()
   {
-    // The provider refuses a longer list with a 400 before any model serves, so a fourth entry
-    // is a selection that can never run. The refusal names both numbers so the surplus entry is
-    // obvious rather than something the user has to count.
-    Result<ModelSelection> created = ModelSelection.Create(
-        ["alpha/model", "beta/other", "gamma/third", "delta/fourth"]);
+    // A turn walks the list one model at a time, so a long list is a long walk rather than a
+    // request a provider would refuse. Nothing caps how many models a session may prefer.
+    string[] eight =
+    [
+      "alpha/model", "beta/other", "gamma/third", "delta/fourth",
+      "epsilon/fifth", "zeta/sixth", "eta/seventh", "theta/eighth",
+    ];
 
-    Assert.False(created.IsSuccess);
-    Assert.Equal("InvalidModelChoice", created.Error.Code);
-    Assert.Contains("4 models", created.Error.Message, StringComparison.Ordinal);
-    Assert.Contains("at most 3", created.Error.Message, StringComparison.Ordinal);
+    Result<ModelSelection> created = ModelSelection.Create(eight);
+
+    Assert.True(created.IsSuccess, created.Error?.Message);
+    Assert.Equal(eight, created.ValueOrNull!.ModelIds);
   }
 
   [Fact]
-  public void AStoredListLongerThanTheLimit_RestoresItsFirstThreeEntries()
+  public void AStoredListOfAnyLength_RestoresInFullAndInOrder()
   {
-    // A value written before the limit existed, or hand-edited past it. The surplus can never
-    // serve, and refusing the whole value would drop the head the user did choose.
+    // A value written under an older build, or hand-edited: nothing may be truncated away, or a
+    // long list would silently lose its tail every time the workspace reopened.
     ModelSelection parsed = ModelSelection.Parse(
         /*lang=json,strict*/
         """{"Models":["alpha/model","beta/other","gamma/third","delta/fourth"],"Variant":"Standard"}""")
         .ValueOrNull!;
 
-    Assert.Equal(["alpha/model", "beta/other", "gamma/third"], parsed.ModelIds);
+    Assert.Equal(["alpha/model", "beta/other", "gamma/third", "delta/fourth"], parsed.ModelIds);
     Assert.Equal("alpha/model", parsed.Head);
   }
 
@@ -347,7 +339,7 @@ public class ModelSelectionTests
         .ValueOrNull!;
 
     Assert.Equal(["alpha/model", "beta/other"], parsed.ModelIds);
-    Assert.Equal(["alpha/model:nitro", "beta/other:nitro"], parsed.WireModelIds);
+    Assert.Equal(ModelVariant.Nitro, parsed.Variant);
   }
 
   [Fact]

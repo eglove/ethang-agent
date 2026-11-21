@@ -1,10 +1,8 @@
-using System.Text.Json;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.ChildHost;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
-using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
@@ -150,13 +148,13 @@ public sealed class ChildHostRootModelPreferenceTests
   private const string Third = "gamma/third";
 
   [Fact]
-  public async Task AnOrderedList_ReachesAHostRunTurn_AsTheSameModelsArrayAnInProcessTurnSends()
+  public async Task AnOrderedList_ReachesAHostRunTurn_AsTheSameSingleModelAnInProcessTurnSends()
   {
     // THE WHOLE POINT OF THE CARRIER: the app owns the picker and the agent lives in its own host,
     // so an ordered list that did not travel would leave the host resolving from the persisted pin
-    // - the wrong model FIRST, and no fallbacks at all. The two turns below are the same session
-    // seen from either side of that boundary, and the comparison is made on the request body the
-    // provider actually receives, not on the resolver's intermediate value.
+    // - the wrong model FIRST. The two turns below are the same session seen from either side of
+    // that boundary, and the comparison is made on the config the provider actually receives, not
+    // on the resolver's intermediate value.
     (RootRunHost runner, RecordingProvider provider, _) = await StartHostAsync(pinnedModel: FallbackModel)
         .ConfigureAwait(true);
     SessionModelPreferences preferences = new()
@@ -183,20 +181,14 @@ public sealed class ChildHostRootModelPreferenceTests
         await inProcess.ResolveAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(inProcessTurn.IsSuccess, inProcessTurn.Error?.Message);
 
-    IReadOnlyList<string> hostModels =
-        await ModelsAsync(provider.LastConfig).ConfigureAwait(true);
-    IReadOnlyList<string> inProcessModels =
-        await ModelsAsync(inProcessTurn.Value.Config).ConfigureAwait(true);
-
-    Assert.Equal(inProcessModels, hostModels);
-    Assert.Equal([Head + ":nitro", Second + ":nitro", Third + ":nitro"], hostModels);
+    Assert.Equal(inProcessTurn.Value.Config.ModelId, provider.LastConfig.ModelId);
+    Assert.Equal(Head + ":nitro", provider.LastConfig.ModelId);
   }
 
   [Fact]
   public async Task AnOrderedListWithABackup_ThatTheUserDidNotPick_IsNeverServedInPlaceOfTheHead()
   {
-    // Order is the whole statement: the head runs, so the config the provider is handed names it
-    // first and lists the backups after it.
+    // Order is the whole statement: the head runs, and the request names it and nothing else.
     (RootRunHost runner, RecordingProvider provider, _) = await StartHostAsync(pinnedModel: FallbackModel)
         .ConfigureAwait(true);
     RootTurnRequest request = new("turn-1", "hello", [])
@@ -212,50 +204,28 @@ public sealed class ChildHostRootModelPreferenceTests
 
     Assert.True(result.IsSuccess, result.Error?.Message);
     Assert.Equal(Head, provider.LastModelId);
-    Assert.Equal([Second], provider.LastConfig!.FallbackModelIds);
+    Assert.Equal(1, provider.Calls);
   }
 
-  /// <summary>Renders a config through the REAL OpenRouter body builder and returns the ordered
-  ///     <c>models</c> array it puts on the wire - empty when the request carries no such member,
-  ///     which is what a single-model session sends.</summary>
-#pragma warning disable CA2000 // HttpClient owns the handler; the using below bounds it
-  private static async Task<IReadOnlyList<string>> ModelsAsync(ModelConfig config)
+  [Fact]
+  public async Task AnOrderedList_ReachesTheHostsLivePreferences_WholeAndInOrder()
   {
-    string? captured = null;
-    CapturingHandler handler = new(async request =>
+    // The carrier is what makes the walk possible in the host: every entry the app picked has to
+    // arrive, in order, or the host would walk a list the user never chose.
+    (RootRunHost runner, _, SessionModelPreferences live) =
+        await StartHostAsync(pinnedModel: FallbackModel).ConfigureAwait(true);
+    RootTurnRequest request = new("turn-1", "hello", [])
     {
-      captured = request.Content is { } content
-          ? await content.ReadAsStringAsync().ConfigureAwait(false)
-          : null;
-      return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+      ModelPreferences = SessionModelPreferencesJson.Serialize(new SessionModelPreferences
       {
-        Content = new StringContent(
-            /*lang=json,strict*/ "\u007B\"status\":\"completed\",\"output\":[]\u007D"),
-      };
-    });
-    using HttpClient http = new(handler);
-    OpenRouterModelProvider modelProvider = new(
-        http, new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
+        ModelIds = [Head, Second, Third],
+      }),
+    };
 
-    Result<ModelResponse> sent = await modelProvider.SendAsync(config,
-        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(sent.IsSuccess, sent.Error?.Message);
+    _ = await runner.RunTurnAsync(request, _ => { }, TestContext.Current.CancellationToken)
+        .ConfigureAwait(true);
 
-    using JsonDocument body = JsonDocument.Parse(captured!);
-    return body.RootElement.TryGetProperty("models", out JsonElement models)
-        ? [.. models.EnumerateArray().Select(entry => entry.GetString()!)]
-        : [];
-  }
-#pragma warning restore CA2000
-
-  /// <summary>Captures the request body the provider sends and answers with a minimal completed
-  ///     response.</summary>
-  private sealed class CapturingHandler(
-      Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
-  {
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-        CancellationToken cancellationToken) => respond(request);
+    Assert.Equal([Head, Second, Third], live.ModelIds);
   }
 
   private sealed class FixedWindow : IContextWindowSource

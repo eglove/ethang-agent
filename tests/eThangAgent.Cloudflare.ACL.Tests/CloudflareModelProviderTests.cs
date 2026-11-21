@@ -28,14 +28,12 @@ public class CloudflareModelProviderTests
       => new(new HttpClient(handler), Configuration());
 
   private static ModelConfig Model(bool acceptsImageInput = false,
-      IReadOnlyList<string>? fallbackModelIds = null,
       ModelVariant variant = ModelVariant.Standard,
       RetentionPolicy retention = RetentionPolicy.ZeroDataRetention)
       => ModelConfig.Create(ModelId, 256, 0.7f, 4096,
           acceptsImageInput: acceptsImageInput,
           variant: variant,
-          retention: retention,
-          fallbackModelIds: fallbackModelIds).Value!;
+          retention: retention).Value!;
 
   private static string Result(string payload)
       => $$"""{"success":true,"errors":[],"messages":[],"result":{{payload}}}""";
@@ -69,18 +67,16 @@ public class CloudflareModelProviderTests
   }
 
   [Fact]
-  public async Task AConfigWithAFallbackList_SendsOnlyTheModelItNames()
+  public async Task ARequest_CarriesNoModelsArray_AndNamesTheModelOnlyInThePath()
   {
     FakeHttpMessageHandler handler = FakeHttpMessageHandler.Json(PlainResult);
 
     Result<ModelResponse> sent = await Provider(handler).SendAsync(
-        Model(fallbackModelIds: ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"]),
-        new ModelRequest([]), TestContext.Current.CancellationToken);
+        Model(), new ModelRequest([]), TestContext.Current.CancellationToken);
 
     Assert.True(sent.IsSuccess, sent.Error?.Message);
     string body = handler.Body;
     Assert.DoesNotContain("models", body, StringComparison.OrdinalIgnoreCase);
-    Assert.DoesNotContain("llama-3.3-70b", body, StringComparison.Ordinal);
     Assert.DoesNotContain(ModelId, body, StringComparison.Ordinal);
   }
 

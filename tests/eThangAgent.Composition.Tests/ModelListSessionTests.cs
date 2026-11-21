@@ -184,7 +184,7 @@ public class ModelListSessionTests
     Assert.False(request.RootElement.TryGetProperty("models", out _),
         "a one-entry selection must send the body this harness has always sent");
     // And the request still carries the model that workspace had chosen, under its own variant.
-    Assert.Equal(restored.WireModelIds[0],
+    Assert.Equal(ModelVariants.ApplyTo(restored.Variant, restored.Head),
         request.RootElement.GetProperty("model").GetString());
   }
 }

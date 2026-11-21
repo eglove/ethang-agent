@@ -214,23 +214,24 @@ public class ModelSelectionVendorTests
   }
 
   [Fact]
-  public void Parse_AStoredListLongerThanTheCap_StillRestoresItsFirstThree()
+  public void Parse_AStoredListOfAnyLength_RestoresEveryEntryInOrder()
   {
-    // The cap is removed in a later step; this step keeps it, and this pins that it does.
+    // Nothing truncates a stored list: a value written under an older build restores whole, or a
+    // long list would silently lose its tail every time the workspace reopened.
     ModelSelection parsed = ModelSelection.Parse(
         /*lang=json,strict*/
         """{"Models":["a/b","c/d","e/f","g/h"],"Variant":"Standard"}""").ValueOrNull!;
 
-    Assert.Equal(["a/b", "c/d", "e/f"], parsed.ModelIds);
+    Assert.Equal(["a/b", "c/d", "e/f", "g/h"], parsed.ModelIds);
   }
 
   [Fact]
-  public void Create_StillRefusesAListLongerThanTheCap()
+  public void Create_AcceptsAListOfAnyLength()
   {
     Result<ModelSelection> created =
         ModelSelection.Create([Entry("a/b"), Entry("c/d"), Entry("e/f"), Entry("g/h")]);
 
-    Assert.False(created.IsSuccess);
-    Assert.Equal(InvalidChoice, created.Error.Code);
+    Assert.True(created.IsSuccess, created.Error?.Message);
+    Assert.Equal(4, created.ValueOrNull!.Entries.Count);
   }
 }

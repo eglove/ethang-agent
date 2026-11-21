@@ -298,38 +298,36 @@ public class ModelConfigTests
     Assert.Equal(settings, config.ProviderSettings);
   }
 
-  // ---- Value equality. The record's own equality compares a collection member BY REFERENCE,
-  // ---- so a config rebuilt from the same preferences would never equal the one already serving.
+  // ---- Value equality. The comparison is written out rather than left to the record, so a
+  // ---- config rebuilt from the same preferences equals the one already serving.
   // ---- RootAgentHolder.Build decides from that comparison whether the serving agent must be
   // ---- rebuilt, and a rebuild replaces the context accountant that carried the turn's usage.
 
   [Fact]
-  public void Equality_SameFactsInAFreshList_ComparesEqual()
+  public void Equality_TwoConfigsBuiltFromTheSameFacts_AreEqual()
   {
-    string[] ids = ["beta/other", "gamma/third"];
-    ModelConfig first = ModelConfig.Create("m", 100, 0.5f, 2048,
-        fallbackModelIds: ["beta/other", "gamma/third"]).Value!;
-    ModelConfig rebuilt = ModelConfig.Create("m", 100, 0.5f, 2048, fallbackModelIds: ids).Value!;
+    ModelConfig first = ModelConfig.Create("m", 100, 0.5f, 2048).Value!;
+    ModelConfig rebuilt = ModelConfig.Create("m", 100, 0.5f, 2048).Value!;
 
     Assert.Equal(first, rebuilt);
     Assert.Equal(first.GetHashCode(), rebuilt.GetHashCode());
   }
 
   [Fact]
-  public void Equality_TheFallbackOrderIsPartOfTheValue()
+  public void Equality_AConfigCarriesNoListOfModelsToCompare()
   {
-    ModelConfig ranked = ModelConfig.Create("m", 100, 0.5f, 2048,
-        fallbackModelIds: ["beta/other", "gamma/third"]).Value!;
-    ModelConfig swapped = ModelConfig.Create("m", 100, 0.5f, 2048,
-        fallbackModelIds: ["gamma/third", "beta/other"]).Value!;
+    // A config names ONE model: fall-through belongs to the turn's walk, so there is no list on
+    // the config for equality to consider and two configs cannot differ by one.
+    ModelConfig baseline = ModelConfig.Create("m", 100, 0.5f, 2048).Value!;
 
-    Assert.NotEqual(ranked, swapped);
+    Assert.Equal(baseline, ModelConfig.Create("m", 100, 0.5f, 2048).Value!);
+    Assert.Null(typeof(ModelConfig).GetProperty("FallbackModelIds"));
   }
 
   [Fact]
   public void Equality_EveryScalarFactDistinguishesTheConfig()
   {
-    ModelConfig baseline = ModelConfig.Create("m", 100, 0.5f, 2048, fallbackModelIds: ["beta/other"]).Value!;
+    ModelConfig baseline = ModelConfig.Create("m", 100, 0.5f, 2048).Value!;
 
     Assert.NotEqual(baseline, baseline with { ModelId = "m2" });
     Assert.NotEqual(baseline, baseline with { MaxTokens = 101 });
@@ -339,7 +337,6 @@ public class ModelConfigTests
     Assert.NotEqual(baseline, baseline with { MinP = 0.05f });
     Assert.NotEqual(baseline, baseline with { Variant = ModelVariant.Nitro });
     Assert.NotEqual(baseline, baseline with { Retention = RetentionPolicy.SafetyRetention });
-    Assert.NotEqual(baseline, baseline with { FallbackModelIds = ["beta/other", "gamma/third"] });
   }
 
   [Fact]

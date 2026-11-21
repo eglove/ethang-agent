@@ -321,10 +321,10 @@ public class AgentSessionViewModelTests
   }
 
   [Fact]
-  public void AListLongerThanTheProviderAccepts_IsRefused_AndLeavesTheSelectionAlone()
+  public void ALongList_IsAdoptedWhole_InTheOrderItWasGiven()
   {
-    // The provider takes at most three entries on one request, so a longer list is a caller fault
-    // the session reports rather than a selection it adopts and then fails to serve.
+    // A turn walks the list one model at a time, so a long list is a long walk rather than a
+    // caller fault: the session adopts every entry and reports nothing.
     SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"] };
     AgentSessionViewModel vm = new(
         (_, _, _, _) => Task.FromResult(Result.Success("")),
@@ -333,10 +333,10 @@ public class AgentSessionViewModelTests
 
     vm.ApplyModelChoice(["alpha/model", "beta/other", "gamma/third", "delta/fourth"]);
 
-    Assert.Equal(["alpha/model"], preferences.ModelIds);
+    Assert.Equal(["alpha/model", "beta/other", "gamma/third", "delta/fourth"], preferences.ModelIds);
     Assert.Equal("alpha/model", vm.Status.ModelId);
-    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
-    Assert.Contains("At most 3 models", notice.Text, StringComparison.Ordinal);
+    Assert.DoesNotContain(vm.Transcript.Entries, entry => entry is NoticeEntry notice
+        && notice.Text.Contains("At most", StringComparison.Ordinal));
   }
 
   [Fact]

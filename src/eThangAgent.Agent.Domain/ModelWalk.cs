@@ -168,25 +168,21 @@ public sealed class ModelWalk
   }
 
   /// <summary>The config one attempt sends: the turn's resolved config with this entry's model
-  ///     id and no fallback list, so the request names exactly one model.
+  ///     id, so the request names exactly one model.
   ///     <para>THE ENTRY'S ID IS A CATALOG KEY, SO THE CONFIG'S VARIANT IS APPLIED TO IT. The
   ///     stored entry never carries a routing suffix - the catalog is keyed on the base id - while
   ///     the wire carries the intent, so the suffix is written here exactly as the overlay writes
   ///     it for a single-model turn. Replacing the id without it would silently drop the tradeoff
   ///     the user chose on every entry after the first.</para>
-  ///     <para>THE FALLBACK LIST IS EMPTIED: a request built from this config names one model, so
-  ///     a provider can never fall through inside a single request behind the walk's back.</para>
-  ///     </summary>
+  ///     <para>THE CONFIG CARRIES NO LIST OF MODELS, so a provider cannot fall through inside a
+  ///     single request behind the walk's back: every fall-through is a step this walk takes.
+  ///     </para></summary>
   /// <param name="config">The turn's resolved config.</param>
   /// <param name="modelId">The entry's base catalog model id.</param>
   public static ModelConfig ConfigFor(ModelConfig config, string modelId)
   {
     ArgumentNullException.ThrowIfNull(config);
-    return config with
-    {
-      ModelId = ModelVariants.ApplyTo(config.Variant, modelId),
-      FallbackModelIds = [],
-    };
+    return config with { ModelId = ModelVariants.ApplyTo(config.Variant, modelId) };
   }
 
   /// <summary>One attempted model and the reason it could not serve.</summary>

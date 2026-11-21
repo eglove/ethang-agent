@@ -122,10 +122,10 @@ public class ModelPickerViewModelTests
   }
 
   [Fact]
-  public async Task AddingAFourthModel_IsRefused_AndSaysWhy()
+  public async Task AddingAFourthModel_IsAccepted_WithNoCapMessage()
   {
-    // The provider accepts at most three entries on one request, so a fourth could never serve.
-    // The refusal names the limit rather than leaving the button looking dead.
+    // A turn walks the list one model at a time, so a fourth entry is a fourth attempt rather
+    // than a request the provider would refuse. Nothing about the list is capped.
     ModelPickerViewModel vm = await LoadAsync(
         [Entry(), Entry(modelId: Beta), Entry(modelId: "gamma/model"), Entry(modelId: "delta/model")],
         [Model, Beta, "gamma/model"]).ConfigureAwait(true);
@@ -133,20 +133,42 @@ public class ModelPickerViewModelTests
     SelectCatalogRow(vm, "delta/model");
     vm.AddModelCommand.Execute(null);
 
-    Assert.Equal([Model, Beta, "gamma/model"], vm.SelectedModels.Select(row => row.ModelId));
-    Assert.Contains("At most 3", vm.SelectionError!, StringComparison.Ordinal);
+    Assert.Equal([Model, Beta, "gamma/model", "delta/model"],
+        vm.SelectedModels.Select(row => row.ModelId));
+    Assert.Null(vm.SelectionError);
   }
 
   [Fact]
-  public async Task Opening_WithMoreModelsThanTheProviderAccepts_ShowsTheFirstThree()
+  public async Task AddingANinthModel_IsAccepted_AndTheListKeepsEveryEntryInOrder()
   {
-    // A list longer than the limit is trimmed to the entries that can actually serve, in order.
+    string[] catalog =
+    [
+      Model, Beta, "gamma/model", "delta/model", "epsilon/model",
+      "zeta/model", "eta/model", "theta/model", "iota/model",
+    ];
+    ModelPickerViewModel vm = await LoadAsync(
+        [.. catalog.Select(id => Entry(modelId: id))], [.. catalog.Take(8)]).ConfigureAwait(true);
+
+    SelectCatalogRow(vm, "iota/model");
+    vm.AddModelCommand.Execute(null);
+
+    Assert.Equal(catalog, vm.SelectedModels.Select(row => row.ModelId));
+    Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9], vm.SelectedModels.Select(row => row.Position));
+    Assert.Null(vm.SelectionError);
+  }
+
+  [Fact]
+  public async Task Opening_WithMoreModelsThanTheOldCapAllowed_ShowsEveryOneInOrder()
+  {
+    // A list written under an older build restores whole: trimming it would silently drop models
+    // the user chose every time the window opened.
     ModelPickerViewModel vm = await LoadAsync(
         [Entry(), Entry(modelId: Beta), Entry(modelId: "gamma/model"), Entry(modelId: "delta/model")],
         [Model, Beta, "gamma/model", "delta/model"]).ConfigureAwait(true);
 
-    Assert.Equal([Model, Beta, "gamma/model"], vm.SelectedModels.Select(row => row.ModelId));
-    Assert.Equal([1, 2, 3], vm.SelectedModels.Select(row => row.Position));
+    Assert.Equal([Model, Beta, "gamma/model", "delta/model"],
+        vm.SelectedModels.Select(row => row.ModelId));
+    Assert.Equal([1, 2, 3, 4], vm.SelectedModels.Select(row => row.Position));
   }
 
   // ── behaviour 3: adding with nothing selected does nothing, silently ───────
