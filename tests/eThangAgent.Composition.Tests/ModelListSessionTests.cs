@@ -26,7 +26,7 @@ public class ModelListSessionTests
   // 1: the list reaches the wire, head first.
 
   [Fact]
-  public async Task ATwoEntryPreference_SendsBothIdsInOrder_WithTheHeadAsTheModel()
+  public async Task ATwoEntryPreference_SendsTheHeadAlone_AndNoModelsKey()
   {
     using ComposedHostHarness session = await ComposedHostHarness
         .StartAsync([Head, Second]);
@@ -35,7 +35,9 @@ public class ModelListSessionTests
 
     Assert.True(turn.IsSuccess, turn.Error?.Message);
     using JsonDocument request = JsonDocument.Parse(Assert.Single(session.Provider.ResponseBodies));
-    Assert.Equal([Head, Second], ModelsOf(request.RootElement));
+    // ONE ATTEMPT NAMES ONE MODEL: the harness walks the list, so no request carries a list.
+    Assert.False(request.RootElement.TryGetProperty("models", out _),
+        "a request must name exactly one model");
     Assert.Equal(Head, request.RootElement.GetProperty("model").GetString());
   }
 
@@ -99,7 +101,8 @@ public class ModelListSessionTests
     foreach (string body in bodies)
     {
       using JsonDocument request = JsonDocument.Parse(body);
-      Assert.Equal([Head, Second], ModelsOf(request.RootElement));
+      Assert.False(request.RootElement.TryGetProperty("models", out _),
+          "a request must name exactly one model");
       Assert.Equal(Head, request.RootElement.GetProperty("model").GetString());
     }
   }
@@ -131,29 +134,25 @@ public class ModelListSessionTests
     });
   }
 
-  // 6: a list longer than the provider accepts never reaches the wire.
+  // 6: a list longer than the provider used to accept now walks, one model per request.
 
   [Fact]
-  public async Task AListLongerThanTheProviderAccepts_FailsBeforeAnyRequest_AndTheStoredListIsUntouched()
+  public async Task AListLongerThanTheProviderUsedToAccept_WalksOneModelPerRequest()
   {
-    // A live preference can carry more entries than the limit (a hand-edited store, a value
-    // written before the limit existed). The turn fails naming the limit and NOTHING is sent:
-    // the provider would only refuse the same list, and a round trip spent on a body that cannot
-    // serve is a failure reported later than it could have been.
+    // A live preference can carry more entries than the retired limit (a hand-edited store, a
+    // value written before the limit existed). No request carries a list, so no request can be
+    // refused for its length: the turn is served by the head and every later entry is a backup.
     using ComposedHostHarness session = await ComposedHostHarness
         .StartAsync([Head, Second]);
-    string storedBefore = session.StoredValue;
     session.Preference.ModelIds = [Head, Second, "gamma/third", "delta/fourth"];
 
     Result<string> turn = await session.SendAsync("hi").ConfigureAwait(true);
 
-    Assert.False(turn.IsSuccess);
-    Assert.Equal("ModelListTooLong", turn.Error?.Code);
-    Assert.Contains("at most 3", turn.Error!.Message, StringComparison.Ordinal);
-    Assert.Empty(session.Provider.ResponseBodies);
-    // THE FAILURE TRIMS NOTHING: neither the stored preference nor the live selection was
-    // reordered or shortened by a refusal at request time.
-    Assert.Equal(storedBefore, await session.ReadStoredValueAsync().ConfigureAwait(true));
+    Assert.True(turn.IsSuccess, turn.Error?.Message);
+    using JsonDocument request = JsonDocument.Parse(Assert.Single(session.Provider.ResponseBodies));
+    Assert.False(request.RootElement.TryGetProperty("models", out _),
+        "a request must name exactly one model");
+    Assert.Equal(Head, request.RootElement.GetProperty("model").GetString());
     Assert.Equal(4, session.Preference.ModelIds.Count);
   }
 
@@ -165,8 +164,8 @@ public class ModelListSessionTests
   // byte-identical to the one it sent before the list existed.
   [InlineData("alpha/model", "Standard")]
   [InlineData(
-                           /*lang=json,strict*/
-                           """{"ModelId":"alpha/model","Variant":"Nitro","Retention":"SafetyRetention"}""",
+      /*lang=json,strict*/
+      """{"ModelId":"alpha/model","Variant":"Nitro","Retention":"SafetyRetention"}""",
       "Nitro")]
   public async Task AWorkspaceRestoredFromAnOlderStoredValue_SendsNoModelsKeyAtAll(
       string stored, string expectedVariant)
@@ -188,8 +187,4 @@ public class ModelListSessionTests
     Assert.Equal(restored.WireModelIds[0],
         request.RootElement.GetProperty("model").GetString());
   }
-
-  /// <summary>The ids a request body carries in <c>models</c>, in order.</summary>
-  private static IReadOnlyList<string> ModelsOf(JsonElement root)
-      => [.. root.GetProperty("models").EnumerateArray().Select(entry => entry.GetString()!)];
 }

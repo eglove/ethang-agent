@@ -27,4 +27,9 @@ internal abstract record UiStreamEvent
   ///     is removed is whatever the transcript still holds open, which is the observer's
   ///     state rather than the loop's.</summary>
   internal sealed record Rewind() : UiStreamEvent;
+
+  /// <summary>One model the turn's walk dropped, with the vendor that served it and the
+  ///     reason it gave. Rides the bridge like every other turn fact because the walk runs
+  ///     on the turn's own thread and the surviving list is UI-owned.</summary>
+  internal sealed record ModelDropped(string ModelId, string? Vendor, string Code) : UiStreamEvent;
 }

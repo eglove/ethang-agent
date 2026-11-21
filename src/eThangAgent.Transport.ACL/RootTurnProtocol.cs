@@ -276,12 +276,13 @@ public static class RootTurnProtocol
   ///     `progress` the liveness heartbeat, `session-request` the host's app-ward
   ///     request to start a NEW session (issue #234), and `context` the session's context
   ///     accounting (issue #255), and `usage` one recorded provider call's spend (issue
-  ///     #24), and `rewind` the withdrawal of text a failed attempt streamed; anything
+  ///     #24), `rewind` the withdrawal of text a failed attempt streamed, and `model-dropped` one
+  ///     model the turn's walk removed; anything
   ///     else is a protocol error, not a forward-compatible unknown.</summary>
   public static readonly IReadOnlySet<string> EventKinds = new HashSet<string>(StringComparer.Ordinal)
   {
     "delta", "reasoning", "notice", "tool", "settled", "progress", "session-request", "context",
-    "usage", "rewind",
+    "usage", "rewind", "model-dropped",
   };
 
   public static string SerializeRequest(RootTurnRequest request)

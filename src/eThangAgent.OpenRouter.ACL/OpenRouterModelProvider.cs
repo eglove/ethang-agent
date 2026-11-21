@@ -17,6 +17,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   private const string ProviderError = "ProviderError";
   private const string ContextWindowExceeded = "ContextWindowExceeded";
   private const string ModelRejected = "ModelRejected";
+  private const string ProviderUnauthorized = "ProviderUnauthorized";
   private const string RetentionUnavailable = "RetentionUnavailable";
 
   /// <summary>Substrings that identify a context-window overflow in an HTTP 400 body.
@@ -1019,9 +1020,12 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   /// <summary>Maps an HTTP status to its error result: 429 is a rate limit, 408 a
   ///     timeout, and a 400 whose body names the context-length fault is its own
   ///     failure — the agent loop, not the wire layer, decides what an overflow
-  ///     means (one forced compaction, one retry). A 400 that names any other fault,
-  ///     a 401, 403 or 404 is the model's verdict on the request or on itself, so it
-  ///     carries ModelRejected. Everything else is a ProviderError.</summary>
+  ///     means (one forced compaction, one retry). A 400 that names any other fault
+  ///     or a 404 is the model's verdict on the request or on itself, so it carries
+  ///     ModelRejected. A 401 or 403 is a REFUSED CREDENTIAL and carries
+  ///     ProviderUnauthorized: a configuration fault rather than the model's verdict,
+  ///     so a caller stops and reports it instead of moving to the next model.
+  ///     Everything else is a ProviderError.</summary>
   private static Result<ModelResponse> StatusFailure(HttpStatusCode statusCode, string? detail)
       => (int)statusCode switch
       {
@@ -1031,7 +1035,9 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
             "Request timed out.")),
         400 when IsContextOverflow(detail) => Result.Failure<ModelResponse>(new DomainError(ContextWindowExceeded,
             StatusDetail((int)statusCode, detail))),
-        400 or 401 or 403 or 404 => Result.Failure<ModelResponse>(new DomainError(ModelRejected,
+        401 or 403 => Result.Failure<ModelResponse>(new DomainError(ProviderUnauthorized,
+            StatusDetail((int)statusCode, detail))),
+        400 or 404 => Result.Failure<ModelResponse>(new DomainError(ModelRejected,
             StatusDetail((int)statusCode, detail))),
         _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
             StatusDetail((int)statusCode, detail))),

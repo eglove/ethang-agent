@@ -67,7 +67,8 @@ public sealed class ModelDropThroughHostTests
 
         // The head was dropped and the turn was resent: the backup's answer is on screen.
         Assert.True(vm.Transcript.Notices.Contains(
-                $"{Head} was rate limited; removed for this session - 1 model left", StringComparer.Ordinal),
+                $"{Head} ({ModelVendors.DisplayName(ModelVendors.OpenRouter)}) was rate limited; "
+                + "removed for this session - 1 model left", StringComparer.Ordinal),
             "notices: " + string.Join(" | ", vm.Transcript.Notices));
         Assert.True(vm.Transcript.AssistantText.Contains("served by the backup", StringComparison.Ordinal),
             "notices: " + string.Join(" | ", vm.Transcript.Notices));

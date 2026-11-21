@@ -1174,7 +1174,8 @@ public static class AgentComposition
             sp.GetRequiredService<SessionModelPreferences>(),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<DefaultContextCompactor>(),
-            sp.GetRequiredService<IModelCatalog>()));
+            sp.GetRequiredService<IModelCatalog>(),
+            sp.GetRequiredService<IModelProviderResolver>()));
   }
 
   /// <summary>The query handlers, the link registry, the spawn-graph handler, and the capability
@@ -1458,7 +1459,13 @@ public static class AgentComposition
                 // same price source the children stamp with, so a session's rows and its
                 // subagents' rows are priced on one basis.
                 UsagePrices: sp.GetRequiredService<IUsagePriceSource>(),
-                WorkspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
+                WorkspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+                // The session's ordered model list, walked one entry at a time with each entry
+                // resolved to the vendor that serves it.
+                ModelWalk: new ModelWalkSource(
+                    sp.GetRequiredService<SessionModelPreferences>(),
+                    providerName,
+                    sp.GetRequiredService<IModelProviderResolver>())),
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.

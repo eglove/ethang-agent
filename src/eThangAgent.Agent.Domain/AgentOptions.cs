@@ -77,4 +77,12 @@ public sealed record AgentOptions
   ///     work that caused it. Null (legacy wiring) records no workspace: byte-identical
   ///     legacy behavior.</summary>
   public string? WorkspaceId { get; init; }
+
+  /// <summary>The session's ordered model list and the vendor-keyed resolution a turn walks.
+  ///     Null (legacy wiring, and every caller that names one model) means the turn sends the
+  ///     agent's own provider and config exactly as before: byte-identical legacy behavior.
+  ///     <para>WHEN WIRED, ONE ATTEMPT NAMES ONE MODEL. The turn resolves a provider per entry
+  ///     from the vendor that entry names, so a list spanning two vendors is served by each
+  ///     vendor's own transport within one turn.</para></summary>
+  public ModelWalkSource? ModelWalk { get; init; }
 }

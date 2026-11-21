@@ -58,10 +58,10 @@ public class TurnResilienceE2ETests
     _ = Assert.Single(read.Value, m => m.Role is Role.User);
   }
 
-  /// <summary>A refusing model is dropped for the session, the turn is resent against the
+  /// <summary>A throttled model is dropped for the session, the turn is resent against the
   ///     surviving model, and the user's stored choice is left alone.</summary>
   [Fact]
-  public async Task ARefusingModel_IsDropped_AndTheTurnIsResent()
+  public async Task AThrottledModel_IsDropped_AndTheTurnIsResent()
   {
 #pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
     await using E2E.HostHarness host = new();
@@ -70,12 +70,12 @@ public class TurnResilienceE2ETests
     host.ClaimHostsForCurrentTest();
     _ = await host.StartAsync().ConfigureAwait(true);
 
-    // Two models: the first is refused on its merits (401), the second answers. The
-    // backup's answer is scripted on the REQUEST CONTENT rather than on the model queue,
-    // because a model queue is drawn in arrival order and the refusal consumes it.
+    // Two models: the first is throttled (429), the second answers. The backup's answer is
+    // scripted on the REQUEST CONTENT rather than on the model queue, because a model queue
+    // is drawn in arrival order and the refusal consumes it.
     host.Services.GetRequiredService<SessionModelPreferences>().ModelIds =
         [E2E.SessionModel, "mock/backup-model"];
-    _ = host.Mock.ReturnsStatusForModel(E2E.SessionModel, 401);
+    _ = host.Mock.ReturnsStatusForModel(E2E.SessionModel, 429);
     _ = host.Mock.ReturnsForRequestContaining("say it back", RawCompletion("answered by the backup"));
 
     await host.Vm.RunTurnAsync("say it back").WaitAsync(TestCeiling.Value,
@@ -93,5 +93,41 @@ public class TurnResilienceE2ETests
         ?? throw new InvalidOperationException("the session's preferences must be registered.");
     Assert.NotNull(stored.ModelIds);
     Assert.Equal(2, stored.ModelIds.Count);
+  }
+
+  /// <summary>A refused credential STOPS the turn: the model is not dropped, the walk does not
+  ///     advance, and the provider's own text is what the transcript shows.
+  ///     <para>A 401 IS A CONFIGURATION FAULT ABOUT THE ACCOUNT, not a verdict about the model.
+  ///     Walking past it would serve the turn from a backup while the user's key stays broken,
+  ///     which is the silent skip the harness must never perform.</para></summary>
+  [Fact]
+  public async Task ARefusedCredential_StopsTheTurn_AndIsNotDropped()
+  {
+#pragma warning disable CA2007 // 'await using' cannot carry ConfigureAwait.
+    await using E2E.HostHarness host = new();
+#pragma warning restore CA2007
+    host.ProviderRetry = new RetryPolicy(maxAttempts: 1);
+    host.ClaimHostsForCurrentTest();
+    _ = await host.StartAsync().ConfigureAwait(true);
+
+    host.Services.GetRequiredService<SessionModelPreferences>().ModelIds =
+        [E2E.SessionModel, "mock/backup-model"];
+    _ = host.Mock.ReturnsStatusForModel(E2E.SessionModel, 401);
+    _ = host.Mock.ReturnsForRequestContaining("say it back", RawCompletion("answered by the backup"));
+
+    await host.Vm.RunTurnAsync("say it back").WaitAsync(TestCeiling.Value,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    // The provider's own text is what the user reads, and no drop was recorded.
+    Assert.Contains(host.Vm.Transcript.Notices,
+        notice => notice.Contains("ProviderUnauthorized", StringComparison.Ordinal));
+    Assert.DoesNotContain(host.Vm.Transcript.Notices,
+        notice => notice.Contains("removed for this session", StringComparison.Ordinal));
+    Assert.DoesNotContain(host.Vm.Transcript.Entries.OfType<AssistantTextEntry>(),
+        entry => entry.Text.Contains("answered by the backup", StringComparison.Ordinal));
+
+    // Both models survive: a refused credential removes nothing.
+    SessionModelPreferences stored = host.Services.GetRequiredService<SessionModelPreferences>();
+    Assert.Equal(2, stored.ModelIds!.Count);
   }
 }

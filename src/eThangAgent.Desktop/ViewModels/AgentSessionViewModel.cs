@@ -1566,19 +1566,27 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     SessionModelPreferences sent = new();
     sent.CopyFrom(_modelPreferences);
-    sent.ModelIds = [.. SurvivingModels()];
+    // THE ENTRIES TRAVEL, NOT THE IDS: the host walks this list, and an entry's vendor is what
+    // decides which provider serves it. Assigning ModelIds would clear every vendor.
+    sent.Entries = [.. SurvivingEntries()];
     return SessionModelPreferencesJson.Serialize(sent);
+  }
+
+  /// <summary>The stored model list minus every model this session has dropped, with each
+  ///     entry's vendor intact. A session with no stored list resolves to the one model it named
+  ///     at construction.</summary>
+  private IReadOnlyList<ModelSelectionEntry> SurvivingEntries()
+  {
+    IReadOnlyList<ModelSelectionEntry> stored = _modelPreferences?.Entries is { Count: > 0 } named
+        ? named
+        : [new ModelSelectionEntry(SessionDefaultModelId)];
+    return [.. stored.Where(entry => !_modelDrops.IsDropped(entry.ModelId))];
   }
 
   /// <summary>The stored model list minus every model this session has dropped. A session with
   ///     no stored list resolves to the one model it named at construction.</summary>
-  private IReadOnlyList<string> SurvivingModels()
-  {
-    IReadOnlyList<string> stored = _modelPreferences?.ModelIds is { Count: > 0 } named
-        ? named
-        : [SessionDefaultModelId];
-    return _modelDrops.Surviving(stored);
-  }
+  private IReadOnlyList<string> SurvivingModels() =>
+      [.. SurvivingEntries().Select(entry => entry.ModelId)];
 
   /// <summary>Drops the first surviving model when a turn failed a model-verdict code, and
   ///     returns true when the same turn should go out again on what survives. The drop is
@@ -1596,14 +1604,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return false;
     }
 
-    IReadOnlyList<string> surviving = SurvivingModels();
+    IReadOnlyList<ModelSelectionEntry> surviving = SurvivingEntries();
     if (surviving.Count <= 1)
     {
       return false;
     }
 
-    string refusing = surviving[0];
-    if (!_modelDrops.Drop(refusing))
+    ModelSelectionEntry refusing = surviving[0];
+    if (!_modelDrops.Drop(refusing.ModelId))
     {
       return false;
     }
@@ -1612,6 +1620,30 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Status.BackupCountText = BackupCountText(Status.SurvivingModelIds.Count);
     Transcript.AddNotice(DropNotice(refusing, code, Status.SurvivingModelIds.Count));
     return true;
+  }
+
+  /// <summary>Records one drop the TURN LOOP reported, and reflects it in the status bar.
+  ///     <para>THE LOOP IS THE AUTHORITY WHEN IT WALKS: it has already advanced to the next
+  ///     entry, so this method must not decide a second time whether the model may be dropped.
+  ///     It only records what the loop stated, which is what keeps the surviving list and the
+  ///     transcript agreeing with the turn that actually ran.</para>
+  ///     <para>A REFUSED CREDENTIAL IS NEVER RECORDED AS A DROP: the loop does not advance past
+  ///     one, so recording it would remove a model the turn refused to remove.</para>
+  ///     </summary>
+  /// <param name="modelId">The model the loop dropped.</param>
+  /// <param name="vendor">The vendor that served it, or null when none was named.</param>
+  /// <param name="code">The code it failed with.</param>
+  private void RecordWalkDrop(string modelId, string? vendor, string code)
+  {
+    if (!TurnRetryPolicy.IsDropVerdict(code) || !_modelDrops.Drop(modelId))
+    {
+      return;
+    }
+
+    Status.SurvivingModelIds = [.. SurvivingModels()];
+    Status.BackupCountText = BackupCountText(Status.SurvivingModelIds.Count);
+    Transcript.AddNotice(DropNotice(new ModelSelectionEntry(modelId, vendor), code,
+        Status.SurvivingModelIds.Count));
   }
 
   /// <summary>The model-verdict code an attempt failed with, or null when the attempt did not
@@ -1624,18 +1656,30 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     return code is not null && TurnRetryPolicy.IsModelVerdict(code) ? code : null;
   }
 
-  /// <summary>The transcript line a drop writes, naming the model, what it did, and how many
-  ///     models are left. One is singular: '1 model left'.</summary>
-  private static string DropNotice(string modelId, string code, int surviving) =>
-      $"{modelId} was {VerdictPhrase(code)}; removed for "
-      + $"this session - {surviving} {(surviving == 1 ? "model" : "models")} left";
+  /// <summary>The transcript line a drop writes, naming the model, its vendor, what it did, and
+  ///     how many models are left. One is singular: '1 model left'.
+  ///     <para>THE VENDOR IS STATED WHENEVER AN ENTRY NAMES ONE, because the same model id served
+  ///     by two vendors is two rows and they differ in price and quota: a line naming only the id
+  ///     would leave the user unable to tell which of their two rows was removed. An entry that
+  ///     names none renders no parenthetical rather than an invented vendor; the turn loop's own
+  ///     line states the vendor it resolved for that entry.</para></summary>
+  private static string DropNotice(ModelSelectionEntry entry, string code, int surviving) =>
+      $"{Label(entry)} was {VerdictPhrase(code)}; removed for this session - "
+      + $"{surviving} {(surviving == 1 ? "model" : "models")} left";
+
+  /// <summary>One entry as a transcript line names it: the model id, and the vendor in
+  ///     parentheses when the entry names one.</summary>
+  private static string Label(ModelSelectionEntry entry) =>
+      entry.Vendor is { } vendor
+          ? $"{entry.ModelId} ({ModelVendors.DisplayName(vendor)})"
+          : entry.ModelId;
 
   /// <summary>The transcript line a spent list writes: the last model's verdict, and the one act
   ///     that resolves it. The provider's own failure line follows it, so the fault's detail is
   ///     never lost.</summary>
-  private static string ExhaustedNotice(string code, IReadOnlyList<string> surviving) =>
-      $"{surviving[0]} was {VerdictPhrase(code)} and no other model is left to serve this turn - "
-      + "pick another model in Model Settings.";
+  private static string ExhaustedNotice(string code, IReadOnlyList<ModelSelectionEntry> surviving) =>
+      $"{Label(surviving[0])} was {VerdictPhrase(code)} and no other model is left to serve "
+      + "this turn - pick another model in Model Settings.";
 
   /// <summary>What a model-verdict code did, in the user's words.</summary>
   private static string VerdictPhrase(string code)
@@ -1877,7 +1921,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // list is spent rather than read a bare throttle as a passing fault.
       if (VerdictCodeOf(attempt) is { } spent)
       {
-        Transcript.AddNotice(ExhaustedNotice(spent, SurvivingModels()));
+        Transcript.AddNotice(ExhaustedNotice(spent, SurvivingEntries()));
       }
 
       // A host that is gone is not this turn's fault, so the same turn goes out again over a
@@ -2054,7 +2098,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               OnSystemMessage: bridge.OnSystemMessage,
               OnStreamRewind: bridge.OnStreamRewind,
               OnStreamRetrying: (attempt, delay, reason) =>
-                bridge.OnNotice(TurnRetryPolicy.Describe(attempt, delay, reason))),
+                bridge.OnNotice(TurnRetryPolicy.Describe(attempt, delay, reason)),
+               OnModelDropped: (modelId, vendor, code, _) => bridge.OnModelDropped(modelId, vendor, code)),
           onNotice: bridge.OnNotice).ConfigureAwait(true);
     }
     catch (OperationCanceledException)
@@ -2158,22 +2203,41 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       case "session-request":
         ApplySessionRequest(evt.Payload);
         break;
-      case "context":
-        ApplyContextEvent(evt.Payload);
+      case "context" or "usage" or "progress" or "model-dropped":
+        // The facts a host turn reports beside its text: the context snapshot, the recorded
+        // spend, the liveness heartbeat, and the walk's own drops.
+        ApplyHostFactEvent(evt.Kind, evt.Payload, bridge);
         break;
-      case "usage":
-        ApplyUsageEvent(evt.Payload);
-        break;
-      case "settled":
-        // The settle's payload is the turn's answer (or its typed failure line); the
-        // outcome is read from the channel's Result, so nothing is applied here beyond
-        // the phase change. TurnPhase has no Idle member - Ready IS the idle phase, and
-        // the turn's finally block sets it too, so this is idempotent.
+      // The settle's payload is the turn's answer (or its typed failure line); the outcome is
+      // read from the channel's Result, so nothing is applied here beyond the phase change.
+      // TurnPhase has no Idle member - Ready IS the idle phase, and the turn's finally block
+      // sets it too, so this is idempotent. Any other kind is one this build does not know,
+      // which is the forward-compatibility rule the transports already follow.
+      default:
         Status.Phase = TurnPhase.Ready;
         break;
-      // `progress` is the liveness heartbeat: it proves the host is alive and says nothing
-      // the transcript needs. Any other kind is one this build does not know, which is the
-      // forward-compatibility rule the transports already follow.
+    }
+  }
+
+  /// <summary>Applies one fact a host turn reports beside its text: the context snapshot, the
+  ///     recorded spend, one model the walk dropped, or the liveness heartbeat.
+  ///     <para>THEY SHARE ONE ENTRY POINT because they are all facts the status bar and the
+  ///     surviving list consume, and none of them renders a transcript line of its own. The
+  ///     heartbeat renders nothing at all: it exists so the app can tell a busy host from a
+  ///     silent one.</para></summary>
+  private void ApplyHostFactEvent(string kind, string payload, StreamBridge bridge)
+  {
+    switch (kind)
+    {
+      case "context":
+        ApplyContextEvent(payload);
+        break;
+      case "usage":
+        ApplyUsageEvent(payload);
+        break;
+      case "model-dropped":
+        ApplyModelDropEvent(payload, bridge);
+        break;
       default:
         break;
     }
@@ -2197,6 +2261,19 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     during a host-run turn. An unreadable payload is dropped rather than rendered —
   ///     the cost line is a readout, and a notice per provider call would flood the
   ///     transcript.</summary>
+  /// <summary>Applies one `model-dropped` event: the walk in the host removed a model, so this
+  ///     session records the same drop and states it in the transcript.
+  ///     <para>AN UNREADABLE PAYLOAD IS DROPPED RATHER THAN GUESSED AT: the drop is already
+  ///     recorded in the host's transcript line, and inventing a model id here would remove the
+  ///     wrong one.</para></summary>
+  private static void ApplyModelDropEvent(string payload, StreamBridge bridge)
+  {
+    if (RootTurnModelDropPayload.Parse(payload) is { } drop)
+    {
+      bridge.OnModelDropped(drop.ModelId!, drop.Vendor, drop.Code ?? string.Empty);
+    }
+  }
+
   private void ApplyUsageEvent(string payload)
   {
     if (RootTurnUsagePayload.Parse(payload) is { } usage)
@@ -2505,6 +2582,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         {
           _statusModelUpdater(resolved);
         }
+        break;
+      case UiStreamEvent.ModelDropped d:
+        // The walk's drop arrives the same way and for the same reason: the walk runs on the
+        // turn's thread, and the surviving list and transcript are UI-owned.
+        RecordWalkDrop(d.ModelId, d.Vendor, d.Code);
         break;
       default:
         break;

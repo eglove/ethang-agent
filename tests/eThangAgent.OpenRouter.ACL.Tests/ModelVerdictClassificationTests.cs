@@ -7,9 +7,11 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.OpenRouter.ACL.Tests;
 
 /// <summary>The statuses a model uses to refuse a request are its own code, not a
-///     ProviderError: a 400 naming a fault other than the context-length one, and every
-///     401, 403 and 404, carry ModelRejected. A 429 stays RateLimited, a 408 stays
-///     ProviderTimeout, and a 5xx stays ProviderError. A refusal is spent on ONE HTTP
+///     ProviderError: a 400 naming a fault other than the context-length one and a 404 carry
+///     ModelRejected, while a 401 or 403 carries ProviderUnauthorized — a refused credential is
+///     a configuration fault about the account rather than the model's verdict, so a caller
+///     stops and reports it instead of walking to the next model. A 429 stays RateLimited, a 408
+///     stays ProviderTimeout, and a 5xx stays ProviderError. A refusal is spent on ONE HTTP
 ///     attempt, because repeating the identical request fails identically.</summary>
 public class ModelVerdictClassificationTests
 {
@@ -62,30 +64,52 @@ public class ModelVerdictClassificationTests
           : provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]),
               TestContext.Current.CancellationToken);
 
-  public static TheoryData<int> RefusalStatuses
+  /// <summary>The statuses that are the MODEL's verdict on the request or on itself.</summary>
+  public static TheoryData<int> ModelRejectedStatuses
   {
     get
     {
       TheoryData<int> statuses = [];
       statuses.Add(400);
-      statuses.Add(401);
-      statuses.Add(403);
       statuses.Add(404);
       return statuses;
     }
   }
 
-  [Theory]
-  [MemberData(nameof(RefusalStatuses))]
-  public async Task SendAsync_OnARefusal_CarriesModelRejected(int status) =>
-      await RefusalOutcomeAsync(status, streaming: false);
+  /// <summary>The statuses that are a REFUSED CREDENTIAL: a configuration fault about the
+  ///     account, never the model's verdict.</summary>
+  public static TheoryData<int> UnauthorizedStatuses
+  {
+    get
+    {
+      TheoryData<int> statuses = [];
+      statuses.Add(401);
+      statuses.Add(403);
+      return statuses;
+    }
+  }
 
   [Theory]
-  [MemberData(nameof(RefusalStatuses))]
-  public async Task SendStreamingAsync_OnARefusal_CarriesModelRejected(int status) =>
-      await RefusalOutcomeAsync(status, streaming: true);
+  [MemberData(nameof(ModelRejectedStatuses))]
+  public async Task SendAsync_OnAModelVerdict_CarriesModelRejected(int status) =>
+      await RefusalOutcomeAsync(status, streaming: false, "ModelRejected");
 
-  private static async Task RefusalOutcomeAsync(int status, bool streaming)
+  [Theory]
+  [MemberData(nameof(ModelRejectedStatuses))]
+  public async Task SendStreamingAsync_OnAModelVerdict_CarriesModelRejected(int status) =>
+      await RefusalOutcomeAsync(status, streaming: true, "ModelRejected");
+
+  [Theory]
+  [MemberData(nameof(UnauthorizedStatuses))]
+  public async Task SendAsync_OnARefusedCredential_CarriesProviderUnauthorized(int status) =>
+      await RefusalOutcomeAsync(status, streaming: false, "ProviderUnauthorized");
+
+  [Theory]
+  [MemberData(nameof(UnauthorizedStatuses))]
+  public async Task SendStreamingAsync_OnARefusedCredential_CarriesProviderUnauthorized(int status) =>
+      await RefusalOutcomeAsync(status, streaming: true, "ProviderUnauthorized");
+
+  private static async Task RefusalOutcomeAsync(int status, bool streaming, string expectedCode)
   {
     Recorder rec = new() { Respond = _ => Wire.Json((HttpStatusCode)status, RefusalBody(status)) };
     OpenRouterModelProvider provider = Provider(rec);
@@ -93,7 +117,7 @@ public class ModelVerdictClassificationTests
     Result<ModelResponse> result = await SendAsync(provider, streaming).ConfigureAwait(true);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ModelRejected", result.Error.Code);
+    Assert.Equal(expectedCode, result.Error.Code);
     Assert.Contains($"OpenRouter returned HTTP {status}", result.Error.Message, StringComparison.Ordinal);
     Assert.Contains(RefusalBody(status), result.Error.Message, StringComparison.Ordinal);
     // ONE ATTEMPT AND NO BACKOFF: the request was refused on its merits, so a repeat

@@ -20,9 +20,14 @@ public static class TurnRetryPolicy
       "ProviderTimeout",
   ];
 
-  /// <summary>The codes that mean the model refused the request rather than the request
-  ///     or the connection failing: <c>RateLimited</c>, <c>ModelRejected</c>.</summary>
-  private static readonly string[] ModelVerdictCodes =
+  /// <summary>The codes that mean THIS MODEL cannot serve the request and never will
+  ///     within the turn: <c>RateLimited</c>, <c>ModelRejected</c>. A turn walks past one
+  ///     of these to the next model in the list.
+  ///     <para>A REFUSED CREDENTIAL IS NOT ONE OF THEM. <c>ProviderUnauthorized</c> is a
+  ///     configuration fault about the account, not a verdict about the model, so it stops
+  ///     the turn and is reported instead of being walked past — a broken credential must
+  ///     never be a silently skipped model.</para></summary>
+  private static readonly string[] DropVerdictCodes =
   [
       "RateLimited",
       "ModelRejected",
@@ -56,10 +61,22 @@ public static class TurnRetryPolicy
   public static bool IsTransient(string code) =>
       TransientCodes.Contains(code, StringComparer.Ordinal);
 
+  /// <summary>True when <paramref name="code"/> is a verdict that makes THIS MODEL
+  ///     unusable for the rest of the turn: the turn drops it and walks to the next model.
+  ///     <para>THE ONE ANSWER BOTH READERS USE. The turn loop decides from this whether to
+  ///     advance, and a host that owns its own model list reads the same predicate to decide
+  ///     whether to drop — two answers would let one side drop a model the other refused to.
+  ///     </para>
+  ///     <para>A TRANSIENT CODE IS NOT A DROP: the retry policy recovers from it on the SAME
+  ///     model, so dropping would spend an entry on a failure that was already recovered.
+  ///     </para></summary>
+  public static bool IsDropVerdict(string code) =>
+      DropVerdictCodes.Contains(code, StringComparer.Ordinal);
+
   /// <summary>True when <paramref name="code"/> is the model's verdict on the request or
-  ///     on itself.</summary>
-  public static bool IsModelVerdict(string code) =>
-      ModelVerdictCodes.Contains(code, StringComparer.Ordinal);
+  ///     on itself. The same set <see cref="IsDropVerdict"/> answers for, kept under this
+  ///     name because it states the question a drop decision asks.</summary>
+  public static bool IsModelVerdict(string code) => IsDropVerdict(code);
 
   /// <summary>The wait before <paramref name="attempt"/>: <see cref="BaseDelay"/> doubled
   ///     per prior attempt, scaled by a factor in [1, 2] from <paramref name="jitter"/>, and

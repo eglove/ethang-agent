@@ -21,7 +21,7 @@ public sealed record AgentRunOutcome(
 ///     handed here.</summary>
 public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferences? preferences = null,
     IContextWindowSource? windowSource = null, IContextCompactor? contextCompactor = null,
-    IModelCatalog? catalog = null)
+    IModelCatalog? catalog = null, IModelProviderResolver? resolver = null)
     : IAgentRunner
 {
 
@@ -65,6 +65,9 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
   private readonly IModelCatalog? _catalog = catalog;
+  // The vendor-keyed provider resolution a child's model walk uses. Null (legacy wiring,
+  // tests) leaves the child on the single provider its factory built.
+  private readonly IModelProviderResolver? _resolver = resolver;
   private readonly IAgentHeartbeat? _heartbeat = services.Heartbeat;
   private readonly Func<string?, IImageStore?>? _imagesFor = services.ImagesFor;
   private readonly Func<AgentId, AgentSupervisor?>? _supervisorFor = services.SupervisorFor;
@@ -267,6 +270,13 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
             Events = _events,
             TranscriptSink = transcriptSink,
             SessionId = child.Id.ToString(),
+            // A CHILD WALKS THE SAME LIST ITS SESSION DOES. The list travels on the run's
+            // preferences, so a child of a session whose head is throttled falls through to the
+            // same backups the session would, with each entry resolved to its own vendor's
+            // transport. Null wiring (legacy, tests) keeps the single-provider path unchanged.
+            ModelWalk = _resolver is null || _preferences?.Entries is not { Count: > 0 }
+                ? null
+                : new ModelWalkSource(_preferences, child.Provider, _resolver),
             // Resolve the supervisor ONCE per run (not per fragment): streams emit hundreds
             // of fragments per second; a per-fragment registry lookup would take two locks
             // per fragment on the hot path.

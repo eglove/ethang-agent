@@ -57,6 +57,12 @@ internal sealed class StreamWindowCoalescer(IStreamSink sink, double windowSecon
   ///     preceded.</summary>
   public Task RewindAsync() => StructuralAsync(new UiStreamEvent.Rewind());
 
+  /// <summary>Structural: the drop lands in order with the turn's other facts, so the
+  ///     surviving list and the transcript agree about when the model left the list.
+  ///     </summary>
+  public Task ModelDroppedAsync(string modelId, string? vendor, string code)
+      => StructuralAsync(new UiStreamEvent.ModelDropped(modelId, vendor, code));
+
   /// <summary>Delivers verbatim, bypassing the buffer. Part of <see cref="IStreamSink"/>
   ///     so coalescers and bridges can nest.</summary>
   public Task DeliverAsync(UiStreamEvent evt)

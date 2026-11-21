@@ -51,10 +51,10 @@ public class RetentionListInteractionTests
   }
 
   [Fact]
-  public async Task AnEnforcedTierTheHeadCanMeet_SendsTheWholeListUnderTheRestriction()
+  public async Task AnEnforcedTierTheHeadCanMeet_SendsTheHeadUnderTheRestriction()
   {
-    // The same tier and the same list with the HEAD admitted: the list goes out, the restriction
-    // rides the body's provider block, and the turn is served.
+    // The same tier and the same list with the HEAD admitted: the request goes out under the
+    // restriction, names exactly one model, and the turn is served.
     using ComposedHostHarness session = await EligibleWorkspaceAsync(headEligible: true);
     session.Preference.Retention = RetentionPolicy.ZeroDataRetention;
 
@@ -64,7 +64,9 @@ public class RetentionListInteractionTests
     using JsonDocument body = JsonDocument.Parse(Assert.Single(session.Provider.ResponseBodies));
     Assert.True(body.RootElement.GetProperty("provider").GetProperty("zdr").GetBoolean(),
         "an enforced tier states itself on every request it allows");
-    Assert.Equal(2, body.RootElement.GetProperty("models").GetArrayLength());
+    Assert.False(body.RootElement.TryGetProperty("models", out _),
+        "a request must name exactly one model");
+    Assert.Equal(Head, body.RootElement.GetProperty("model").GetString());
   }
 
   /// <summary>A session whose provider describes both entries' endpoints, plus an eligible
