@@ -436,7 +436,7 @@ public static class ResponsesApiRequestCore
         MessagePart.ImagePart image when plan.Sends(image, messageIndex) => new Dictionary<string, object?>
         {
           ["type"] = "input_image",
-          ["image_url"] = $"data:{image.MediaType};base64,{image.Base64Data}",
+          ["image_url"] = ImageDataUrl.For(image.MediaType, image.Base64Data),
         },
         MessagePart.ImagePart withheld => TextPart(ImagePartMarker.MarkerForNotResent(
             withheld.MediaType, ImagePartMarker.DecodedByteCount(withheld.Base64Data))),

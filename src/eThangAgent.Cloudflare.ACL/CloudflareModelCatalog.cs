@@ -33,9 +33,6 @@ public sealed class CloudflareModelCatalog(
   /// <summary>The account-relative path the model search is served on.</summary>
   private const string SearchPath = "ai/models/search";
 
-  /// <summary>The longest error body this catalog quotes back, matching the chat provider's cap.
-  ///     </summary>
-  private const int MaxErrorBodyCharacters = 512;
 
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly CloudflareConfiguration _config =
@@ -181,54 +178,12 @@ public sealed class CloudflareModelCatalog(
   /// <param name="body">The response body, which carries Cloudflare's own message.</param>
   private static DomainError StatusFailure(HttpStatusCode status, string body)
   {
-    string detail = CloudflareErrorText(body);
+    string detail = CloudflareErrorText.Of(body);
     return status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
         ? new DomainError("ProviderUnauthorized",
             $"Cloudflare refused the credential ({(int)status}): {detail}")
         : new DomainError("CatalogUnavailable",
             $"the Cloudflare model catalog returned {(int)status}: {detail}");
-  }
-
-  /// <summary>The message Cloudflare's own error envelope carries, or the body itself when it
-  ///     carries none, capped so a long response cannot flood a transcript.
-  ///     </summary>
-  /// <param name="body">The response body.</param>
-  private static string CloudflareErrorText(string body)
-  {
-    string text = body;
-    try
-    {
-      using JsonDocument document = JsonDocument.Parse(body);
-      if (document.RootElement.ValueKind == JsonValueKind.Object
-          && document.RootElement.TryGetProperty("errors", out JsonElement errors)
-          && errors.ValueKind == JsonValueKind.Array)
-      {
-        string[] messages =
-        [
-          .. errors.EnumerateArray()
-            .Select(error => error.ValueKind == JsonValueKind.Object
-                && error.TryGetProperty("message", out JsonElement message)
-                && message.ValueKind == JsonValueKind.String
-                    ? message.GetString()
-                    : null)
-            .Where(message => !string.IsNullOrWhiteSpace(message))
-            .Select(message => message!),
-        ];
-        if (messages.Length > 0)
-        {
-          text = string.Join("; ", messages);
-        }
-      }
-    }
-    catch (JsonException)
-    {
-      // A body that is not JSON is quoted as it arrived: Cloudflare's own text is the message.
-    }
-
-    string trimmed = text.Trim();
-    return trimmed.Length <= MaxErrorBodyCharacters
-        ? trimmed
-        : trimmed[..MaxErrorBodyCharacters] + "…";
   }
 
   /// <summary>The entries a successful response describes: one per chat model, in the order the

@@ -515,12 +515,12 @@ public sealed partial class DoctrineTests
   ///     second answer waiting to disagree, and the disagreement costs megabytes on every later
   ///     request rather than failing anything.
   ///     <para>The check is over SOURCE text because the question is whether a second spelling exists
-  ///     at all, which no runtime assertion can answer. The allowlist is one file: the encoder's
-  ///     data-URL arm, which reads the plan.</para></summary>
+  ///     at all, which no runtime assertion can answer. The allowlist is one file: the builder every
+  ///     provider encodes through, whose callers consult the plan before reaching it.</para></summary>
   [Fact]
   public void ImageBytes_LeaveThroughExactlyOneDataUrl()
   {
-    string[] allowed = ["src/eThangAgent.Provider.Wire/ResponsesApiRequestCore.cs"];
+    string[] allowed = ["src/eThangAgent.Provider.Wire/ImageDataUrl.cs"];
 
     List<string> violations = [];
     foreach (string file in SourceFiles("src"))
