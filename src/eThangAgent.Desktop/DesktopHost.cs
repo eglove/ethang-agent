@@ -83,7 +83,13 @@ internal static class DesktopHost
     settings = settings.WithApiKeys(
         await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey))
         .WithManagementKey(await LoadKeyAsync(preferences, protector,
-            OpenRouterSettings.ManagementKeyPreferenceKey));
+            OpenRouterSettings.ManagementKeyPreferenceKey))
+        // The Cloudflare credential is APP-WIDE like the OpenRouter key, and it is overlaid
+        // here for the same reason: it is a secret, so it is stored protected and never
+        // read by the loader.
+        .WithCloudflareCredential(
+            await LoadProtectedKeyAsync(preferences, protector, CloudflareSettings.AccountIdPreferenceKey),
+            await LoadProtectedKeyAsync(preferences, protector, CloudflareSettings.ApiTokenPreferenceKey));
     CommitStyle commitStyle = await LoadCommitStyleAsync(preferences);
     bool compactionHandoff = await LoadCompactionHandoffAsync(preferences);
 
@@ -179,6 +185,32 @@ internal static class DesktopHost
       await Console.Error.WriteLineAsync($"stored '{preferenceKey}' could not be decrypted; treating as unconfigured");
     }
     return key;
+  }
+
+  /// <summary>Recovers a stored protected secret, distinguishing 'nothing stored' from
+  ///     'stored but unreadable'. Nothing stored answers null, which leaves whatever the
+  ///     loader already carried. Stored but unreadable answers a BLANK string, which states
+  ///     that no credential is configured: a blob this process cannot decrypt must never be
+  ///     presented as a credential, and blank is a value rather than an absence so it is not
+  ///     silently replaced by the loader's read of the same key.</summary>
+  private static async Task<string?> LoadProtectedKeyAsync(
+      SqliteAppPreferenceStore preferences, IApiKeyProtector protector, string preferenceKey)
+  {
+    string? stored = await preferences.GetAsync(preferenceKey).ConfigureAwait(false);
+    if (stored is null)
+    {
+      return null;
+    }
+
+    string? key = protector.Unprotect(stored);
+    if (key is null)
+    {
+      await Console.Error.WriteLineAsync(
+          $"stored '{preferenceKey}' could not be decrypted; treating as unconfigured")
+          .ConfigureAwait(false);
+    }
+
+    return key ?? string.Empty;
   }
 
   /// <summary>Recovers the stored commit style: absent stays at the Conventional

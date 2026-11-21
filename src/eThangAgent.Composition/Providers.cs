@@ -39,11 +39,17 @@ public static class Providers
   /// <param name="providerName">The provider id to render.</param>
   public static string DisplayName(string providerName) => ModelVendors.DisplayName(providerName);
 
+  /// <summary>The Cloudflare model a session starts on before any selection is made.
+  ///     Cloudflare has no routing pseudo-model, so the default is a real catalog id.
+  ///     </summary>
+  public const string CloudflareDefaultModelId = "@cf/meta/llama-3.1-8b-instruct";
+
   /// <summary>Fallback model id when selection fails or no selector is wired.</summary>
   /// <param name="providerName">The provider id to answer for.</param>
   public static string FallbackModelId(string providerName) => providerName switch
   {
-    OpenRouter => "openrouter/auto",
+    OpenRouter => RoutingModelId,
+    Cloudflare => CloudflareDefaultModelId,
     _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
   };
 

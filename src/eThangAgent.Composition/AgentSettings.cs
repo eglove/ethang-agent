@@ -31,6 +31,33 @@ public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl, string? Man
   public RetryPolicy? Retry { get; init; }
 }
 
+/// <summary>Cloudflare Workers AI credentials. AccountId and ApiToken may each be null —
+///     the provider is only offered when BOTH are configured, and a session that selects
+///     a Cloudflare model without them fails with a structured error before any call is
+///     made. The credential is APP-WIDE: it is not scoped to a workspace and is not
+///     duplicated per window. Hosts source it themselves (the Desktop reads it from app
+///     preferences via the Settings modal) and overlay it with
+///     <see cref="AgentSettings.WithCloudflareCredential"/>.</summary>
+public sealed record CloudflareSettings(string? AccountId, string? ApiToken)
+{
+  /// <summary>The Cloudflare API host, before any account-scoped path.</summary>
+#pragma warning disable S1075 // the provider's documented public host, not a machine-local path
+  public const string DefaultBaseUrl = "https://api.cloudflare.com";
+#pragma warning restore S1075
+
+  /// <summary>The API root every Cloudflare endpoint is built on: the host plus the
+  ///     versioned prefix the live API is served under.</summary>
+  public const string ApiBaseUrl = DefaultBaseUrl + "/client/v4";
+
+  /// <summary>App-preference key the Desktop stores the (protected) Cloudflare account id
+  ///     under.</summary>
+  public const string AccountIdPreferenceKey = "cloudflare_account_id";
+
+  /// <summary>App-preference key the Desktop stores the (protected) Cloudflare API token
+  ///     under.</summary>
+  public const string ApiTokenPreferenceKey = "cloudflare_api_token";
+}
+
 /// <summary>Everything a host needs before building the core. ApiKeys may be null —
 ///     the host decides how to present a missing key (Desktop shows a dialog). There
 ///     is no configured model pin: the model is chosen per session (intelligent
@@ -51,13 +78,31 @@ public sealed record AgentSettings(
     string? TrustedDirectories = null,
     string? WorkspaceId = null,
     ChainContract? ChainContract = null,
-    string? PathTools = null)
+    string? PathTools = null,
+    CloudflareSettings? Cloudflare = null)
 {
   // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
   // runs WatchdogOptions.Default. The value travels to the child host inside the
   // settings JSON the RemoteHostSupervisor writes.
   /// <summary>True when an OpenRouter API key (non-blank) is configured.</summary>
   public bool HasOpenRouter => !string.IsNullOrWhiteSpace(OpenRouter.ApiKey);
+
+  /// <summary>True when a Cloudflare account id AND API token (both non-blank) are
+  ///     configured. A blank on either side means no credential, which is readable here
+  ///     without attempting a call.</summary>
+  public bool HasCloudflare =>
+      !string.IsNullOrWhiteSpace(Cloudflare?.AccountId)
+      && !string.IsNullOrWhiteSpace(Cloudflare?.ApiToken);
+
+  /// <summary>Returns the same settings with the Cloudflare credential overlaid. A null
+  ///     argument keeps whatever the caller already set - never a clobber. Hosts use this
+  ///     to lift the credential from their own store onto the loaded settings.</summary>
+  public AgentSettings WithCloudflareCredential(string? accountId, string? apiToken) => this with
+  {
+    Cloudflare = new CloudflareSettings(
+        accountId ?? Cloudflare?.AccountId,
+        apiToken ?? Cloudflare?.ApiToken),
+  };
 
   /// <summary>Returns the same settings with the provider API key overlaid. Null
   ///     clears the key — the provider stops being offered. Hosts use this to lift

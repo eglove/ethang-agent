@@ -517,13 +517,15 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     bool configured = providerName switch
     {
       Providers.OpenRouter => _settings.HasOpenRouter,
-      Providers.Cloudflare => false,
+      Providers.Cloudflare => _settings.HasCloudflare,
       _ => false,
     };
     if (!configured)
     {
       return Result.Failure<string>(new DomainError("ProviderNotConfigured",
-          $"Provider '{Providers.DisplayName(providerName)}' is not fully configured (API key). Complete its settings under Settings (gear icon) and open the agent again."));
+          $"Provider '{Providers.DisplayName(providerName)}' is not fully configured "
+          + $"({MissingCredential(providerName)}). Complete its settings under Settings "
+          + "(gear icon) and open the agent again."));
     }
 
     if (string.IsNullOrWhiteSpace(workspaceRoot))
@@ -543,6 +545,15 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     string full = Path.GetFullPath(workspaceRoot);
     return Result.Success(full);
   }
+
+  /// <summary>The credential a provider needs, named so a refusal states what to supply.
+  ///     </summary>
+  /// <param name="providerName">The provider id.</param>
+  private static string MissingCredential(string providerName) => providerName switch
+  {
+    Providers.Cloudflare => "account id and API token",
+    _ => "API key",
+  };
 
   /// <summary>THE attach (R3.1/3.3): the wire runtime is born disconnected by design, and
   ///     this is its only production caller — launching this conversation's host if absent,
