@@ -156,8 +156,9 @@ public class McpToolTests
     ToolResult r = await Call(access, "\"action\": \"list\"").ConfigureAwait(true);
     Assert.False(r.IsError);
     Assert.Contains("[mcp] 2 server(s) configured", r.Content, StringComparison.Ordinal);
-    Assert.Contains("demo | approved | stdio | connected, 2 tool(s): echo, ping", r.Content, StringComparison.Ordinal);
-    Assert.Contains("other | pending | http | not connected", r.Content, StringComparison.Ordinal);
+    Assert.Contains("demo | approved | stdio | global | none | connected, 2 tool(s): echo, ping",
+        r.Content, StringComparison.Ordinal);
+    Assert.Contains("other | pending | http | global | none | not connected", r.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -179,7 +180,8 @@ public class McpToolTests
     };
     ToolResult r = await Call(access, "\"action\": \"list\"").ConfigureAwait(true);
     Assert.False(r.IsError);
-    Assert.Contains("demo | approved | stdio | error: spawn failed", r.Content, StringComparison.Ordinal);
+    Assert.Contains("demo | approved | stdio | global | none | error: spawn failed",
+        r.Content, StringComparison.Ordinal);
   }
 
   [Fact]

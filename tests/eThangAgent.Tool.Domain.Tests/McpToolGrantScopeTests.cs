@@ -47,6 +47,8 @@ public class McpToolGrantScopeTests
           ? (id == entry[..^2] || id.StartsWith(entry[..^2] + ".", StringComparison.Ordinal))
           : entry == "mcp" || entry == id);
     }
+
+    public bool CanManage => _entries.Contains("mcp");
   }
 
   private static async Task<ToolResult> Call(IMcpServerAccess access, IMcpGrantScope? scope, string inner)

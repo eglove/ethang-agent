@@ -15,4 +15,8 @@ public sealed class AmbientMcpGrantScopeAdapter : ToolDomain.Mcp.IMcpGrantScope
   /// <inheritdoc />
   public bool Reachable(string serverName)
       => ToolDomain.Mcp.AmbientMcpGrantScope.Current?.Reachable(serverName) ?? true;
+
+  /// <inheritdoc />
+  public bool CanManage
+      => ToolDomain.Mcp.AmbientMcpGrantScope.Current?.CanManage ?? true;
 }

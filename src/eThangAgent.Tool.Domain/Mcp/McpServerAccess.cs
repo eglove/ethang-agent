@@ -49,6 +49,9 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     {
       McpCommand.ListServers => ListAsync(configs),
       McpCommand.CallTool call => CallAsync(configs, call, ct),
+      McpCommand.AddServer add => AddAsync(add.Spec, ct),
+      McpCommand.UpdateServer update => UpdateAsync(configs, update, ct),
+      McpCommand.RemoveServer remove => RemoveAsync(configs, remove, ct),
       _ => Task.FromResult<McpOutcome>(
           new McpOutcome.Failure("InvalidAction", "unknown command " + command.GetType().Name + ".")),
     };
@@ -108,7 +111,9 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     {
       PoolEntry entry = _entries.GetOrAdd(config.Name, _ => new PoolEntry());
       statuses.Add(new McpServerStatus(config.Name, config.ApprovalState, config.Transport,
-          config.CommandOrUrl, entry.State, entry.Tools, entry.Error, entry.Stderr));
+          config.CommandOrUrl, entry.State, entry.Tools, entry.Error, entry.Stderr,
+          config.WorkspaceId is null ? McpServerScope.Global : McpServerScope.Workspace,
+          config.GateMode));
     }
 
     return Task.FromResult<McpOutcome>(new McpOutcome.Status(statuses));
@@ -181,6 +186,176 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
         .CallToolAsync(call.Tool, call.Arguments.GetRawText(), ct).ConfigureAwait(false);
     return new McpOutcome.Called(result.Content, result.IsError);
   }
+
+  // ---- configuration: add, update, remove ----
+
+  /// <summary>Stores a new server and verifies its launch. The row is written first so
+  ///     the verification runs against exactly what the store will hand the pool later;
+  ///     a launch that cannot connect is removed again, so a failed add leaves nothing
+  ///     behind. The stored row is approved: configuring a server is the trust event,
+  ///     and the dialog's revoke is the way to withdraw it.</summary>
+  private async Task<McpOutcome> AddAsync(McpServerSpec spec, CancellationToken ct)
+  {
+    McpServerConfig candidate = spec.ToConfig(_workspaceId, McpApprovalState.Approved);
+    Result<McpServerConfig> stored = await Store(() => _store.AddAsync(candidate, ct)).ConfigureAwait(false);
+    if (!stored.IsSuccess)
+    {
+      return new McpOutcome.Failure(stored.Error.Code, stored.Error.Message);
+    }
+
+    McpServerConfig row = stored.Value;
+    Verified verified = await VerifyAsync(row, ct).ConfigureAwait(false);
+    if (verified.Failure is { } failure)
+    {
+      _ = await Store(() => _store.DeleteAsync(row.Id, _workspaceId, ct)).ConfigureAwait(false);
+      return new McpOutcome.Failure(failure.Code,
+          $"server '{row.Name}' was not stored: its launch could not be verified. {failure.Message} "
+          + "Nothing was added; correct the launch and run add again.");
+    }
+
+    return new McpOutcome.Added(row.Name, ScopeOf(row), row.ApprovalState, verified.Tools);
+  }
+
+  /// <summary>Applies a partial change to a stored server and verifies the resulting
+  ///     launch. The stored row is restored when the verification fails, so a rejected
+  ///     edit leaves the server exactly as it was. A change to the launch identity
+  ///     re-opens approval; a scope or gate change keeps the user's approval.</summary>
+  private async Task<McpOutcome> UpdateAsync(
+      IReadOnlyList<McpServerConfig> configs, McpCommand.UpdateServer update, CancellationToken ct)
+  {
+    McpServerConfig? existing = configs.FirstOrDefault(c => c.Name == update.Server);
+    if (existing is null)
+    {
+      return UnknownServer(update.Server, configs);
+    }
+
+    McpServerConfig candidate = update.Edit.AppliedTo(existing, _workspaceId, existing.ApprovalState);
+    McpServerConfig withApproval = candidate with
+    {
+      ApprovalState = LaunchChanged(existing, candidate) ? McpApprovalState.Pending : existing.ApprovalState,
+    };
+    Result<McpServerConfig> saved = await Store(() => _store.UpdateAsync(withApproval, ct)).ConfigureAwait(false);
+    if (!saved.IsSuccess)
+    {
+      return new McpOutcome.Failure(saved.Error.Code, saved.Error.Message);
+    }
+
+    McpServerConfig row = saved.Value;
+    ForgetSession(existing.Name);
+    Verified verified = await VerifyAsync(row, ct).ConfigureAwait(false);
+    if (verified.Failure is { } failure)
+    {
+      _ = await Store(() => _store.UpdateAsync(existing, ct)).ConfigureAwait(false);
+      return new McpOutcome.Failure(failure.Code,
+          $"server '{row.Name}' was not changed: the resulting launch could not be verified. {failure.Message} "
+          + "The stored configuration is unchanged; correct the change and run update again.");
+    }
+
+    return new McpOutcome.Updated(row.Name, ScopeOf(row), row.ApprovalState, verified.Tools);
+  }
+
+  /// <summary>Deletes a stored server and forgets its pooled session, so a later add of
+  ///     the same name starts from a fresh connect rather than a stale one.</summary>
+  private async Task<McpOutcome> RemoveAsync(
+      IReadOnlyList<McpServerConfig> configs, McpCommand.RemoveServer remove, CancellationToken ct)
+  {
+    McpServerConfig? existing = configs.FirstOrDefault(c => c.Name == remove.Server);
+    if (existing is null)
+    {
+      return UnknownServer(remove.Server, configs);
+    }
+
+    Result<bool> deleted = await Store(() => _store.DeleteAsync(existing.Id, _workspaceId, ct)).ConfigureAwait(false);
+    if (!deleted.IsSuccess)
+    {
+      return new McpOutcome.Failure(deleted.Error.Code, deleted.Error.Message);
+    }
+
+    ForgetSession(existing.Name);
+    return deleted.Value
+        ? new McpOutcome.Removed(existing.Name)
+        : new McpOutcome.Failure("McpServerNotFound",
+            $"server '{existing.Name}' was already gone; nothing was removed.");
+  }
+
+  /// <summary>The outcome of one verification connect: the tools the server answered
+  ///     with, or the failure that stopped it.</summary>
+  private sealed record Verified(IReadOnlyList<McpToolInfo> Tools, McpOutcome.Failure? Failure);
+
+  /// <summary>Connects one stored row once, lists its tools, and disposes the session:
+  ///     the mechanical proof that a launch works. Nothing is pooled and no tool is
+  ///     called - a server that answers with its tool list is reachable, and calling a
+  ///     tool to find out would run the server's side effects to test its wiring.</summary>
+  private async Task<Verified> VerifyAsync(McpServerConfig config, CancellationToken ct)
+  {
+    McpConnectResult connect = await _pool.ConnectAsync(config, ct).ConfigureAwait(false);
+    if (connect is McpConnectResult.Failure failed)
+    {
+      return new Verified([], new McpOutcome.Failure(failed.Code, failed.Message));
+    }
+
+    IMcpClientSession session = ((McpConnectResult.Success)connect).Session;
+    try
+    {
+      IReadOnlyList<McpToolInfo> tools = await session.ListToolsAsync(ct).ConfigureAwait(false);
+      return new Verified(tools, null);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      return new Verified([], new McpOutcome.Failure("McpConnectFailed",
+          "the server connected but did not answer with its tool list: " + ex.Message));
+    }
+    finally
+    {
+      await session.DisposeAsync().ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Drops a server's pooled entry, disposing any live session off the
+  ///     dispatch path. The next dispatch to that name connects afresh.</summary>
+  private void ForgetSession(string name)
+  {
+    if (_entries.TryRemove(name, out PoolEntry? entry) && entry.Session is { } session)
+    {
+      _ = Task.Run(() => session.DisposeAsync().AsTask(), CancellationToken.None);
+    }
+  }
+
+  /// <summary>Runs one store write, turning an implementation fault into a typed
+  ///     failure: a store that throws must fail the dispatch, never the turn.</summary>
+  private static async Task<Result<T>> Store<T>(Func<Task<Result<T>>> write)
+  {
+    try
+    {
+      return await write().ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+    {
+      return Result.Failure<T>(new DomainError("StorageUnavailable",
+          "the MCP server config store could not complete the write: " + ex.Message));
+    }
+  }
+
+  /// <summary>Whether a stored row's launch identity differs from the candidate's - the
+  ///     fields the user's approval was about. Scope and gate are not launch identity.</summary>
+  private static bool LaunchChanged(McpServerConfig existing, McpServerConfig candidate)
+  {
+    return !string.Equals(existing.Name, candidate.Name, StringComparison.Ordinal)
+        || existing.Transport != candidate.Transport
+        || !string.Equals(existing.CommandOrUrl, candidate.CommandOrUrl, StringComparison.Ordinal)
+        || !string.Equals(existing.ArgsJson, candidate.ArgsJson, StringComparison.Ordinal)
+        || !string.Equals(existing.EnvJson, candidate.EnvJson, StringComparison.Ordinal)
+        || !string.Equals(existing.HeadersJson, candidate.HeadersJson, StringComparison.Ordinal)
+        || !string.Equals(existing.PinnedVersion ?? "", candidate.PinnedVersion ?? "", StringComparison.Ordinal);
+  }
+
+  private static McpOutcome.Failure UnknownServer(string name, IReadOnlyList<McpServerConfig> configs) =>
+      new("McpServerNotFound",
+          $"no MCP server named '{name}' is configured. Configured: "
+          + (configs.Count == 0 ? "(none)" : string.Join(", ", configs.Select(c => c.Name))) + ".");
+
+  private static McpServerScope ScopeOf(McpServerConfig config) =>
+      config.WorkspaceId is null ? McpServerScope.Global : McpServerScope.Workspace;
 
   /// <summary>Whether the tool is mutating under the gate's classification (issue #109):
   ///     a destructive hint, a false read-only hint, or NO hint at all is mutating -

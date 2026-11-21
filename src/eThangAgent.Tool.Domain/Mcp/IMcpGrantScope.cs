@@ -19,4 +19,10 @@ public interface IMcpGrantScope
   ///     the listing filter: a scoped agent's list shows only servers it could
   ///     dispatch to, never the full config (no server-name leak).</summary>
   bool Reachable(string serverName);
+
+  /// <summary>Whether the ambient grant set reaches the whole MCP surface — the
+  ///     configuration gate: adding, changing, or removing a server widens or narrows
+  ///     what every later dispatch can reach, so it is reserved for an agent whose
+  ///     grants are not narrowed to named servers or tools.</summary>
+  bool CanManage { get; }
 }

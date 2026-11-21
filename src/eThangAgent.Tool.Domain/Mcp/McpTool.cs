@@ -17,7 +17,7 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
   private readonly IMcpGrantScope? _grants = grants;
 
   /// <summary>The wire name of every admitted action, in advertisement order.</summary>
-  private static readonly string[] ActionNames = ["list", "call"];
+  private static readonly string[] ActionNames = ["list", "call", "add", "update", "remove"];
 
   /// <inheritdoc />
   public ToolDefinition Definition { get; } = new(
@@ -27,13 +27,31 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber,
               ToolTimeout.ParameterDescription, Minimum: 1),
           new ToolParameter("action", ToolParameterType.Text,
-              "Exactly one of list, call (case-sensitive)."),
+              "Exactly one of list, call, add, update, remove (case-sensitive)."),
           new ToolParameter("server", ToolParameterType.Text,
-              "Required for call: the configured server name (see list)."),
+              "Required for call, update, remove; for add it is the new server's name."),
           new ToolParameter("tool", ToolParameterType.Text,
               "Required for call: the server-local tool name (see list)."),
           new ToolParameter("arguments", ToolParameterType.Text,
               "Optional for call: a JSON object of tool arguments (default {})."),
+          new ToolParameter("name", ToolParameterType.Text,
+              "Optional for update: the server's new name."),
+          new ToolParameter("transport", ToolParameterType.Text,
+              "Optional for add (default stdio); for update, the new transport: stdio or http."),
+          new ToolParameter("command", ToolParameterType.Text,
+              "Required for add: the stdio launch command or the http endpoint URL."),
+          new ToolParameter("args", ToolParameterType.TextArray,
+              "Optional for add/update: the launch arguments as an array of strings (default [])."),
+          new ToolParameter("env", ToolParameterType.ObjectValue,
+              "Optional for add/update: environment entries as an object of strings (default {})."),
+          new ToolParameter("headers", ToolParameterType.ObjectValue,
+              "Optional for add/update: static HTTP headers as an object of strings (default {})."),
+          new ToolParameter("scope", ToolParameterType.Text,
+              "Optional for add/update: global (default) or workspace."),
+          new ToolParameter("pinnedVersion", ToolParameterType.Text,
+              "Optional for add/update: the pinned install version; blank clears it."),
+          new ToolParameter("gate", ToolParameterType.Text,
+              "Optional for add/update: none (default) or mutating."),
       ],
       [ToolTimeout.ParameterName, "action"]);
 
@@ -46,26 +64,47 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
         + " timeoutSeconds is mandatory. action is exactly one of " + string.Join(", ", ActionNames)
         + " (case-sensitive)."
         + " list takes no other keys and reports the configured servers visible to this agent's grants with their"
-        + " approval state, transport, connection state, and - for connected servers - the cached tool list;"
-        + " it never connects anything."
+        + " approval state, transport, scope, gate, connection state, and - for connected servers - the cached tool"
+        + " list; it never connects anything."
         + " call requires server and tool and takes an optional arguments object (default {});"
         + " the first call to a server connects it lazily and caches its tool list; later calls reuse the session."
+        + " add requires server (the new name) and command (the stdio launch command or the http endpoint URL) and"
+        + " takes optional transport (stdio, the default, or http), args (array of strings, default []), env and"
+        + " headers (objects of strings, default {}), scope (global, the default, or workspace), pinnedVersion, and"
+        + " gate (none, the default, or mutating)."
+        + " update requires server (the configured name as it stands now) and at least one field to change - name,"
+        + " transport, command, args, env, headers, scope, pinnedVersion, or gate; an omitted field keeps its stored"
+        + " value, so a rename does not restate the launch."
+        + " remove requires server and deletes the row and its stored tokens."
+        + " add and update VERIFY the launch before reporting success: the server is connected once and must answer"
+        + " with its tool list. A server that cannot connect is not stored (add) or is left as it was (update), and"
+        + " the result names the failure. Verification never calls a tool on the server."
+        + " add stores the row approved - the model configuring a server is the trust event, and the user can revoke"
+        + " it in the MCP Servers dialog; update re-opens approval only when the launch itself changes (name,"
+        + " transport, command, args, env, headers, pinnedVersion), keeping the user's approval for a scope or gate"
+        + " change."
+        + " Management requires full MCP reach: an agent whose grants name specific servers or tools cannot add,"
+        + " update, or remove servers and is refused with GrantViolation."
         + " Servers connect only when approved; a pending or revoked server refuses with McpServerNotApproved."
         + " A server whose launch (command, args, env, headers, pinned version) changed since the session connected"
         + " reconnects under the new launch on the next dispatch."
         + " Output: list renders one annotation line '[mcp] N server(s) configured' then one line per server -"
-        + " 'name | approval | transport | state' where state is 'not connected', 'connected, N tool(s): a, b',"
-        + " or 'error: <message>'. call renders the server's text content verbatim; when the server marks the"
-        + " call failed the result is still delivered but flagged as an error."
+        + " 'name | approval | transport | scope | gate | state' where state is 'not connected',"
+        + " 'connected, N tool(s): a, b', or 'error: <message>'. call renders the server's text content verbatim;"
+        + " when the server marks the call failed the result is still delivered but flagged as an error."
+        + " add and update render '[mcp] added <name> | <approval> | <scope> | verified, N tool(s): a, b'"
+        + " ('updated' for update, and 'verified, 0 tool(s)' when the server advertises none);"
+        + " remove renders '[mcp] removed <name>'."
         + " Failures render 'Error [Code]: <message>'."
         + " Error codes: McpServerNotFound (unknown server name - run list), McpToolNotFound (unknown tool on a"
         + " connected server - run list), McpServerNotApproved (the server is pending or revoked - the user must"
         + " approve it), McpCallGated (the server gates mutating calls and this tool is not declared read-only -"
         + " the user can lift the gate in the MCP Servers dialog), GrantViolation (the resolved id is outside"
-        + " this agent's MCP grants - the spawn contract names what is reachable), McpConnectFailed (the server"
-        + " process or endpoint failed - the status entry appears in list), McpCallFailed (the call could not"
-        + " complete), StorageUnavailable (the server config store could not be read). Errors are safe to retry"
-        + " with corrected input.";
+        + " this agent's MCP grants, or management was attempted without full MCP reach - the spawn contract names"
+        + " what is reachable), McpConnectFailed (the server process or endpoint failed - the status entry appears"
+        + " in list, and for add/update the launch was not stored), McpDuplicateName (a server of that name is"
+        + " already configured in that scope), McpCallFailed (the call could not complete), StorageUnavailable (the"
+        + " server config store could not be read). Errors are safe to retry with corrected input.";
   }
 
   /// <inheritdoc />
@@ -103,21 +142,44 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
   // full-reach default (root agents, ungranted children, legacy wiring).
   private ToolResult? GrantRefusal(McpToolInput args)
   {
-    if (args.Action != McpAction.Call || _grants is not { } grantScope)
-    {
-      return null;
-    }
+    return _grants is not { } grantScope
+        ? null
+        : args.Action switch
+        {
+          McpAction.Call => RefuseCall(grantScope, args),
+          McpAction.Add or McpAction.Update or McpAction.Remove => RefuseManagement(grantScope, args.Action),
+          McpAction.List => null,
+          _ => null,
+        };
+  }
 
+  private static ToolResult? RefuseCall(IMcpGrantScope grantScope, McpToolInput args)
+  {
     string resolvedId = $"mcp.{args.Server}.{args.Tool}";
     return grantScope.RefusalFor(resolvedId) is { } refusal
         ? new ToolResult(refusal, true)
         : null;
   }
 
+  // Managing servers is a whole-surface act: an agent whose grants name individual
+  // servers or tools must not be able to widen its own reach by configuring one.
+  private static ToolResult? RefuseManagement(IMcpGrantScope grantScope, McpAction action)
+  {
+    return grantScope.CanManage
+        ? null
+        : new ToolResult($"Error [GrantViolation]: '{ActionText(action)}' configures MCP servers, which "
+            + "requires full MCP reach (the 'mcp' grant with no server or tool patterns). This agent's grants "
+            + "name specific servers or tools, so it can dispatch to them but cannot add, update, or remove "
+            + "servers. The user can configure the server in the MCP Servers dialog.", true);
+  }
+
   private static McpCommand CommandOf(McpToolInput args) => args.Action switch
   {
     McpAction.List => new McpCommand.ListServers(),
     McpAction.Call => new McpCommand.CallTool(args.Server!, args.Tool!, args.Arguments),
+    McpAction.Add => new McpCommand.AddServer(args.Spec!),
+    McpAction.Update => new McpCommand.UpdateServer(args.Server!, args.Edit!),
+    McpAction.Remove => new McpCommand.RemoveServer(args.Server!),
     _ => throw new InvalidOperationException("unreachable: action is a validated enum"),
   };
 
@@ -125,10 +187,25 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
   {
     McpOutcome.Status status => RenderStatus(status, args.Action == McpAction.List ? _grants : null),
     McpOutcome.Called call => new ToolResult(call.Content, call.IsError),
+    McpOutcome.Added added => new ToolResult(RenderWritten("added", added.Name, added.Scope,
+        added.Approval, added.Tools), false),
+    McpOutcome.Updated updated => new ToolResult(RenderWritten("updated", updated.Name, updated.Scope,
+        updated.Approval, updated.Tools), false),
+    McpOutcome.Removed removed => new ToolResult($"[mcp] removed {removed.Name}", false),
     McpOutcome.Failure failure => new ToolResult(
         $"Error [{failure.Code}]: {failure.Message}", true),
     _ => throw new InvalidOperationException("unreachable: outcome is a validated record family"),
   };
+
+  private static string RenderWritten(string verb, string name, McpServerScope scope,
+      McpApprovalState approval, IReadOnlyList<McpToolInfo> tools)
+  {
+    string toolList = tools.Count == 0
+        ? "verified, 0 tool(s)"
+        : string.Create(CultureInfo.InvariantCulture,
+            $"verified, {tools.Count} tool(s): {string.Join(", ", tools.Select(t => t.Name))}");
+    return $"[mcp] {verb} {name} | {ApprovalText(approval)} | {ScopeText(scope)} | {toolList}";
+  }
 
   private static ToolResult RenderStatus(McpOutcome.Status status, IMcpGrantScope? grants)
   {
@@ -164,8 +241,25 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
       McpConnectionState.Failed => $"error: {server.Error}",
       _ => throw new InvalidOperationException("unreachable: state is a validated enum"),
     };
-    return $"{server.Name} | {ApprovalText(server.Approval)} | {TransportText(server.Transport)} | {state}";
+    return $"{server.Name} | {ApprovalText(server.Approval)} | {TransportText(server.Transport)} | "
+        + $"{ScopeText(server.Scope)} | {GateText(server.GateMode)} | {state}";
   }
+
+  private static string ScopeText(McpServerScope scope) =>
+      scope == McpServerScope.Global ? "global" : "workspace";
+
+  private static string GateText(McpGateMode gate) =>
+      gate == McpGateMode.Mutating ? "mutating" : "none";
+
+  private static string ActionText(McpAction action) => action switch
+  {
+    McpAction.List => "list",
+    McpAction.Call => "call",
+    McpAction.Add => "add",
+    McpAction.Update => "update",
+    McpAction.Remove => "remove",
+    _ => "unknown",
+  };
 
   private static string ApprovalText(McpApprovalState state) => state switch
   {

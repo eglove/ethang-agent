@@ -25,6 +25,9 @@ public sealed class McpGrantScope(IReadOnlySet<string> entries) : IMcpGrantScope
     return Covers("mcp." + serverName);
   }
 
+  /// <inheritdoc />
+  public bool CanManage => Covers("mcp");
+
   private bool Covers(string resolvedId)
   {
     bool hasRoot = false;

@@ -39,6 +39,8 @@ public enum McpConnectionState
 /// <param name="Error">The failure message when State is Failed; else null.</param>
 /// <param name="Stderr">The captured stderr tail (connected or dead session), or null
 ///     when the transport captures none - the status view's WHY-it-failed text.</param>
+/// <param name="Scope">Where the row lives: global, or this workspace only.</param>
+/// <param name="GateMode">The row's per-call gate.</param>
 // CA1054/CA1056: deliberately raw text - for stdio transports this is a command
 // (not a URI at all); the same named deviation as McpServerConfig.
 #pragma warning disable CA1054, CA1056
@@ -50,7 +52,9 @@ public sealed record McpServerStatus(
     McpConnectionState State,
     IReadOnlyList<McpToolInfo> Tools,
     string? Error,
-    string? Stderr = null);
+    string? Stderr = null,
+    McpServerScope Scope = McpServerScope.Global,
+    McpGateMode GateMode = McpGateMode.None);
 #pragma warning restore CA1054, CA1056
 
 /// <summary>Commands the dispatch tool sends the seam (the closed command set).
@@ -68,6 +72,20 @@ public abstract record McpCommand
   /// <param name="Tool">The server-local tool name.</param>
   /// <param name="Arguments">The arguments object (empty object when omitted).</param>
   public sealed record CallTool(string Server, string Tool, JsonElement Arguments) : McpCommand;
+
+  /// <summary>Stores a new server, then connects it once to verify the launch.</summary>
+  /// <param name="Spec">The validated launch shape.</param>
+  public sealed record AddServer(McpServerSpec Spec) : McpCommand;
+
+  /// <summary>Applies a partial change to a stored server, then connects it once to
+  ///     verify the resulting launch.</summary>
+  /// <param name="Server">The configured server name, as it stands before the edit.</param>
+  /// <param name="Edit">The supplied fields; omitted fields keep their stored values.</param>
+  public sealed record UpdateServer(string Server, McpServerEdit Edit) : McpCommand;
+
+  /// <summary>Deletes a stored server and forgets its pooled session.</summary>
+  /// <param name="Server">The configured server name.</param>
+  public sealed record RemoveServer(string Server) : McpCommand;
 }
 
 /// <summary>Outcomes the seam returns (the closed outcome set). Failures carry
@@ -83,6 +101,27 @@ public abstract record McpOutcome
   /// <param name="IsError">True when the server reported the call itself failed
   ///     (CallToolResult.IsError) - the content is still the server's text.</param>
   public sealed record Called(string Content, bool IsError) : McpOutcome;
+
+  /// <summary>A server was stored and verified: it connected once and answered with its
+  ///     tool list.</summary>
+  /// <param name="Name">The stored server's name.</param>
+  /// <param name="Scope">Where the row lives.</param>
+  /// <param name="Approval">The row's approval state after the write.</param>
+  /// <param name="Tools">The tools the verification connect discovered.</param>
+  public sealed record Added(string Name, McpServerScope Scope, McpApprovalState Approval,
+      IReadOnlyList<McpToolInfo> Tools) : McpOutcome;
+
+  /// <summary>A server was changed and verified.</summary>
+  /// <param name="Name">The stored server's name after the edit.</param>
+  /// <param name="Scope">Where the row lives.</param>
+  /// <param name="Approval">The row's approval state after the write.</param>
+  /// <param name="Tools">The tools the verification connect discovered.</param>
+  public sealed record Updated(string Name, McpServerScope Scope, McpApprovalState Approval,
+      IReadOnlyList<McpToolInfo> Tools) : McpOutcome;
+
+  /// <summary>A server was deleted.</summary>
+  /// <param name="Name">The removed server's name.</param>
+  public sealed record Removed(string Name) : McpOutcome;
 
   /// <summary>A typed failure: unknown server/tool, unapproved server, connect
   ///     failure, call failure, or a storage fault.</summary>
