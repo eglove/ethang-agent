@@ -144,7 +144,8 @@ internal sealed partial class McpServersViewModel : ObservableObject
   [ObservableProperty]
   public partial IReadOnlyList<string> SelectedDecisions { get; set; } = [];
 
-  public bool IsFormOpen { get; private set; }
+  [ObservableProperty]
+  public partial bool IsFormOpen { get; private set; }
 
   public McpServersViewModel(IMcpServerStore store, IMcpServerAccess access, string workspaceId)
   {
