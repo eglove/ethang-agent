@@ -78,10 +78,14 @@ public static class AgentComposition
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
     ArgumentNullException.ThrowIfNull(host);
-    if (!Providers.IsKnown(providerName))
+    // THE GUARD IS OVER THE PROVIDERS THIS COMPOSITION WIRES, not over every id the vendor
+    // vocabulary knows: an id that is known but has no transport registered here would otherwise
+    // pass this check and throw from a provider switch below, which reports the wrong fault.
+    if (!WiredProviders.Contains(providerName))
     {
       throw new ArgumentException(
-          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}.",
+          $"Unknown provider '{providerName}'. Known providers: "
+          + $"{string.Join(", ", WiredProviders)}.",
           nameof(providerName));
     }
 
@@ -1832,6 +1836,12 @@ public static class AgentComposition
         settings.SkillDirectoriesGlobal, settings.SkillDirectoriesWorkspace,
         settings.WorkspaceRoot ?? string.Empty);
   }
+
+  /// <summary>The provider ids this composition registers a transport for, in the order a
+  ///     refusal names them. An id outside this set has no configuration, no transport, and no
+  ///     catalog, so the composition refuses it rather than throwing from a switch.
+  ///     </summary>
+  private static IReadOnlyList<string> WiredProviders { get; } = [Providers.OpenRouter];
 
   /// <summary>Wires the EXCLUSIVELY selected provider's chat transport: configuration,
   ///     a named HttpClient, and the session's single IModelProvider typed client. Only

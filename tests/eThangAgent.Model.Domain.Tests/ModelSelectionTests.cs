@@ -127,7 +127,7 @@ public class ModelSelectionTests
   [Fact]
   public void AnEmptyList_IsANamedFailureTellingTheUserToAddAModel()
   {
-    Result<ModelSelection> created = ModelSelection.Create([]);
+    Result<ModelSelection> created = ModelSelection.Create(Array.Empty<string>());
 
     Assert.False(created.IsSuccess);
     Assert.Equal("InvalidModelChoice", created.Error.Code);

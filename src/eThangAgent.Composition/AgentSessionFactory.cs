@@ -510,12 +510,14 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     if (!Providers.IsKnown(providerName))
     {
       return Result.Failure<string>(new DomainError("UnknownProvider",
-          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}."));
+          $"Unknown provider '{providerName}'. Known providers: "
+          + $"{string.Join(", ", ModelVendors.All)}."));
     }
 
     bool configured = providerName switch
     {
       Providers.OpenRouter => _settings.HasOpenRouter,
+      Providers.Cloudflare => false,
       _ => false,
     };
     if (!configured)

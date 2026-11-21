@@ -8,6 +8,7 @@
       "tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj",
       "tests/eThangAgent.Capability.Domain.Tests/eThangAgent.Capability.Domain.Tests.csproj",
       "tests/eThangAgent.ComputerUse.ACL.Tests/eThangAgent.ComputerUse.ACL.Tests.csproj",
+      "tests/eThangAgent.Cloudflare.ACL.Tests/eThangAgent.Cloudflare.ACL.Tests.csproj",
       "tests/eThangAgent.ComputerUse.Host.Tests/eThangAgent.ComputerUse.Host.Tests.csproj",
       "tests/eThangAgent.Conversation.Domain.Tests/eThangAgent.Conversation.Domain.Tests.csproj",
       "tests/eThangAgent.Desktop.Tests/eThangAgent.Desktop.Tests.csproj",

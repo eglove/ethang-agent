@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Cloudflare.ACL/eThangAgent.Cloudflare.ACL.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The ceiling and the opt-in skip have one source of truth. -->
+    <ProjectReference Include="../eThangAgent.TestSupport/eThangAgent.TestSupport.csproj" />
+  </ItemGroup>
+</Project>

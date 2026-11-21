@@ -151,7 +151,8 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   ///     same ids in different orders state DIFFERENT selections, because entry 1 is the model
   ///     that runs.</summary>
   public ModelSelection CurrentSelection()
-      => new([.. SelectedModels.Select(row => row.ModelId)], SelectedVariantOption.Variant, Retention);
+      => new([.. SelectedModels.Select(row => new ModelSelectionEntry(row.ModelId))],
+          SelectedVariantOption.Variant, Retention);
 
   /// <summary>The ordered row a move or a remove acts on.</summary>
   [ObservableProperty]

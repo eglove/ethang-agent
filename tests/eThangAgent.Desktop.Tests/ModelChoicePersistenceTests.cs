@@ -15,7 +15,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     reports a reordered list as Unchanged discards a user's edit, and a reopen that shows
 ///     anything but the stored head runs a model the user did not put first.</para>
 ///     <para>THE 'NO MODEL' BRANCH IS DELETED BEHAVIOUR, not relocated: the picker refuses to
-///     remove the last row and <see cref="ModelSelection.Create"/> refuses an empty
+///     remove the last row and <see cref="ModelSelection.Create(IEnumerable{string}, ModelVariant, RetentionPolicy)"/> refuses an empty
 ///     collection, so there is no null choice for the save path to substitute a default
 ///     for.</para></summary>
 public class ModelChoicePersistenceTests
