@@ -11,12 +11,14 @@ public sealed class ReferencesPromptProvider : ISystemPromptProvider
   /// <summary>The guidance text. It names the annotation the composer appends, so a model that
   ///     receives one knows where the paths came from.</summary>
   public const string Guidance =
-      "A message may name files with @path, and the harness resolves each one to the path it " +
-      "points at without reading it. A [references] annotation on the message lists those " +
-      "paths; nothing in it is file content. Read one only when you need what is inside it - " +
-      "you may already hold the file from an earlier turn, and a file you have already read " +
-      "costs nothing to skip. A quoted reference (@\"C:\\...\") also grants that path to the " +
-      "session, read-only, so the read tools reach it for the rest of the session.";
+      "A message may name a file or a skill with @name, and the harness resolves each one to " +
+      "what it names WITHOUT loading it: a file becomes its path, a skill becomes its name and " +
+      "description. A [references] annotation on the message lists them; nothing in it is file " +
+      "content or skill body. Fetch one only when you need it - you may already hold the file " +
+      "or the skill from an earlier turn, and what you already have costs nothing to skip. A " +
+      "file is read with the read tool and a skill with skill_view. A quoted reference " +
+      "(@\"C:\\...\") also grants that path to the session, read-only, so the read tools reach " +
+      "it for the rest of the session.";
 
   public string Build() => Guidance;
 }

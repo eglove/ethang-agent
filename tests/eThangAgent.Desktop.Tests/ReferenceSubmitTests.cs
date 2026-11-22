@@ -103,7 +103,7 @@ public class ReferenceSubmitTests
           WorkspaceRoot = root,
           SkillInvocation = skills.Length == 0 ? null : new SkillInvocationService(new FakeCatalog(skills)),
           References = new ReferenceResolver(
-              skills.Length == 0 ? null : new SkillInvocationService(new FakeCatalog(skills)),
+              skills.Length == 0 ? null : new FakeCatalog(skills),
               root,
               grants),
           PathGrants = grants,
@@ -119,9 +119,26 @@ public class ReferenceSubmitTests
     await h.Vm.SubmitAsync("/grill").ConfigureAwait(true);
     await h.Vm.WaitForTurnAsync().ConfigureAwait(true);
 
-    Assert.DoesNotContain(h.Vm.Transcript.Entries,
-        e => e is SystemMessageEntry s && s.Text.Contains("[skill invoked", StringComparison.Ordinal));
+    Assert.DoesNotContain(h.Vm.Transcript.Entries, e => e is SystemMessageEntry);
     Assert.Equal(["/grill"], h.Turns);
+  }
+
+  [Fact]
+  public async Task ASkillReferenceNamesTheSkillAndDoesNotInvokeIt()
+  {
+    // A skill reference is a pointer like a file reference: the model is told the skill exists
+    // and its body stays behind skill_view, so nothing is appended beneath the bubble.
+    using Harness h = Build(new Dictionary<string, string[]>(), Skill("grill"));
+
+    await h.Vm.SubmitAsync("use @grill on this").ConfigureAwait(true);
+    await h.Vm.WaitForTurnAsync().ConfigureAwait(true);
+
+    Assert.DoesNotContain(h.Vm.Transcript.Entries, e => e is ToolResultEntry);
+    Assert.DoesNotContain(h.Vm.Transcript.Entries, e => e is SystemMessageEntry);
+    string sent = Assert.Single(h.Turns);
+    Assert.StartsWith("use @grill on this", sent, StringComparison.Ordinal);
+    Assert.Contains("skill 'grill'", sent, StringComparison.Ordinal);
+    Assert.DoesNotContain("Body of grill", sent, StringComparison.Ordinal);
   }
 
   [Fact]

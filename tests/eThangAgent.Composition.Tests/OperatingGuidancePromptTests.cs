@@ -91,17 +91,19 @@ public class OperatingGuidancePromptTests
       Assert.Contains(StakeholderVoicePromptProvider.Guidance, SessionPrompt(), StringComparison.Ordinal);
 
   [Fact]
-  public void References_NameAPointerAndLeaveTheReadToTheModel()
+  public void References_NameAPointerAndLeaveTheFetchToTheModel()
   {
-    // A reference is a path the user wrote, not content the harness fetched: the guidance
-    // must not read as an instruction to read, because the model may already hold the file.
+    // A reference is a name the user wrote, not content the harness fetched - for a file AND
+    // for a skill. The guidance must not read as an instruction to load either one, because
+    // the model may already hold it.
     string guidance = ReferencesPromptProvider.Guidance;
 
-    Assert.Contains("@path", guidance, StringComparison.Ordinal);
+    Assert.Contains("@name", guidance, StringComparison.Ordinal);
     Assert.Contains("[references]", guidance, StringComparison.Ordinal);
-    Assert.Contains("without reading it", guidance, StringComparison.Ordinal);
-    Assert.Contains("Read one only when you need what is inside it", guidance, StringComparison.Ordinal);
-    Assert.Contains("may already hold the file", guidance, StringComparison.Ordinal);
+    Assert.Contains("WITHOUT loading it", guidance, StringComparison.Ordinal);
+    Assert.Contains("Fetch one only when you need it", guidance, StringComparison.Ordinal);
+    Assert.Contains("may already hold the file or the skill", guidance, StringComparison.Ordinal);
+    Assert.Contains("skill_view", guidance, StringComparison.Ordinal);
   }
 
   [Fact]

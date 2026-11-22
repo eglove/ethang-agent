@@ -1,4 +1,3 @@
-using eThangAgent.Agent.Application;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
@@ -24,7 +23,7 @@ public class ReferenceResolverTests
   private static SkillDefinition Skill(string name) => new(
       name, "Does " + name + " things", "Body of " + name, 1, SkillSource.BuiltIn);
 
-  private static ReferenceResolver Resolver(SkillInvocationService? skills = null,
+  private static ReferenceResolver Resolver(ISkillCatalog? skills = null,
       SessionPathGrants? grants = null)
     => new(skills, Root, grants);
 
@@ -36,22 +35,23 @@ public class ReferenceResolverTests
     ReferenceResolution r = await Resolver().ResolveAsync("check @notes.txt", Ct);
 
     Assert.Empty(r.Notices);
-    Assert.Empty(r.Blocks);
     Assert.Equal("check @notes.txt", r.MessageText);
     Assert.Contains("@notes.txt", r.Annotation, StringComparison.Ordinal);
     Assert.Contains("notes.txt", r.Annotation, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task TheAnnotationSaysReadingIsTheModelsCall()
+  public async Task TheAnnotationSaysFetchingIsTheModelsCall()
   {
-    // The message carries no file content, so the annotation must not read as an instruction
-    // to read: a model that already holds the file would spend a turn re-fetching it.
+    // The message carries no content, so the annotation must not read as an instruction to
+    // fetch: a model that already holds the file would spend a turn re-fetching it.
     ReferenceResolution r = await Resolver().ResolveAsync("@notes.txt", Ct);
 
     Assert.Contains("[references]", r.Annotation, StringComparison.Ordinal);
-    Assert.Contains("read one only if you need its contents", r.Annotation, StringComparison.Ordinal);
+    Assert.Contains("fetch one only if you need it", r.Annotation, StringComparison.Ordinal);
     Assert.Contains("may already be in your context", r.Annotation, StringComparison.Ordinal);
+    Assert.Contains("read tool", r.Annotation, StringComparison.Ordinal);
+    Assert.Contains("skill_view", r.Annotation, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -60,7 +60,7 @@ public class ReferenceResolverTests
     ReferenceResolution r = await Resolver().ResolveAsync("@a.txt and @b.txt", Ct);
 
     Assert.Empty(r.Notices);
-    Assert.Contains("2 paths", r.Annotation, StringComparison.Ordinal);
+    Assert.Contains("2 references", r.Annotation, StringComparison.Ordinal);
     int first = r.Annotation.IndexOf("@a.txt", StringComparison.Ordinal);
     int second = r.Annotation.IndexOf("@b.txt", StringComparison.Ordinal);
     Assert.True(first >= 0 && second > first, $"a.txt at {first}, b.txt at {second}");
@@ -98,34 +98,46 @@ public class ReferenceResolverTests
   }
 
   [Fact]
-  public async Task SkillReferenceAppendsTheInvokedSkillLine()
+  public async Task ASkillReferenceIsNamedWithItsDescriptionAndItsBodyIsNotFetched()
   {
-    SkillInvocationService skills = new(new FakeCatalog(Skill("grill")));
-    ReferenceResolution r = await Resolver(skills).ResolveAsync("@grill", Ct);
+    // A skill reference is a POINTER like a file reference: the annotation names the skill so
+    // the model knows it exists, and the body stays behind skill_view.
+    ReferenceResolution r = await Resolver(new FakeCatalog(Skill("grill"))).ResolveAsync("@grill", Ct);
 
     Assert.Empty(r.Notices);
-    Assert.Contains("[skill invoked: grill]", Assert.Single(r.Blocks).Content, StringComparison.Ordinal);
-    Assert.Equal(string.Empty, r.Annotation);
+    Assert.Contains("@grill", r.Annotation, StringComparison.Ordinal);
+    Assert.Contains("skill 'grill'", r.Annotation, StringComparison.Ordinal);
+    Assert.Contains("Does grill things", r.Annotation, StringComparison.Ordinal);
+    Assert.DoesNotContain("Body of grill", r.Annotation, StringComparison.Ordinal);
+    Assert.DoesNotContain("skill invoked", r.Annotation, StringComparison.Ordinal);
   }
 
   [Fact]
   public async Task ASkillNameWinsOverAFileOfTheSameName()
   {
-    SkillInvocationService skills = new(new FakeCatalog(Skill("notes.txt")));
-    ReferenceResolution r = await Resolver(skills).ResolveAsync("@notes.txt", Ct);
+    ReferenceResolution r = await Resolver(new FakeCatalog(Skill("notes.txt")))
+        .ResolveAsync("@notes.txt", Ct);
 
-    Assert.Contains("[skill invoked: notes.txt]", Assert.Single(r.Blocks).Content, StringComparison.Ordinal);
-    Assert.Equal(string.Empty, r.Annotation);
+    Assert.Contains("skill 'notes.txt'", r.Annotation, StringComparison.Ordinal);
   }
 
   [Fact]
   public async Task AnUnknownSkillNameFallsThroughToTheFileCheck()
   {
-    SkillInvocationService skills = new(new FakeCatalog(Skill("grill")));
-    ReferenceResolution r = await Resolver(skills).ResolveAsync("@alpha", Ct);
+    ReferenceResolution r = await Resolver(new FakeCatalog(Skill("grill"))).ResolveAsync("@alpha", Ct);
 
     Assert.Empty(r.Notices);
     Assert.Contains("@alpha", r.Annotation, StringComparison.Ordinal);
+    Assert.DoesNotContain("skill '", r.Annotation, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task AnAmbiguousSkillNamePostsANotice()
+  {
+    ReferenceResolution r = await Resolver(new FakeCatalog(Skill("dup"), Skill("dup")))
+        .ResolveAsync("@dup", Ct);
+
+    Assert.Contains("AmbiguousSkill", Assert.Single(r.Notices), StringComparison.Ordinal);
   }
 
   [Fact]
@@ -134,7 +146,6 @@ public class ReferenceResolverTests
     ReferenceResolution r = await Resolver().ResolveAsync("mail a@@b.txt please", Ct);
 
     Assert.Empty(r.Notices);
-    Assert.Empty(r.Blocks);
     Assert.Equal("mail a@b.txt please", r.MessageText);
     Assert.Equal(string.Empty, r.Annotation);
   }
@@ -145,7 +156,6 @@ public class ReferenceResolverTests
     ReferenceResolution r = await Resolver().ResolveAsync("plain text", Ct);
 
     Assert.Equal("plain text", r.MessageText);
-    Assert.Empty(r.Blocks);
     Assert.Empty(r.Notices);
     Assert.Equal(string.Empty, r.Annotation);
   }

@@ -1058,17 +1058,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   /// <summary>Resolves a message's references and sends it. A reference that resolves to
   ///     nothing posts a notice and the message still sends: the user asked for the message,
-  ///     and a path that named nothing is information rather than a reason to withhold it.
-  ///     <para>The bubble shows exactly what the user typed. A referenced file is NOT read:
-  ///     the annotation naming it rides the USER message to the model, which decides whether
-  ///     it needs the contents - it may already hold the file from an earlier turn. An invoked
-  ///     skill's system line is the one thing appended beneath the bubble, because invoking a
-  ///     skill IS the harness's act and its body is what the message asked for.</para></summary>
+  ///     and a name that resolved to nothing is information rather than a reason to withhold
+  ///     it.
+  ///     <para>The bubble shows exactly what the user typed, and nothing is appended beneath
+  ///     it: a reference is a POINTER, so neither a file is read nor a skill's body fetched.
+  ///     The annotation naming each reference rides the USER message to the model, which
+  ///     decides whether it needs what the reference points at - it may already hold it from
+  ///     an earlier turn.</para></summary>
   private async Task SendMessageAsync(string input)
   {
     string messageText = input;
     string annotation = string.Empty;
-    IReadOnlyList<ReferenceBlock> blocks = [];
     if (_references is not null)
     {
       ReferenceResolution resolved = await _references.ResolveAsync(input, CancellationToken.None).ConfigureAwait(true);
@@ -1079,13 +1079,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
       messageText = resolved.MessageText;
       annotation = resolved.Annotation;
-      blocks = resolved.Blocks;
-    }
-
-    foreach (ReferenceBlock block in blocks)
-    {
-      Transcript.AddToolResult(block.ToolName, ReferenceBlockSummary(block.Content), block.Content,
-          isError: false, title: "reference");
     }
 
     // The annotation travels with the message, on the same user turn: a reference is part of
@@ -1106,16 +1099,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>The message text with its reference annotation appended, or the text alone when
-  ///     the message names no files.</summary>
+  ///     the message names nothing.</summary>
   private static string WithAnnotation(string text, string annotation) =>
       annotation.Length == 0 ? text : text + Environment.NewLine + Environment.NewLine + annotation;
-
-  /// <summary>The first line of a reference block, used as its card summary.</summary>
-  private static string ReferenceBlockSummary(string content)
-  {
-    int newline = content.IndexOf('\n', StringComparison.Ordinal);
-    return newline < 0 ? content : content[..newline].TrimEnd('\r');
-  }
 
 
   /// <summary>Resolves a slash input through the closed command registry. A registered name

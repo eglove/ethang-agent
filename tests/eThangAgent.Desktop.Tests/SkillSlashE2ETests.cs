@@ -175,15 +175,18 @@ public class SkillSlashE2ETests
       Assert.Contains(last, m => m.Role == "tool");
 
       // ── Turn 2: the DESKTOP reference path at the view-model seam. ────────
+      // A reference is a POINTER, not an invocation: the model is told which skill the
+      // message names and what it does, and the body stays behind skill_view. No second
+      // invocation message is appended, and the user's own text is what travels.
       _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletion("reference done"));
       await vm.RunTurnAsync($"run @{SkillName}").WaitAsync(TestCeiling.Value, TestContext.Current.CancellationToken);
 
       last = MessagesOf(host.Mock.LastChatRequestBody!);
-      int slashInvocation = last.FindLastIndex(IsInvocationSystem);
-      Assert.True(slashInvocation >= 0, "no invocation message in the reference request");
-      Assert.Contains(SkillBody, last[slashInvocation].Content, StringComparison.Ordinal);
-      int userIndex = last.FindIndex(m => m.Role == "user" && m.Content == $"run @{SkillName}");
-      Assert.True(userIndex > slashInvocation, "the invocation message must precede the user message");
+      Assert.Equal(1, last.Count(IsInvocationSystem)); // the tool path's one; the reference adds none
+      string referenceTurn = Assert.Single(last, m => m.Role == "user"
+          && m.Content.StartsWith($"run @{SkillName}", StringComparison.Ordinal)).Content;
+      Assert.Contains($"skill '{SkillName}'", referenceTurn, StringComparison.Ordinal);
+      Assert.DoesNotContain(SkillBody, referenceTurn, StringComparison.Ordinal);
 
       // ── Turn 3: an unknown slash name is a plain message — no injection. ──
       _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletion("plain"));

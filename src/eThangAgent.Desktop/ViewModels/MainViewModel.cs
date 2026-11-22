@@ -3446,7 +3446,8 @@ internal sealed partial class MainViewModel : ObservableObject
           // A reference names a path and invokes a skill; nothing is read, so the seam needs no
           // tool surface. The resolver's roots are the read tools' roots, so a path the tools
           // could open is never refused here.
-          References = new ReferenceResolver(session.SkillInvocation, session.WorkspaceRoot,
+          References = new ReferenceResolver(session.Services.GetService<ISkillCatalog>(),
+              session.WorkspaceRoot,
               session.Services.GetService<SessionPathGrants>(), ReadOnlyResolverOf(session)),
           PathGrants = session.Services.GetService<SessionPathGrants>(),
           ReferenceIndexRefresh = fileIndex is null ? null : () => fileIndex.RefreshAsync(),
