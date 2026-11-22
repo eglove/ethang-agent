@@ -11,8 +11,9 @@ namespace eThangAgent.Desktop;
 /// <param name="ManagementKey">The optional OpenRouter management key.</param>
 /// <param name="CloudflareAccountId">The Cloudflare account id.</param>
 /// <param name="CloudflareApiToken">The Cloudflare API token.</param>
+/// <param name="CloudflareGatewayId">The optional Cloudflare AI Gateway id.</param>
 internal sealed record PersistedSettings(string? OpenRouterKey, string? ManagementKey,
-    string? CloudflareAccountId, string? CloudflareApiToken);
+    string? CloudflareAccountId, string? CloudflareApiToken, string? CloudflareGatewayId = null);
 
 /// <summary>Writes a confirmed <see cref="SettingsUpdate"/> to the app preference store.
 ///     <para>ONE WRITER, TWO CALLERS. The main window's shell and the launcher's Settings entry
@@ -44,7 +45,8 @@ internal sealed class SettingsPersistence(IAppPreferenceStore? preferences, IApi
         Normalize(update.OpenRouterApiKey),
         Normalize(update.OpenRouterManagementKey),
         Normalize(update.CloudflareAccountId),
-        Normalize(update.CloudflareApiToken));
+        Normalize(update.CloudflareApiToken),
+        Normalize(update.CloudflareGatewayId));
 
     await PersistTextAsync(update, persisted).ConfigureAwait(false);
     PersistScoped(update, preferredProviderId);
@@ -108,6 +110,10 @@ internal sealed class SettingsPersistence(IAppPreferenceStore? preferences, IApi
     await PersistApiKeyAsync(CloudflareSettings.AccountIdPreferenceKey, persisted.CloudflareAccountId)
         .ConfigureAwait(false);
     await PersistApiKeyAsync(CloudflareSettings.ApiTokenPreferenceKey, persisted.CloudflareApiToken)
+        .ConfigureAwait(false);
+    // The gateway id is not a secret: it is an ordinary preference, cleared by a blank field on
+    // the same terms as the base URL beside it.
+    await PersistPreferenceAsync(CloudflareSettings.GatewayIdPreferenceKey, persisted.CloudflareGatewayId)
         .ConfigureAwait(false);
     await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
         update.CommitStyle.ToString()).ConfigureAwait(false);

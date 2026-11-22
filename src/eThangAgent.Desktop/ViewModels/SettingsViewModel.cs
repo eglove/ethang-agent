@@ -47,6 +47,10 @@ internal sealed record SettingsValues
   ///     Masked exactly as the OpenRouter key is.</summary>
   public string? CloudflareApiToken { get; init; }
 
+  /// <summary>The Cloudflare AI Gateway id the dialog opens with, or null when calls go to
+  ///     Workers AI directly. Not a secret, so it is shown in the clear.</summary>
+  public string? CloudflareGatewayId { get; init; }
+
   public CommitStyle CommitStyle { get; init; } = CommitStyle.Conventional;
   public IReadOnlyList<CompactionModelOption>? CompactionModels { get; init; }
   public CompactionModelOption? SelectedCompactionModel { get; init; }
@@ -122,7 +126,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     IReadOnlyList<SessionFileEntry>? GlobalSessionFiles = null,
     IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null,
     string? CloudflareAccountId = null,
-    string? CloudflareApiToken = null);
+    string? CloudflareApiToken = null,
+    string? CloudflareGatewayId = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -233,6 +238,14 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(HasCloudflareCredential))]
   [NotifyPropertyChangedFor(nameof(CloudflareStatus))]
   public partial string CloudflareApiToken { get; set; }
+
+  /// <summary>The Cloudflare AI Gateway id as raw text - blank means calls go to Workers AI
+  ///     directly. Optional: the credential is complete without it, so it gates neither Save nor
+  ///     the vendor's availability.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string CloudflareGatewayId { get; set; }
 
   /// <summary>Whether both halves of the Cloudflare credential are present in the form. The
   ///     provider is offered only when both are, so the dialog states which half is missing
@@ -489,8 +502,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public string? ValidationError =>
       Validate(OpenRouterKey)
       ?? Validate(OpenRouterManagementKey)
-      ?? Validate(CloudflareAccountId)
-      ?? Validate(CloudflareApiToken)
+      ?? ValidateCloudflare()
       ?? ValidateMaxConcurrent(MaxConcurrentAgentsText)
       ?? ValidateDuration(WatchdogTickText, "Tick interval")
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
@@ -532,6 +544,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 Normalize(OpenRouterBaseUrlText), ComputerUse,
                 CloudflareAccountId: Normalize(CloudflareAccountId),
                 CloudflareApiToken: Normalize(CloudflareApiToken),
+                CloudflareGatewayId: Normalize(CloudflareGatewayId),
                 SkillRegistryDefaultTarget: SkillRegistryTarget,
                 OpenRouterManagementKey: Normalize(OpenRouterManagementKey),
                 RootTurnIdleText: Normalize(RootTurnIdleText),
@@ -696,6 +709,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     OpenRouterManagementKey = values.OpenRouterManagementKey ?? string.Empty;
     CloudflareAccountId = values.CloudflareAccountId ?? string.Empty;
     CloudflareApiToken = values.CloudflareApiToken ?? string.Empty;
+    CloudflareGatewayId = values.CloudflareGatewayId ?? string.Empty;
     OpenRouterBaseUrlText = values.OpenRouterBaseUrlText ?? string.Empty;
     SkillRegistryTarget = values.SkillRegistryDefaultTarget ?? string.Empty;
   }
@@ -756,6 +770,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnCloudflareAccountIdChanged(string value) => OnCloudflareCredentialChanged();
 
   partial void OnCloudflareApiTokenChanged(string value) => OnCloudflareCredentialChanged();
+
+  partial void OnCloudflareGatewayIdChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   /// <summary>Both halves of the Cloudflare credential are one fact, so editing either requeries
   ///     the same commands and retires the same result.</summary>
@@ -831,6 +847,15 @@ internal sealed partial class SettingsViewModel : ObservableObject
         ? "API keys cannot contain whitespace."
         : null;
   }
+
+  /// <summary>The first validation problem among the three Cloudflare fields, or null when
+  ///     clean. The gateway id is optional but is not whitespace-bearing either: it travels as a
+  ///     header value, where a space would be a malformed request rather than a typo.
+  ///     </summary>
+  private string? ValidateCloudflare() =>
+      Validate(CloudflareAccountId)
+      ?? Validate(CloudflareApiToken)
+      ?? Validate(CloudflareGatewayId);
 
   /// <summary>Returns the validation problem with a labeled base-URL text, or null
   ///     when it is a legal entry: blank (cleared), or an absolute URI — the same rule

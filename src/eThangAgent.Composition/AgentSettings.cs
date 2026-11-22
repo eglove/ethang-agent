@@ -37,8 +37,12 @@ public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl, string? Man
 ///     made. The credential is APP-WIDE: it is not scoped to a workspace and is not
 ///     duplicated per window. Hosts source it themselves (the Desktop reads it from app
 ///     preferences via the Settings modal) and overlay it with
-///     <see cref="AgentSettings.WithCloudflareCredential"/>.</summary>
-public sealed record CloudflareSettings(string? AccountId, string? ApiToken)
+///     <see cref="AgentSettings.WithCloudflareCredential"/>.
+///     <para>THE GATEWAY ID IS OPTIONAL AND NOT A SECRET. It names the AI Gateway every
+///     inference call is routed through, so it is stored as an ordinary preference rather than
+///     through the key protector, and a blank id means calls go to Workers AI directly.</para>
+///     </summary>
+public sealed record CloudflareSettings(string? AccountId, string? ApiToken, string? GatewayId = null)
 {
   /// <summary>The Cloudflare API host, before any account-scoped path.</summary>
 #pragma warning disable S1075 // the provider's documented public host, not a machine-local path
@@ -56,6 +60,10 @@ public sealed record CloudflareSettings(string? AccountId, string? ApiToken)
   /// <summary>App-preference key the Desktop stores the (protected) Cloudflare API token
   ///     under.</summary>
   public const string ApiTokenPreferenceKey = "cloudflare_api_token";
+
+  /// <summary>App-preference key the Desktop stores the optional AI Gateway id under. It is not
+  ///     a secret, so it is a plaintext preference.</summary>
+  public const string GatewayIdPreferenceKey = "cloudflare_gateway_id";
 }
 
 /// <summary>Everything a host needs before building the core. ApiKeys may be null —
@@ -101,7 +109,8 @@ public sealed record AgentSettings(
   {
     Cloudflare = new CloudflareSettings(
         accountId ?? Cloudflare?.AccountId,
-        apiToken ?? Cloudflare?.ApiToken),
+        apiToken ?? Cloudflare?.ApiToken,
+        Cloudflare?.GatewayId),
   };
 
   /// <summary>Returns the same settings with the Cloudflare credential replaced by exactly what
@@ -111,12 +120,14 @@ public sealed record AgentSettings(
   ///     previous value.</summary>
   /// <param name="accountId">The account id, or null when the field was cleared.</param>
   /// <param name="apiToken">The API token, or null when the field was cleared.</param>
-  public AgentSettings WithCloudflareCredentialSaved(string? accountId, string? apiToken) => this with
-  {
-    Cloudflare = accountId is null && apiToken is null
-        ? null
-        : new CloudflareSettings(accountId, apiToken),
-  };
+  /// <param name="gatewayId">The AI Gateway id, or null when the field was cleared.</param>
+  public AgentSettings WithCloudflareCredentialSaved(string? accountId, string? apiToken,
+      string? gatewayId = null) => this with
+      {
+        Cloudflare = accountId is null && apiToken is null && gatewayId is null
+            ? null
+            : new CloudflareSettings(accountId, apiToken, gatewayId),
+      };
 
   /// <summary>Returns the same settings with the provider API key overlaid. Null
   ///     clears the key — the provider stops being offered. Hosts use this to lift

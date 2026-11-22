@@ -113,7 +113,8 @@ internal class App : Application
     // force the moment a workspace opens.
     AgentSettings applied = boot.Settings.WithApiKeys(persisted.OpenRouterKey)
         .WithManagementKey(persisted.ManagementKey)
-        .WithCloudflareCredentialSaved(persisted.CloudflareAccountId, persisted.CloudflareApiToken);
+        .WithCloudflareCredentialSaved(persisted.CloudflareAccountId, persisted.CloudflareApiToken,
+            persisted.CloudflareGatewayId);
     host.Bootstrap = boot with
     {
       Settings = applied,

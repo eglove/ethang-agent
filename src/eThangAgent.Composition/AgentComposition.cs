@@ -1955,13 +1955,15 @@ public static class AgentComposition
     }
 
     CloudflareCredentialCarrier carrier = new();
-    carrier.Set(settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken);
+    carrier.Set(settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken,
+        settings.Cloudflare?.GatewayId);
 
     CloudflareConfiguration configuration = new(
         settings.Cloudflare?.AccountId,
         settings.Cloudflare?.ApiToken,
         new Uri(CloudflareSettings.ApiBaseUrl),
-        carrier);
+        carrier,
+        settings.Cloudflare?.GatewayId);
 
     return services
         .AddSingleton(carrier)

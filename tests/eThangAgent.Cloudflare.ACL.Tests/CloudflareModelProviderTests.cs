@@ -22,7 +22,8 @@ public class CloudflareModelProviderTests
   private const string ApiToken = "token-abc";
   private const string ModelId = "@cf/meta/llama-3.1-8b-instruct";
 
-  private static CloudflareConfiguration Configuration() => new(AccountId, ApiToken);
+  private static CloudflareConfiguration Configuration(string? gatewayId = null) =>
+      new(AccountId, ApiToken, GatewayId: gatewayId);
 
   private static CloudflareModelProvider Provider(FakeHttpMessageHandler handler)
       => new(new HttpClient(handler), Configuration());
@@ -64,6 +65,47 @@ public class CloudflareModelProviderTests
         $"https://api.cloudflare.com/accounts/{AccountId}/ai/run/{ModelId}",
         request.RequestUri!.AbsoluteUri);
     Assert.Equal("Bearer " + ApiToken, request.Headers.Authorization!.ToString());
+  }
+
+  [Fact]
+  public async Task ARequest_CarriesTheGatewayId_WhenOneIsConfigured()
+  {
+    FakeHttpMessageHandler handler = FakeHttpMessageHandler.Json(PlainResult);
+
+    Result<ModelResponse> sent = await new CloudflareModelProvider(new HttpClient(handler),
+            Configuration("my-gateway"))
+        .SendAsync(Model(), new ModelRequest([]), TestContext.Current.CancellationToken);
+
+    Assert.True(sent.IsSuccess, sent.Error?.Message);
+    HttpRequestMessage request = Assert.Single(handler.Requests);
+    Assert.Equal(["my-gateway"], request.Headers.GetValues("cf-aig-gateway-id"));
+    // The gateway rides BESIDE the credential, never instead of it.
+    Assert.Equal("Bearer " + ApiToken, request.Headers.Authorization!.ToString());
+  }
+
+  [Fact]
+  public async Task AStreamingRequest_CarriesTheGatewayId_Too()
+  {
+    FakeHttpMessageHandler handler = FakeHttpMessageHandler.Sse(
+        "data: {\"response\":\"hi\"}\n\n");
+
+    _ = await new CloudflareModelProvider(new HttpClient(handler), Configuration("my-gateway"))
+        .SendStreamingAsync(Model(), new ModelRequest([]), ct: TestContext.Current.CancellationToken);
+
+    HttpRequestMessage request = Assert.Single(handler.Requests);
+    Assert.Equal(["my-gateway"], request.Headers.GetValues("cf-aig-gateway-id"));
+  }
+
+  [Fact]
+  public async Task ARequest_CarriesNoGatewayHeader_WhenNoneIsConfigured()
+  {
+    FakeHttpMessageHandler handler = FakeHttpMessageHandler.Json(PlainResult);
+
+    Result<ModelResponse> sent = await Provider(handler)
+        .SendAsync(Model(), new ModelRequest([]), TestContext.Current.CancellationToken);
+
+    Assert.True(sent.IsSuccess, sent.Error?.Message);
+    Assert.False(Assert.Single(handler.Requests).Headers.Contains("cf-aig-gateway-id"));
   }
 
   [Fact]

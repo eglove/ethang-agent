@@ -137,6 +137,7 @@ internal partial class MainWindow : Window
       OpenRouterKey = _vm!.ConfiguredOpenRouterKey,
       CloudflareAccountId = _vm.ConfiguredCloudflareAccountId,
       CloudflareApiToken = _vm.ConfiguredCloudflareApiToken,
+      CloudflareGatewayId = _vm.ConfiguredCloudflareGatewayId,
       CommitStyle = _vm.ConfiguredCommitStyle,
       CompactionModels = await _vm.GetCompactionOptionsAsync(),
       SelectedCompactionModel = await _vm.GetSelectedCompactionModelAsync(),

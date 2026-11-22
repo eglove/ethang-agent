@@ -475,6 +475,10 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     unset or settings editing is disabled).</summary>
   public string? ConfiguredCloudflareApiToken => _settings?.Cloudflare?.ApiToken;
 
+  /// <summary>The configured Cloudflare AI Gateway id — the settings modal's prefill (null when
+  ///     unset or settings editing is disabled).</summary>
+  public string? ConfiguredCloudflareGatewayId => _settings?.Cloudflare?.GatewayId;
+
   public bool ConfiguredComputerUse => _settings?.ComputerUse ?? false;
 
   /// <summary>The compaction-handoff choice the settings modal prefills (issue #234).
@@ -1165,7 +1169,8 @@ internal sealed partial class MainViewModel : ObservableObject
     // restored from the value it replaced.
     _settings = rebuilt.WithApiKeys(persisted.OpenRouterKey)
         .WithManagementKey(persisted.ManagementKey)
-        .WithCloudflareCredentialSaved(persisted.CloudflareAccountId, persisted.CloudflareApiToken);
+        .WithCloudflareCredentialSaved(persisted.CloudflareAccountId, persisted.CloudflareApiToken,
+            persisted.CloudflareGatewayId);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
     PushLiveKeys(persisted.OpenRouterKey, persisted.ManagementKey, _settings);
@@ -1292,7 +1297,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
       if (services.GetService<CloudflareCredentialCarrier>() is { } cloudflare)
       {
-        cloudflare.Set(settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken);
+        cloudflare.Set(settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken,
+            settings.Cloudflare?.GatewayId);
       }
     }
   }
@@ -1352,15 +1358,16 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
   /// <summary>The Cloudflare credential a store-less rebind carries, or null when the update
-  ///     states neither half. Blank text is a cleared field, not a configured one.</summary>
+  ///     states no member at all. Blank text is a cleared field, not a configured one.</summary>
   /// <param name="update">The confirmed update.</param>
   private static CloudflareSettings? BindCloudflare(SettingsUpdate update)
   {
     string? accountId = Normalize(update.CloudflareAccountId);
     string? apiToken = Normalize(update.CloudflareApiToken);
-    return accountId is null && apiToken is null
+    string? gatewayId = Normalize(update.CloudflareGatewayId);
+    return accountId is null && apiToken is null && gatewayId is null
         ? null
-        : new CloudflareSettings(accountId, apiToken);
+        : new CloudflareSettings(accountId, apiToken, gatewayId);
   }
 
   /// <summary>The vendors this build can serve a session with, as the shell's own surfaces name

@@ -509,6 +509,7 @@ public class ShellViewModelTests
     Assert.Equal(
         [OpenRouterSettings.ManagementKeyPreferenceKey,
          CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
+         CloudflareSettings.GatewayIdPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
@@ -537,6 +538,7 @@ public class ShellViewModelTests
     Assert.Equal(
         [OpenRouterSettings.PreferenceKey, OpenRouterSettings.ManagementKeyPreferenceKey,
          CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
+         CloudflareSettings.GatewayIdPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
@@ -577,6 +579,7 @@ public class ShellViewModelTests
     Assert.Equal(
         [OpenRouterSettings.ManagementKeyPreferenceKey,
          CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
+         CloudflareSettings.GatewayIdPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,

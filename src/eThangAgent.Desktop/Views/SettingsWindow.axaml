@@ -66,6 +66,9 @@
           <TextBox x:Name="CloudflareApiTokenBox" Text="{Binding CloudflareApiToken}"
                    PasswordChar="{Binding KeyPasswordChar}"
                    PlaceholderText="Cloudflare API token"/>
+          <TextBox x:Name="CloudflareGatewayIdBox" Text="{Binding CloudflareGatewayId}"
+                   PlaceholderText="AI Gateway id (optional)"
+                   ToolTip.Tip="Optional. When set, every Workers AI call is routed through this AI Gateway, which is what gives it logging, caching, and rate limiting. Leave blank to call Workers AI directly."/>
           <StackPanel Orientation="Horizontal" Spacing="8">
             <Button x:Name="TestCloudflareButton" Content="{Binding CloudflareTestLabel}"
                     Command="{Binding TestCloudflareCommand}"
@@ -76,7 +79,7 @@
                      TextWrapping="Wrap" FontSize="12"
                      IsVisible="{Binding HasCloudflareTestResult}"/>
           <TextBlock
-              Text="Both fields are needed: Cloudflare models appear in the model search only while an account id and an API token are configured. Test pulls this account's models with what is in the fields, so a wrong credential is caught before it is saved. Saving then makes those models appear in the model search of the agents already open, with no restart. The credential applies to every workspace and is stored encrypted on this machine (Windows DPAPI), exactly like the OpenRouter key. Leave a field blank to remove it; clearing either removes Cloudflare from the model search. The token needs Workers AI read access on that account."
+              Text="The account id and API token are both needed: Cloudflare models appear in the model search only while both are configured. The gateway id is optional - it routes every call through that AI Gateway so its logging, caching, and rate limiting apply. Test pulls this account's models with what is in the fields, so a wrong credential is caught before it is saved. Saving then makes those models appear in the model search of the agents already open, with no restart. The credential applies to every workspace and is stored encrypted on this machine (Windows DPAPI), exactly like the OpenRouter key. Leave a field blank to remove it; clearing either removes Cloudflare from the model search. The token needs Workers AI read access on that account."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>

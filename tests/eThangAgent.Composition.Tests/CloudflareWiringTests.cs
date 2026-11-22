@@ -28,12 +28,13 @@ public class CloudflareWiringTests
   private static readonly Uri UnreachableBaseUrl = new("http://127.0.0.1:1");
 
   private static AgentSettings Settings(string? openRouterKey = "sk-or-test",
-      string? cloudflareAccountId = "acct-1", string? cloudflareApiToken = "token-1") => new(
+      string? cloudflareAccountId = "acct-1", string? cloudflareApiToken = "token-1",
+      string? cloudflareGatewayId = null) => new(
       new OpenRouterSettings(openRouterKey, UnreachableBaseUrl),
       new AgentRunOptions(null, 2),
       Cloudflare: cloudflareAccountId is null && cloudflareApiToken is null
           ? null
-          : new CloudflareSettings(cloudflareAccountId, cloudflareApiToken));
+          : new CloudflareSettings(cloudflareAccountId, cloudflareApiToken, cloudflareGatewayId));
 
   private static ServiceProvider Build(TestAppDatabase database, AgentSettings settings,
       string providerName) =>
@@ -156,6 +157,24 @@ public class CloudflareWiringTests
     CloudflareConfiguration configuration = services.GetRequiredService<CloudflareConfiguration>();
     Assert.False(configuration.IsConfigured);
     Assert.Null(configuration.EffectiveAccountId);
+  }
+
+  [Fact]
+  public void TheConfiguredGateway_IsWhatTheTransportNames_AndAClearedOneStopsNamingIt()
+  {
+    using TestAppDatabase dbservices = TestAppDatabase.Create();
+    using ServiceProvider services = Build(dbservices,
+        Settings(cloudflareGatewayId: "gw-1"), Providers.OpenRouter);
+    CloudflareConfiguration configuration = services.GetRequiredService<CloudflareConfiguration>();
+    Assert.Equal("gw-1", configuration.EffectiveGatewayId);
+
+    CloudflareCredentialCarrier carrier = services.GetRequiredService<CloudflareCredentialCarrier>();
+    carrier.Set("acct-2", "token-2");
+
+    // The carrier is authoritative, so a save that states no gateway clears the one the
+    // container was built with rather than resurrecting it.
+    Assert.Null(configuration.EffectiveGatewayId);
+    Assert.Equal("acct-2", configuration.EffectiveAccountId);
   }
 
   [Fact]
@@ -323,7 +342,7 @@ public class CloudflareWiringTests
     try
     {
       string root = TestTempRoot.CreateDirectory("ethang-cf-ship-root").FullName;
-      AgentSettings settings = Settings().WithWorkspaceRoot(root);
+      AgentSettings settings = Settings(cloudflareGatewayId: "gw-1").WithWorkspaceRoot(root);
       RemoteHostSupervisor supervisor = new("conv-cf", scratch, settings,
           Path.Combine(scratch, "app.db"), _ => { });
       try
@@ -336,6 +355,7 @@ public class CloudflareWiringTests
 
         Assert.Equal("acct-1", shipped.Cloudflare!.AccountId);
         Assert.Equal("token-1", shipped.Cloudflare.ApiToken);
+        Assert.Equal("gw-1", shipped.Cloudflare.GatewayId);
         Assert.True(shipped.HasCloudflare);
       }
       finally

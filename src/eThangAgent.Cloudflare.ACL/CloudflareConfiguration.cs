@@ -18,13 +18,18 @@ namespace eThangAgent.Cloudflare.ACL;
 /// <param name="BaseUrl">The API host, or null for <see cref="DefaultBaseUrl"/>.</param>
 /// <param name="Live">The live credential carrier, or null to read the positional values.
 /// </param>
+/// <param name="GatewayId">The AI Gateway every inference call is routed through, or null to
+///     call Workers AI directly.</param>
 public sealed record CloudflareConfiguration(string? AccountId, string? ApiToken, Uri? BaseUrl = null,
-    CloudflareCredentialCarrier? Live = null)
+    CloudflareCredentialCarrier? Live = null, string? GatewayId = null)
 {
   /// <summary>The Cloudflare API host every endpoint is built on.</summary>
 #pragma warning disable S1075 // the provider's documented public host, not a machine-local path
   public const string DefaultBaseUrl = "https://api.cloudflare.com";
 #pragma warning restore S1075
+
+  /// <summary>The header naming the AI Gateway an inference call is routed through.</summary>
+  public const string GatewayIdHeader = "cf-aig-gateway-id";
 
   /// <summary>The API host this configuration reaches, defaulted when none was supplied.
   ///     </summary>
@@ -42,12 +47,32 @@ public sealed record CloudflareConfiguration(string? AccountId, string? ApiToken
   ///     otherwise.</summary>
   public string? EffectiveApiToken => Live is null ? ApiToken : Live.ApiToken;
 
+  /// <summary>The AI Gateway id a call names now: the carrier's when one is wired, the snapshot
+  ///     otherwise. Null means no gateway.</summary>
+  public string? EffectiveGatewayId => Live is null ? GatewayId : Live.GatewayId;
+
   /// <summary>True when both halves of the credential are present, which is the least a call
   ///     needs. A caller checks this before building an endpoint, so an unconfigured credential
   ///     is a named failure rather than a malformed URL.</summary>
   public bool IsConfigured =>
       !string.IsNullOrWhiteSpace(EffectiveAccountId)
       && !string.IsNullOrWhiteSpace(EffectiveApiToken);
+
+  /// <summary>Stamps a request with the credential: the token as a bearer credential, and the
+  ///     AI Gateway id as <c>cf-aig-gateway-id</c> when one is configured. Every inference
+  ///     request carries both, so no call can reach Cloudflare without the gateway the user
+  ///     configured.</summary>
+  /// <param name="request">The request to stamp.</param>
+  public void ApplyCredential(HttpRequestMessage request)
+  {
+    ArgumentNullException.ThrowIfNull(request);
+    request.Headers.Authorization =
+        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", EffectiveApiToken);
+    if (EffectiveGatewayId is { } gatewayId)
+    {
+      _ = request.Headers.TryAddWithoutValidation(GatewayIdHeader, gatewayId);
+    }
+  }
 
   /// <summary>Builds an account-scoped endpoint from a path that starts at the account root.
   ///     <para>The path is appended to whatever path the host already carries, so a base with a

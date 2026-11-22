@@ -416,12 +416,14 @@ internal static class DesktopHost
   {
     ArgumentNullException.ThrowIfNull(boot);
     AgentSettings settings = boot.Settings;
+    (string? accountId, string? apiToken, string? gatewayId) = CloudflarePrefill(settings);
     return new SettingsValues
     {
       OpenRouterKey = settings.OpenRouter.ApiKey,
       OpenRouterManagementKey = settings.OpenRouter.ManagementKey,
-      CloudflareAccountId = settings.Cloudflare?.AccountId,
-      CloudflareApiToken = settings.Cloudflare?.ApiToken,
+      CloudflareAccountId = accountId,
+      CloudflareApiToken = apiToken,
+      CloudflareGatewayId = gatewayId,
       OpenRouterBaseUrlText = settings.OpenRouter.BaseUrl.ToString(),
       CommitStyle = boot.CommitStyle,
       CompactionModels = [CompactionModelOption.Automatic],
@@ -445,6 +447,13 @@ internal static class DesktopHost
       ProviderProbe = ProbeFrom(boot),
     };
   }
+
+  /// <summary>The Cloudflare configuration as a settings surface opens with it: the account id,
+  ///     the API token, and the optional AI Gateway id, each null when unset.</summary>
+  /// <param name="settings">The settings the surface is bound to.</param>
+  private static (string? AccountId, string? ApiToken, string? GatewayId) CloudflarePrefill(
+      AgentSettings settings) =>
+      (settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken, settings.Cloudflare?.GatewayId);
 
   /// <summary>The catalog probe a settings surface offers, or null when this bootstrap wired
   ///     none. The pull is persisted into the same app database the sessions read their catalogs

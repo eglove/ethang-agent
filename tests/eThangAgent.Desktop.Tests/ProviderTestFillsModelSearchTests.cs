@@ -155,11 +155,58 @@ public class ProviderTestFillsModelSearchTests
     Assert.False(carrier.IsConfigured);
 
     await shell.ApplySettingsAsync(new SettingsUpdate("sk-or-test", CommitStyle.Conventional,
-        CloudflareAccountId: "acct-saved", CloudflareApiToken: "token-saved"));
+        CloudflareAccountId: "acct-saved", CloudflareApiToken: "token-saved",
+        CloudflareGatewayId: "gw-saved"));
 
     Assert.True(carrier.IsConfigured);
     Assert.Equal("acct-saved", carrier.AccountId);
     Assert.Equal("token-saved", carrier.ApiToken);
+    // The gateway is part of the same configuration, so it is live on the open session too:
+    // the next call names it without the session being reopened.
+    Assert.Equal("gw-saved", carrier.GatewayId);
+    Assert.Equal("gw-saved",
+        services.GetRequiredService<CloudflareConfiguration>().EffectiveGatewayId);
+  }
+
+  [Fact]
+  public async Task AClearedGatewayId_StopsBeingNamedByTheOpenSession()
+  {
+    using TestAppDatabase database = TestAppDatabase.Create();
+    AgentSettings settings = new(new OpenRouterSettings("sk-or-test", new Uri("http://127.0.0.1:1")),
+        new AgentRunOptions(null, 1),
+        Cloudflare: new CloudflareSettings("acct-good", "token-good", "gw-old"));
+    using ServiceProvider services = new ServiceCollection().AddEThangAgentCore(settings,
+        Providers.OpenRouter, ModelConfig.Create("openrouter/auto", 256, 0.2f, 200_000).Value!,
+        new AgentHostOptions(FixedWorkspaceContext.ForPath("test"), new UnrootedPathResolver()),
+        database.Database).BuildServiceProvider();
+    AgentSession session = new(services, AgentId.NewId(), services.GetRequiredService<Conversation>(),
+        services.GetRequiredService<SendMessageCommandHandler>(),
+        services.GetRequiredService<RootSessionLifecycle>(),
+        services.GetRequiredService<ModelConfig>(), Directory.GetCurrentDirectory(),
+        Providers.OpenRouter, services.GetRequiredService<IAgentInbox>(),
+        services.GetRequiredService<IAgentRuntime>());
+    MainViewModel shell = new((_, _) => Task.FromResult(Result.Success(session)),
+        new MainViewModelOptions
+        {
+          AvailableProviders = [new ProviderOption(Providers.OpenRouter, "OpenRouter")],
+          PreferredProviderId = Providers.OpenRouter,
+          Settings = settings,
+          SessionFactory = new AgentSessionFactory(settings, database.Database),
+          Preferences = new SqliteAppPreferenceStore(database.Database),
+        });
+    Result<AgentTabViewModel> opened = await shell.OpenAgentAsync(
+        session.WorkspaceRoot, Providers.OpenRouter);
+    Assert.True(opened.IsSuccess, opened.Error?.Message);
+    CloudflareCredentialCarrier carrier = services.GetRequiredService<CloudflareCredentialCarrier>();
+    Assert.Equal("gw-old", carrier.GatewayId);
+
+    await shell.ApplySettingsAsync(new SettingsUpdate("sk-or-test", CommitStyle.Conventional,
+        CloudflareAccountId: "acct-good", CloudflareApiToken: "token-good",
+        CloudflareGatewayId: null));
+
+    // A save that states no gateway clears it rather than resurrecting the value it replaced.
+    Assert.Null(carrier.GatewayId);
+    Assert.Equal("acct-good", carrier.AccountId);
   }
 
   /// <summary>A handler that answers every request with one body and records what it was asked.

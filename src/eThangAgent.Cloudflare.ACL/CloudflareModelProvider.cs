@@ -166,8 +166,9 @@ public sealed class CloudflareModelProvider(HttpClient http, CloudflareConfigura
   private static DomainError Unconfigured() => new(ProviderUnauthorized,
       "Cloudflare needs both an account id and an API token before a model can be called.");
 
-  /// <summary>The outbound request: the model in the path, the token as a bearer credential,
-  ///     and the body as JSON. The caller owns the returned instance and disposes it.</summary>
+  /// <summary>The outbound request: the model in the path, the credential stamped on it (the
+  ///     token, and the AI Gateway id when one is configured), and the body as JSON. The caller
+  ///     owns the returned instance and disposes it.</summary>
   /// <param name="config">The model this call names.</param>
   /// <param name="body">The built request body.</param>
   private HttpRequestMessage NewRequest(ModelConfig config, Dictionary<string, object?> body)
@@ -176,8 +177,7 @@ public sealed class CloudflareModelProvider(HttpClient http, CloudflareConfigura
     {
       Content = JsonContent.Create(body),
     };
-    request.Headers.Authorization =
-        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.EffectiveApiToken);
+    _config.ApplyCredential(request);
     return request;
   }
 

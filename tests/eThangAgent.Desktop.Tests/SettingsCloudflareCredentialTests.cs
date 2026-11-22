@@ -107,6 +107,69 @@ public class SettingsCloudflareCredentialTests
     Assert.False(vm.CanSave);
   }
 
+  [AvaloniaFact]
+  public void TheDialog_ShowsTheGatewayIdInTheClear_AndOpensWithTheStoredOne()
+  {
+    SettingsWindow window = new(new SettingsValues
+    {
+      CloudflareAccountId = AccountId,
+      CloudflareApiToken = ApiToken,
+      CloudflareGatewayId = "my-gateway",
+    });
+    window.Show();
+    TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
+    tabs.SelectedIndex = 0;
+    Dispatcher.UIThread.RunJobs();
+
+    TextBox gateway = window.GetControl<TextBox>("CloudflareGatewayIdBox");
+    Assert.Equal("my-gateway", gateway.Text);
+    // A gateway id is not a secret: it is readable while the credential beside it is masked.
+    Assert.Equal(default, gateway.PasswordChar);
+    Assert.NotEqual(default, window.GetControl<TextBox>("CloudflareApiTokenBox").PasswordChar);
+    // It is optional, so it changes neither the credential's state nor the vendor's availability.
+    Assert.Equal("Cloudflare is configured",
+        window.GetControl<TextBlock>("CloudflareStatusText").Text);
+  }
+
+  [Fact]
+  public void TheSave_CarriesTheGatewayId_Trimmed_AndABlankOneAsCleared()
+  {
+    SettingsViewModel vm = new(new SettingsValues
+    {
+      CloudflareAccountId = AccountId,
+      CloudflareApiToken = ApiToken,
+      CloudflareGatewayId = "  my-gateway  ",
+    });
+    SettingsUpdate? saved = null;
+    vm.SaveRequested += (_, update) => saved = update;
+
+    vm.SaveCommand.Execute(null);
+
+    Assert.NotNull(saved);
+    Assert.Equal("my-gateway", saved.CloudflareGatewayId);
+
+    vm.CloudflareGatewayId = string.Empty;
+    vm.SaveCommand.Execute(null);
+    Assert.Null(saved.CloudflareGatewayId);
+  }
+
+  [Fact]
+  public void AGatewayIdWithInternalWhitespace_IsRefused_AndSaveIsDisabled()
+  {
+    // It travels as a header value, where a space is a malformed request rather than a typo.
+    SettingsViewModel vm = new(new SettingsValues
+    {
+      CloudflareAccountId = AccountId,
+      CloudflareApiToken = ApiToken,
+    })
+    {
+      CloudflareGatewayId = "my gateway",
+    };
+
+    Assert.Equal("API keys cannot contain whitespace.", vm.ValidationError);
+    Assert.False(vm.CanSave);
+  }
+
   // ── the save path ─────────────────────────────────────────────────────────
 
   [Fact]
@@ -129,6 +192,32 @@ public class SettingsCloudflareCredentialTests
     Assert.Equal(ApiToken, vm.ConfiguredCloudflareApiToken);
     Assert.Equal([Providers.OpenRouter, Providers.Cloudflare],
         vm.AvailableProviders.Select(p => p.Id));
+  }
+
+  [Fact]
+  public async Task ASave_StoresTheGatewayId_AsAPlainPreference_AndAClearedOneDeletesIt()
+  {
+    FakePreferenceStore preferences = new();
+    FakeKeyProtector protector = new();
+    MainViewModel vm = Shell(preferences, protector, openRouter: "sk-or-v1-abc");
+
+    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", CommitStyle.Conventional,
+        CloudflareAccountId: AccountId, CloudflareApiToken: ApiToken,
+        CloudflareGatewayId: "my-gateway"));
+
+    // Not a secret: stored verbatim rather than through the protector.
+    Assert.Contains(preferences.Writes, w => w.Key == CloudflareSettings.GatewayIdPreferenceKey
+        && w.Value == "my-gateway");
+    Assert.Equal("my-gateway", vm.ConfiguredCloudflareGatewayId);
+
+    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", CommitStyle.Conventional,
+        CloudflareAccountId: AccountId, CloudflareApiToken: ApiToken, CloudflareGatewayId: null));
+
+    Assert.Contains(preferences.Deletions, k => k == CloudflareSettings.GatewayIdPreferenceKey);
+    Assert.Null(vm.ConfiguredCloudflareGatewayId);
+    // The credential itself is untouched: a gateway is a routing choice, not a credential.
+    Assert.Equal(AccountId, vm.ConfiguredCloudflareAccountId);
+    Assert.Contains(Providers.Cloudflare, vm.AvailableProviders.Select(p => p.Id));
   }
 
   [Fact]
@@ -191,12 +280,13 @@ public class SettingsCloudflareCredentialTests
     FakePreferenceStore preferences = new();
     FakeKeyProtector protector = new();
     MainViewModel vm = Shell(preferences, protector, openRouter: "sk-or-v1-abc",
-        accountId: AccountId, apiToken: ApiToken);
+        accountId: AccountId, apiToken: ApiToken, gatewayId: "my-gateway");
 
     SettingsValues prefill = DesktopHost.SettingsValuesFrom(Bootstrap(vm));
 
     Assert.Equal(AccountId, prefill.CloudflareAccountId);
     Assert.Equal(ApiToken, prefill.CloudflareApiToken);
+    Assert.Equal("my-gateway", prefill.CloudflareGatewayId);
     // The OpenRouter key is unchanged in place: the new section sits beside it, not over it.
     Assert.Equal("sk-or-v1-abc", prefill.OpenRouterKey);
   }
@@ -204,14 +294,15 @@ public class SettingsCloudflareCredentialTests
   // ── helpers ───────────────────────────────────────────────────────────────
 
   private static MainViewModel Shell(IAppPreferenceStore preferences, IApiKeyProtector? protector,
-      string? openRouter = null, string? accountId = null, string? apiToken = null)
+      string? openRouter = null, string? accountId = null, string? apiToken = null,
+      string? gatewayId = null)
   {
     AgentSettings settings = new(
         new OpenRouterSettings(openRouter, new Uri("https://openrouter.test")),
         new AgentDomain.AgentRunOptions(null, 2),
         Cloudflare: accountId is null && apiToken is null
             ? null
-            : new CloudflareSettings(accountId, apiToken));
+            : new CloudflareSettings(accountId, apiToken, gatewayId));
     return new(null,
         new MainViewModelOptions
         {
@@ -230,7 +321,7 @@ public class SettingsCloudflareCredentialTests
         new OpenRouterSettings(vm.ConfiguredOpenRouterKey, new Uri("https://openrouter.test")),
         new AgentDomain.AgentRunOptions(null, 2),
         Cloudflare: new CloudflareSettings(vm.ConfiguredCloudflareAccountId,
-            vm.ConfiguredCloudflareApiToken));
+            vm.ConfiguredCloudflareApiToken, vm.ConfiguredCloudflareGatewayId));
     return new DesktopBootstrap(
         new AgentSessionFactory(settings),
         settings,

@@ -20,6 +20,7 @@ public static class AgentPreferenceKeys
   public const string WatchdogMaxWrapUpAttempts = "subagent_watchdog_max_wrap_up_attempts";
   public const string RootTurnIdle = "subagent_root_turn_idle";
   public const string OpenRouterBaseUrl = "openrouter_base_url";
+  public const string CloudflareGatewayId = CloudflareSettings.GatewayIdPreferenceKey;
 }
 
 /// <summary>Shipped defaults for settings the UI pre-fills. MaxConcurrentAgents is
@@ -56,6 +57,7 @@ public static class AgentSettingsLoader
     string? rootTurnIdle = await preferences.GetAsync(AgentPreferenceKeys.RootTurnIdle).ConfigureAwait(false);
     string? cloudflareAccountId = await preferences.GetAsync(CloudflareSettings.AccountIdPreferenceKey).ConfigureAwait(false);
     string? cloudflareApiToken = await preferences.GetAsync(CloudflareSettings.ApiTokenPreferenceKey).ConfigureAwait(false);
+    string? cloudflareGatewayId = await preferences.GetAsync(CloudflareSettings.GatewayIdPreferenceKey).ConfigureAwait(false);
 
     bool computerUse;
     AgentRunOptions subAgents;
@@ -89,18 +91,21 @@ public static class AgentSettingsLoader
         VerificationGateEnabled: verificationGate,
         Watchdog: watchdog,
         SkillRegistryDefaultTarget: registryTarget,
-        Cloudflare: BindCloudflare(cloudflareAccountId, cloudflareApiToken));
+        Cloudflare: BindCloudflare(cloudflareAccountId, cloudflareApiToken, cloudflareGatewayId));
   }
 
-  /// <summary>The stored Cloudflare credential, or null when neither preference holds a
-  ///     value. Null is not an error: a host that supplies no Cloudflare credential still
-  ///     builds, and the provider is simply not offered. A value that is stored and blank
-  ///     binds as stored - the credential is then incomplete rather than absent, and
-  ///     <see cref="AgentSettings.HasCloudflare"/> answers false for it.</summary>
-  private static CloudflareSettings? BindCloudflare(string? accountId, string? apiToken)
+  /// <summary>The stored Cloudflare credential, or null when no preference holds a value.
+  ///     Null is not an error: a host that supplies no Cloudflare credential still builds, and
+  ///     the provider is simply not offered. A value that is stored and blank binds as stored -
+  ///     the credential is then incomplete rather than absent, and
+  ///     <see cref="AgentSettings.HasCloudflare"/> answers false for it.
+  ///     <para>A GATEWAY ID ALONE IS NOT A CREDENTIAL: it configures no vendor, so the record is
+  ///     built only when a stored id accompanies a stored account id or token.</para></summary>
+  private static CloudflareSettings? BindCloudflare(string? accountId, string? apiToken,
+      string? gatewayId)
       => accountId is null && apiToken is null
           ? null
-          : new CloudflareSettings(accountId, apiToken);
+          : new CloudflareSettings(accountId, apiToken, gatewayId);
 
   /// <summary>Re-surfaces a binder error with this loader's preference-key names —
   ///     the one shared translation for every path that binds through the
