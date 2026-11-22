@@ -46,6 +46,11 @@ namespace eThangAgent.AgentDomain;
 ///     retried: the attempt about to be made, its wait, and the failure's message. It fires
 ///     AFTER any <see cref="OnStreamRewind"/> and BEFORE the wait, so an observer can
 ///     withdraw first and then report. Null renders nothing and the retry still happens.</param>
+/// <param name="OnModelDropped">Invoked when the turn's model walk drops one entry: its model
+///     id, the vendor that served it, the code it failed with, and its own message. It fires
+///     before the next entry is attempted, so an observer that keeps its own surviving list
+///     shrinks it at the same moment the loop does. Null renders nothing and the walk still
+///     advances.</param>
 public sealed record TurnCallbacks(
     Action<string>? OnContentDelta = null,
     Action<string>? OnReasoningDelta = null,
@@ -58,4 +63,5 @@ public sealed record TurnCallbacks(
     Action<string>? OnSystemMessage = null,
     Action<UsageRow>? OnUsageRecorded = null,
     Action? OnStreamRewind = null,
-    Action<int, TimeSpan, string>? OnStreamRetrying = null);
+    Action<int, TimeSpan, string>? OnStreamRetrying = null,
+    Action<string, string?, string, string>? OnModelDropped = null);

@@ -2,11 +2,12 @@ using eThangAgent.ModelDomain;
 
 namespace eThangAgent.Model.Domain.Tests;
 
-/// <summary>How the session's ordered model list reaches the config: the head runs and the rest
-///     follow it, in the order the user stated, each carrying the session's routing variant.
-///     <para>THE HEAD IS NOT IN THE FALLBACK LIST. The config's own model id is the head, and the
-///     request is assembled from that field plus these, so a list that repeated the head would
-///     give the provider two places to disagree about which model comes first.</para></summary>
+/// <summary>What the session's preferences do to the config a turn is about to send: the model id
+///     stays the one the turn resolved, the routing variant reaches it, and the preference's
+///     ordered list changes nothing else.
+///     <para>THE PREFERENCE'S LIST IS NOT COPIED ONTO THE CONFIG. A turn walks that list one model
+///     at a time, so a config carrying a list of its own would let a provider fall through inside
+///     a single request behind the walk's back.</para></summary>
 public class ModelListOverlayTests
 {
   private const string Head = "alpha/model";
@@ -14,62 +15,53 @@ public class ModelListOverlayTests
   private const string Third = "gamma/third";
 
   [Fact]
-  public void Apply_TheListMinusItsHead_BecomesTheFallbacksInOrder()
+  public void Apply_ALongerPreferenceList_LeavesTheResolvedModelAsTheOnlyModel()
   {
     ModelConfig applied = ModelPreferencesOverlay.Apply(
         Config(Head), Prefs([Head, Second, Third]));
 
-    Assert.Equal([Second, Third], applied.FallbackModelIds);
+    Assert.Equal(Head, applied.ModelId);
   }
 
   [Fact]
-  public void Apply_AHeadOnlyList_LeavesNoFallbacks()
+  public void Apply_AHeadOnlyList_LeavesTheResolvedModelAlone()
   {
     ModelConfig applied = ModelPreferencesOverlay.Apply(Config(Head), Prefs([Head]));
 
-    Assert.Empty(applied.FallbackModelIds);
+    Assert.Equal(Head, applied.ModelId);
   }
 
   [Fact]
-  public void Apply_APreferenceCarryingNoList_LeavesTheConfigsFallbacksAlone()
+  public void Apply_APreferenceCarryingNoList_LeavesTheConfigUntouched()
   {
-    // The resolver sets the list on the config it builds; a preference holding nothing but the
-    // variant states nothing about models and must not erase what resolution produced.
-    ModelConfig config = Config(Head) with { FallbackModelIds = [Second, Third] };
+    // A preference holding nothing but the variant states nothing about models and must not
+    // rewrite the model resolution produced.
+    ModelConfig config = Config(Head);
 
     ModelConfig applied = ModelPreferencesOverlay.Apply(config,
         new SessionModelPreferences { ModelVariant = ModelVariant.Nitro });
 
-    Assert.Equal([Second, Third], applied.FallbackModelIds);
-  }
-
-  [Fact]
-  public void Apply_APreferenceCarryingNoList_LeavesAnEmptyListEmpty()
-  {
-    ModelConfig applied = ModelPreferencesOverlay.Apply(Config(Head), new SessionModelPreferences());
-
-    Assert.Empty(applied.FallbackModelIds);
+    Assert.Equal(ModelVariants.ApplyTo(ModelVariant.Nitro, Head), applied.ModelId);
   }
 
   [Theory]
-  [InlineData(ModelVariant.Standard, "", "")]
-  [InlineData(ModelVariant.Nitro, ":nitro", ":nitro")]
-  [InlineData(ModelVariant.Floor, ":floor", ":floor")]
-  [InlineData(ModelVariant.CacheFloor, "", "")]
-  public void Apply_TheVariantReachesEveryFallback_AsItReachesTheHead(
-      ModelVariant variant, string headSuffix, string backupSuffix)
+  [InlineData(ModelVariant.Standard, "")]
+  [InlineData(ModelVariant.Nitro, ":nitro")]
+  [InlineData(ModelVariant.Floor, ":floor")]
+  [InlineData(ModelVariant.CacheFloor, "")]
+  public void Apply_TheVariantReachesTheModel_WhateverTheListHolds(ModelVariant variant, string suffix)
   {
     SessionModelPreferences prefs = Prefs([Head, Second, Third]);
     prefs.ModelVariant = variant;
 
     ModelConfig applied = ModelPreferencesOverlay.Apply(Config(Head), prefs);
 
-    Assert.Equal(Head + headSuffix, applied.ModelId);
-    Assert.Equal([Second + backupSuffix, Third + backupSuffix], applied.FallbackModelIds);
+    Assert.Equal(Head + suffix, applied.ModelId);
+    Assert.Equal(variant, applied.Variant);
   }
 
   [Fact]
-  public void Apply_TheHeadsContextWindowStaysInForce_WhateverTheBackupsWouldOffer()
+  public void Apply_TheModelsContextWindowStaysInForce_WhateverTheListHolds()
   {
     // The window is what the context accountant budgets the turn against, and only one model
     // runs the turn: the list cannot widen or narrow it.

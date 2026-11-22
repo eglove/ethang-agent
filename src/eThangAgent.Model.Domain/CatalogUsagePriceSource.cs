@@ -30,13 +30,19 @@ public interface IUsagePriceSource
   ///     not know the size passes 0, which selects the base prices - the honest reading for a
   ///     call whose size is unknown, never the most expensive rung. Defaulted so an existing
   ///     caller that cannot supply a size keeps its previous (base-price) behavior.</remarks>
+  /// <param name="modelId">The model id, with or without a routing-variant suffix.</param>
+  /// <param name="promptTokens">The call's prompt size, or 0 when it is unknown.</param>
+  /// <param name="vendorId">The vendor that serves the model, or null to ask every configured
+  ///     vendor. A model id identifies a model within a vendor, so the vendor is what decides
+  ///     which catalog's price table answers.</param>
+  /// <param name="ct">Cancellation.</param>
   Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
-      CancellationToken ct = default);
+      string? vendorId = null, CancellationToken ct = default);
 }
 
 /// <summary>Catalog-backed <see cref="IUsagePriceSource"/>: resolves the three prices from
-///     the provider catalog supplied by <see cref="IModelCatalog"/>, memoized for the process
-///     lifetime so a per-call stamp costs one dictionary read rather than a catalog walk.
+///     the catalog of the vendor that serves the model, memoized for the process lifetime so a
+///     per-call stamp costs one dictionary read rather than a catalog walk.
 ///     <para>Memoization is safe because the catalog's price for a model is itself a cached
 ///     current row — the catalog does not carry price history, so a re-resolve within one
 ///     process cannot produce a different answer for a call that already happened. A FAILED
@@ -54,37 +60,30 @@ public interface IUsagePriceSource
 ///     endpoint's prices on every call and make the ledger's effective pricing meaningless. A
 ///     model whose rows advertise no usable prices (the routing pseudo-models' -1, "set at
 ///     routing time") resolves to <see cref="UsagePrices.Unknown"/>.</para></summary>
-public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePriceSource
+public sealed class CatalogUsagePriceSource(IModelProviderResolver resolver) : IUsagePriceSource
 {
-  private readonly IModelCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+  private readonly IModelProviderResolver _resolver =
+      resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly Dictionary<string, ModelProviderEntry> _memo = [with(StringComparer.Ordinal)];
   private readonly Lock _memoLock = new();
 
   public async Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
-      CancellationToken ct = default)
+      string? vendorId = null, CancellationToken ct = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
     // The routing variant is a suffix on the id; the catalog key is the bare model.
     string baseModel = ModelVariants.BaseOf(modelId);
+    // THE MEMO IS KEYED BY VENDOR TOO: the same id under two vendors is two price tables.
+    string memoKey = $"{vendorId}\u001F{baseModel}";
     lock (_memoLock)
     {
-      if (_memo.TryGetValue(baseModel, out ModelProviderEntry? memoized))
+      if (_memo.TryGetValue(memoKey, out ModelProviderEntry? memoized))
       {
         return From(memoized, promptTokens);
       }
     }
 
-    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
-    if (!entries.IsSuccess)
-    {
-      return UsagePrices.Unknown;
-    }
-
-    ModelProviderEntry? entry = entries.Value
-        .Where(e => e.ModelId == baseModel)
-        .Where(e => e.PromptPricePerToken is >= 0m)
-        .OrderBy(e => e.PromptPricePerToken ?? decimal.MaxValue)
-        .FirstOrDefault();
+    ModelProviderEntry? entry = await CheapestAsync(baseModel, vendorId, ct).ConfigureAwait(false);
     if (entry is null)
     {
       return UsagePrices.Unknown;
@@ -92,10 +91,50 @@ public sealed class CatalogUsagePriceSource(IModelCatalog catalog) : IUsagePrice
 
     lock (_memoLock)
     {
-      _memo[baseModel] = entry;
+      _memo[memoKey] = entry;
     }
 
     return From(entry, promptTokens);
+  }
+
+  /// <summary>The cheapest priced endpoint of the model among the vendors to ask, or null when
+  ///     none of them lists a priced row.</summary>
+  /// <param name="baseModel">The base model id.</param>
+  /// <param name="vendorId">The vendor to ask, or null for every configured vendor.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task<ModelProviderEntry?> CheapestAsync(string baseModel, string? vendorId,
+      CancellationToken ct)
+  {
+    ModelProviderEntry? cheapest = null;
+    foreach (string vendor in vendorId is { Length: > 0 } named ? [named] : ModelVendors.All)
+    {
+      Result<IModelCatalog> catalog = _resolver.Catalog(vendor);
+      if (!catalog.IsSuccess)
+      {
+        continue;
+      }
+
+      Result<IReadOnlyList<ModelProviderEntry>> entries =
+          await catalog.Value.GetAsync(ct).ConfigureAwait(false);
+      if (!entries.IsSuccess)
+      {
+        continue;
+      }
+
+      ModelProviderEntry? candidate = entries.Value
+          .Where(e => e.ModelId == baseModel)
+          .Where(e => e.PromptPricePerToken is >= 0m)
+          .OrderBy(e => e.PromptPricePerToken ?? decimal.MaxValue)
+          .FirstOrDefault();
+      if (candidate is not null
+          && (cheapest is null
+              || candidate.PromptPricePerToken < cheapest.PromptPricePerToken))
+      {
+        cheapest = candidate;
+      }
+    }
+
+    return cheapest;
   }
 
   /// <summary>The entry's prices for a call of this prompt size (issue #293): the applicable

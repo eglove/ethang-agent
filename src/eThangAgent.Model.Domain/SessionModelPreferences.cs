@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace eThangAgent.ModelDomain;
 
 /// <summary>Session-scoped model preferences the user can change at runtime through the
@@ -20,8 +22,76 @@ public sealed class SessionModelPreferences
   ///     through the host's model picker, which validates the ids against the provider's catalog
   ///     at pick time, so consumers trust it without re-validating.
   ///     (Choices restored from a persisted per-workspace preference are NOT re-validated — a
-  ///     stale id surfaces as a provider error the user re-picks away.)</summary>
-  public IReadOnlyList<string>? ModelIds { get; set; }
+  ///     stale id surfaces as a provider error the user re-picks away.)
+  ///     <para>ASSIGNING THIS REPLACES <see cref="Entries"/> WITH VENDOR-UNSET ENTRIES, so a
+  ///     caller that names only ids can never leave a stale vendor behind from an earlier
+  ///     assignment. Read the vendors from <see cref="Entries"/>.</para></summary>
+  [JsonIgnore]
+  public IReadOnlyList<string>? ModelIds
+  {
+    get => _modelIds;
+    set
+    {
+      _modelIds = value;
+      _entries = value is null ? null : [.. value.Select(id => new ModelSelectionEntry(id))];
+    }
+  }
+
+  /// <summary>The user's live ordered model list WITH the vendor that serves each entry, or null
+  ///     to follow the session's normal resolution.
+  ///     <para>THIS IS THE LIST A TURN WALKS: the same model id under two vendors is two rows,
+  ///     and only this member can say which one an entry means. <see cref="ModelIds"/> is its
+  ///     projection, so the two never disagree.</para>
+  ///     <para>ASSIGNING THIS REPLACES <see cref="ModelIds"/> WITH THE PROJECTED IDS, so every
+  ///     consumer that reads only ids keeps working.</para></summary>
+  [JsonIgnore]
+  public IReadOnlyList<ModelSelectionEntry>? Entries
+  {
+    get => _entries;
+    set
+    {
+      _entries = value;
+      _modelIds = value is null ? null : [.. value.Select(entry => entry.ModelId)];
+    }
+  }
+
+  private IReadOnlyList<string>? _modelIds;
+  private IReadOnlyList<ModelSelectionEntry>? _entries;
+
+  /// <summary>The carrier's <c>ModelIds</c> member: written only when NO entry names a vendor, so
+  ///     a carrier produced by a selection that states nothing about vendors is the shape earlier
+  ///     builds wrote and can still read.</summary>
+  [JsonPropertyName("ModelIds")]
+  [JsonInclude]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  internal IReadOnlyList<string>? WireModelIds
+  {
+    get => AnyVendorNamed ? null : _modelIds;
+    set
+    {
+      _modelIds = value;
+      _entries = value is null ? null : [.. value.Select(id => new ModelSelectionEntry(id))];
+    }
+  }
+
+  /// <summary>The carrier's <c>Entries</c> member: written only when an entry names a vendor.
+  ///     </summary>
+  [JsonPropertyName("Entries")]
+  [JsonInclude]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  internal IReadOnlyList<ModelSelectionEntry>? WireEntries
+  {
+    get => AnyVendorNamed ? _entries : null;
+    set
+    {
+      _entries = value;
+      _modelIds = value is null ? null : [.. value.Select(entry => entry.ModelId)];
+    }
+  }
+
+  /// <summary>Whether any entry names a vendor, which is what decides which of the two carrier
+  ///     members is written.</summary>
+  private bool AnyVendorNamed => _entries is not null && _entries.Any(entry => entry.HasVendor);
 
   /// <summary>The routing variant the session's model should be served under, or null when no
   ///     variant was committed (which resolves to <see cref="ModelVariant.Standard"/>).
@@ -95,7 +165,7 @@ public sealed class SessionModelPreferences
   {
     ArgumentNullException.ThrowIfNull(source);
     ReasoningEffort = source.ReasoningEffort;
-    ModelIds = source.ModelIds;
+    Entries = source.Entries;
     ModelVariant = source.ModelVariant;
     Temperature = source.Temperature;
     MaxTokens = source.MaxTokens;

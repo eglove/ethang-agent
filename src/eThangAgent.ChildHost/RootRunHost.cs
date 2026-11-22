@@ -294,7 +294,12 @@ public sealed class RootRunHost : IDisposable
         OnStreamRewind: () => emitter.Emit("rewind", ""),
         // One notice line per retry, emitted before the wait it names.
         OnStreamRetrying: (attempt, delay, reason) =>
-            emitter.Emit("notice", TurnRetryPolicy.Describe(attempt, delay, reason)));
+            emitter.Emit("notice", TurnRetryPolicy.Describe(attempt, delay, reason)),
+        // The walk's drop, as its own wire kind: the app keeps the session's surviving list,
+        // and the model that refused must leave it at the moment the turn stopped using it.
+        // The four facts travel verbatim because the app states them in its own words.
+        OnModelDropped: (modelId, vendor, code, reason) => emitter.Emit("model-dropped",
+            RootTurnModelDropPayload.Serialize(modelId, vendor, code, reason)));
 
     Result<string> result;
     try

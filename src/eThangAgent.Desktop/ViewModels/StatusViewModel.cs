@@ -60,6 +60,27 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     }
   } = modelId;
 
+  /// <summary>The vendor serving the model this bar names, or empty when the model's vendor is
+  ///     not known. Two vendors can serve the same model id at different prices and quotas, so
+  ///     the bar names which one is in play rather than leaving the id to stand for both.
+  ///     <para>EMPTY IS A REAL ANSWER. A session whose selection names no vendor, or whose model
+  ///     the list does not carry, states nothing here - the bar never invents a vendor for a
+  ///     model nobody attributed.</para></summary>
+  public string ServingVendor
+  {
+    get;
+    set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(ServingVendor));
+    }
+  } = "";
+
   /// <summary>The routing variant committed for the session's model, or empty when none was
   ///     committed and the provider's own routing decides.
   ///     <para>THE VARIANT IS THE DECISION'S SECOND HALF, so the status line names it - as its
@@ -266,7 +287,10 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
   ///     <see cref="ModelId"/>: on an ordered model list the provider may answer on a backup, so
   ///     the row is the only statement of which entry ran. A row that names no serving model, and
   ///     a compaction row (which belongs to the summarizer's own model), leave the name alone.
-  ///     </para></summary>
+  ///     </para>
+  ///     <para>THE VENDOR TRAVELS WITH THE NAME, through the same callback the shell hands the
+  ///     session: a bar that moved to another model while keeping the previous model's vendor
+  ///     would name a pairing that served nothing.</para></summary>
   public void AddUsage(UsageRow row)
   {
     ArgumentNullException.ThrowIfNull(row);
@@ -276,8 +300,14 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
         && string.Equals(row.CallClass, MainLoopCallClass, StringComparison.Ordinal))
     {
       ModelId = served;
+      ServingVendorUpdater?.Invoke(served);
     }
   }
+
+  /// <summary>The callback that re-attributes <see cref="ServingVendor"/> when the bar's model
+  ///     moves, or null when this host shows no vendor. The shell supplies it, so the vendor is
+  ///     resolved from the session's own selection rather than guessed here.</summary>
+  public Action<string>? ServingVendorUpdater { get; init; }
 
   /// <summary>Re-renders both cost strings from the accumulator.</summary>
   private void RenderUsage()

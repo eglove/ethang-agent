@@ -5,6 +5,12 @@ namespace eThangAgent.Composition.Tests;
 internal sealed class FakePreferenceStore : IAppPreferenceStore
 {
   private readonly Dictionary<string, string> _values = [];
+
+  /// <summary>Every key written through <see cref="SetAsync"/> or removed through
+  ///     <see cref="DeleteAsync"/>, in order. A read-only caller leaves it empty, which is
+  ///     how a load that must not persist anything is observed.</summary>
+  public List<string> Writes { get; } = [];
+
   public FakePreferenceStore With(string key, string value)
   {
     _values[key] = value;
@@ -14,10 +20,15 @@ internal sealed class FakePreferenceStore : IAppPreferenceStore
       Task.FromResult(_values.TryGetValue(key, out string? v) ? v : null);
   public Task<bool> SetAsync(string key, string value, CancellationToken ct = default)
   {
+    Writes.Add(key);
     _values[key] = value;
     return Task.FromResult(true);
   }
-  public Task<bool> DeleteAsync(string key, CancellationToken ct = default) => Task.FromResult(_values.Remove(key));
+  public Task<bool> DeleteAsync(string key, CancellationToken ct = default)
+  {
+    Writes.Add(key);
+    return Task.FromResult(_values.Remove(key));
+  }
 }
 
 public class AgentSettingsLoaderTests

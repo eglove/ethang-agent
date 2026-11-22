@@ -46,7 +46,8 @@ internal sealed record DesktopBootstrap(
     string? PathToolsText,
     string? RetentionWindowText,
     IReadOnlyList<SessionFileEntry> GlobalSessionFiles,
-    IReadOnlyList<SessionFileEntry> GlobalSkillDirectories);
+    IReadOnlyList<SessionFileEntry> GlobalSkillDirectories,
+    ProviderCatalogProbe? ProviderProbe = null);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads settings from app preferences (provider API keys live DPAPI-
@@ -83,7 +84,13 @@ internal static class DesktopHost
     settings = settings.WithApiKeys(
         await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey))
         .WithManagementKey(await LoadKeyAsync(preferences, protector,
-            OpenRouterSettings.ManagementKeyPreferenceKey));
+            OpenRouterSettings.ManagementKeyPreferenceKey))
+        // The Cloudflare credential is APP-WIDE like the OpenRouter key, and it is overlaid
+        // here for the same reason: it is a secret, so it is stored protected and never
+        // read by the loader.
+        .WithCloudflareCredential(
+            await LoadProtectedKeyAsync(preferences, protector, CloudflareSettings.AccountIdPreferenceKey),
+            await LoadProtectedKeyAsync(preferences, protector, CloudflareSettings.ApiTokenPreferenceKey));
     CommitStyle commitStyle = await LoadCommitStyleAsync(preferences);
     bool compactionHandoff = await LoadCompactionHandoffAsync(preferences);
 
@@ -123,7 +130,8 @@ internal static class DesktopHost
         await preferences.GetAsync(PathToolPreferences.Key),
         await preferences.GetAsync(RetentionSweep.WindowHoursKey),
         globalSessionFiles,
-        globalSkillDirectories);
+        globalSkillDirectories,
+        new ProviderCatalogProbe(database));
   }
 
   /// <summary>Builds the OpenRouter sign-in for a base URL: the browser is the OS default
@@ -179,6 +187,32 @@ internal static class DesktopHost
       await Console.Error.WriteLineAsync($"stored '{preferenceKey}' could not be decrypted; treating as unconfigured");
     }
     return key;
+  }
+
+  /// <summary>Recovers a stored protected secret, distinguishing 'nothing stored' from
+  ///     'stored but unreadable'. Nothing stored answers null, which leaves whatever the
+  ///     loader already carried. Stored but unreadable answers a BLANK string, which states
+  ///     that no credential is configured: a blob this process cannot decrypt must never be
+  ///     presented as a credential, and blank is a value rather than an absence so it is not
+  ///     silently replaced by the loader's read of the same key.</summary>
+  private static async Task<string?> LoadProtectedKeyAsync(
+      SqliteAppPreferenceStore preferences, IApiKeyProtector protector, string preferenceKey)
+  {
+    string? stored = await preferences.GetAsync(preferenceKey).ConfigureAwait(false);
+    if (stored is null)
+    {
+      return null;
+    }
+
+    string? key = protector.Unprotect(stored);
+    if (key is null)
+    {
+      await Console.Error.WriteLineAsync(
+          $"stored '{preferenceKey}' could not be decrypted; treating as unconfigured")
+          .ConfigureAwait(false);
+    }
+
+    return key ?? string.Empty;
   }
 
   /// <summary>Recovers the stored commit style: absent stays at the Conventional
@@ -300,6 +334,7 @@ internal static class DesktopHost
           SessionFactory = boot.Sessions,
           ApiKeyProtector = boot.ApiKeys,
           ProviderSignIn = boot.OpenRouterSignIn,
+          ProviderProbe = ProbeFrom(boot),
           SessionCatalog = boot.Catalog,
           ChainAdvance = AdvanceFor,
           // ROOT SUPERVISION (issue #301 D5, wired by #323). The SAME loop and the SAME policy
@@ -385,6 +420,8 @@ internal static class DesktopHost
     {
       OpenRouterKey = settings.OpenRouter.ApiKey,
       OpenRouterManagementKey = settings.OpenRouter.ManagementKey,
+      CloudflareAccountId = settings.Cloudflare?.AccountId,
+      CloudflareApiToken = settings.Cloudflare?.ApiToken,
       OpenRouterBaseUrlText = settings.OpenRouter.BaseUrl.ToString(),
       CommitStyle = boot.CommitStyle,
       CompactionModels = [CompactionModelOption.Automatic],
@@ -405,7 +442,20 @@ internal static class DesktopHost
       GlobalSkillDirectories = boot.GlobalSkillDirectories,
       ToolsPage = () => new ToolsSettingsViewModel(boot.Preferences),
       ProviderSignInFactory = boot.OpenRouterSignIn,
+      ProviderProbe = ProbeFrom(boot),
     };
+  }
+
+  /// <summary>The catalog probe a settings surface offers, or null when this bootstrap wired
+  ///     none. The pull is persisted into the same app database the sessions read their catalogs
+  ///     from, so a credential tested with no workspace open is in force the moment one opens.
+  ///     </summary>
+  /// <param name="boot">The bootstrap prepared off the UI thread.</param>
+  private static Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProbeFrom(DesktopBootstrap boot)
+  {
+    ArgumentNullException.ThrowIfNull(boot);
+    return boot.ProviderProbe is { } probe ? probe.ProbeAsync : null;
   }
 
   /// <summary>Starts each loop on the session's token, with one fault reporter each: a loop that

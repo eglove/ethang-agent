@@ -22,33 +22,19 @@ public sealed record ModelConfig(
     bool AcceptsImageInput = false,
     string? PricingProvider = null,
     ModelVariant Variant = ModelVariant.Standard,
-     RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention,
-     IReadOnlyList<string>? FallbackModelIds = null)
+     RetentionPolicy Retention = RetentionPolicy.ZeroDataRetention)
 {
-  /// <summary>The ordered models to fall through to when <see cref="ModelId"/> cannot serve,
-  ///     most preferred first. Never null, and never containing the head.
-  ///     <para>THIS IS A ROUTING PREFERENCE, NOT A SELECTION: the head remains the model the turn
-  ///     is budgeted against and the id reported when the provider names no serving model. A
-  ///     backup serves only when the head cannot, and the request itself carries the order.</para>
-  ///     <para>EMPTY MEANS NO FALLBACK, which is what a single-model session resolves to, so the
-  ///     request built from it is the one that session always sent.</para></summary>
-  public IReadOnlyList<string> FallbackModelIds { get; init; } = FallbackModelIds ?? [];
-
-  /// <summary>Equality over the scalars AND the ordered fallback list.
-  ///     <para>THE RECORD'S OWN EQUALITY COMPARES THE LIST BY REFERENCE, so a config rebuilt from
-  ///     the same preferences would never equal the one already serving. Two comparisons depend on
-  ///     this: <c>RootAgentHolder.Build</c> decides from it whether the serving agent must be
-  ///     rebuilt at all, and a rebuild replaces the context accountant that carried the turn's
-  ///     usage report.</para>
-  ///     <para>A NULL MEMBER COMPARES AS EMPTY, so a config built without a list equals one whose
-  ///     list is empty - both state that nothing follows the head.</para></summary>
+  /// <summary>Equality over every fact the request is built from.
+  ///     <para>THE COMPARISON IS WRITTEN OUT RATHER THAN LEFT TO THE RECORD, so a config rebuilt
+  ///     from the same preferences equals the one already serving. <c>RootAgentHolder.Build</c>
+  ///     decides from it whether the serving agent must be rebuilt at all, and a rebuild replaces
+  ///     the context accountant that carried the turn's usage report.</para></summary>
   public bool Equals(ModelConfig? other)
       => other is not null
           && string.Equals(ModelId, other.ModelId, StringComparison.Ordinal)
           && IdentityFactsEqual(other)
           && SamplingFactsEqual(other)
-          && RoutingFactsEqual(other)
-          && (FallbackModelIds ?? []).SequenceEqual(other.FallbackModelIds ?? [], StringComparer.Ordinal);
+          && RoutingFactsEqual(other);
 
   /// <summary>The budget and capability facts.</summary>
   private bool IdentityFactsEqual(ModelConfig other)
@@ -87,8 +73,8 @@ public sealed record ModelConfig(
           && (!left.HasValue || BitConverter.SingleToInt32Bits(left.Value)
                   == BitConverter.SingleToInt32Bits(right!.Value));
 
-  /// <summary>The hash matching <see cref="Equals(ModelConfig)"/>: the scalars, then each fallback
-  ///     in order, so equal configs hash equally.</summary>
+  /// <summary>The hash matching <see cref="Equals(ModelConfig)"/>: every fact the request is
+  ///     built from, so equal configs hash equally.</summary>
   public override int GetHashCode()
   {
     HashCode hash = default;
@@ -112,10 +98,6 @@ public sealed record ModelConfig(
     hash.Add(PricingProvider, StringComparer.Ordinal);
     hash.Add(Variant);
     hash.Add(Retention);
-    foreach (string fallback in FallbackModelIds ?? [])
-    {
-      hash.Add(fallback, StringComparer.Ordinal);
-    }
 
     return hash.ToHashCode();
   }
@@ -140,8 +122,7 @@ public sealed record ModelConfig(
       bool acceptsImageInput = false,
       string? pricingProvider = null,
       ModelVariant variant = ModelVariant.Standard,
-       RetentionPolicy retention = RetentionPolicy.ZeroDataRetention,
-      IReadOnlyList<string>? fallbackModelIds = null)
+       RetentionPolicy retention = RetentionPolicy.ZeroDataRetention)
   {
     if (ValidateBasics(modelId, maxTokens) is { } basicsError)
     {
@@ -162,7 +143,7 @@ public sealed record ModelConfig(
         modelId, maxTokens, temperature, contextWindow, effort,
         topP, topK, frequencyPenalty, presencePenalty, repetitionPenalty, minP, topA,
         seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput, pricingProvider, variant,
-        retention, fallbackModelIds is { Count: > 0 } ? [.. fallbackModelIds] : null);
+        retention);
     return Result.Success(config);
   }
 

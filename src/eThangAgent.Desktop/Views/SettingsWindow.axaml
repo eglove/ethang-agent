@@ -32,7 +32,14 @@
             <Button x:Name="SignOutButton" Content="Sign out"
                     Command="{Binding SignOutCommand}"
                     IsVisible="{Binding IsSignedIn}"/>
+            <Button x:Name="TestOpenRouterButton" Content="{Binding OpenRouterTestLabel}"
+                    Command="{Binding TestOpenRouterCommand}"
+                    IsVisible="{Binding CanTestOpenRouter}"
+                    ToolTip.Tip="Pull this provider's model list with the key above, so a wrong key is caught here rather than on the first turn. Save makes the models appear in the model search."/>
           </StackPanel>
+          <TextBlock x:Name="OpenRouterTestResultText" Text="{Binding OpenRouterTestResult}"
+                     TextWrapping="Wrap" FontSize="12"
+                     IsVisible="{Binding HasOpenRouterTestResult}"/>
           <TextBlock Text="{Binding SignInError}" Foreground="OrangeRed" TextWrapping="Wrap"
                      FontSize="12"
                      IsVisible="{Binding HasSignInError}"/>
@@ -47,6 +54,29 @@
           <CheckBox x:Name="ShowKeysCheck" Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
           <TextBlock
               Text="Sign in to create a key in your own OpenRouter account. Once a key is configured this page says so and the key field is gone; Sign out clears it, and Save removes the stored key. Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave the management key field blank to remove that key. The management key (sk-or-... from openrouter.ai/settings/keys, marked as a management key) unlocks the openrouter_management tool; it never touches model calls."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+          <Separator Margin="0,8,0,0"/>
+          <TextBlock Text="Cloudflare Workers AI" FontWeight="Bold"/>
+          <TextBlock x:Name="CloudflareStatusText" Text="{Binding CloudflareStatus}"
+                     VerticalAlignment="Center"/>
+          <TextBox x:Name="CloudflareAccountIdBox" Text="{Binding CloudflareAccountId}"
+                   PasswordChar="{Binding KeyPasswordChar}"
+                   PlaceholderText="Cloudflare account id"/>
+          <TextBox x:Name="CloudflareApiTokenBox" Text="{Binding CloudflareApiToken}"
+                   PasswordChar="{Binding KeyPasswordChar}"
+                   PlaceholderText="Cloudflare API token"/>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button x:Name="TestCloudflareButton" Content="{Binding CloudflareTestLabel}"
+                    Command="{Binding TestCloudflareCommand}"
+                    IsVisible="{Binding CanTestCloudflare}"
+                    ToolTip.Tip="Pull this account's model list with the account id and token above, so a wrong credential is caught here rather than on the first turn. Save makes the models appear in the model search."/>
+          </StackPanel>
+          <TextBlock x:Name="CloudflareTestResultText" Text="{Binding CloudflareTestResult}"
+                     TextWrapping="Wrap" FontSize="12"
+                     IsVisible="{Binding HasCloudflareTestResult}"/>
+          <TextBlock
+              Text="Both fields are needed: Cloudflare models appear in the model search only while an account id and an API token are configured. Test pulls this account's models with what is in the fields, so a wrong credential is caught before it is saved. Saving then makes those models appear in the model search of the agents already open, with no restart. The credential applies to every workspace and is stored encrypted on this machine (Windows DPAPI), exactly like the OpenRouter key. Leave a field blank to remove it; clearing either removes Cloudflare from the model search. The token needs Workers AI read access on that account."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>

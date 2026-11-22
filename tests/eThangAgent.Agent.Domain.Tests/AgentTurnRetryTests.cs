@@ -159,6 +159,65 @@ public class AgentTurnRetryTests
     Assert.Empty(notices);
   }
 
+  /// <summary>A DROP VERDICT IS NOT RETRIED AND DOES NOT SPEND A WAIT: the walk advances on it,
+  ///     so a throttled model costs exactly one call and the next entry serves the turn.
+  ///     <para>THE DISTINCTION IS THE POINT OF THE WALK: a transient fault is retried on the SAME
+  ///     model, and a drop verdict moves on. Reading one as the other would either retry a model
+  ///     that will never serve or drop a model that had already recovered.</para></summary>
+  [Fact]
+  public async Task ADropVerdict_AdvancesTheWalk_WithoutSpendingARetry()
+  {
+    List<TimeSpan> waits = [];
+    List<string> drops = [];
+    Conversation conversation = new();
+    ScriptedProvider head = new(new Attempt([], "RateLimited", null));
+    ScriptedProvider backup = new(new Attempt([], null, "the backup served"));
+    Agent agent = new(head, conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          TurnRetryDelay = (delay, _) =>
+          {
+            waits.Add(delay);
+            return Task.CompletedTask;
+          },
+          ModelWalk = new ModelWalkSource(
+              new SessionModelPreferences { Entries = [new("test-model"), new("backup-model")] },
+              ModelVendors.OpenRouter,
+              new OneVendorResolver(new Dictionary<string, IModelProvider>
+              {
+                ["test-model"] = head,
+                ["backup-model"] = backup,
+              })),
+        });
+
+    Result<string> result = await agent.SendMessage("hi",
+        new TurnCallbacks(OnModelDropped: (model, _, code, _) => drops.Add($"{model} {code}")),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("the backup served", result.Value);
+    Assert.Equal(1, head.Calls);
+    Assert.Equal(1, backup.Calls);
+    Assert.Empty(waits);
+    Assert.Equal(["test-model RateLimited"], drops);
+  }
+
+  /// <summary>The resolver a walk needs when one vendor serves every entry: the provider is
+  ///     chosen by the config's model id, so each entry reaches its own scripted provider.
+  ///     </summary>
+  private sealed class OneVendorResolver(Dictionary<string, IModelProvider> byModel)
+      : IModelProviderResolver
+  {
+    public Result<IModelProvider> Resolve(string vendorId, ModelConfig config) =>
+        byModel.TryGetValue(config.ModelId, out IModelProvider? provider)
+            ? Result.Success(provider)
+            : Result.Failure<IModelProvider>(new DomainError("ProviderNotConfigured",
+                $"no provider for '{config.ModelId}'."));
+
+    public Result<IModelCatalog> Catalog(string vendorId) =>
+        Result.Failure<IModelCatalog>(new DomainError("ProviderNotConfigured", "no catalog."));
+  }
+
   /// <summary>A caller stop that lands during a retry wait ends the turn as a cancellation:
   ///     the wait's OperationCanceledException is surfaced as TurnCancelled, never as a turn
   ///     fault, and no further attempt is made.</summary>

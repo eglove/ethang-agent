@@ -59,6 +59,44 @@ public class TurnRetryPolicyTests
   {
     Assert.False(TurnRetryPolicy.IsTransient("ContextWindowExceeded"));
     Assert.False(TurnRetryPolicy.IsModelVerdict("ContextWindowExceeded"));
+    Assert.False(TurnRetryPolicy.IsDropVerdict("ContextWindowExceeded"));
+  }
+
+  /// <summary>The two names answer for one set: the turn loop decides from IsDropVerdict and
+  ///     the app's own list decides from IsModelVerdict, so a code one accepted and the other
+  ///     rejected would let one side drop a model the other kept.</summary>
+  [Theory]
+  [InlineData("RateLimited")]
+  [InlineData("ModelRejected")]
+  [InlineData("ProviderUnauthorized")]
+  [InlineData("ProviderError")]
+  [InlineData("ProviderTimeout")]
+  [InlineData("StreamInterrupted")]
+  [InlineData("ContextWindowExceeded")]
+  [InlineData("")]
+  public void IsDropVerdict_AndIsModelVerdict_AreOneAnswer(string code) =>
+      Assert.Equal(TurnRetryPolicy.IsDropVerdict(code), TurnRetryPolicy.IsModelVerdict(code));
+
+  /// <summary>A refused credential is a configuration fault about the account, not a verdict
+  ///     about the model: the turn must stop and report it, and the app must not drop the model.
+  ///     </summary>
+  [Fact]
+  public void ProviderUnauthorized_IsNeitherRetriedNorDropped()
+  {
+    Assert.False(TurnRetryPolicy.IsTransient("ProviderUnauthorized"));
+    Assert.False(TurnRetryPolicy.IsDropVerdict("ProviderUnauthorized"));
+    Assert.False(TurnRetryPolicy.IsModelVerdict("ProviderUnauthorized"));
+  }
+
+  /// <summary>The drop set is exactly the two codes the walk advances on, so a code added to
+  ///     one of them cannot silently become a third drop reason.</summary>
+  [Fact]
+  public void IsDropVerdict_AcceptsExactlyRateLimitedAndModelRejected()
+  {
+    Assert.True(TurnRetryPolicy.IsDropVerdict("RateLimited"));
+    Assert.True(TurnRetryPolicy.IsDropVerdict("ModelRejected"));
+    Assert.False(TurnRetryPolicy.IsDropVerdict("ProviderUnauthorized"));
+    Assert.False(TurnRetryPolicy.IsDropVerdict("StreamInterrupted"));
   }
 
   [Fact]

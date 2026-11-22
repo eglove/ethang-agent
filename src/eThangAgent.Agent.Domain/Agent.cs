@@ -125,6 +125,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IUsagePriceSource? _usagePrices = options?.UsagePrices;
   private readonly string? _workspaceId = options?.WorkspaceId;
   private readonly Func<TimeSpan, CancellationToken, Task>? _turnRetryDelay = options?.TurnRetryDelay;
+  private readonly ModelWalkSource? _modelWalk = options?.ModelWalk;
   private readonly ToolRepeatGuard _repeatGuard = new();
   private readonly ReadFreshnessLedger _readLedger = new();
 
@@ -369,6 +370,18 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // Fragments the CURRENT request streamed. Cleared before each attempt; a non-zero count
     // after a failure means the failed attempt's text reached an observer.
     public int StreamedDeltas { get; set; }
+    // This turn's model walk, or null when the agent sends its own single provider. Held on
+    // the turn so each entry is attempted at most once and the spent message can name every
+    // model this turn tried.
+    public ModelWalk? Walk { get; set; }
+    // The provider and config the CURRENT attempt sends. Null means the agent's own provider
+    // and config: the single-model shape every unwired caller keeps.
+    public IModelProvider? AttemptProvider { get; set; }
+    public ModelConfig? AttemptConfig { get; set; }
+    // The vendor serving the CURRENT attempt, or null when the agent sends its own single
+    // provider. It decides which catalog prices the call: a session's list may name a different
+    // vendor per entry.
+    public string? AttemptVendor { get; set; }
   }
 
   /// <summary>The turn loop proper (everything <see cref="SendMessage"/> advertises in
@@ -386,6 +399,18 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     _repeatGuard.Reset();
     _readLedger.Reset();
     TurnState state = new();
+    if (_modelWalk is { } source)
+    {
+      // THE WALK IS BUILT AT TURN START, so a model the user added or dropped between turns
+      // is what this turn walks. An empty list is a named failure, reported before any attempt.
+      Result<ModelWalk> walk = source.Begin();
+      if (!walk.IsSuccess)
+      {
+        return Result.Failure<string>(walk.Error);
+      }
+
+      state.Walk = walk.Value;
+    }
     // The request prefix is frozen for the whole turn (issue #267): one system-prompt
     // render and one tool-definition read, reused by every iteration. See _turnPrefix.
     _turnPrefix = new RequestPrefix(_systemPrompt?.Build(), _tools.Definitions);
@@ -649,7 +674,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       UsagePrices prices = _usagePrices is null
           ? UsagePrices.Unknown
           : await _usagePrices.PricesForAsync(pricingModelId, usage.InputTokens,
-              CancellationToken.None).ConfigureAwait(false);
+              state.AttemptVendor, CancellationToken.None).ConfigureAwait(false);
       Result<AgentUsageRecorded> record = AgentUsageRecorded.Create(Id, DateTimeOffset.UtcNow,
           state.TurnId, state.Iteration, usage,
           new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices,
@@ -706,7 +731,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
             ServedServiceTier: response.ServedServiceTier))
         : AgentUsageRecorded.Create(Id, at, state.TurnId, state.Iteration, usage,
             new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.PricingProvider,
-                await ResolvePricesAsync(response, usage).ConfigureAwait(false),
+                await ResolvePricesAsync(response, usage, state.AttemptVendor).ConfigureAwait(false),
                 Config.ModelId, response.ServedModelId, timing, response.ServedProvider, response.ServedServiceTier));
   }
 
@@ -716,11 +741,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     <para>The catalog lookup is the only await in the recording path that can be slow,
   ///     and it is memoized per (model, provider) for the process lifetime, so the steady
   ///     state is a dictionary read.</para></summary>
-  private async Task<UsagePrices> ResolvePricesAsync(ModelResponse response, TokenUsage usage) =>
+  private async Task<UsagePrices> ResolvePricesAsync(ModelResponse response, TokenUsage usage,
+      string? vendorId) =>
       _usagePrices is null
           ? UsagePrices.Unknown
           : await _usagePrices.PricesForAsync(PricingModelId(response), usage.InputTokens,
-              CancellationToken.None).ConfigureAwait(false);
+              vendorId, CancellationToken.None).ConfigureAwait(false);
 
   /// <summary>The model whose price table applies to this response (issue #290): the SERVED
   ///     model when the provider named one, the requested model only as the fallback. Pricing
@@ -1431,33 +1457,103 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private async Task<Result<ModelResponse>> SendWithTransientRetryAsync(ModelRequest request,
       TurnCallbacks? callbacks, TurnState state, CancellationToken ct)
   {
+    if (EnterFirstAttempt(state, callbacks) is { } refused)
+    {
+      return refused;
+    }
+
     Func<TimeSpan, CancellationToken, Task> wait = _turnRetryDelay ?? TurnRetryPolicy.SleepAsync;
     while (true)
     {
       state.RetryAttempts++;
       Result<ModelResponse> result = await StreamOnceAsync(request, callbacks, state, ct)
           .ConfigureAwait(false);
-      TimeSpan delay = TurnRetryPolicy.ComputeDelay(state.RetryAttempts, Jitter());
-      if (result.IsSuccess
-          || !TurnRetryPolicy.IsTransient(result.Error.Code)
-          || !TurnRetryPolicy.AllowsRetry(state.RetryAttempts, state.RetrySlept, delay))
+      if (result.IsSuccess)
       {
         state.RetryAttempts = 0;
         state.RetrySlept = TimeSpan.Zero;
         return result;
       }
 
-      WithdrawStreamedText(callbacks, state);
-      callbacks?.OnStreamRetrying?.Invoke(state.RetryAttempts + 1, delay, result.Error.Message);
-      Result<ModelResponse>? cancelled = await WaitAsync(wait, delay, ct).ConfigureAwait(false);
+      DomainError failure = result.Error;
+      if (IsDroppedByWalk(state, failure))
+      {
+        if (AdvanceWalk(state, callbacks, failure) is { } spent)
+        {
+          return spent;
+        }
+
+        continue;
+      }
+
+      TimeSpan retryDelay = TurnRetryPolicy.ComputeDelay(state.RetryAttempts, Jitter());
+      if (!ShouldRetry(failure, state, retryDelay))
+      {
+        state.RetryAttempts = 0;
+        state.RetrySlept = TimeSpan.Zero;
+        return result;
+      }
+
+      Result<ModelResponse>? cancelled = await WaitForRetryAsync(wait, retryDelay, state, callbacks,
+          failure, ct).ConfigureAwait(false);
       if (cancelled is { } stop)
       {
         return stop;
       }
-
-      state.RetrySlept += delay;
     }
   }
+
+  /// <summary>Withdraws the failed attempt's text, states the retry notice, and waits the
+  ///     policy's delay. Null means the wait completed and the request may be sent again; a
+  ///     Result is the turn's cancellation, which ends it.
+  ///     <para>THE NOTICE NAMES THE ATTEMPT ABOUT TO BE MADE, so it is computed from the
+  ///     attempts already spent rather than from the wait's position.</para></summary>
+  private async Task<Result<ModelResponse>?> WaitForRetryAsync(
+      Func<TimeSpan, CancellationToken, Task> wait, TimeSpan delay, TurnState state,
+      TurnCallbacks? callbacks, DomainError failure, CancellationToken ct)
+  {
+    WithdrawStreamedText(callbacks, state);
+    callbacks?.OnStreamRetrying?.Invoke(state.RetryAttempts + 1, delay, failure.Message);
+    Result<ModelResponse>? cancelled = await WaitAsync(wait, delay, ct).ConfigureAwait(false);
+    if (cancelled is not null)
+    {
+      return cancelled;
+    }
+
+    state.RetrySlept += delay;
+    return null;
+  }
+
+
+  /// <summary>Enters the walk's first entry before the attempt runs, so the provider and config
+  ///     the request uses are that entry's. Null means an attempt may proceed; a Result is the
+  ///     failure that ends the turn before any request is sent.
+  ///     <para>UNWIRED, THIS DOES NOTHING: the agent's own provider sends, which is the
+  ///     single-model shape every caller that names one model keeps.</para></summary>
+  private Result<ModelResponse>? EnterFirstAttempt(TurnState state, TurnCallbacks? callbacks)
+  {
+    if (state.Walk is null || state.AttemptProvider is not null)
+    {
+      return null;
+    }
+
+    Result<ModelWalkAttempt> entered = EnterNextAttempt(state, callbacks);
+    return entered.IsSuccess ? null : Result.Failure<ModelResponse>(entered.Error);
+  }
+
+  /// <summary>True when this attempt's failure makes the model unusable for the rest of the
+  ///     turn, so the walk advances instead of the request being retried.
+  ///     <para>A DROP VERDICT IS CHECKED BEFORE THE TRANSIENT TEST, so an entry's single attempt
+  ///     is never spent on a failure the retry policy recovers from: a transient code is not a
+  ///     drop verdict, so it falls through to the retry path on the SAME model.</para></summary>
+  private static bool IsDroppedByWalk(TurnState state, DomainError failure) =>
+      state.Walk is not null && TurnRetryPolicy.IsDropVerdict(failure.Code);
+
+  /// <summary>True when the same request is worth sending again: it failed with a transient
+  ///     code and the policy still allows another attempt within its bounds.</summary>
+  private static bool ShouldRetry(DomainError failure, TurnState state, TimeSpan delay) =>
+      TurnRetryPolicy.IsTransient(failure.Code)
+      && TurnRetryPolicy.AllowsRetry(state.RetryAttempts, state.RetrySlept, delay);
 
   /// <summary>One attempt's provider call, with both delta observers counting what the attempt
   ///     streamed so the rewind decision can be made from the count.</summary>
@@ -1469,7 +1565,80 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         WrapStreamStamp(CountDeltas(callbacks?.OnContentDelta, state), "content");
     Action<string>? reasoningDelta =
         WrapStreamStamp(CountDeltas(callbacks?.OnReasoningDelta, state), "reasoning");
-    return _provider.SendStreamingAsync(Config, request, contentDelta, reasoningDelta, ct);
+    // The attempt's own provider and config when a walk entered an entry; the agent's own
+    // otherwise, which is the single-model shape every unwired caller keeps.
+    return (state.AttemptProvider ?? _provider).SendStreamingAsync(
+        state.AttemptConfig ?? Config, request, contentDelta, reasoningDelta, ct);
+  }
+
+  /// <summary>Enters the walk's next entry, resolving the provider that entry's vendor names and
+  ///     binding the attempt's config to that entry's model.
+  ///     <para>AN ENTRY THAT CANNOT BE RESOLVED IS RECORDED AND WALKED PAST, with its reason
+  ///     stated: a session whose credential was cleared serves its other vendor instead of
+  ///     failing whole, and the entry that could not be served is named rather than skipped
+  ///     silently.</para>
+  ///     <para>THE SPENT STATE ENDS THE TURN: the failure names every model attempted and the
+  ///     reason each gave, and it is only reachable after the last entry was consumed.</para>
+  ///     </summary>
+  private Result<ModelWalkAttempt> EnterNextAttempt(TurnState state, TurnCallbacks? callbacks)
+  {
+    ModelWalk walk = state.Walk!;
+    while (true)
+    {
+      ModelWalkStep step = walk.Next(Config, _modelWalk!.Resolver);
+      if (step.Spent)
+      {
+        return Result.Failure<ModelWalkAttempt>(step.Refusal!);
+      }
+
+      if (step.Refusal is { } refusal)
+      {
+        walk.Drop(refusal);
+        ReportDrop(walk, refusal, callbacks);
+        continue;
+      }
+
+      ModelWalkAttempt attempt = step.Attempt!;
+      state.AttemptProvider = attempt.Provider;
+      state.AttemptConfig = ModelWalk.ConfigFor(Config, attempt.ModelId);
+      state.AttemptVendor = attempt.Vendor;
+      return Result.Success(attempt);
+    }
+  }
+
+  /// <summary>States one dropped model in the transcript and to the turn's observers, naming the
+  ///     model, its vendor, and the reason it gave.
+  ///     <para>THE TRANSCRIPT LINE IS THE RECORD and the callback is the live surface: a host
+  ///     that owns its own list reads the callback, and a resumed session reads the line.</para>
+  ///     </summary>
+  /// <summary>Records the drop the attempt just returned and enters the next entry. Null means
+  ///     the walk advanced; a Result means the list is spent and that failure ends the turn.
+  ///     <para>THE WALK IS NOT ADVANCED FOR A TRANSIENT CODE, because the caller only reaches
+  ///     here for a drop verdict: a transient fault is retried on the same model by the retry
+  ///     policy, and advancing would spend an entry the turn had already recovered.</para>
+  ///     </summary>
+  private Result<ModelResponse>? AdvanceWalk(TurnState state, TurnCallbacks? callbacks,
+      DomainError error)
+  {
+    ModelWalk walk = state.Walk!;
+    walk.Drop(error);
+    ReportDrop(walk, error, callbacks);
+    state.RetryAttempts = 0;
+    state.RetrySlept = TimeSpan.Zero;
+    WithdrawStreamedText(callbacks, state);
+    Result<ModelWalkAttempt> entered = EnterNextAttempt(state, callbacks);
+    return entered.IsSuccess ? null : Result.Failure<ModelResponse>(entered.Error);
+  }
+
+  private void ReportDrop(ModelWalk walk, DomainError error, TurnCallbacks? callbacks)
+  {
+    string model = walk.CurrentModelId ?? string.Empty;
+    string vendor = ModelVendors.DisplayName(walk.CurrentVendor ?? "unknown");
+    string line = $"[model walk] {model} ({vendor}) could not serve this turn "
+        + $"[{error.Code}]: {error.Message}";
+    Conversation.AddSystemMessage(line);
+    callbacks?.OnSystemMessage?.Invoke(line);
+    callbacks?.OnModelDropped?.Invoke(model, walk.CurrentVendor, error.Code, error.Message);
   }
 
   /// <summary>Withdraws the text a failed attempt streamed: the retry carries the same request,

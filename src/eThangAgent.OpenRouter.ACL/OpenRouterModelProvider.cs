@@ -17,6 +17,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   private const string ProviderError = "ProviderError";
   private const string ContextWindowExceeded = "ContextWindowExceeded";
   private const string ModelRejected = "ModelRejected";
+  private const string ProviderUnauthorized = "ProviderUnauthorized";
   private const string RetentionUnavailable = "RetentionUnavailable";
 
   /// <summary>Substrings that identify a context-window overflow in an HTTP 400 body.
@@ -279,16 +280,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   private async Task<Result<Dictionary<string, object?>>> BuildRequestBodyAsync(ModelConfig config,
       ModelRequest request, bool stream, CancellationToken ct)
   {
-    if (config.FallbackModelIds.Count + 1 > ModelSelection.MaxModels)
-    {
-      // THE PROVIDER TAKES AT MOST THREE ENTRIES and refuses a longer list with a 400 before any
-      // model serves, so the request is never built: the turn fails naming the limit instead of
-      // spending a round trip on a body the provider will reject.
-      return Result.Failure<Dictionary<string, object?>>(new DomainError("ModelListTooLong",
-          $"the model list names {config.FallbackModelIds.Count + 1} models; at most "
-          + $"{ModelSelection.MaxModels} can be sent on one request."));
-    }
-
     Dictionary<string, object?> bodyDict = BaseBody(config, request);
     DomainError? fault = AttachSessionId(bodyDict, request);
     if (fault is null)
@@ -642,13 +633,10 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   /// <summary>The base body fields; the system prompt rides the responses API's
   ///     system channel — a single top-level instruction string instead of a
   ///     system-role message in the array.
-  ///     <para><c>model</c> ALWAYS CARRIES THE HEAD AS A STRING, and <c>models</c> is the ordered
-  ///     list the provider falls through when that head cannot serve. The list is built from the
-  ///     head plus the config's fallbacks, never assembled independently, so the two fields cannot
-  ///     disagree about which model comes first.</para>
-  ///     <para><c>models</c> IS OMITTED ENTIRELY WHEN NOTHING FOLLOWS THE HEAD: a single-model
-  ///     request keeps the exact body it has always sent, and a one-element array beside
-  ///     <c>model</c> is a form the provider documents no behaviour for.</para></summary>
+  ///     <para><c>model</c> CARRIES EXACTLY ONE MODEL AS A STRING, and no <c>models</c> array is
+  ///     ever sent. Fall-through belongs to the harness: a turn walks the session's list one model
+  ///     at a time, so a request that named several would hide a refusal the walk has to see in
+  ///     order to drop that model and continue.</para></summary>
   private static Dictionary<string, object?> BaseBody(ModelConfig config, ModelRequest request)
   {
     Dictionary<string, object?> bodyDict = new()
@@ -663,11 +651,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
     {
       bodyDict["instructions"] = request.SystemPrompt;
-    }
-
-    if (config.FallbackModelIds.Count > 0)
-    {
-      bodyDict["models"] = new List<string>([config.ModelId, .. config.FallbackModelIds]);
     }
 
     return bodyDict;
@@ -1019,9 +1002,12 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   /// <summary>Maps an HTTP status to its error result: 429 is a rate limit, 408 a
   ///     timeout, and a 400 whose body names the context-length fault is its own
   ///     failure — the agent loop, not the wire layer, decides what an overflow
-  ///     means (one forced compaction, one retry). A 400 that names any other fault,
-  ///     a 401, 403 or 404 is the model's verdict on the request or on itself, so it
-  ///     carries ModelRejected. Everything else is a ProviderError.</summary>
+  ///     means (one forced compaction, one retry). A 400 that names any other fault
+  ///     or a 404 is the model's verdict on the request or on itself, so it carries
+  ///     ModelRejected. A 401 or 403 is a REFUSED CREDENTIAL and carries
+  ///     ProviderUnauthorized: a configuration fault rather than the model's verdict,
+  ///     so a caller stops and reports it instead of moving to the next model.
+  ///     Everything else is a ProviderError.</summary>
   private static Result<ModelResponse> StatusFailure(HttpStatusCode statusCode, string? detail)
       => (int)statusCode switch
       {
@@ -1031,7 +1017,9 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
             "Request timed out.")),
         400 when IsContextOverflow(detail) => Result.Failure<ModelResponse>(new DomainError(ContextWindowExceeded,
             StatusDetail((int)statusCode, detail))),
-        400 or 401 or 403 or 404 => Result.Failure<ModelResponse>(new DomainError(ModelRejected,
+        401 or 403 => Result.Failure<ModelResponse>(new DomainError(ProviderUnauthorized,
+            StatusDetail((int)statusCode, detail))),
+        400 or 404 => Result.Failure<ModelResponse>(new DomainError(ModelRejected,
             StatusDetail((int)statusCode, detail))),
         _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
             StatusDetail((int)statusCode, detail))),

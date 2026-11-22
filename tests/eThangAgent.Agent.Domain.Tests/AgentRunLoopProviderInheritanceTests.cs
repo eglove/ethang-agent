@@ -21,7 +21,7 @@ public class AgentRunLoopProviderInheritanceTests
 
   private sealed class FixedSource : IContextWindowSource
   {
-    public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
+    public Task<int?> WindowForAsync(string modelId, string? vendorId = null, CancellationToken ct = default)
         => Task.FromResult<int?>(128_000);
   }
 

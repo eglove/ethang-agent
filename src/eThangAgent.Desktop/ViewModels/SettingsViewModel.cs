@@ -38,6 +38,15 @@ internal sealed record CompactionModelOption(string? ModelId, string Display)
 internal sealed record SettingsValues
 {
   public string? OpenRouterKey { get; init; }
+
+  /// <summary>The Cloudflare account id the dialog opens with, or null when none is stored.
+  ///     App-wide like the OpenRouter key: it is not scoped to a workspace.</summary>
+  public string? CloudflareAccountId { get; init; }
+
+  /// <summary>The Cloudflare API token the dialog opens with, or null when none is stored.
+  ///     Masked exactly as the OpenRouter key is.</summary>
+  public string? CloudflareApiToken { get; init; }
+
   public CommitStyle CommitStyle { get; init; } = CommitStyle.Conventional;
   public IReadOnlyList<CompactionModelOption>? CompactionModels { get; init; }
   public CompactionModelOption? SelectedCompactionModel { get; init; }
@@ -80,6 +89,15 @@ internal sealed record SettingsValues
   ///     no sign-in.</summary>
   public Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; init; }
 
+  /// <summary>Pulls one vendor's model catalog with the credential currently in the form, or
+  ///     null when this host wired no probe - the dialog then offers no Test button rather than
+  ///     one that could not answer.
+  ///     <para>THE ARGUMENTS ARE THE FORM'S, NOT A SNAPSHOT: a key is tested before it is saved,
+  ///     so the probe must read what the user typed.</para></summary>
+  public Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProviderProbe
+  { get; init; }
+
   /// <summary>The session files loaded for EVERY workspace, as the Skills tab opens with
   ///     them. Null means an empty list.</summary>
   public IReadOnlyList<SessionFileEntry>? GlobalSessionFiles { get; init; }
@@ -102,7 +120,9 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     string? RetentionWindowText = null,
     string? PathToolsText = null,
     IReadOnlyList<SessionFileEntry>? GlobalSessionFiles = null,
-    IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null);
+    IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null,
+    string? CloudflareAccountId = null,
+    string? CloudflareApiToken = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -125,6 +145,14 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>Clears the configured model key so the dialog is signed out. Save is what
   ///     removes the stored key; the field comes back as the paste path.</summary>
   public IRelayCommand SignOutCommand { get; }
+
+  /// <summary>Pulls OpenRouter's model catalog with the key in the field, so the key is proven
+  ///     and its models are in the search before the dialog is confirmed.</summary>
+  public IAsyncRelayCommand TestOpenRouterCommand { get; }
+
+  /// <summary>Pulls Cloudflare's model catalog with the account id and token in the fields.
+  ///     </summary>
+  public IAsyncRelayCommand TestCloudflareCommand { get; }
 
   /// <summary>The three commit styles, in display order.</summary>
   public IReadOnlyList<CommitStyleOption> CommitStyles { get; } =
@@ -187,6 +215,43 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(SignInStatus))]
   [NotifyPropertyChangedFor(nameof(ShowsSignInButton))]
   public partial string OpenRouterKey { get; set; }
+
+  /// <summary>The Cloudflare account id as raw text - blank means cleared. The credential is
+  ///     app-wide and is stored protected, exactly as the OpenRouter key is.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  [NotifyPropertyChangedFor(nameof(HasCloudflareCredential))]
+  [NotifyPropertyChangedFor(nameof(CloudflareStatus))]
+  public partial string CloudflareAccountId { get; set; }
+
+  /// <summary>The Cloudflare API token as raw text - blank means cleared. Masked by the same
+  ///     password character as the OpenRouter key.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  [NotifyPropertyChangedFor(nameof(HasCloudflareCredential))]
+  [NotifyPropertyChangedFor(nameof(CloudflareStatus))]
+  public partial string CloudflareApiToken { get; set; }
+
+  /// <summary>Whether both halves of the Cloudflare credential are present in the form. The
+  ///     provider is offered only when both are, so the dialog states which half is missing
+  ///     rather than leaving a user to guess why no Cloudflare model appears.</summary>
+  public bool HasCloudflareCredential =>
+      !string.IsNullOrWhiteSpace(CloudflareAccountId) && !string.IsNullOrWhiteSpace(CloudflareApiToken);
+
+  /// <summary>The Cloudflare state in words: configured, or which half is missing.</summary>
+  public string CloudflareStatus => (HasCloudflareCredential, IsCloudflareHalfFilled) switch
+  {
+    (true, _) => "Cloudflare is configured",
+    (false, true) => "Cloudflare needs both an account id and an API token",
+    _ => "No Cloudflare credential configured",
+  };
+
+  /// <summary>Whether exactly one half of the Cloudflare credential is filled in. A half-filled
+  ///     credential configures nothing, and the dialog says so instead of saving silently.</summary>
+  private bool IsCloudflareHalfFilled =>
+      string.IsNullOrWhiteSpace(CloudflareAccountId) != string.IsNullOrWhiteSpace(CloudflareApiToken);
 
   /// <summary>The OpenRouter MANAGEMENT key (provisioning-key API) as raw text -
   ///     blank means cleared; the same no-internal-whitespace rule applies.</summary>
@@ -307,6 +372,11 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   private Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; }
 
+  /// <summary>The host's catalog probe, or null when it wired none.</summary>
+  private Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProviderProbe
+  { get; }
+
   /// <summary>The sign-in for the base URL currently in the form, or null when this host
   ///     offers none (tests, and any host that has not wired the flow) - the dialog then
   ///     shows no sign-in button and the key field is the only way in.
@@ -357,6 +427,52 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>Whether <see cref="SignInError"/> has something to show.</summary>
   public bool HasSignInError => SignInError is not null;
 
+  /// <summary>What the last OpenRouter test found, or null when none ran. It states the model
+  ///     count on success and the provider's own refusal on failure, so a key that is wrong
+  ///     says why rather than leaving the user to guess.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(HasOpenRouterTestResult))]
+  public partial string? OpenRouterTestResult { get; set; }
+
+  /// <summary>Whether <see cref="OpenRouterTestResult"/> has something to show.</summary>
+  public bool HasOpenRouterTestResult => OpenRouterTestResult is not null;
+
+  /// <summary>What the last Cloudflare test found, or null when none ran.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(HasCloudflareTestResult))]
+  public partial string? CloudflareTestResult { get; set; }
+
+  /// <summary>Whether <see cref="CloudflareTestResult"/> has something to show.</summary>
+  public bool HasCloudflareTestResult => CloudflareTestResult is not null;
+
+  /// <summary>True while an OpenRouter test is in flight: the button is disabled and says what
+  ///     it is doing, so a second click cannot start a second pull.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(OpenRouterTestLabel))]
+  public partial bool IsTestingOpenRouter { get; set; }
+
+  /// <summary>The OpenRouter test button's label, which states the wait rather than leaving the
+  ///     user watching a disabled button.</summary>
+  public string OpenRouterTestLabel => IsTestingOpenRouter ? "Testing..." : "Test";
+
+  /// <summary>True while a Cloudflare test is in flight.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(CloudflareTestLabel))]
+  public partial bool IsTestingCloudflare { get; set; }
+
+  /// <summary>The Cloudflare test button's label.</summary>
+  public string CloudflareTestLabel => IsTestingCloudflare ? "Testing..." : "Test";
+
+  /// <summary>Whether the OpenRouter test is offered: the host wired a probe and a key is in the
+  ///     field. A blank field has nothing to test, and the button's absence says so.</summary>
+  public bool CanTestOpenRouter =>
+      ProviderProbe is not null && IsSignedIn && !IsTestingOpenRouter;
+
+  /// <summary>Whether the Cloudflare test is offered: the host wired a probe and both halves of
+  ///     the credential are in the form.</summary>
+  public bool CanTestCloudflare =>
+      ProviderProbe is not null && HasCloudflareCredential && !IsTestingCloudflare;
+
   /// <summary>Whether a workspace is open; kept for the compaction model's
   ///     per-workspace capture (the dialog opened from a tab edits that
   ///     workspace's summarizer).</summary>
@@ -373,6 +489,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public string? ValidationError =>
       Validate(OpenRouterKey)
       ?? Validate(OpenRouterManagementKey)
+      ?? Validate(CloudflareAccountId)
+      ?? Validate(CloudflareApiToken)
       ?? ValidateMaxConcurrent(MaxConcurrentAgentsText)
       ?? ValidateDuration(WatchdogTickText, "Tick interval")
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
@@ -389,6 +507,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
     // is load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
     // button is only one of several ways this command can be invoked.
     SignInCommand = new AsyncRelayCommand(SignInAsync, () => CanSignIn);
+    TestOpenRouterCommand = new AsyncRelayCommand(TestOpenRouterAsync, () => CanTestOpenRouter);
+    TestCloudflareCommand = new AsyncRelayCommand(TestCloudflareAsync, () => CanTestCloudflare);
     PickGlobalFileCommand = new RelayCommand(() => GlobalFilePickRequested?.Invoke(this, EventArgs.Empty));
     PickGlobalSkillDirectoryCommand = new RelayCommand(
         () => GlobalSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty));
@@ -410,6 +530,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText),
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
                 Normalize(OpenRouterBaseUrlText), ComputerUse,
+                CloudflareAccountId: Normalize(CloudflareAccountId),
+                CloudflareApiToken: Normalize(CloudflareApiToken),
                 SkillRegistryDefaultTarget: SkillRegistryTarget,
                 OpenRouterManagementKey: Normalize(OpenRouterManagementKey),
                 RootTurnIdleText: Normalize(RootTurnIdleText),
@@ -427,6 +549,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     CompactionModels = values.CompactionModels ?? [CompactionModelOption.Automatic];
     WorkspaceRoot = values.WorkspaceRoot;
     ProviderSignInFactory = values.ProviderSignInFactory;
+    ProviderProbe = values.ProviderProbe;
     ToolsPage = values.ToolsPage?.Invoke();
     LanguageServersPage = values.LanguageServersPage?.Invoke();
     _openingPathTools = values.PathToolsText;
@@ -503,6 +626,59 @@ internal sealed partial class SettingsViewModel : ObservableObject
   ///     running, and no key is configured (a signed-in dialog offers sign-out).</summary>
   private bool CanSignIn => ProviderSignIn is not null && !IsSigningIn && !IsSignedIn;
 
+  /// <summary>Pulls OpenRouter's catalog with the key in the field and states what it found.
+  ///     <para>THE PULL IS THE TEST: a key that answers with models is proven, and the same pull
+  ///     is what puts those models in the model search - a separate 'is this key valid' call
+  ///     would prove the key and still leave the search empty until the app was restarted.
+  ///     </para></summary>
+  private async Task TestOpenRouterAsync()
+  {
+    if (ProviderProbe is not { } probe)
+    {
+      return;
+    }
+
+    IsTestingOpenRouter = true;
+    OpenRouterTestResult = null;
+    try
+    {
+      Result<ProviderProbeResult> outcome = await probe(ModelVendors.OpenRouter, null, null,
+          EffectiveBaseUrl, CancellationToken.None);
+      OpenRouterTestResult = outcome.IsSuccess
+          ? outcome.Value.Summary
+          : $"OpenRouter could not be read: {outcome.Error.Message}";
+    }
+    finally
+    {
+      IsTestingOpenRouter = false;
+    }
+  }
+
+  /// <summary>Pulls Cloudflare's catalog with the account id and token in the fields and states
+  ///     what it found.</summary>
+  private async Task TestCloudflareAsync()
+  {
+    if (ProviderProbe is not { } probe)
+    {
+      return;
+    }
+
+    IsTestingCloudflare = true;
+    CloudflareTestResult = null;
+    try
+    {
+      Result<ProviderProbeResult> outcome = await probe(ModelVendors.Cloudflare,
+          CloudflareAccountId.Trim(), CloudflareApiToken.Trim(), null, CancellationToken.None);
+      CloudflareTestResult = outcome.IsSuccess
+          ? outcome.Value.Summary
+          : $"Cloudflare could not be read: {outcome.Error.Message}";
+    }
+    finally
+    {
+      IsTestingCloudflare = false;
+    }
+  }
+
   /// <summary>Seeds every observable property from the opening values. Runs AFTER
   ///     SaveCommand exists: each assignment raises the changed hooks, which requery
   ///     save availability.</summary>
@@ -518,6 +694,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
   {
     OpenRouterKey = values.OpenRouterKey ?? string.Empty;
     OpenRouterManagementKey = values.OpenRouterManagementKey ?? string.Empty;
+    CloudflareAccountId = values.CloudflareAccountId ?? string.Empty;
+    CloudflareApiToken = values.CloudflareApiToken ?? string.Empty;
     OpenRouterBaseUrlText = values.OpenRouterBaseUrlText ?? string.Empty;
     SkillRegistryTarget = values.SkillRegistryDefaultTarget ?? string.Empty;
   }
@@ -559,11 +737,34 @@ internal sealed partial class SettingsViewModel : ObservableObject
     SaveCommand.NotifyCanExecuteChanged();
     SignOutCommand.NotifyCanExecuteChanged();
     SignInCommand.NotifyCanExecuteChanged();
+    TestOpenRouterCommand.NotifyCanExecuteChanged();
+    // A result describes the key that produced it, so editing the key retires it rather than
+    // leaving a stale verdict beside a value it never tested.
+    OpenRouterTestResult = null;
   }
+
+  partial void OnIsTestingOpenRouterChanged(bool value) =>
+      TestOpenRouterCommand.NotifyCanExecuteChanged();
+
+  partial void OnIsTestingCloudflareChanged(bool value) =>
+      TestCloudflareCommand.NotifyCanExecuteChanged();
 
   partial void OnIsSigningInChanged(bool value) => SignInCommand.NotifyCanExecuteChanged();
 
   partial void OnOpenRouterManagementKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnCloudflareAccountIdChanged(string value) => OnCloudflareCredentialChanged();
+
+  partial void OnCloudflareApiTokenChanged(string value) => OnCloudflareCredentialChanged();
+
+  /// <summary>Both halves of the Cloudflare credential are one fact, so editing either requeries
+  ///     the same commands and retires the same result.</summary>
+  private void OnCloudflareCredentialChanged()
+  {
+    SaveCommand.NotifyCanExecuteChanged();
+    TestCloudflareCommand.NotifyCanExecuteChanged();
+    CloudflareTestResult = null;
+  }
 
   partial void OnMaxConcurrentAgentsTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 

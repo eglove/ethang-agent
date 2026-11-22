@@ -74,6 +74,17 @@ public sealed record ModelProviderEntry(
   ///     </para></summary>
   public EndpointVariant Variant { get; init; } = EndpointVariant.Unspecified;
 
+  /// <summary>Whether the provider states this model needs a PAID plan, or null when it stated
+  ///     nothing about a plan.
+  ///     <para>TRI-STATE ON PURPOSE, and the same rule <see cref="SupportsImplicitCaching"/> follows:
+  ///     null means the source said nothing, true means it said the model needs a paid plan, and
+  ///     false means it said the model does not. A row written before this member existed, and a
+  ///     provider whose response carries no plan marker, both read as null - never as false, which
+  ///     would state a fact nobody published.</para>
+  ///     <para>AN INIT MEMBER RATHER THAN A POSITIONAL ONE, so every construction site that
+  ///     predates it keeps compiling and gets the no-marker default.</para></summary>
+  public bool? RequiresPaidPlan { get; init; }
+
   /// <summary>Composite key for one ENDPOINT: "ModelId:ProviderName:VariantSlug".
   ///     <para>THE VARIANT SLUG IS PART OF THE KEY, and that is the whole point: a provider
   ///     name does not identify an endpoint. Five <c>x-ai/grok-4.7</c> endpoints are all named

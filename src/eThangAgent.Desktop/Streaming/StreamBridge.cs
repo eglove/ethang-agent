@@ -38,6 +38,8 @@ internal sealed class StreamBridge(Func<UiStreamEvent, Task> sink, bool coalesce
   public Action<string> OnNotice => text => _channel.Writer.TryWrite(new UiStreamEvent.Notice(text));
   public Action<string> OnSystemMessage => text => _channel.Writer.TryWrite(new UiStreamEvent.SystemMessage(text));
   public Action OnStreamRewind => () => _channel.Writer.TryWrite(new UiStreamEvent.Rewind());
+  public Action<string, string?, string> OnModelDropped => (modelId, vendor, code) =>
+      _channel.Writer.TryWrite(new UiStreamEvent.ModelDropped(modelId, vendor, code));
 
   // Time-slice window for text deltas; flush cadence parity with the spinner timer.
   internal const double CoalesceWindowSeconds = 0.08;
@@ -109,16 +111,26 @@ internal sealed class StreamBridgePump(
     }
   }
 
+
+
   private static Task Route(StreamWindowCoalescer coalescer, UiStreamEvent evt) => evt switch
   {
     UiStreamEvent.Delta d => coalescer.ContentDeltaAsync(d.Text),
     UiStreamEvent.Reasoning r => coalescer.ReasoningDeltaAsync(r.Text),
-    UiStreamEvent.IterationEnd => coalescer.IterationEndAsync(),
     UiStreamEvent.ToolCallEvent tc => coalescer.ToolCallAsync(tc.Name, tc.Arguments),
     UiStreamEvent.ToolResultEvent tr => coalescer.ToolResultAsync(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title, tr.Images),
+    _ => StructuralAsync(coalescer, evt),
+  };
+
+  /// <summary>The turn's structural facts: the ones that are not streamed text, so they land in
+  ///     order with everything else rather than being coalesced into a slice.</summary>
+  private static Task StructuralAsync(StreamWindowCoalescer coalescer, UiStreamEvent evt) => evt switch
+  {
+    UiStreamEvent.IterationEnd => coalescer.IterationEndAsync(),
     UiStreamEvent.Notice n => coalescer.NoticeAsync(n.Text),
     UiStreamEvent.SystemMessage sm => coalescer.SystemMessageAsync(sm.Text),
     UiStreamEvent.Rewind => coalescer.RewindAsync(),
+    UiStreamEvent.ModelDropped d => coalescer.ModelDroppedAsync(d.ModelId, d.Vendor, d.Code),
     _ => Task.CompletedTask,
   };
 }

@@ -15,16 +15,15 @@ public static class ModelPreferencesOverlay
   ///     preserving every knob the preferences leave null.
   ///     <para>THE ROUTING VARIANT IS APPLIED LAST, AFTER the model id is settled, because
   ///     part of its wire form is a suffix on that id. See <see cref="ApplyVariant"/>.</para>
-  ///     <para>THE ORDERED FALLBACK LIST IS APPLIED AFTER THE VARIANT so every backup carries the
-  ///     same suffix the head does. See <see cref="ApplyFallbacks"/>.</para></summary>
+  ///     <para>THE PREFERENCE'S LIST IS NOT READ HERE. A turn walks the session's ordered list one
+  ///     model at a time, so the config this returns names the one model the turn is about to
+  ///     attempt and carries no list of its own.</para></summary>
   public static ModelConfig Apply(ModelConfig config, SessionModelPreferences? prefs)
   {
     ArgumentNullException.ThrowIfNull(config);
     return prefs is null
         ? config
-        : ApplyFallbacks(
-            ApplyVariant(OverlayMisc(OverlayPenalties(OverlayCore(config, prefs), prefs), prefs), prefs),
-            prefs);
+        : ApplyVariant(OverlayMisc(OverlayPenalties(OverlayCore(config, prefs), prefs), prefs), prefs);
   }
 
   /// <summary>Carries the session's routing variant onto the config: the VARIANT FIELD plus
@@ -64,33 +63,6 @@ public static class ModelPreferencesOverlay
     // Variant to decide whether a provider block is needed.
     return config with { ModelId = ModelVariants.ApplyTo(variant, config.ModelId), Variant = variant };
   }
-
-  /// <summary>Carries the preference's ordered list onto the config as the models to fall through
-  ///     to: every entry after the head, in stored order, with the session's variant applied to each
-  ///     exactly as <see cref="ApplyVariant"/> applies it to the head.
-  ///     <para>THE TAIL ONLY. The head is the config's own <see cref="ModelConfig.ModelId"/>, so the
-  ///     list the ACL sends is assembled from that one field plus these, and the two cannot name
-  ///     different first entries.</para>
-  ///     <para>A PREFERENCE WITH NO LIST LEAVES THE CONFIG'S LIST ALONE, because the config that
-  ///     reaches here may carry fallbacks the resolver already set. A preference carrying only a
-  ///     head states that nothing follows it, which is an empty list.</para></summary>
-  private static ModelConfig ApplyFallbacks(ModelConfig config, SessionModelPreferences prefs)
-  {
-    IReadOnlyList<string>? fallbacks = FallbacksOf(prefs);
-    return fallbacks is null ? config : config with { FallbackModelIds = fallbacks };
-  }
-
-  /// <summary>The preference's models after its head, or null when the preference names no list at
-  ///     all — which is a different statement from a list holding one entry.</summary>
-  private static IReadOnlyList<string>? FallbacksOf(SessionModelPreferences prefs)
-      => prefs.ModelIds is { Count: > 0 } ids
-          ? [.. ids.Skip(1).Select(id => WithVariant(prefs.ModelVariant, id))]
-          : null;
-
-  /// <summary><paramref name="modelId"/> as it goes on the wire: under the committed variant when
-  ///     one was committed, and untouched otherwise.</summary>
-  private static string WithVariant(ModelVariant? variant, string modelId)
-      => variant is { } committed ? ModelVariants.ApplyTo(committed, modelId) : modelId;
 
   /// <summary>Core sampling knobs: temperature, max tokens, and the top-p/top-k
   ///     cutoffs. A non-null preference replaces the config's value; null keeps it.</summary>

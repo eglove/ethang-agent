@@ -34,6 +34,9 @@ internal sealed class SessionModelDrops
     return true;
   }
 
+  /// <summary>True when this session has dropped <paramref name="modelId"/>.</summary>
+  public bool IsDropped(string modelId) => _dropped.Contains(modelId, StringComparer.Ordinal);
+
   /// <summary>Clears every drop: a freshly picked list is the user's whole list again.</summary>
   public void Clear() => _dropped.Clear();
 }

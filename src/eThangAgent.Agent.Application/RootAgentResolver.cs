@@ -35,7 +35,7 @@ public sealed class RootAgentResolver(
   private readonly float _temperature = context.Temperature;
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = context.WindowSource;
-  private readonly IModelCatalog? _catalog = context.Catalog;
+  private readonly IModelProviderResolver? _resolver = context.Resolver;
 
   /// <summary>Resolves the model to serve the upcoming turn. Returns the config and a
   /// notice (null when nothing notable happened), or a named failure when no model can be
@@ -44,15 +44,17 @@ public sealed class RootAgentResolver(
   {
     // 0. The user's live model choice wins over everything static. Runtime preferences
     //    (reasoning effort, sampling knobs, and the routing variant) still apply.
-    if (_preferences?.ModelIds is { Count: > 0 } preferred)
+    if (_preferences?.Entries is { Count: > 0 } preferred)
     {
-      Result<ModelConfig> resolved = await MakeAsync(preferred[0], ct).ConfigureAwait(false);
+      ModelSelectionEntry head = preferred[0];
+      Result<ModelConfig> resolved =
+          await MakeAsync(head.ModelId, head.Vendor, ct).ConfigureAwait(false);
       if (!resolved.IsSuccess)
       {
         return Result.Failure<(ModelConfig, string?)>(resolved.Error);
       }
 
-      string? preferredNotice = await TryPersistModelAsync(preferred[0], ct).ConfigureAwait(false);
+      string? preferredNotice = await TryPersistModelAsync(head.ModelId, ct).ConfigureAwait(false);
       return Result.Success<(ModelConfig, string?)>(
           (resolved.Value, preferredNotice is null ? null : $"Model selected: {preferredNotice}"));
     }
@@ -62,7 +64,8 @@ public sealed class RootAgentResolver(
     string? pinned = await PinnedModelAsync(ct).ConfigureAwait(false);
     if (pinned is not null)
     {
-      Result<ModelConfig> resolved = await MakeAsync(pinned, ct).ConfigureAwait(false);
+      // A PIN RECORDS A MODEL AND NOT A VENDOR, so the lookup asks every configured vendor.
+      Result<ModelConfig> resolved = await MakeAsync(pinned, vendorId: null, ct).ConfigureAwait(false);
       return resolved.IsSuccess
           ? Result.Success<(ModelConfig, string?)>((resolved.Value, null))
           : Result.Failure<(ModelConfig, string?)>(resolved.Error);
@@ -111,10 +114,13 @@ public sealed class RootAgentResolver(
   ///     here at all: it does not change the model, its window, or its vision capability - it
   ///     only sorts the endpoints that may serve it - so it is applied once, by the overlay, to
   ///     the id that goes on the wire.</para></summary>
-  private async Task<Result<ModelConfig>> MakeAsync(string modelId, CancellationToken ct)
+  private async Task<Result<ModelConfig>> MakeAsync(string modelId, string? vendorId,
+      CancellationToken ct)
   {
     string baseModel = ModelVariants.BaseOf(modelId);
-    int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(baseModel, ct).ConfigureAwait(false);
+    int? window = _windowSource is null
+        ? null
+        : await _windowSource.WindowForAsync(baseModel, vendorId, ct).ConfigureAwait(false);
     if (window is not { } resolved)
     {
       return Result.Failure<ModelConfig>(new DomainError("UnknownModelWindow",
@@ -125,7 +131,7 @@ public sealed class RootAgentResolver(
 
     Result<ModelConfig> created = ModelConfig.Create(
         baseModel, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort,
-        acceptsImageInput: await AcceptsImagesAsync(baseModel, ct).ConfigureAwait(false));
+        acceptsImageInput: await AcceptsImagesAsync(baseModel, vendorId, ct).ConfigureAwait(false));
     return created.IsSuccess
         ? Result.Success(ModelPreferencesOverlay.Apply(created.Value, _preferences))
         : created;
@@ -134,15 +140,32 @@ public sealed class RootAgentResolver(
   /// <summary>The model's vision capability from the session catalog: any entry matching the
   ///     base model that accepts image input. A missing or failed catalog resolves false -
   ///     capability is never guessed, and one capable endpoint of a router is enough.</summary>
-  private async Task<bool> AcceptsImagesAsync(string baseModel, CancellationToken ct)
+  private async Task<bool> AcceptsImagesAsync(string baseModel, string? vendorId,
+      CancellationToken ct)
   {
-    if (_catalog is null)
+    if (_resolver is null)
     {
       return false;
     }
 
-    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
-    return entries.IsSuccess && entries.Value.Any(e => e.ModelId == baseModel && e.SupportsVision);
+    foreach (string vendor in vendorId is { Length: > 0 } named ? [named] : ModelVendors.All)
+    {
+      Result<IModelCatalog> catalog = _resolver.Catalog(vendor);
+      if (!catalog.IsSuccess)
+      {
+        continue;
+      }
+
+      Result<IReadOnlyList<ModelProviderEntry>> entries =
+          await catalog.Value.GetAsync(ct).ConfigureAwait(false);
+      if (entries.IsSuccess
+          && entries.Value.Any(e => e.ModelId == baseModel && e.SupportsVision))
+      {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)

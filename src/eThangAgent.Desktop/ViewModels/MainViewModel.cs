@@ -8,6 +8,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
+using eThangAgent.Cloudflare.ACL;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
@@ -114,6 +115,13 @@ internal sealed record MainViewModelOptions
   /// <summary>Protects keys before they reach durable storage. When null (tests),
   ///     key saves are not persisted at all.</summary>
   public IApiKeyProtector? ApiKeyProtector { get; init; }
+
+  /// <summary>Pulls one vendor's model catalog with credential values that are not saved yet,
+  ///     so the settings dialog can prove a key and fill the model search in one action. Null
+  ///     (tests, hosts with no app database) means the dialog offers no Test button.</summary>
+  public Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProviderProbe
+  { get; init; }
 
   /// <summary>Builds the provider sign-in for a base URL. When null (tests, hosts without
   ///     a browser), the settings modal offers no sign-in and the key field is the only way
@@ -420,6 +428,12 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>The sign-in the settings modal offers, or null when this host wired none.</summary>
   public Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; }
 
+  /// <summary>The catalog probe the settings modal offers, or null when this host wired
+  ///     none.</summary>
+  public Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProviderProbe
+  { get; }
+
   /// <summary>The configured OpenRouter management key - the settings modal's
   ///     prefill (null when unset or settings editing is disabled).</summary>
   public string? ConfiguredOpenRouterManagementKey => _settings?.OpenRouter.ManagementKey;
@@ -453,6 +467,14 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>The OpenRouter base URL the settings modal prefills — the configured
   ///     absolute URI, or the provider default when none is stored.</summary>
   public string? ConfiguredOpenRouterBaseUrl => _settings?.OpenRouter.BaseUrl.ToString();
+
+  /// <summary>The configured Cloudflare account id — the settings modal's prefill (null when
+  ///     unset or settings editing is disabled).</summary>
+  public string? ConfiguredCloudflareAccountId => _settings?.Cloudflare?.AccountId;
+
+  /// <summary>The configured Cloudflare API token — the settings modal's prefill (null when
+  ///     unset or settings editing is disabled).</summary>
+  public string? ConfiguredCloudflareApiToken => _settings?.Cloudflare?.ApiToken;
 
   public bool ConfiguredComputerUse => _settings?.ComputerUse ?? false;
 
@@ -556,6 +578,7 @@ internal sealed partial class MainViewModel : ObservableObject
     SeedWatchdogSeams(options, out _watchdogLoop, out _watchdogPolicy);
     _sessionFactory = options?.SessionFactory;
     _keyProtector = options?.ApiKeyProtector;
+    ProviderProbe = ProbeFrom(options);
     ProviderSignInFactory = SignInFactoryFrom(options);
     _sessionCatalog = options?.SessionCatalog;
     _createSession = CreateSessionDelegate(createSession);
@@ -589,6 +612,11 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>The host's sign-in factory, or null when it wired none.</summary>
   private static Func<Uri, IProviderSignIn>? SignInFactoryFrom(MainViewModelOptions? options)
       => options?.ProviderSignIn;
+
+  /// <summary>The host's catalog probe, or null when it wired none.</summary>
+  private static Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProbeFrom(MainViewModelOptions? options)
+      => options?.ProviderProbe;
 
   /// <summary>Refuses a shell with no session source at all: neither a creation
   ///     delegate nor the settings/factory pair settings editing needs.</summary>
@@ -904,31 +932,96 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>Loads the selected tab's provider catalog for the model picker, or null
-  ///     when no tab is selected. The loader escapes collection evaluation in the
-  ///     picker's view-model, which runs it off the UI thread.</summary>
-  public Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogLoader
+  /// <summary>The vendors whose models this shell can offer: every vendor whose credential is
+  ///     configured. A vendor with no credential is absent entirely, so the model search never
+  ///     lists a model no configured provider could serve.
+  ///     <para>THE LIST IS READ FROM THE SETTINGS THE SESSIONS WERE BUILT WITH, so clearing a
+  ///     credential removes the vendor from what the next load offers.</para></summary>
+  public IReadOnlyList<string> OfferedModelVendors
+  {
+    get
+    {
+      List<string> vendors = [];
+      if (_settings?.OpenRouter is not null)
+      {
+        vendors.Add(ModelVendors.OpenRouter);
+      }
+
+      if (_settings?.HasCloudflare is true)
+      {
+        vendors.Add(ModelVendors.Cloudflare);
+      }
+
+      return vendors;
+    }
+  }
+
+  /// <summary>Loads one vendor's catalog for the model picker, or null when no tab is
+  ///     selected. The loader escapes collection evaluation in the picker's view-model, which
+  ///     runs it off the UI thread.
+  ///     <para>A VENDOR WITH NO TRANSPORT IS A NAMED FAILURE, not an exception: the picker
+  ///     states that vendor's failure and keeps the other vendor's rows.</para></summary>
+  public Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogLoader
   {
     get
     {
       AgentTabViewModel? tab = SelectedTab;
       return tab is null
           ? null
-          : ct => tab.Container.Services.GetRequiredService<IModelCatalog>().GetAsync(ct);
+          : (vendor, ct) => ReadCatalogAsync(tab, vendor, ct);
     }
   }
 
 
-  /// <summary>Joins source revalidation for the selected tab's settings dialog.</summary>
-  public Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogRefresher
+  /// <summary>Joins source revalidation for one vendor, for the selected tab's settings
+  ///     dialog.</summary>
+  public Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogRefresher
   {
     get
     {
       AgentTabViewModel? tab = SelectedTab;
-      return tab is null ? null
-          : ct => tab.Container.Services.GetRequiredService<IModelCatalog>().RefreshAsync(ct);
+      return tab is null
+          ? null
+          : (vendor, ct) => RefreshCatalogAsync(tab, vendor, ct);
     }
   }
+
+  /// <summary>Reads one vendor's catalog for a tab, or the named failure that says this tab
+  ///     has no transport for it. A missing credential is the usual cause, and it is reported as
+  ///     that fact rather than as an exception.
+  ///     </summary>
+  /// <param name="tab">The tab whose container answers the resolution.</param>
+  /// <param name="vendor">The vendor id.</param>
+  /// <param name="ct">The read's cancellation.</param>
+  private static Task<Result<IReadOnlyList<ModelProviderEntry>>> ReadCatalogAsync(
+      AgentTabViewModel tab, string vendor, CancellationToken ct)
+  {
+    Result<IModelCatalog> catalog = CatalogOf(tab, vendor);
+    return catalog.IsSuccess
+        ? catalog.Value.GetAsync(ct)
+        : Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(catalog.Error));
+  }
+
+  /// <summary>Joins one vendor's source revalidation for a tab, or the named failure that says
+  ///     this tab has no transport for it.</summary>
+  /// <param name="tab">The tab whose container answers the resolution.</param>
+  /// <param name="vendor">The vendor id.</param>
+  /// <param name="ct">The read's cancellation.</param>
+  private static Task<Result<IReadOnlyList<ModelProviderEntry>>> RefreshCatalogAsync(
+      AgentTabViewModel tab, string vendor, CancellationToken ct)
+  {
+    Result<IModelCatalog> catalog = CatalogOf(tab, vendor);
+    return catalog.IsSuccess
+        ? catalog.Value.RefreshAsync(ct)
+        : Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(catalog.Error));
+  }
+
+  /// <summary>The catalog one vendor names, or the named failure that says this tab has none.
+  ///     </summary>
+  /// <param name="tab">The tab whose container answers the resolution.</param>
+  /// <param name="vendor">The vendor id.</param>
+  private static Result<IModelCatalog> CatalogOf(AgentTabViewModel tab, string vendor)
+      => tab.Container.Services.GetRequiredService<IModelProviderResolver>().Catalog(vendor);
 
   /// <summary>Applies a picker choice to the selected tab and persists it per
   ///     workspace + provider (best effort — the same named decision as the other
@@ -938,25 +1031,36 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     tier is half a decision, so the stored value carries all three and a later open
   ///     restores all three.</para>
   ///     </summary>
-  /// <param name="modelIds">The ordered model list to serve: entry 1 runs, the rest are the
-  ///     ordered backups. Never empty - a session with no model has nothing to serve.</param>
+  /// <param name="entries">The ordered model+vendor list to serve: entry 1 runs, the rest are
+  ///     the ordered backups. Never empty - a session with no model has nothing to serve.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
   /// <param name="retention">The retention tier to enforce, or null to keep the session's
   ///     current tier.</param>
-  public async Task ApplyModelChoiceAsync(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
-      RetentionPolicy? retention = null)
+  public async Task ApplyModelChoiceAsync(IReadOnlyList<ModelSelectionEntry> entries,
+      ModelVariant? variant = null, RetentionPolicy? retention = null)
   {
-    ArgumentNullException.ThrowIfNull(modelIds);
+    ArgumentNullException.ThrowIfNull(entries);
     AgentTabViewModel? tab = SelectedTab;
     if (tab is null)
     {
       return;
     }
 
-    tab.ViewModel.ApplyModelChoice(modelIds, variant, retention);
+    tab.ViewModel.ApplyModelChoice(entries, variant, retention);
     await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot,
-        modelIds, variant, retention);
+        entries, variant, retention);
   }
+
+  /// <summary>Applies a choice stated as bare model ids, with every entry naming no vendor so
+  ///     the session's own binding serves them.</summary>
+  /// <param name="modelIds">The ordered model ids to serve.</param>
+  /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
+  /// <param name="retention">The retention tier to enforce, or null to keep the session's
+  ///     current tier.</param>
+  public Task ApplyModelChoiceAsync(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
+      RetentionPolicy? retention = null)
+      => ApplyModelChoiceAsync([.. modelIds.Select(id => new ModelSelectionEntry(id))], variant,
+          retention);
 
   /// <summary>Applies an effort-picker choice to the selected tab and persists it per
   ///     workspace + provider (best effort — the same named decision as the other
@@ -1004,8 +1108,8 @@ internal sealed partial class MainViewModel : ObservableObject
     // the chosen id. Same apply + per-workspace persistence the old picker used.
     if (snapshot.Model is { Kind: ModelChoiceKind.Pinned } model)
     {
-      tab.ViewModel.ApplyModelChoice(model.ModelIds, model.Variant, model.Retention);
-      await PersistModelChoiceAsync(providerName, workspaceRoot, model.ModelIds, model.Variant,
+      tab.ViewModel.ApplyModelChoice(model.Entries, model.Variant, model.Retention);
+      await PersistModelChoiceAsync(providerName, workspaceRoot, model.Entries, model.Variant,
           model.Retention);
     }
 
@@ -1041,7 +1145,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // ONE WRITER FOR BOTH SURFACES: the launcher's Settings entry saves through this same
     // SettingsPersistence, so a key configured before any workspace exists lands exactly as a
     // key configured from a shell does.
-    (string? openRouterKey, string? managementKey) = await new SettingsPersistence(
+    PersistedSettings persisted = await new SettingsPersistence(
         AppPreferences, _keyProtector).ApplyAsync(update, PreferredProviderId).ConfigureAwait(true);
     ConfiguredCommitStyle = update.CommitStyle;
     ConfiguredCompactionHandoff = update.CompactionHandoff;
@@ -1057,11 +1161,105 @@ internal sealed partial class MainViewModel : ObservableObject
     AgentSettings rebuilt = AppPreferences is not null
         ? await AgentSettingsLoader.LoadAsync(AppPreferences)
         : BindFromUpdate(update); // test seam: no store, same strict binders
-    _settings = rebuilt.WithApiKeys(openRouterKey).WithManagementKey(managementKey);
+    // The Cloudflare credential is overlaid from the SAVE, not from the loader: the loader reads
+    // the protected blob and cannot decrypt it, and a field the user cleared must not be
+    // restored from the value it replaced.
+    _settings = rebuilt.WithApiKeys(persisted.OpenRouterKey)
+        .WithManagementKey(persisted.ManagementKey)
+        .WithCloudflareCredentialSaved(persisted.CloudflareAccountId, persisted.CloudflareApiToken);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
-    PushLiveKeys(openRouterKey, managementKey);
+    PushLiveKeys(persisted.OpenRouterKey, persisted.ManagementKey, _settings);
     RefreshProviderSurface(_settings);
+  }
+
+  /// <summary>Pulls one vendor's catalog with credential values that are not saved yet, then
+  ///     makes both halves of the result live: the credential goes onto every open session's
+  ///     carrier, and the pulled entries are adopted by every open catalog of that vendor.
+  ///     <para>THE PULL IS THE TEST AND THE FIX IN ONE ACT. A key that answers with models is
+  ///     proven, and the models are in the model search immediately - the alternative was a
+  ///     restart, because a session's catalog had already been built and cached against a
+  ///     credential that did not include this one.</para>
+  ///     <para>A FAILED PULL CHANGES NOTHING: the credential is not pushed onto the carriers, so
+  ///     a wrong key cannot break a session that was working.</para></summary>
+  /// <param name="vendor">The vendor to read.</param>
+  /// <param name="accountId">The Cloudflare account id, or null for a vendor that needs none.
+  /// </param>
+  /// <param name="apiToken">The Cloudflare API token, or null for a vendor that needs none.
+  /// </param>
+  /// <param name="openRouterBaseUrl">The OpenRouter host to read, or null for the default.
+  /// </param>
+  /// <param name="ct">Cancellation.</param>
+  public async Task<Result<ProviderProbeResult>> ProbeProviderAsync(string vendor, string? accountId,
+      string? apiToken, Uri? openRouterBaseUrl, CancellationToken ct = default)
+  {
+    if (ProviderProbe is not { } probe)
+    {
+      return Result.Failure<ProviderProbeResult>(new DomainError("ProbeUnavailable",
+          "this host has no catalog probe wired, so a credential cannot be tested here."));
+    }
+
+    Result<ProviderProbeResult> pulled = await probe(vendor, accountId, apiToken,
+        openRouterBaseUrl, ct).ConfigureAwait(true);
+    if (!pulled.IsSuccess)
+    {
+      return pulled;
+    }
+
+    PushLiveCredential(vendor, accountId, apiToken);
+    await AdoptPulledCatalogAsync(vendor, pulled.Value.Entries, ct).ConfigureAwait(true);
+    return pulled;
+  }
+
+  /// <summary>Pushes a credential that just proved itself onto every open session's carrier for
+  ///     that vendor, so the next call a session makes uses it.
+  ///     <para>ONLY THE VENDOR THAT WAS PULLED IS TOUCHED: a Cloudflare test must not rewrite the
+  ///     OpenRouter key, and a test that changed a provider nobody asked about would be a
+  ///     surprise the user could not see.</para></summary>
+  /// <param name="vendor">The vendor whose credential was proven.</param>
+  /// <param name="accountId">The account id, or null.</param>
+  /// <param name="apiToken">The API token, or null.</param>
+  private void PushLiveCredential(string vendor, string? accountId, string? apiToken)
+  {
+    if (!string.Equals(vendor, Providers.Cloudflare, StringComparison.Ordinal))
+    {
+      return;
+    }
+
+    foreach (AgentCellViewModel cell in Tabs.SelectMany(tab => tab.Snapshot()))
+    {
+      if (cell.Container?.Services.GetService<CloudflareCredentialCarrier>() is { } carrier)
+      {
+        carrier.Set(accountId, apiToken);
+      }
+    }
+  }
+
+  /// <summary>Hands a pulled catalog to every open session's catalog of that vendor, so the
+  ///     model search reads what was just pulled instead of the list it cached at startup.
+  ///     <para>A TAB WITH NO CATALOG FOR THE VENDOR IS SKIPPED: the pull already succeeded, and
+  ///     a session that cannot hold this vendor's models is not a reason to fail the test.
+  ///     </para></summary>
+  /// <param name="vendor">The vendor that was pulled.</param>
+  /// <param name="entries">The pulled entries.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task AdoptPulledCatalogAsync(string vendor,
+      IReadOnlyList<ModelProviderEntry> entries, CancellationToken ct)
+  {
+    foreach (AgentCellViewModel cell in Tabs.SelectMany(tab => tab.Snapshot()))
+    {
+      if (cell.Container is not { } container)
+      {
+        continue;
+      }
+
+      Result<IModelCatalog> catalog = container.Services
+          .GetRequiredService<IModelProviderResolver>().Catalog(vendor);
+      if (catalog.IsSuccess)
+      {
+        _ = await catalog.Value.AdoptAsync(entries, ct).ConfigureAwait(true);
+      }
+    }
   }
 
   /// <summary>Live key push: every open session's carriers take the saved keys
@@ -1069,8 +1267,11 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     restart to pick a key up (2026-10-08). Both clients read their carrier at
   ///     dispatch, so the NEXT model call and the next openrouter_management call use
   ///     the key just saved, including a key minted by sign-in. Sessions without a
-  ///     carrier (headless stubs) skip the push silently.</summary>
-  private void PushLiveKeys(string? openRouterKey, string? managementKey)
+  ///     carrier (headless stubs) skip the push silently.
+  ///     <para>THE CLOUDFLARE CREDENTIAL RIDES THE SAME PUSH, for the same reason and with the
+  ///     same effect: a credential saved while a session is open is in force on that session's
+  ///     next call, instead of requiring the app to be restarted.</para></summary>
+  private void PushLiveKeys(string? openRouterKey, string? managementKey, AgentSettings settings)
   {
     foreach (AgentCellViewModel cell in Tabs.SelectMany(tab => tab.Snapshot()))
     {
@@ -1088,6 +1289,11 @@ internal sealed partial class MainViewModel : ObservableObject
       if (services.GetService<OpenRouterManagementKeyCarrier>() is { } management)
       {
         management.Current = managementKey;
+      }
+
+      if (services.GetService<CloudflareCredentialCarrier>() is { } cloudflare)
+      {
+        cloudflare.Set(settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken);
       }
     }
   }
@@ -1142,9 +1348,29 @@ internal sealed partial class MainViewModel : ObservableObject
             AgentPreferenceKeys.OpenRouterBaseUrl, OpenRouterSettings.DefaultBaseUrl)),
 #pragma warning restore S1075
         subAgents,
-        Watchdog: watchdog);
+        Watchdog: watchdog,
+        Cloudflare: BindCloudflare(update));
   }
 
+  /// <summary>The Cloudflare credential a store-less rebind carries, or null when the update
+  ///     states neither half. Blank text is a cleared field, not a configured one.</summary>
+  /// <param name="update">The confirmed update.</param>
+  private static CloudflareSettings? BindCloudflare(SettingsUpdate update)
+  {
+    string? accountId = Normalize(update.CloudflareAccountId);
+    string? apiToken = Normalize(update.CloudflareApiToken);
+    return accountId is null && apiToken is null
+        ? null
+        : new CloudflareSettings(accountId, apiToken);
+  }
+
+  /// <summary>The vendors this build can serve a session with, as the shell's own surfaces name
+  ///     them. Every vendor is offered when its credential is configured: a session's models are
+  ///     chosen per row in Model Settings, so no surface asks which provider to use.
+  ///     <para>THE LIST IS NOT A SELECTION CONTROL. It gates opening an agent (a shell with no
+  ///     configured vendor has nothing to serve a turn) and it is what the model picker reads to
+  ///     know which catalogs exist.</para></summary>
+  /// <param name="settings">The settings the shell is currently bound to.</param>
   private static List<ProviderOption> ProvidersFrom(AgentSettings settings)
   {
     List<ProviderOption> providers = [];
@@ -1152,6 +1378,12 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       providers.Add(new ProviderOption(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter)));
     }
+
+    if (settings.HasCloudflare)
+    {
+      providers.Add(new ProviderOption(Providers.Cloudflare, Providers.DisplayName(Providers.Cloudflare)));
+    }
+
     return providers;
   }
 
@@ -1821,6 +2053,7 @@ internal sealed partial class MainViewModel : ObservableObject
         () => freshVmRef ??
             throw new InvalidOperationException("session view-model not initialized"),
         id => freshVmRef!.Status.ModelId = id,
+        vendor => freshVmRef!.Status.ServingVendor = vendor,
         () => tab);
     freshVmRef = freshVm;
     session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
@@ -2329,6 +2562,7 @@ internal sealed partial class MainViewModel : ObservableObject
           () => cellVmRef ??
               throw new InvalidOperationException("session view-model not initialized"),
           id => cellVmRef!.Status.ModelId = id,
+          vendor => cellVmRef!.Status.ServingVendor = vendor,
           () => tab);
       cellVmRef = cellVm;
       session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
@@ -2994,6 +3228,7 @@ internal sealed partial class MainViewModel : ObservableObject
         () => sessionVmRef ??
             throw new InvalidOperationException("session view-model not initialized"),
         id => sessionVmRef!.Status.ModelId = id,
+        vendor => sessionVmRef!.Status.ServingVendor = vendor,
         () => attachedTab);
     sessionVmRef = sessionVm;
     // Notices from construction (issue #317 D5/D6): a workspace that moved or was copied is
@@ -3019,7 +3254,6 @@ internal sealed partial class MainViewModel : ObservableObject
     _sessionOpened?.Invoke(session);
     SelectedTab = tab;
 
-    await PersistProviderPreferenceAsync(session.ProviderName).ConfigureAwait(false);
     return tab;
   }
 
@@ -3172,7 +3406,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   private AgentSessionViewModel BuildSessionViewModel(AgentSession session,
       WorkbenchViewModel workbench, Func<AgentSessionViewModel> currentViewModel,
-      Action<string> updateStatusModel, Func<AgentTabViewModel?> currentTab)
+      Action<string> updateStatusModel, Action<string> updateServingVendor,
+      Func<AgentTabViewModel?> currentTab)
   {
     // The popup's workspace file cache: one enumeration per session, ranked on demand.
     // A container without file search (a bare test stub) offers no files at all.
@@ -3201,6 +3436,7 @@ internal sealed partial class MainViewModel : ObservableObject
           Inbox = session.Inbox,
           ChildRuntime = session.ChildRuntime,
           StatusModelUpdater = updateStatusModel,
+          ServingVendorUpdater = updateServingVendor,
           ModelPreferences = session.Preferences,
           // The session's model vision fact: an image surface answers from it before any turn
           // has built an agent in this container.
@@ -3353,14 +3589,21 @@ internal sealed partial class MainViewModel : ObservableObject
     if (restoredChoice is not null)
     {
       // The selection restores whole: a reopened workspace serves the same models in the same
-      // order, under the same variant and the same retention tier.
-      preferences.ModelIds = restoredChoice.ModelIds;
-      sessionVm.Status.BackupCountText = AgentSessionViewModel.BackupCountText(restoredChoice.ModelIds.Count);
+      // order, under the same vendor, the same variant and the same retention tier.
+      //
+      // THE ENTRIES ARE WHAT RESTORES. Assigning ModelIds would replace the list with
+      // vendor-unset entries, so a Cloudflare model would come back as an anonymous id and the
+      // walk would serve it with whichever provider the session happened to record.
+      preferences.Entries = restoredChoice.Entries;
+      sessionVm.Status.BackupCountText = AgentSessionViewModel.BackupCountText(restoredChoice.Entries.Count);
       preferences.ModelVariant = restoredChoice.Variant == ModelVariant.Standard
           ? null
           : restoredChoice.Variant;
       preferences.Retention = restoredChoice.Retention;
       sessionVm.Status.ModelId = restoredChoice.Head;
+      // The bar's vendor follows the restored head: the entry that will serve the next turn is
+      // what attributes the model, not the session's recorded binding.
+      sessionVm.RefreshServingVendor(restoredChoice.Head);
       sessionVm.Status.ServingVariant = restoredChoice.Variant == ModelVariant.Standard
           ? string.Empty
           : ModelVariants.Describe(restoredChoice.Variant);
@@ -3727,33 +3970,6 @@ internal sealed partial class MainViewModel : ObservableObject
   public IReadOnlySet<AgentId> OpenSessionIds =>
       Tabs.SelectMany(t => t.Snapshot()).Select(cell => cell.RootId).ToHashSet();
 
-  /// <summary>Remembers the chosen provider as the next dialog's default. Best effort:
-  ///     the preference only seeds a default, so a failed write never fails the open —
-  ///     it logs to stderr instead (named decision, CA1031 scope kept tight).</summary>
-  private async Task PersistProviderPreferenceAsync(string providerName)
-  {
-    if (AppPreferences is null)
-    {
-      return;
-    }
-
-    // Named decision (CA1031): preference persistence must not take the shell down.
-#pragma warning disable CA1031 // Do not catch general exception types
-    try
-    {
-      bool persisted = await AppPreferences.SetAsync(Providers.PreferenceKey, providerName);
-      if (!persisted)
-      {
-        await Console.Error.WriteLineAsync($"provider preference write failed for '{providerName}'");
-      }
-    }
-    catch (Exception ex)
-    {
-      await Console.Error.WriteLineAsync($"provider preference write failed for '{providerName}': {ex.Message}");
-    }
-#pragma warning restore CA1031
-  }
-
   /// <summary>Composite preference key of the per-workspace model + provider choice: the
   ///     same directory may be open under both providers, and their lineups differ, so the
   ///     key is scoped to the (provider, workspace) pair. Keys are only ever read back
@@ -3815,7 +4031,8 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     cleared choice come back from the legacy value on the next open, which is the silent
   ///     resurrection the null-deletes contract exists to prevent.</para></summary>
   private async Task PersistModelChoiceAsync(string providerName, string workspaceRoot,
-      IReadOnlyList<string> modelIds, ModelVariant? variant, RetentionPolicy? retention = null)
+      IReadOnlyList<ModelSelectionEntry> entries, ModelVariant? variant,
+      RetentionPolicy? retention = null)
   {
     if (AppPreferences is null)
     {
@@ -3827,7 +4044,7 @@ internal sealed partial class MainViewModel : ObservableObject
     try
     {
       string key = ModelChoiceKey(providerName, workspaceRoot);
-      Result<ModelSelection> created = ModelSelection.Create(modelIds,
+      Result<ModelSelection> created = ModelSelection.Create(entries,
           variant ?? ModelVariant.Standard, retention ?? RetentionPolicy.ZeroDataRetention);
       if (!created.IsSuccess)
       {

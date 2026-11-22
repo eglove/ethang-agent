@@ -54,6 +54,8 @@ public static class AgentSettingsLoader
     string? idle = await preferences.GetAsync(AgentPreferenceKeys.WatchdogIdleThreshold).ConfigureAwait(false);
     string? wrapUp = await preferences.GetAsync(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts).ConfigureAwait(false);
     string? rootTurnIdle = await preferences.GetAsync(AgentPreferenceKeys.RootTurnIdle).ConfigureAwait(false);
+    string? cloudflareAccountId = await preferences.GetAsync(CloudflareSettings.AccountIdPreferenceKey).ConfigureAwait(false);
+    string? cloudflareApiToken = await preferences.GetAsync(CloudflareSettings.ApiTokenPreferenceKey).ConfigureAwait(false);
 
     bool computerUse;
     AgentRunOptions subAgents;
@@ -86,8 +88,19 @@ public static class AgentSettingsLoader
         ComputerUse: computerUse,
         VerificationGateEnabled: verificationGate,
         Watchdog: watchdog,
-        SkillRegistryDefaultTarget: registryTarget);
+        SkillRegistryDefaultTarget: registryTarget,
+        Cloudflare: BindCloudflare(cloudflareAccountId, cloudflareApiToken));
   }
+
+  /// <summary>The stored Cloudflare credential, or null when neither preference holds a
+  ///     value. Null is not an error: a host that supplies no Cloudflare credential still
+  ///     builds, and the provider is simply not offered. A value that is stored and blank
+  ///     binds as stored - the credential is then incomplete rather than absent, and
+  ///     <see cref="AgentSettings.HasCloudflare"/> answers false for it.</summary>
+  private static CloudflareSettings? BindCloudflare(string? accountId, string? apiToken)
+      => accountId is null && apiToken is null
+          ? null
+          : new CloudflareSettings(accountId, apiToken);
 
   /// <summary>Re-surfaces a binder error with this loader's preference-key names —
   ///     the one shared translation for every path that binds through the

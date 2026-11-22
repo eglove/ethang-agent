@@ -33,7 +33,13 @@ public class ModelPickerViewModelTests
       IReadOnlyList<ModelProviderEntry> entries,
       IReadOnlyList<string>? currentModelIds = null,
       ModelVariant? currentVariant = null)
-      => new(_ => Task.FromResult(Result.Success(entries)), currentModelIds ?? [], currentVariant);
+      => new((_, _) => Task.FromResult(Result.Success(entries)), Entries(currentModelIds),
+          currentVariant, vendors: [ModelVendors.OpenRouter]);
+
+  /// <summary>The ordered list a test seeds, with every entry naming no vendor so the section's
+  ///     own single vendor serves them.</summary>
+  private static IReadOnlyList<ModelSelectionEntry> Entries(IReadOnlyList<string>? modelIds)
+      => [.. (modelIds ?? []).Select(id => new ModelSelectionEntry(id))];
 
   private static async Task<ModelPickerViewModel> LoadAsync(
       IReadOnlyList<ModelProviderEntry> entries,
@@ -91,7 +97,7 @@ public class ModelPickerViewModelTests
     SelectedModelRow row = Assert.Single(vm.SelectedModels);
     Assert.Contains("0.000003", row.Detail, StringComparison.Ordinal);
     Assert.DoesNotContain("0.00002", row.Detail, StringComparison.Ordinal);
-    Assert.Equal(Model, row.DisplayName);
+    Assert.Equal($"{ModelVendors.DisplayName(ModelVendors.OpenRouter)} · {Model}", row.DisplayName);
   }
 
   // ── behaviour 2: add appends last; a duplicate is refused and named ────────
@@ -122,10 +128,10 @@ public class ModelPickerViewModelTests
   }
 
   [Fact]
-  public async Task AddingAFourthModel_IsRefused_AndSaysWhy()
+  public async Task AddingAFourthModel_IsAccepted_WithNoCapMessage()
   {
-    // The provider accepts at most three entries on one request, so a fourth could never serve.
-    // The refusal names the limit rather than leaving the button looking dead.
+    // A turn walks the list one model at a time, so a fourth entry is a fourth attempt rather
+    // than a request the provider would refuse. Nothing about the list is capped.
     ModelPickerViewModel vm = await LoadAsync(
         [Entry(), Entry(modelId: Beta), Entry(modelId: "gamma/model"), Entry(modelId: "delta/model")],
         [Model, Beta, "gamma/model"]).ConfigureAwait(true);
@@ -133,20 +139,42 @@ public class ModelPickerViewModelTests
     SelectCatalogRow(vm, "delta/model");
     vm.AddModelCommand.Execute(null);
 
-    Assert.Equal([Model, Beta, "gamma/model"], vm.SelectedModels.Select(row => row.ModelId));
-    Assert.Contains("At most 3", vm.SelectionError!, StringComparison.Ordinal);
+    Assert.Equal([Model, Beta, "gamma/model", "delta/model"],
+        vm.SelectedModels.Select(row => row.ModelId));
+    Assert.Null(vm.SelectionError);
   }
 
   [Fact]
-  public async Task Opening_WithMoreModelsThanTheProviderAccepts_ShowsTheFirstThree()
+  public async Task AddingANinthModel_IsAccepted_AndTheListKeepsEveryEntryInOrder()
   {
-    // A list longer than the limit is trimmed to the entries that can actually serve, in order.
+    string[] catalog =
+    [
+      Model, Beta, "gamma/model", "delta/model", "epsilon/model",
+      "zeta/model", "eta/model", "theta/model", "iota/model",
+    ];
+    ModelPickerViewModel vm = await LoadAsync(
+        [.. catalog.Select(id => Entry(modelId: id))], [.. catalog.Take(8)]).ConfigureAwait(true);
+
+    SelectCatalogRow(vm, "iota/model");
+    vm.AddModelCommand.Execute(null);
+
+    Assert.Equal(catalog, vm.SelectedModels.Select(row => row.ModelId));
+    Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9], vm.SelectedModels.Select(row => row.Position));
+    Assert.Null(vm.SelectionError);
+  }
+
+  [Fact]
+  public async Task Opening_WithMoreModelsThanTheOldCapAllowed_ShowsEveryOneInOrder()
+  {
+    // A list written under an older build restores whole: trimming it would silently drop models
+    // the user chose every time the window opened.
     ModelPickerViewModel vm = await LoadAsync(
         [Entry(), Entry(modelId: Beta), Entry(modelId: "gamma/model"), Entry(modelId: "delta/model")],
         [Model, Beta, "gamma/model", "delta/model"]).ConfigureAwait(true);
 
-    Assert.Equal([Model, Beta, "gamma/model"], vm.SelectedModels.Select(row => row.ModelId));
-    Assert.Equal([1, 2, 3], vm.SelectedModels.Select(row => row.Position));
+    Assert.Equal([Model, Beta, "gamma/model", "delta/model"],
+        vm.SelectedModels.Select(row => row.ModelId));
+    Assert.Equal([1, 2, 3, 4], vm.SelectedModels.Select(row => row.Position));
   }
 
   // ── behaviour 3: adding with nothing selected does nothing, silently ───────
@@ -314,7 +342,7 @@ public class ModelPickerViewModelTests
 
     // The refreshed catalog reports a narrower window for entry 1 and a WIDER one for the backup,
     // so the warning's presence must be re-derived rather than carried over.
-    vm.ApplyRefresh(Result.Success<IReadOnlyList<ModelProviderEntry>>(
+    vm.ApplyRefresh(ModelVendors.OpenRouter, Result.Success<IReadOnlyList<ModelProviderEntry>>(
         [Entry(context: 200_000), Entry(modelId: Beta, context: 400_000)]));
 
     Assert.Equal([Model, Beta], vm.SelectedModels.Select(row => row.ModelId));
@@ -331,7 +359,8 @@ public class ModelPickerViewModelTests
     ModelPickerViewModel vm = await LoadAsync([Entry()], [Model]).ConfigureAwait(true);
     object identity = vm.SelectedModels;
 
-    vm.ApplyRefresh(Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry(), Entry(modelId: Beta)]));
+    vm.ApplyRefresh(ModelVendors.OpenRouter,
+        Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry(), Entry(modelId: Beta)]));
 
     Assert.Same(identity, vm.SelectedModels);
   }
@@ -341,7 +370,7 @@ public class ModelPickerViewModelTests
   {
     ModelPickerViewModel vm = await LoadAsync([Entry()], [Model]).ConfigureAwait(true);
 
-    vm.ApplyRefresh(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
+    vm.ApplyRefresh(ModelVendors.OpenRouter, Result.Failure<IReadOnlyList<ModelProviderEntry>>(
         new DomainError("CatalogDown", "boom")));
 
     _ = Assert.Single(vm.SelectedModels);
@@ -483,8 +512,8 @@ public class ModelPickerViewModelTests
   public async Task ALoadFailure_LandsInTheErrorState_AndLeavesTheSectionUsable()
   {
     ModelPickerViewModel vm = new(
-        _ => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
-            new DomainError("CatalogDown", "boom"))), []);
+        (_, _) => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
+            new DomainError("CatalogDown", "boom"))), [], vendors: [ModelVendors.OpenRouter]);
 
     await vm.LoadAsync().ConfigureAwait(true);
 
@@ -498,11 +527,11 @@ public class ModelPickerViewModelTests
   {
     int calls = 0;
     ModelPickerViewModel vm = new(
-        _ =>
+        (_, _) =>
         {
           calls++;
           return Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry()]));
-        }, []);
+        }, [], vendors: [ModelVendors.OpenRouter]);
 
     await vm.LoadAsync().ConfigureAwait(true);
     await vm.LoadAsync().ConfigureAwait(true);
@@ -515,7 +544,8 @@ public class ModelPickerViewModelTests
   {
     ModelPickerViewModel vm = await LoadAsync([Entry()], [Model]).ConfigureAwait(true);
 
-    vm.ApplyRefresh(Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry(), Entry(modelId: Beta)]));
+    vm.ApplyRefresh(ModelVendors.OpenRouter,
+        Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry(), Entry(modelId: Beta)]));
 
     Assert.Equal(2, vm.FilteredRows.Count);
     Assert.Equal(Model, vm.SelectedRow?.ModelId);
@@ -580,9 +610,10 @@ public class ModelPickerViewModelTests
   private static async Task<ModelPickerViewModel> CheapestVmAsync(
       IReadOnlyList<ModelProviderEntry> entries, CheapestEvidence? evidence)
   {
-    ModelPickerViewModel vm = new(_ => Task.FromResult(Result.Success(entries)), [CheapestModel],
-        ModelVariant.Cheapest,
-        loadCheapestEvidence: _ => Task.FromResult(evidence ?? new CheapestEvidence(null, null)));
+    ModelPickerViewModel vm = new((_, _) => Task.FromResult(Result.Success(entries)),
+        [new ModelSelectionEntry(CheapestModel)], ModelVariant.Cheapest,
+        loadCheapestEvidence: _ => Task.FromResult(evidence ?? new CheapestEvidence(null, null)),
+        vendors: [ModelVendors.OpenRouter]);
     await vm.LoadAsync().ConfigureAwait(true);
     return vm;
   }
@@ -713,10 +744,11 @@ public class ModelPickerViewModelTests
     // E4: no catalog row means no endpoint to name, so the sentence states that the provider's
     // own routing applies instead of inventing a winner.
     ModelPickerViewModel vm = new(
-        _ => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
+        (_, _) => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
             new DomainError("CatalogDown", "boom"))),
-        [CheapestModel], ModelVariant.Cheapest,
-        loadCheapestEvidence: _ => Task.FromResult(new CheapestEvidence(null, null)));
+        [new ModelSelectionEntry(CheapestModel)], ModelVariant.Cheapest,
+        loadCheapestEvidence: _ => Task.FromResult(new CheapestEvidence(null, null)),
+        vendors: [ModelVendors.OpenRouter]);
     await vm.LoadAsync().ConfigureAwait(true);
 
     Assert.Equal("Cheapest could not be resolved for this model, so the provider's own routing "

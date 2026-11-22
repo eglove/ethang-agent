@@ -3,6 +3,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
+using eThangAgent.Cloudflare.ACL;
 using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Documents.ACL;
@@ -78,10 +79,14 @@ public static class AgentComposition
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
     ArgumentNullException.ThrowIfNull(host);
-    if (!Providers.IsKnown(providerName))
+    // THE GUARD IS OVER THE PROVIDERS THIS COMPOSITION WIRES, not over every id the vendor
+    // vocabulary knows: an id that is known but has no transport registered here would otherwise
+    // pass this check and throw from a provider switch below, which reports the wrong fault.
+    if (!WiredProviders.Contains(providerName))
     {
       throw new ArgumentException(
-          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}.",
+          $"Unknown provider '{providerName}'. Known providers: "
+          + $"{string.Join(", ", WiredProviders)}.",
           nameof(providerName));
     }
 
@@ -456,6 +461,9 @@ public static class AgentComposition
         // Issue #106: ONE access per container - the mcp tool's dispatches and the
         // Desktop status view share this workspace's pooled sessions.
         .AddSingleton(SharedMcpServerAccess)
+        // The window and capability lookups are VENDOR-KEYED: a session's model list names the
+        // vendor serving each entry, so one catalog held here would answer for whichever vendor
+        // the session opened under and report every other vendor's models as unknown.
         .AddSingleton<IContextWindowSource, CatalogContextWindowSource>()
         // The prices stamped onto every usage row at write time (issue #23): ONE memoized
         // source per container, shared by the root loop and every child run. A session
@@ -1169,7 +1177,7 @@ public static class AgentComposition
             sp.GetRequiredService<SessionModelPreferences>(),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<DefaultContextCompactor>(),
-            sp.GetRequiredService<IModelCatalog>()));
+            sp.GetRequiredService<IModelProviderResolver>()));
   }
 
   /// <summary>The query handlers, the link registry, the spawn-graph handler, and the capability
@@ -1453,7 +1461,13 @@ public static class AgentComposition
                 // same price source the children stamp with, so a session's rows and its
                 // subagents' rows are priced on one basis.
                 UsagePrices: sp.GetRequiredService<IUsagePriceSource>(),
-                WorkspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
+                WorkspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+                // The session's ordered model list, walked one entry at a time with each entry
+                // resolved to the vendor that serves it.
+                ModelWalk: new ModelWalkSource(
+                    sp.GetRequiredService<SessionModelPreferences>(),
+                    providerName,
+                    sp.GetRequiredService<IModelProviderResolver>())),
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.
@@ -1466,7 +1480,7 @@ public static class AgentComposition
                 defaultModel.MaxTokens,
                 defaultModel.Temperature,
                 sp.GetRequiredService<IContextWindowSource>(),
-                sp.GetRequiredService<IModelCatalog>()),
+                sp.GetRequiredService<IModelProviderResolver>()),
             sp.GetRequiredService<SessionModelPreferences>()))
         .AddSingleton(sp => new SendMessageCommandHandler(
             agent: null,
@@ -1833,99 +1847,219 @@ public static class AgentComposition
         settings.WorkspaceRoot ?? string.Empty);
   }
 
-  /// <summary>Wires the EXCLUSIVELY selected provider's chat transport: configuration,
-  ///     a named HttpClient, and the session's single IModelProvider typed client. Only
-  ///     one provider is ever registered per container — switching providers means
-  ///     opening a session wired for the other one.</summary>
+  /// <summary>The provider ids this composition registers a transport for, in the order a
+  ///     refusal names them. An id outside this set has no configuration, no transport, and no
+  ///     catalog, so the composition refuses it rather than throwing from a switch.
+  ///     </summary>
+  private static IReadOnlyList<string> WiredProviders { get; } = ModelVendors.All;
+
+  /// <summary>Wires every provider transport this settings value can serve: configuration,
+  ///     a named HttpClient, and the typed IModelProvider client.
+  ///     <para>BOTH VENDORS LIVE IN ONE CONTAINER, each behind its vendor id, so a session
+  ///     whose recorded binding names one vendor still serves a model the other provides.
+  ///     The recorded binding is the session's identity; it no longer decides which provider
+  ///     exists.</para>
+  ///     <para>CLOUDFLARE IS REGISTERED ONLY WHEN A CREDENTIAL EXISTS. A container without one
+  ///     has no Cloudflare transport and no Cloudflare catalog, so the vendor is absent from
+  ///     what a surface can offer rather than present and failing on every call.</para>
+  ///     <para>THE NAMED PROVIDER'S REGISTRATIONS COME LAST, so a single resolve of
+  ///     <see cref="IModelProvider"/> answers for the session's own vendor - which is what
+  ///     every vendor-unaware consumer (the root holder, the run loop, the compactor) expects.
+  ///     </para></summary>
   private static IServiceCollection AddProviderServices(
       IServiceCollection services, AgentSettings settings, string providerName)
   {
-    string? apiKey = providerName switch
-    {
-      Providers.OpenRouter => settings.OpenRouter.ApiKey,
-      _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
-    };
-
-    string MissingKey() => throw new InvalidOperationException(
-        $"Provider '{providerName}' is selected but its API key is not configured. " +
-        "Add the key under Settings (gear icon) before opening a session with it.");
+    IServiceCollection wired = AddOpenRouterTransport(services, settings);
+    wired = AddCloudflareTransport(wired, settings, providerName);
+    wired = wired.AddSingleton<IModelProviderResolver, ProviderResolver>();
 
     return providerName switch
     {
-      Providers.OpenRouter => services
-          .AddSingleton(new OpenRouterConfiguration(apiKey ?? MissingKey(), settings.OpenRouter.BaseUrl,
-              ManagementKey: settings.OpenRouter.ManagementKey)
-          {
-            Retry = settings.OpenRouter.Retry ?? RetryPolicy.Default,
-          })
-          // The management key rides a LIVE carrier read at dispatch (the frozen
-          // snapshot forced a session restart to pick a saved key up, 2026-10-08):
-          // seeded from settings at build, pushed live by the host on save.
-          .AddSingleton(new OpenRouterManagementKeyCarrier
-          {
-            Current = settings.OpenRouter.ManagementKey,
-          })
-          // The model key rides the same kind of LIVE carrier: a key saved mid-session
-          // is pushed by the host and the next request presents it, instead of the
-          // snapshot this container was built with.
-          .AddSingleton(new OpenRouterApiKeyCarrier
-          {
-            Current = settings.OpenRouter.ApiKey,
-          })
-          // App attribution (openrouter.ai/docs/app-attribution): every request the
-          // shared client sends — model calls and catalog fetches alike — identifies
-          // the app. One Apply point covers the root and every remote child host,
-          // which builds its container through this same composition.
-          .AddHttpClient("OpenRouter", client =>
-          {
-            client.Timeout = TimeSpan.FromSeconds(120);
-            OpenRouterAppAttribution.Apply(client);
-          })
-          .Services
-          // The typed client is a SEPARATE HttpClient instance from the named one —
-          // its defaults need the attribution too, or root-agent and selector requests
-          // reach OpenRouter unattributed (they showed there as plain "api").
+      Providers.OpenRouter => wired
           .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
           {
             client.Timeout = TimeSpan.FromSeconds(120);
             OpenRouterAppAttribution.Apply(client);
           })
           .Services,
+      Providers.Cloudflare => wired
+          .AddSingleton<IModelProvider>(sp => new CloudflareModelProvider(
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient(CloudflareHttpClientName),
+              sp.GetRequiredService<CloudflareConfiguration>())),
       _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id."),
     };
   }
 
-  /// <summary>Wires the selected provider's model factory and catalog.</summary>
-  private static IServiceCollection AddModelServices(IServiceCollection services, string providerName)
+  /// <summary>OpenRouter's configuration, its live key carriers, and the named HttpClient
+  ///     every OpenRouter request goes through.</summary>
+  private static IServiceCollection AddOpenRouterTransport(IServiceCollection services, AgentSettings settings)
   {
+    string apiKey = settings.OpenRouter.ApiKey ?? throw new InvalidOperationException(
+        $"Provider '{Providers.OpenRouter}' is selected but its API key is not configured. " +
+        "Add the key under Settings (gear icon) before opening a session with it.");
+
+    return services
+        .AddSingleton(new OpenRouterConfiguration(apiKey, settings.OpenRouter.BaseUrl,
+            ManagementKey: settings.OpenRouter.ManagementKey)
+        {
+          Retry = settings.OpenRouter.Retry ?? RetryPolicy.Default,
+        })
+        // The management key rides a LIVE carrier read at dispatch (the frozen
+        // snapshot forced a session restart to pick a saved key up, 2026-10-08):
+        // seeded from settings at build, pushed live by the host on save.
+        .AddSingleton(new OpenRouterManagementKeyCarrier
+        {
+          Current = settings.OpenRouter.ManagementKey,
+        })
+        // The model key rides the same kind of LIVE carrier: a key saved mid-session
+        // is pushed by the host and the next request presents it, instead of the
+        // snapshot this container was built with.
+        .AddSingleton(new OpenRouterApiKeyCarrier
+        {
+          Current = settings.OpenRouter.ApiKey,
+        })
+        // App attribution (openrouter.ai/docs/app-attribution): every request the
+        // shared client sends — model calls and catalog fetches alike — identifies
+        // the app. One Apply point covers the root and every remote child host,
+        // which builds its container through this same composition.
+        .AddHttpClient(OpenRouterHttpClientName, client =>
+        {
+          client.Timeout = TimeSpan.FromSeconds(120);
+          OpenRouterAppAttribution.Apply(client);
+        })
+        .Services;
+  }
+
+  /// <summary>Cloudflare's configuration, its live credential carrier, and the named HttpClient
+  ///     every Cloudflare request goes through.
+  ///     <para>THE TRANSPORT IS REGISTERED WHETHER OR NOT A CREDENTIAL EXISTS. A credential can be
+  ///     entered after a session is open, and a container that registered nothing for the vendor
+  ///     could never serve the models that credential unlocks - the user would have to restart the
+  ///     app for them to appear. The carrier is what makes the credential live: the catalog and
+  ///     the provider read it at dispatch, and the host pushes a saved credential onto it.
+  ///     </para>
+  ///     <para>OPENING A SESSION ON THE VENDOR STILL REQUIRES THE CREDENTIAL, which is a
+  ///     different question from whether the vendor's models can be listed.</para>
+  ///     </summary>
+  private static IServiceCollection AddCloudflareTransport(IServiceCollection services,
+      AgentSettings settings, string providerName)
+  {
+    if (!settings.HasCloudflare && providerName == Providers.Cloudflare)
+    {
+      throw new InvalidOperationException(
+          $"Provider '{Providers.DisplayName(Providers.Cloudflare)}' is selected but its account id and API token are "
+          + "not configured. Add them under Settings (gear icon) before opening a session with it.");
+    }
+
+    CloudflareCredentialCarrier carrier = new();
+    carrier.Set(settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken);
+
+    CloudflareConfiguration configuration = new(
+        settings.Cloudflare?.AccountId,
+        settings.Cloudflare?.ApiToken,
+        new Uri(CloudflareSettings.ApiBaseUrl),
+        carrier);
+
+    return services
+        .AddSingleton(carrier)
+        .AddSingleton(configuration)
+        .AddHttpClient(CloudflareHttpClientName, client => client.Timeout = TimeSpan.FromSeconds(120))
+        .Services;
+  }
+
+  /// <summary>Wires every provider's model factory and catalog, keyed by vendor id, and then
+  ///     the named provider's own registrations so a single resolve answers for it.
+  ///     <para>A VENDOR'S CATALOG FAILURE IS ITS OWN: each catalog is a separate object behind
+  ///     its own key, so a Cloudflare read that fails leaves the OpenRouter catalog intact and
+  ///     the reverse.</para></summary>
+  private static IServiceCollection AddModelServices(IServiceCollection services,
+      string providerName)
+  {
+    IServiceCollection wired = AddOpenRouterModelServices(services);
+    wired = AddCloudflareModelServices(wired);
+
     return providerName switch
     {
-      Providers.OpenRouter => services
-          // The usage ledger rides along so the Cheapest variant can price its order at this
-          // workspace's measured shape. Optional at the seam, so a container that wires no ledger
-          // still builds a provider and the variant prices at the documented default.
-          .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
-              sp.GetRequiredService<OpenRouterConfiguration>(),
-              sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
-              sp.GetRequiredService<IModelCatalog>(),
-              sp.GetRequiredService<OpenRouterApiKeyCarrier>(),
-              sp.GetRequiredService<IUsageQueries>()))
-          // Management API client (the 'openrouter_management' tool's seam): the SAME
-          // named HttpClient (attribution + timeouts) and the SAME configuration - the
-          // management key rides OpenRouterConfiguration.ManagementKey.
-          .AddSingleton<IOpenRouterManagementAccess>(sp => new OpenRouterManagementClient(
-              sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
-              sp.GetRequiredService<OpenRouterConfiguration>(),
-              managementKeySource: () => sp.GetRequiredService<OpenRouterManagementKeyCarrier>().Current))
-          .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
-              sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
-              sp.GetRequiredService<OpenRouterConfiguration>(),
-              sp.GetRequiredService<IModelCatalogCache>(),
-              Providers.OpenRouter,
-              keySource: sp.GetRequiredService<OpenRouterApiKeyCarrier>())),
+      // THE UNKEYED CATALOG IS THE SESSION'S OWN VENDOR'S KEYED ONE, not a second object over
+      // the same cache: two instances revalidate independently, so a read through one leaves the
+      // other serving a snapshot that is stale while reporting itself fresh.
+      Providers.OpenRouter => wired
+          .AddSingleton<IModelProviderFactory>(OpenRouterFactory)
+          .AddSingleton(sp => sp.GetRequiredKeyedService<IModelCatalog>(Providers.OpenRouter)),
+      Providers.Cloudflare => wired
+          .AddSingleton<IModelProviderFactory>(sp => new CloudflareModelProviderFactory(
+              sp.GetRequiredService<CloudflareConfiguration>(),
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient(CloudflareHttpClientName)))
+          .AddSingleton(sp => sp.GetRequiredKeyedService<IModelCatalog>(Providers.Cloudflare)),
       _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id."),
     };
   }
+
+  /// <summary>OpenRouter's factory, management client, and catalog, keyed by its vendor id.
+  ///     </summary>
+  private static IServiceCollection AddOpenRouterModelServices(IServiceCollection services)
+  {
+    return services
+        // The usage ledger rides along so the Cheapest variant can price its order at this
+        // workspace's measured shape. Optional at the seam, so a container that wires no ledger
+        // still builds a provider and the variant prices at the documented default.
+        .AddKeyedSingleton<IModelProviderFactory>(Providers.OpenRouter, (sp, _) => OpenRouterFactory(sp))
+        // Management API client (the 'openrouter_management' tool's seam): the SAME
+        // named HttpClient (attribution + timeouts) and the SAME configuration - the
+        // management key rides OpenRouterConfiguration.ManagementKey.
+        .AddSingleton<IOpenRouterManagementAccess>(sp => new OpenRouterManagementClient(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(OpenRouterHttpClientName),
+            sp.GetRequiredService<OpenRouterConfiguration>(),
+            managementKeySource: () => sp.GetRequiredService<OpenRouterManagementKeyCarrier>().Current))
+        .AddKeyedSingleton<IModelCatalog>(Providers.OpenRouter, (sp, _) => OpenRouterCatalog(sp));
+  }
+
+  /// <summary>Cloudflare's factory and catalog, keyed by its vendor id.
+  ///     <para>REGISTERED WHETHER OR NOT A CREDENTIAL EXISTS, for the same reason its transport
+  ///     is: the credential can arrive after the container was built, and a vendor with no
+  ///     registration can never serve the models it unlocks. A read without a credential is a
+  ///     named <c>ProviderNotConfigured</c> failure from the catalog itself.</para></summary>
+  private static IServiceCollection AddCloudflareModelServices(IServiceCollection services)
+  {
+    return services
+        .AddKeyedSingleton<IModelProviderFactory>(Providers.Cloudflare, (sp, _) =>
+            new CloudflareModelProviderFactory(
+                sp.GetRequiredService<CloudflareConfiguration>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient(CloudflareHttpClientName)))
+        .AddKeyedSingleton<IModelCatalog>(Providers.Cloudflare, (sp, _) => CloudflareCatalog(sp));
+  }
+
+  /// <summary>The OpenRouter provider factory. It is given the OpenRouter catalog BY NAME: the
+  ///     unkeyed catalog in a container that also holds Cloudflare's would otherwise hand
+  ///     OpenRouter a catalog of another vendor's models.</summary>
+  private static OpenRouterModelProviderFactory OpenRouterFactory(IServiceProvider sp) =>
+      new(sp.GetRequiredService<OpenRouterConfiguration>(),
+          sp.GetRequiredService<IHttpClientFactory>().CreateClient(OpenRouterHttpClientName),
+          sp.GetRequiredKeyedService<IModelCatalog>(Providers.OpenRouter),
+          sp.GetRequiredService<OpenRouterApiKeyCarrier>(),
+          sp.GetRequiredService<IUsageQueries>());
+
+  /// <summary>The OpenRouter catalog client.</summary>
+  private static OpenRouterCatalogClient OpenRouterCatalog(IServiceProvider sp) =>
+      new(sp.GetRequiredService<IHttpClientFactory>().CreateClient(OpenRouterHttpClientName),
+          sp.GetRequiredService<OpenRouterConfiguration>(),
+          sp.GetRequiredService<IModelCatalogCache>(),
+          Providers.OpenRouter,
+          keySource: sp.GetRequiredService<OpenRouterApiKeyCarrier>());
+
+  /// <summary>The Cloudflare catalog client, over the same named client as its provider.
+  ///     </summary>
+  private static CloudflareModelCatalog CloudflareCatalog(IServiceProvider sp) =>
+      new(sp.GetRequiredService<IHttpClientFactory>().CreateClient(CloudflareHttpClientName),
+          sp.GetRequiredService<CloudflareConfiguration>(),
+          sp.GetRequiredService<IModelCatalogCache>());
+
+  /// <summary>The named HttpClient every OpenRouter request goes through.</summary>
+  private const string OpenRouterHttpClientName = "OpenRouter";
+
+  /// <summary>The named HttpClient every Cloudflare request goes through.</summary>
+  private const string CloudflareHttpClientName = "Cloudflare";
+
 
   /// <summary>Best-effort exec-path grant audit (R1.4): a denied dispatch lands as a
   ///     GrantViolation watchdog row; a failing write never blocks the denial.</summary>

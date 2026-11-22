@@ -276,17 +276,17 @@ public sealed class StartupShutdownModeTests
     MemoryPreferences preferences = new();
     DesktopBootstrap boot = Bootstrap(storage, openRouterKey: null) with { Preferences = preferences };
 
-    (string? key, _) = await new SettingsPersistence(preferences, boot.ApiKeys)
+    PersistedSettings persisted = await new SettingsPersistence(preferences, boot.ApiKeys)
         .ApplyAsync(new SettingsUpdate("  sk-or-v1-abc  ", CommitStyle.Conventional),
             boot.PreferredProviderId)
         .ConfigureAwait(true);
 
-    Assert.Equal("sk-or-v1-abc", key);
+    Assert.Equal("sk-or-v1-abc", persisted.OpenRouterKey);
     Assert.Equal("sk-or-v1-abc",
         await preferences.GetAsync(OpenRouterSettings.PreferenceKey).ConfigureAwait(true));
 
     // The next workspace's agents read the key off the bootstrap's settings.
-    AgentSettings applied = boot.Settings.WithApiKeys(key);
+    AgentSettings applied = boot.Settings.WithApiKeys(persisted.OpenRouterKey);
     Assert.True(applied.HasOpenRouter);
   }
 

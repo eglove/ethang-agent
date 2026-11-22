@@ -18,12 +18,14 @@ public class RootAgentResolverTests
   private static RootSessionIdentity Identity(AgentId rootId) => new() { Id = rootId };
 
   private static RootModelContext Ctx(FakeAgentStore? store, AgentId? rootId) =>
-      new(store, rootId is null ? null : Identity(rootId.Value), FallbackModel, 2048, 0.7f, new FixedWindowSource());
+      new(store, rootId is null ? null : Identity(rootId.Value), FallbackModel, 2048, 0.7f,
+          new FixedWindowSource(), VendorResolver.ForEveryVendor(new ListingCatalog()));
 
   /// <summary>A window source that knows NO model - the degraded catalog shape.</summary>
   private sealed class UnknownWindowSource : IContextWindowSource
   {
-    public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
+    public Task<int?> WindowForAsync(string modelId, string? vendorId = null,
+        CancellationToken ct = default)
         => Task.FromResult<int?>(null);
   }
 
@@ -31,7 +33,8 @@ public class RootAgentResolverTests
   ///     to the head it named rather than to a catalog that knows nothing.</summary>
   private sealed class OnlyOneModelKnownWindowSource(string knownModelId) : IContextWindowSource
   {
-    public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
+    public Task<int?> WindowForAsync(string modelId, string? vendorId = null,
+        CancellationToken ct = default)
         => Task.FromResult(modelId == knownModelId ? 64_000 : (int?)null);
   }
 
@@ -175,7 +178,8 @@ public class RootAgentResolverTests
     AgentId rootId = await SeedRootAsync(store);
     SessionModelPreferences preferences = new() { ModelIds = ["minimax/minimax-m3.1-flash:free"] };
     RootAgentResolver resolver = new(
-        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new UnknownWindowSource()),
+        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new UnknownWindowSource(),
+            VendorResolver.ForEveryVendor(new ListingCatalog())),
         preferences);
 
     Result<(ModelConfig Config, string? Notice)> resolution =
@@ -264,7 +268,7 @@ public class RootAgentResolverTests
       SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"], ModelVariant = variant };
       RootAgentResolver resolver = new(
           new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
-              new ListingCatalog(("alpha/model", "DeepInfra"))),
+              VendorResolver.ForEveryVendor(new ListingCatalog(("alpha/model", "DeepInfra")))),
           preferences);
 
       Result<(ModelConfig Config, string? Notice)> resolution =
@@ -285,7 +289,7 @@ public class RootAgentResolverTests
     SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"], ModelVariant = ModelVariant.Nitro };
     RootAgentResolver resolver = new(
         new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(),
-            ListingCatalog.Unavailable()),
+            VendorResolver.ForEveryVendor(ListingCatalog.Unavailable())),
         preferences);
 
     Result<(ModelConfig Config, string? Notice)> resolution =
@@ -295,10 +299,10 @@ public class RootAgentResolverTests
     Assert.Equal("alpha/model:nitro", resolution.Value.Config.ModelId);
   }
   [Fact]
-  public async Task AnOrderedPreference_ResolvesItsHeadAndCarriesTheRestInOrder()
+  public async Task AnOrderedPreference_ResolvesItsHead_AndTheConfigNamesOnlyIt()
   {
-    // The head is the model that runs and the tail is the ordered fallback the provider falls
-    // through, so the list has to survive resolution in the order the user stated it.
+    // The head is the model this turn runs, and the config it resolves to names that one model:
+    // the rest of the list is the walk's to attempt, not the provider's to fall through.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     SessionModelPreferences preferences = new()
@@ -312,29 +316,10 @@ public class RootAgentResolverTests
 
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
     Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
-    Assert.Equal(["beta/other", "gamma/third"], resolution.Value.Config.FallbackModelIds);
   }
 
   [Fact]
-  public async Task ASingleModelPreference_ResolvesToAnEmptyFallbackList()
-  {
-    // One entry is every workspace's shape today, and empty is what makes the request carry no
-    // models array at all.
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    SessionModelPreferences preferences = new() { ModelIds = ["alpha/model"] };
-    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
-
-    Result<(ModelConfig Config, string? Notice)> resolution =
-        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
-
-    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
-    Assert.Equal("alpha/model", resolution.Value.Config.ModelId);
-    Assert.Empty(resolution.Value.Config.FallbackModelIds);
-  }
-
-  [Fact]
-  public async Task NoLivePreference_ServesThePin_WithNoFallbacks()
+  public async Task NoLivePreference_ServesThePin_AsTheOnlyModel()
   {
     // A resumed session has no live list; the persisted pin is what served and it names ONE
     // model, so the turn must not inherit a list from anywhere.
@@ -351,7 +336,6 @@ public class RootAgentResolverTests
 
     Assert.True(resolution.IsSuccess, resolution.Error?.Message);
     Assert.Equal("pinned/model", resolution.Value.Config.ModelId);
-    Assert.Empty(resolution.Value.Config.FallbackModelIds);
   }
 
   [Fact]
@@ -385,7 +369,8 @@ public class RootAgentResolverTests
     };
     RootAgentResolver resolver = new(
         new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f,
-            new OnlyOneModelKnownWindowSource("beta/other")),
+            new OnlyOneModelKnownWindowSource("beta/other"),
+            VendorResolver.ForEveryVendor(new ListingCatalog())),
         preferences);
 
     Result<(ModelConfig Config, string? Notice)> resolution =
@@ -394,6 +379,34 @@ public class RootAgentResolverTests
     Assert.False(resolution.IsSuccess);
     Assert.Equal("UnknownModelWindow", resolution.Error.Code);
     Assert.Contains("unknown/model", resolution.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task AHeadFromAnotherVendor_ResolvesThroughThatVendorsCatalog()
+  {
+    // THE REPORTED FAILURE, pinned: a Cloudflare model picked in a session opened under
+    // OpenRouter failed with UnknownModelWindow, because the window and capability lookups
+    // asked the session's own catalog and Cloudflare's was never consulted. A session is not
+    // tied to a provider, so the ENTRY's vendor decides which catalog answers.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    const string CloudflareModel = "@cf/deepseek-ai/deepseek-v4.1-flash-1017";
+    SessionModelPreferences preferences = new()
+    {
+      Entries = [new ModelSelectionEntry(CloudflareModel, ModelVendors.Cloudflare)],
+    };
+    RootAgentResolver resolver = new(
+        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f,
+            new FixedWindowSource(),
+            VendorResolver.For(ModelVendors.Cloudflare,
+                new ListingCatalog((CloudflareModel, "cloudflare")))),
+        preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal(CloudflareModel, resolution.Value.Config.ModelId);
   }
 
   [Fact]

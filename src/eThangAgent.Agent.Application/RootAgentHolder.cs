@@ -25,7 +25,10 @@ public sealed record RootDependencies(
     // workspace those rows belong to. Both null (legacy wiring) records rows with null
     // prices and no workspace: byte-identical to before.
     IUsagePriceSource? UsagePrices = null,
-    string? WorkspaceId = null);
+    string? WorkspaceId = null,
+    // The session's ordered model list and the vendor-keyed resolution a turn walks.
+    // Null (legacy wiring, tests) keeps the single provider this holder was built with.
+    ModelWalkSource? ModelWalk = null);
 
 /// <summary>Holds the root agent for a session and rebuilds it when its model changes.
 ///     The root agent is constructed lazily on the first message (see
@@ -121,6 +124,7 @@ public sealed class RootAgentHolder(
       SessionId = ResolveSessionId(),
       UsagePrices = prices,
       WorkspaceId = workspace,
+      ModelWalk = _dependencies?.ModelWalk,
     };
   }
 

@@ -26,9 +26,19 @@ public class AgentRunLoopVisionFlagTests
   private static AgentRecord Child(string model = "vision/model")
       => AgentRecord.Started(AgentId.NewId(), model, null, "do things", FixedNow);
 
+  /// <summary>A vendor-keyed resolver over one catalog, which every vendor lists: the shape a
+  ///     test uses when the vendor does not matter.</summary>
+  private sealed class AnyVendor(IModelCatalog catalog) : IModelProviderResolver
+  {
+    public Result<IModelCatalog> Catalog(string vendorId) => Result.Success(catalog);
+
+    public Result<IModelProvider> Resolve(string vendorId, ModelConfig config) =>
+        Result.Failure<IModelProvider>(new DomainError("ProviderNotConfigured", "none"));
+  }
+
   private sealed class FixedSource : IContextWindowSource
   {
-    public Task<int?> WindowForAsync(string modelId, CancellationToken ct = default)
+    public Task<int?> WindowForAsync(string modelId, string? vendorId = null, CancellationToken ct = default)
         => Task.FromResult<int?>(128_000);
   }
 
@@ -40,7 +50,8 @@ public class AgentRunLoopVisionFlagTests
     AgentRunLoop spawner = new(new AgentRunServices(factory, new FakeAgentStore(),
             new ToolRegistry([]), new StaticPromptProvider("guide"),
             new AgentRunOptions(DefaultModel: "m")),
-        windowSource: new FixedSource(), catalog: new VisionCatalog(("vision/model", true)));
+        windowSource: new FixedSource(),
+        resolver: new AnyVendor(new VisionCatalog(("vision/model", true))));
 
     _ = await spawner.RunAsync(Child("vision/model"), CancellationToken.None);
 
@@ -55,7 +66,8 @@ public class AgentRunLoopVisionFlagTests
     AgentRunLoop spawner = new(new AgentRunServices(factory, new FakeAgentStore(),
             new ToolRegistry([]), new StaticPromptProvider("guide"),
             new AgentRunOptions(DefaultModel: "m")),
-        windowSource: new FixedSource(), catalog: new VisionCatalog(("other/model", true)));
+        windowSource: new FixedSource(),
+        resolver: new AnyVendor(new VisionCatalog(("other/model", true))));
 
     _ = await spawner.RunAsync(Child("vision/model"), CancellationToken.None);
 

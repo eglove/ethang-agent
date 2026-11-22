@@ -39,6 +39,11 @@ internal sealed record AgentSessionViewModelOptions
   /// <summary>Updates the status bar when root model resolution picks a model.</summary>
   public Action<string>? StatusModelUpdater { get; init; }
 
+  /// <summary>Updates the status bar's vendor when the model that serves is attributed to one.
+  ///     Null = this host shows no vendor (headless stubs and tests that assert the model alone).
+  ///     </summary>
+  public Action<string>? ServingVendorUpdater { get; init; }
+
   /// <summary>The session's live model/effort preferences backing the Model and Effort
   ///     pickers.</summary>
   public SessionModelPreferences? ModelPreferences { get; init; }
@@ -258,6 +263,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Conversation _conversation;
   private readonly Func<UiStreamEvent, Task> _streamSink;
   private readonly Action<string>? _statusModelUpdater;
+  private readonly Action<string>? _servingVendorUpdater;
   private readonly SessionModelPreferences? _modelPreferences;
 
   /// <summary>The model vision fact this session refreshes on every selection change. Null when
@@ -678,6 +684,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     ArgumentNullException.ThrowIfNull(options);
     WorkspaceRoot = options.WorkspaceRoot;
     _statusModelUpdater = options.StatusModelUpdater;
+    _servingVendorUpdater = options.ServingVendorUpdater;
     // Turns must never run on the UI thread: their awaits would post back to
     // Avalonia's SynchronizationContext and one blocking tool call would freeze
     // the whole shell (see DesktopHost.OffUiThread). The schedule wraps EVERY
@@ -715,6 +722,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       BackupCountText = BackupCountText(ModelCountOf(_modelPreferences)),
       // At construction nothing has been dropped, so this is the stored list.
       SurvivingModelIds = [.. SurvivingModels()],
+      // The vendor the bar names is the head entry's, so the first frame already says which
+      // vendor will serve. An entry that names none renders nothing rather than a guess.
+      ServingVendor = VendorTextOf(servingModel),
+      // The bar's own model moves when a usage row names the model that actually served, so the
+      // vendor moves with it through the same resolution.
+      ServingVendorUpdater = _servingVendorUpdater is null
+          ? null
+          : modelId => _servingVendorUpdater(VendorTextOf(modelId)),
     };
     // The per-workspace prompt: the languages this repository holds and this machine
     // cannot serve, named once and installable from here. A workspace that needs nothing
@@ -1451,48 +1466,44 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// caller that names only a model states nothing about retention, so the session keeps the
   /// policy it had rather than having one invented for it.</para>
   /// </summary>
-  /// <param name="modelIds">The ordered model list to serve: entry 1 runs and the rest are
-  ///     the ordered backups. An empty list is refused, because a session with no model has
+  /// <param name="entries">The ordered model+vendor list to serve: entry 1 runs and the rest
+  ///     are the ordered backups. An empty list is refused, because a session with no model has
   ///     nothing to serve and no empty state to fall back to.</param>
   /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
   /// <param name="retention">The retention tier to enforce, or null to keep the session's
   ///     current tier.</param>
-  public void ApplyModelChoice(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
+  public void ApplyModelChoice(IReadOnlyList<ModelSelectionEntry> entries, ModelVariant? variant = null,
       RetentionPolicy? retention = null)
   {
-    ArgumentNullException.ThrowIfNull(modelIds);
+    ArgumentNullException.ThrowIfNull(entries);
     if (_modelPreferences is null)
     {
       Transcript.AddNotice("Model choice is unavailable in this session (no model preferences wired).");
       return;
     }
 
-    if (modelIds.Count == 0)
+    if (entries.Count == 0)
     {
       Transcript.AddNotice("A session needs at least one model; the model list was left unchanged.");
       return;
     }
 
-    if (modelIds.Count > ModelSelection.MaxModels)
-    {
-      Transcript.AddNotice($"At most {ModelSelection.MaxModels} models can be selected, because the "
-          + "provider accepts no more on one request; the model list was left unchanged.");
-      return;
-    }
-
+    IReadOnlyList<string> modelIds = [.. entries.Select(entry => entry.ModelId)];
     // The list lands whole: a reopened or relaunched session serves the same models in the
-    // same order. The status bar names the HEAD, because entry 1 is the model that runs - a
-    // backup that answered one turn never becomes the head.
+    // same order, each under the vendor it names. The status bar names the HEAD, because entry 1
+    // is the model that runs - a backup that answered one turn never becomes the head.
     string chosen = modelIds[0];
     // A picked list is the whole list again: every model a turn dropped returns.
     _modelDrops.Clear();
-    _modelPreferences.ModelIds = [.. modelIds];
+    _modelPreferences.Entries =
+        [.. entries.Select(entry => new ModelSelectionEntry(entry.ModelId, entry.Vendor))];
     _modelPreferences.ModelVariant = variant;
     // Null means the caller stated no tier (a picker that only names a model), and the
     // session keeps whatever it had - which, for a session that never stated one, is the
     // strict default the overlay applies.
     _modelPreferences.Retention = retention ?? _modelPreferences.Retention;
     Status.ModelId = chosen;
+    Status.ServingVendor = VendorTextOf(chosen);
     Status.BackupCountText = BackupCountText(modelIds.Count);
     Status.SurvivingModelIds = [.. modelIds];
     // The status line names the routing the request will actually carry, by its bare name
@@ -1510,6 +1521,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     RefreshVision();
     Transcript.AddNotice(ChoiceNotice(chosen, modelIds.Count, variant));
   }
+
+  /// <summary>Applies a choice stated as bare model ids, with every entry naming no vendor so
+  ///     the session's own binding serves them.</summary>
+  /// <param name="modelIds">The ordered model ids to serve.</param>
+  /// <param name="variant">The routing variant, or null for the provider's own routing.</param>
+  /// <param name="retention">The retention tier to enforce, or null to keep the session's
+  ///     current tier.</param>
+  public void ApplyModelChoice(IReadOnlyList<string> modelIds, ModelVariant? variant = null,
+      RetentionPolicy? retention = null)
+      => ApplyModelChoice([.. modelIds.Select(id => new ModelSelectionEntry(id))], variant,
+          retention);
 
   /// <summary>Re-resolves the session's model vision fact from the current selection. Fire and
   ///     forget: the fact is read synchronously by image tools, so a slow catalog read must never
@@ -1536,6 +1558,29 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         // The fact keeps its previous answer; the next selection change retries.
       }
     }, CancellationToken.None);
+  }
+
+  /// <summary>Re-attributes the status bar's vendor to <paramref name="modelId"/>: the model the
+  ///     bar names and the vendor beside it always describe the same entry.</summary>
+  /// <param name="modelId">The model the bar now names.</param>
+  public void RefreshServingVendor(string modelId) => _servingVendorUpdater?.Invoke(VendorTextOf(modelId));
+
+  /// <summary>The vendor that serves <paramref name="modelId"/>, as the status bar names it, or
+  ///     empty when no entry in the session's list attributes that model to a vendor.
+  ///     <para>THE ATTRIBUTION COMES FROM THE LIST, not from the session's recorded binding: two
+  ///     vendors can serve the same model id at different prices and quotas, so the row the user
+  ///     picked is the only thing that says which one is in play.</para></summary>
+  /// <param name="modelId">The model id the bar names.</param>
+  private string VendorTextOf(string modelId)
+  {
+    if (_modelPreferences?.Entries is not { Count: > 0 } entries)
+    {
+      return string.Empty;
+    }
+
+    ModelSelectionEntry? match = entries.FirstOrDefault(
+        entry => string.Equals(entry.ModelId, modelId, StringComparison.Ordinal));
+    return match?.Vendor is { } vendor ? ModelVendors.DisplayName(vendor) : string.Empty;
   }
 
   /// <summary>The number of entries a preference names, or zero when it names no list. Extracted
@@ -1566,19 +1611,27 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     SessionModelPreferences sent = new();
     sent.CopyFrom(_modelPreferences);
-    sent.ModelIds = [.. SurvivingModels()];
+    // THE ENTRIES TRAVEL, NOT THE IDS: the host walks this list, and an entry's vendor is what
+    // decides which provider serves it. Assigning ModelIds would clear every vendor.
+    sent.Entries = [.. SurvivingEntries()];
     return SessionModelPreferencesJson.Serialize(sent);
+  }
+
+  /// <summary>The stored model list minus every model this session has dropped, with each
+  ///     entry's vendor intact. A session with no stored list resolves to the one model it named
+  ///     at construction.</summary>
+  private IReadOnlyList<ModelSelectionEntry> SurvivingEntries()
+  {
+    IReadOnlyList<ModelSelectionEntry> stored = _modelPreferences?.Entries is { Count: > 0 } named
+        ? named
+        : [new ModelSelectionEntry(SessionDefaultModelId)];
+    return [.. stored.Where(entry => !_modelDrops.IsDropped(entry.ModelId))];
   }
 
   /// <summary>The stored model list minus every model this session has dropped. A session with
   ///     no stored list resolves to the one model it named at construction.</summary>
-  private IReadOnlyList<string> SurvivingModels()
-  {
-    IReadOnlyList<string> stored = _modelPreferences?.ModelIds is { Count: > 0 } named
-        ? named
-        : [SessionDefaultModelId];
-    return _modelDrops.Surviving(stored);
-  }
+  private IReadOnlyList<string> SurvivingModels() =>
+      [.. SurvivingEntries().Select(entry => entry.ModelId)];
 
   /// <summary>Drops the first surviving model when a turn failed a model-verdict code, and
   ///     returns true when the same turn should go out again on what survives. The drop is
@@ -1596,14 +1649,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return false;
     }
 
-    IReadOnlyList<string> surviving = SurvivingModels();
+    IReadOnlyList<ModelSelectionEntry> surviving = SurvivingEntries();
     if (surviving.Count <= 1)
     {
       return false;
     }
 
-    string refusing = surviving[0];
-    if (!_modelDrops.Drop(refusing))
+    ModelSelectionEntry refusing = surviving[0];
+    if (!_modelDrops.Drop(refusing.ModelId))
     {
       return false;
     }
@@ -1612,6 +1665,30 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Status.BackupCountText = BackupCountText(Status.SurvivingModelIds.Count);
     Transcript.AddNotice(DropNotice(refusing, code, Status.SurvivingModelIds.Count));
     return true;
+  }
+
+  /// <summary>Records one drop the TURN LOOP reported, and reflects it in the status bar.
+  ///     <para>THE LOOP IS THE AUTHORITY WHEN IT WALKS: it has already advanced to the next
+  ///     entry, so this method must not decide a second time whether the model may be dropped.
+  ///     It only records what the loop stated, which is what keeps the surviving list and the
+  ///     transcript agreeing with the turn that actually ran.</para>
+  ///     <para>A REFUSED CREDENTIAL IS NEVER RECORDED AS A DROP: the loop does not advance past
+  ///     one, so recording it would remove a model the turn refused to remove.</para>
+  ///     </summary>
+  /// <param name="modelId">The model the loop dropped.</param>
+  /// <param name="vendor">The vendor that served it, or null when none was named.</param>
+  /// <param name="code">The code it failed with.</param>
+  private void RecordWalkDrop(string modelId, string? vendor, string code)
+  {
+    if (!TurnRetryPolicy.IsDropVerdict(code) || !_modelDrops.Drop(modelId))
+    {
+      return;
+    }
+
+    Status.SurvivingModelIds = [.. SurvivingModels()];
+    Status.BackupCountText = BackupCountText(Status.SurvivingModelIds.Count);
+    Transcript.AddNotice(DropNotice(new ModelSelectionEntry(modelId, vendor), code,
+        Status.SurvivingModelIds.Count));
   }
 
   /// <summary>The model-verdict code an attempt failed with, or null when the attempt did not
@@ -1624,18 +1701,36 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     return code is not null && TurnRetryPolicy.IsModelVerdict(code) ? code : null;
   }
 
-  /// <summary>The transcript line a drop writes, naming the model, what it did, and how many
-  ///     models are left. One is singular: '1 model left'.</summary>
-  private static string DropNotice(string modelId, string code, int surviving) =>
-      $"{modelId} was {VerdictPhrase(code)}; removed for "
-      + $"this session - {surviving} {(surviving == 1 ? "model" : "models")} left";
+  /// <summary>The transcript line a drop writes, naming the model, its vendor, what it did, and
+  ///     how many models are left. One is singular: '1 model left'.
+  ///     <para>THE VENDOR IS STATED WHENEVER AN ENTRY NAMES ONE, because the same model id served
+  ///     by two vendors is two rows and they differ in price and quota: a line naming only the id
+  ///     would leave the user unable to tell which of their two rows was removed. An entry that
+  ///     names none states the vendor the session's own list attributes to that model, and no
+  ///     parenthetical at all when the list attributes none.</para></summary>
+  private string DropNotice(ModelSelectionEntry entry, string code, int surviving) =>
+      $"{Label(entry)} was {VerdictPhrase(code)}; removed for this session - "
+      + $"{surviving} {(surviving == 1 ? "model" : "models")} left";
+
+  /// <summary>One entry as a transcript line names it: the model id, and the vendor in
+  ///     parentheses when the entry names one. An entry that names none takes the vendor the
+  ///     session's own list attributes to that model, and states nothing when the list does not
+  ///     attribute it to any - a line never invents a vendor for a model nobody named one for.
+  ///     </summary>
+  private string Label(ModelSelectionEntry entry)
+  {
+    string vendor = entry.Vendor is { } named
+        ? ModelVendors.DisplayName(named)
+        : VendorTextOf(entry.ModelId);
+    return vendor.Length > 0 ? $"{entry.ModelId} ({vendor})" : entry.ModelId;
+  }
 
   /// <summary>The transcript line a spent list writes: the last model's verdict, and the one act
   ///     that resolves it. The provider's own failure line follows it, so the fault's detail is
   ///     never lost.</summary>
-  private static string ExhaustedNotice(string code, IReadOnlyList<string> surviving) =>
-      $"{surviving[0]} was {VerdictPhrase(code)} and no other model is left to serve this turn - "
-      + "pick another model in Model Settings.";
+  private string ExhaustedNotice(string code, IReadOnlyList<ModelSelectionEntry> surviving) =>
+      $"{Label(surviving[0])} was {VerdictPhrase(code)} and no other model is left to serve "
+      + "this turn - pick another model in Model Settings.";
 
   /// <summary>What a model-verdict code did, in the user's words.</summary>
   private static string VerdictPhrase(string code)
@@ -1877,7 +1972,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // list is spent rather than read a bare throttle as a passing fault.
       if (VerdictCodeOf(attempt) is { } spent)
       {
-        Transcript.AddNotice(ExhaustedNotice(spent, SurvivingModels()));
+        Transcript.AddNotice(ExhaustedNotice(spent, SurvivingEntries()));
       }
 
       // A host that is gone is not this turn's fault, so the same turn goes out again over a
@@ -2054,7 +2149,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               OnSystemMessage: bridge.OnSystemMessage,
               OnStreamRewind: bridge.OnStreamRewind,
               OnStreamRetrying: (attempt, delay, reason) =>
-                bridge.OnNotice(TurnRetryPolicy.Describe(attempt, delay, reason))),
+                bridge.OnNotice(TurnRetryPolicy.Describe(attempt, delay, reason)),
+               OnModelDropped: (modelId, vendor, code, _) => bridge.OnModelDropped(modelId, vendor, code)),
           onNotice: bridge.OnNotice).ConfigureAwait(true);
     }
     catch (OperationCanceledException)
@@ -2158,22 +2254,41 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       case "session-request":
         ApplySessionRequest(evt.Payload);
         break;
-      case "context":
-        ApplyContextEvent(evt.Payload);
+      case "context" or "usage" or "progress" or "model-dropped":
+        // The facts a host turn reports beside its text: the context snapshot, the recorded
+        // spend, the liveness heartbeat, and the walk's own drops.
+        ApplyHostFactEvent(evt.Kind, evt.Payload, bridge);
         break;
-      case "usage":
-        ApplyUsageEvent(evt.Payload);
-        break;
-      case "settled":
-        // The settle's payload is the turn's answer (or its typed failure line); the
-        // outcome is read from the channel's Result, so nothing is applied here beyond
-        // the phase change. TurnPhase has no Idle member - Ready IS the idle phase, and
-        // the turn's finally block sets it too, so this is idempotent.
+      // The settle's payload is the turn's answer (or its typed failure line); the outcome is
+      // read from the channel's Result, so nothing is applied here beyond the phase change.
+      // TurnPhase has no Idle member - Ready IS the idle phase, and the turn's finally block
+      // sets it too, so this is idempotent. Any other kind is one this build does not know,
+      // which is the forward-compatibility rule the transports already follow.
+      default:
         Status.Phase = TurnPhase.Ready;
         break;
-      // `progress` is the liveness heartbeat: it proves the host is alive and says nothing
-      // the transcript needs. Any other kind is one this build does not know, which is the
-      // forward-compatibility rule the transports already follow.
+    }
+  }
+
+  /// <summary>Applies one fact a host turn reports beside its text: the context snapshot, the
+  ///     recorded spend, one model the walk dropped, or the liveness heartbeat.
+  ///     <para>THEY SHARE ONE ENTRY POINT because they are all facts the status bar and the
+  ///     surviving list consume, and none of them renders a transcript line of its own. The
+  ///     heartbeat renders nothing at all: it exists so the app can tell a busy host from a
+  ///     silent one.</para></summary>
+  private void ApplyHostFactEvent(string kind, string payload, StreamBridge bridge)
+  {
+    switch (kind)
+    {
+      case "context":
+        ApplyContextEvent(payload);
+        break;
+      case "usage":
+        ApplyUsageEvent(payload);
+        break;
+      case "model-dropped":
+        ApplyModelDropEvent(payload, bridge);
+        break;
       default:
         break;
     }
@@ -2197,6 +2312,19 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     during a host-run turn. An unreadable payload is dropped rather than rendered —
   ///     the cost line is a readout, and a notice per provider call would flood the
   ///     transcript.</summary>
+  /// <summary>Applies one `model-dropped` event: the walk in the host removed a model, so this
+  ///     session records the same drop and states it in the transcript.
+  ///     <para>AN UNREADABLE PAYLOAD IS DROPPED RATHER THAN GUESSED AT: the drop is already
+  ///     recorded in the host's transcript line, and inventing a model id here would remove the
+  ///     wrong one.</para></summary>
+  private static void ApplyModelDropEvent(string payload, StreamBridge bridge)
+  {
+    if (RootTurnModelDropPayload.Parse(payload) is { } drop)
+    {
+      bridge.OnModelDropped(drop.ModelId!, drop.Vendor, drop.Code ?? string.Empty);
+    }
+  }
+
   private void ApplyUsageEvent(string payload)
   {
     if (RootTurnUsagePayload.Parse(payload) is { } usage)
@@ -2500,15 +2628,31 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         // Notices arrive through the bridge (turn thread) and apply here on the sink's
         // thread — the UI thread in production — so the transcript mutation honors the
         // UI-thread-only contract, exactly like every other turn-voice event.
-        Transcript.AddNotice(n.Text);
-        if (_statusModelUpdater is not null && TryExtractModelId(n.Text) is { } resolved)
-        {
-          _statusModelUpdater(resolved);
-        }
+        ApplyNotice(n.Text);
+        break;
+      case UiStreamEvent.ModelDropped d:
+        // The walk's drop arrives the same way and for the same reason: the walk runs on the
+        // turn's thread, and the surviving list and transcript are UI-owned.
+        RecordWalkDrop(d.ModelId, d.Vendor, d.Code);
         break;
       default:
         break;
     }
+  }
+
+  /// <summary>Writes one turn-voice notice and, when it states a resolved model, moves the bar's
+  ///     model and its vendor together so the two never describe different entries.</summary>
+  /// <param name="text">The notice's text.</param>
+  private void ApplyNotice(string text)
+  {
+    Transcript.AddNotice(text);
+    if (TryExtractModelId(text) is not { } resolved)
+    {
+      return;
+    }
+
+    _statusModelUpdater?.Invoke(resolved);
+    _servingVendorUpdater?.Invoke(VendorTextOf(resolved));
   }
 
   /// <summary>Parses the resolved model id from a RootAgentResolver notice so the status

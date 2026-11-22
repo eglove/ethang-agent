@@ -16,6 +16,8 @@ public static class FallbackModelCatalog
     return modelId switch
     {
       Providers.RoutingModelId => true,
+      // The Cloudflare default id IS a catalog model, so its vision fact is the
+      // catalog's, not a curated claim: unknown here means false, never a guess.
       _ => false,
     };
   }

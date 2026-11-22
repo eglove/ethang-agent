@@ -453,17 +453,20 @@ public class ShellViewModelTests
     Assert.Empty(vm.Tabs);
   }
 
+  /// <summary>Opening an agent writes NO provider preference. A session's provider comes from
+  ///     the vendor each of its models names, so there is no choice left to remember - and the
+  ///     retired key is neither rewritten nor deleted, which is what keeps a stored value from an
+  ///     older build readable instead of silently discarded.</summary>
   [Fact]
-  public async Task OpenAgent_PersistsChosenProvider_AsAppPreference()
+  public async Task OpenAgent_WritesNoProviderPreference()
   {
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(root, provider), preferences);
 
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    (string key, string value) = Assert.Single(preferences.Writes);
-    Assert.Equal(Providers.PreferenceKey, key);
-    Assert.Equal("openrouter", value);
+    Assert.DoesNotContain(preferences.Writes, w => w.Key == Providers.PreferenceKey);
+    Assert.DoesNotContain(preferences.Deletions, k => k == Providers.PreferenceKey);
   }
 
   [Fact]
@@ -505,6 +508,7 @@ public class ShellViewModelTests
     // update leaves unset all delete.
     Assert.Equal(
         [OpenRouterSettings.ManagementKeyPreferenceKey,
+         CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
@@ -532,6 +536,7 @@ public class ShellViewModelTests
 
     Assert.Equal(
         [OpenRouterSettings.PreferenceKey, OpenRouterSettings.ManagementKeyPreferenceKey,
+         CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
@@ -571,6 +576,7 @@ public class ShellViewModelTests
         preferences.Writes);
     Assert.Equal(
         [OpenRouterSettings.ManagementKeyPreferenceKey,
+         CloudflareSettings.AccountIdPreferenceKey, CloudflareSettings.ApiTokenPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
@@ -845,14 +851,12 @@ public class ShellViewModelTests
         }).ConfigureAwait(true);
 
     // The carrier the sibling will hand its host, read through the production codec, is the whole
-    // list with the session's variant applied once per entry - the same `models` array the
-    // launching session's turns carry.
+    // ordered list plus the variant the launching session walks it under.
     SessionModelPreferences siblingPreferences = tab.Cells[^1].Container!.Preferences!;
     SessionModelPreferences carried =
         SessionModelPreferencesJson.Deserialize(SessionModelPreferencesJson.Serialize(siblingPreferences)).Value!;
     Assert.Equal(["alpha/model", "beta/other"], carried.ModelIds);
-    Assert.Equal(["alpha/model:nitro", "beta/other:nitro"],
-        ModelSelection.Create(carried.ModelIds!, carried.ModelVariant ?? ModelVariant.Standard).Value!.WireModelIds);
+    Assert.Equal(ModelVariant.Nitro, carried.ModelVariant);
   }
 
   /// <summary>A shell whose sessions carry a host channel and a workspace identity, which are

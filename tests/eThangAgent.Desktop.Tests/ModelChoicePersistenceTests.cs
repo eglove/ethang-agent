@@ -15,7 +15,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     reports a reordered list as Unchanged discards a user's edit, and a reopen that shows
 ///     anything but the stored head runs a model the user did not put first.</para>
 ///     <para>THE 'NO MODEL' BRANCH IS DELETED BEHAVIOUR, not relocated: the picker refuses to
-///     remove the last row and <see cref="ModelSelection.Create"/> refuses an empty
+///     remove the last row and <see cref="ModelSelection.Create(IEnumerable{string}, ModelVariant, RetentionPolicy)"/> refuses an empty
 ///     collection, so there is no null choice for the save path to substitute a default
 ///     for.</para></summary>
 public class ModelChoicePersistenceTests
@@ -48,7 +48,8 @@ public class ModelChoicePersistenceTests
     Assert.True(vm.TrySave(out string? error), error);
 
     Assert.Equal(ModelChoiceKind.Pinned, captured!.Model!.Kind);
-    Assert.Equal(["alpha/model", "beta/other", "gamma/third"], captured.Model.ModelIds);
+    Assert.Equal(["alpha/model", "beta/other", "gamma/third"],
+        captured.Model.Entries.Select(entry => entry.ModelId));
     Assert.Equal(ModelVariant.Standard, captured.Model.Variant);
     Assert.Equal(RetentionPolicy.ZeroDataRetention, captured.Model.Retention);
     Assert.Equal(["alpha/model", "beta/other", "gamma/third"], live.ModelIds);
@@ -101,7 +102,7 @@ public class ModelChoicePersistenceTests
     Assert.True(vm.TrySave(out string? error), error);
 
     Assert.Equal(ModelChoiceKind.Pinned, captured!.Model!.Kind);
-    Assert.Equal(["beta/other", "alpha/model"], captured.Model.ModelIds);
+    Assert.Equal(["beta/other", "alpha/model"], captured.Model.Entries.Select(entry => entry.ModelId));
     Assert.Equal(["beta/other", "alpha/model"], live.ModelIds);
   }
 
@@ -227,7 +228,7 @@ public class ModelChoicePersistenceTests
         "OpenRouter", "alpha/model",
         new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = live });
 
-    vm.ApplyModelChoice([]);
+    vm.ApplyModelChoice(Array.Empty<ModelSelectionEntry>());
 
     Assert.Equal(["alpha/model"], live.ModelIds);
     Assert.Equal("alpha/model", vm.Status.ModelId);
@@ -270,6 +271,56 @@ public class ModelChoicePersistenceTests
     Assert.DoesNotContain(store.Writes, w => w.Key == ModelChoiceKey);
   }
 
+  // ── the vendors survive the whole hop ─────────────────────────────────────
+
+  [Fact]
+  public async Task ASavedSelection_KeepsEveryEntrysVendor_ThroughTheStoreAndTheReopen()
+  {
+    // The hop is picker -> preference -> reopen, and a vendor lost at either end turns a
+    // Cloudflare model into an anonymous id that the session's own binding would serve.
+    FakePreferenceStore store = new();
+    SessionModelPreferences live = new();
+    MainViewModel writer = CreateShell(store, live);
+    _ = await OpenAsync(writer).ConfigureAwait(true);
+
+    await writer.ApplyModelChoiceAsync(
+        [new ModelSelectionEntry("alpha/model"),
+         new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)]).ConfigureAwait(true);
+
+    // What landed in the store carries both vendors, in order.
+    ModelSelection stored = ModelSelection.Parse(store.Stored[ModelChoiceKey]).Value!;
+    Assert.Equal([new ModelSelectionEntry("alpha/model"),
+        new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)], stored.Entries);
+
+    // A reopened workspace restores them into the live preference, and the bar names the
+    // head's vendor - the entry that will serve the next turn.
+    SessionModelPreferences reopened = new();
+    MainViewModel reader = CreateShell(store, reopened);
+    AgentTabViewModel tab = await OpenAsync(reader).ConfigureAwait(true);
+
+    Assert.Equal([new ModelSelectionEntry("alpha/model"),
+        new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)], reopened.Entries);
+    Assert.Equal("alpha/model", tab.ViewModel.Status.ModelId);
+    // The head names no vendor, so the bar states none rather than inventing the session's.
+    Assert.Equal(string.Empty, tab.ViewModel.Status.ServingVendor);
+  }
+
+  [Fact]
+  public async Task AReopenedSelectionWhoseHeadNamesAVendor_NamesItInTheStatusBar()
+  {
+    FakePreferenceStore store = new();
+    store.Stored[ModelChoiceKey] = ModelSelection.Create(
+        [new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)]).Value!.Serialize();
+    SessionModelPreferences live = new();
+    MainViewModel shell = CreateShell(store, live);
+
+    AgentTabViewModel tab = await OpenAsync(shell).ConfigureAwait(true);
+
+    Assert.Equal([new ModelSelectionEntry("c/d", ModelVendors.Cloudflare)], live.Entries);
+    Assert.Equal(ModelVendors.DisplayName(ModelVendors.Cloudflare),
+        tab.ViewModel.Status.ServingVendor);
+  }
+
   // ── helpers ───────────────────────────────────────────────────────────────
 
   private static ModelSettingsViewModel Settings(SessionModelPreferences live,
@@ -277,7 +328,7 @@ public class ModelChoicePersistenceTests
       => new(live, Provider, persist,
           modelSection: new ModelSectionSeams(
               Loader(Entry("alpha/model"), Entry("beta/other"), Entry("gamma/third")),
-              currentModelIds));
+              [.. currentModelIds.Select(id => new ModelSelectionEntry(id))]));
 
   private static ModelProviderEntry Entry(string modelId) => new(
       modelId, "ProviderA", 0.000003m, null, 0.000015m, 200_000, 8192,
@@ -285,9 +336,9 @@ public class ModelChoicePersistenceTests
       IntelligenceScore: null, CodingScore: null, AgenticScore: null, LatencyMs: null,
       ThroughputTokensPerSec: null, Description: null);
 
-  private static Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> Loader(
+  private static Func<string, CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> Loader(
       params ModelProviderEntry[] entries)
-      => _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries));
+      => (_, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries));
 
   private static MainViewModel CreateShell(IAppPreferenceStore preferences,
       SessionModelPreferences sessionPreferences)

@@ -31,9 +31,9 @@ public class ModelListSectionTests
           new SessionModelPreferences(), "openrouter",
           persist: _ => { },
           modelSection: new ModelSectionSeams(
-              _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
+              (_, _) => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
                   [Entry(Alpha), Entry(Beta)])),
-              currentModelIds));
+              [.. currentModelIds.Select(id => new ModelSelectionEntry(id))]));
 
   /// <summary>Shows the window and pumps until the catalog load has landed, so every assertion
   ///     reads a settled render rather than a race.</summary>

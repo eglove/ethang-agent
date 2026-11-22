@@ -249,6 +249,74 @@ public class SessionModelDropTests
     Assert.Equal([B], session.Status.SurvivingModelIds);
   }
 
+  /// <summary>A HOST TURN'S DROP IS THE WALK'S, NOT THE APP'S: the host emits the model it
+  ///     dropped and this session records that same drop, so the model that refused leaves the
+  ///     list the next turn carries.
+  ///     <para>THE WIRE KIND IS THE ONLY WAY THE APP LEARNS IT: the walk runs in the host, and a
+  ///     session that recorded nothing would keep sending the dropped model on every later
+  ///     turn.</para></summary>
+  [Fact]
+  public async Task ADropTheHostReports_IsRecorded_AndNamesTheVendor()
+  {
+    SessionModelPreferences preferences = new()
+    {
+      Entries = [new(A, ModelVendors.Cloudflare), new(B)],
+    };
+    ScriptedTurnChannel host = new();
+    _ = host.DropsBeforeAnswering(A, A, ModelVendors.Cloudflare, "RateLimited").Answers(A, "served");
+    AgentSessionViewModel session = Session(host, preferences);
+
+    await session.SubmitAsync("hi").ConfigureAwait(true);
+
+    Assert.Equal([B], session.Status.SurvivingModelIds);
+    Assert.Contains($"{A} (Cloudflare) was rate limited; removed for this session - 1 model left",
+        session.Transcript.Notices, StringComparer.Ordinal);
+    // The stored preference the user picked is untouched: a drop lives in the session only.
+    Assert.Equal([A, B], preferences.ModelIds);
+  }
+
+  /// <summary>A REFUSED CREDENTIAL IS NEVER A DROP, whichever side reports it: the host does not
+  ///     advance past one, so a session that recorded it would remove a model the turn kept.
+  ///     </summary>
+  [Fact]
+  public async Task ARefusedCredentialTheHostReports_IsNotRecordedAsADrop()
+  {
+    SessionModelPreferences preferences = new() { Entries = [new(A), new(B)] };
+    ScriptedTurnChannel host = new();
+    _ = host.DropsBeforeAnswering(A, A, ModelVendors.Cloudflare, "ProviderUnauthorized")
+        .Answers(A, "served");
+    AgentSessionViewModel session = Session(host, preferences);
+
+    await session.SubmitAsync("hi").ConfigureAwait(true);
+
+    Assert.Equal([A, B], session.Status.SurvivingModelIds);
+    Assert.DoesNotContain(session.Transcript.Notices,
+        n => n.Contains("removed for this session", StringComparison.Ordinal));
+  }
+
+  /// <summary>THE VENDOR SURVIVES THE HOP TO THE HOST: the carrier a turn sends names each
+  ///     entry's vendor, which is what the host's walk resolves a provider from.
+  ///     </summary>
+  [Fact]
+  public async Task TheCarrierATurnSends_KeepsEveryEntrysVendor()
+  {
+    SessionModelPreferences preferences = new()
+    {
+      Entries = [new(A, ModelVendors.Cloudflare), new(B)],
+    };
+    ScriptedTurnChannel host = new();
+    _ = host.Answers(A, "served");
+    AgentSessionViewModel session = Session(host, preferences);
+
+    await session.SubmitAsync("hi").ConfigureAwait(true);
+
+    Result<SessionModelPreferences> decoded = SessionModelPreferencesJson.Deserialize(
+        Assert.IsType<string>(host.Requests[0].ModelPreferences));
+    Assert.True(decoded.IsSuccess, decoded.Error?.Message);
+    Assert.Equal([new ModelSelectionEntry(A, ModelVendors.Cloudflare), new ModelSelectionEntry(B)],
+        decoded.Value.Entries);
+  }
+
   [Fact]
   public void TheDropObject_HoldsIdsInStoredOrderAndEachOnlyOnce()
   {
@@ -343,6 +411,17 @@ internal sealed class ScriptedTurnChannel : IRootTurnChannel
     return this;
   }
 
+  /// <summary>Scripts the model a request names FIRST to report a walk drop before it answers:
+  ///     the wire kind a conversation host emits when its own walk removed a model.</summary>
+  public ScriptedTurnChannel DropsBeforeAnswering(string modelId, string dropped, string? vendor,
+      string code)
+  {
+    _drops[modelId] = RootTurnModelDropPayload.Serialize(dropped, vendor, code, "the provider said so.");
+    return this;
+  }
+
+  private readonly Dictionary<string, string> _drops = [with(StringComparer.Ordinal)];
+
   public Task<Result<string>> SendRootTurnAsync(RootTurnRequest request,
       Action<RootTurnEvent> onEvent, CancellationToken ct = default)
       => Task.FromResult(ct.IsCancellationRequested
@@ -391,6 +470,11 @@ internal sealed class ScriptedTurnChannel : IRootTurnChannel
   ///     forgot to script.</summary>
   private Result<string> AnswerOf(string head, RootTurnRequest request, Action<RootTurnEvent> onEvent)
   {
+    if (_drops.Remove(head, out string? drop))
+    {
+      onEvent(new RootTurnEvent(request.TurnId, "model-dropped", drop, request.Generation));
+    }
+
     return _answerText.TryGetValue(head, out string? answer)
         ? Settle(answer, request, onEvent)
         : throw new InvalidOperationException(

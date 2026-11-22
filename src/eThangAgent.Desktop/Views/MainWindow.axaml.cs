@@ -135,6 +135,8 @@ internal partial class MainWindow : Window
     SettingsWindow dialog = new(new SettingsValues
     {
       OpenRouterKey = _vm!.ConfiguredOpenRouterKey,
+      CloudflareAccountId = _vm.ConfiguredCloudflareAccountId,
+      CloudflareApiToken = _vm.ConfiguredCloudflareApiToken,
       CommitStyle = _vm.ConfiguredCommitStyle,
       CompactionModels = await _vm.GetCompactionOptionsAsync(),
       SelectedCompactionModel = await _vm.GetSelectedCompactionModelAsync(),
@@ -156,6 +158,7 @@ internal partial class MainWindow : Window
       ToolsPage = ToolsPage(),
       LanguageServersPage = LanguageServersPage(),
       ProviderSignInFactory = _vm.ProviderSignInFactory,
+      ProviderProbe = _vm.ProviderProbe is null ? null : _vm.ProbeProviderAsync,
     });
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
@@ -234,10 +237,10 @@ internal partial class MainWindow : Window
     // priced at. A host with no catalog loader supplies no section at all, and a tab with no
     // ledger supplies no evidence - the sentence then states the documented default rung.
     ModelSectionSeams? modelSection = _vm.SelectedTabCatalogLoader is { } loadCatalog
-        ? new ModelSectionSeams(loadCatalog, preferences.ModelIds,
+        ? new ModelSectionSeams(loadCatalog, preferences.Entries ?? [],
             _vm.SelectedTabCatalogRefresher, preferences.ModelVariant,
             preferences.Retention ?? RetentionPolicy.ZeroDataRetention,
-            CheapestEvidenceLoader(tab))
+            CheapestEvidenceLoader(tab), _vm.OfferedModelVendors, tab.Container.ProviderName)
         : null;
     ModelSettingsViewModel vm = new(
         preferences,

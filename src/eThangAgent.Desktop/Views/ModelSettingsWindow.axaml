@@ -30,7 +30,7 @@
                tick order is a priority the user cannot see - so the order is stated by the numbers
                and changed by the three buttons beside the list. -->
           <TextBlock Text="Model" FontWeight="SemiBold"/>
-          <TextBlock Text="Entry 1 runs; the rest are ordered backups. At most 3 models can be selected."
+          <TextBlock Text="Entry 1 runs; the rest are ordered backups, tried in this order. Each row names the vendor that serves it."
                      FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
           <ListBox x:Name="SelectedModelList" ItemsSource="{Binding ModelSection.SelectedModels}"
                    SelectedItem="{Binding ModelSection.SelectedModel}" MaxHeight="160">
@@ -69,8 +69,16 @@
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:ModelPickerRow">
                   <StackPanel Margin="2,4">
-                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                      <TextBlock x:Name="PaidPlanMarker" Text="{Binding PaidPlanMarker}" FontSize="11"
+                                 Opacity="0.8" VerticalAlignment="Center"
+                                 IsVisible="{Binding ShowsPaidPlanMarker}"/>
+                    </StackPanel>
                     <TextBlock Text="{Binding Detail}" Opacity="0.6" FontSize="12"/>
+                    <TextBlock x:Name="RowRefusal" Text="{Binding Refusal}" Foreground="OrangeRed"
+                               FontSize="11" TextWrapping="Wrap"
+                               IsVisible="{Binding Refusal, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                   </StackPanel>
                 </DataTemplate>
               </ListBox.ItemTemplate>

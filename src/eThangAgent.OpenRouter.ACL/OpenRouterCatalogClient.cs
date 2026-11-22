@@ -262,6 +262,25 @@ public sealed class OpenRouterCatalogClient(
     return await refresh.WaitAsync(ct).ConfigureAwait(false);
   }
 
+  /// <inheritdoc />
+  public async Task<Result<IReadOnlyList<ModelProviderEntry>>> AdoptAsync(
+      IReadOnlyList<ModelProviderEntry> entries, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(entries);
+    await _gate.WaitAsync(ct).ConfigureAwait(false);
+    try
+    {
+      _cached = entries;
+      _fetchedAt = DateTimeOffset.UtcNow;
+      await PersistAsync(ct).ConfigureAwait(false);
+      return Result.Success(entries);
+    }
+    finally
+    {
+      _ = _gate.Release();
+    }
+  }
+
   private async Task<Result<IReadOnlyList<ModelProviderEntry>>> RevalidateAsync()
   {
     // Named decision (CA1031): a background revalidation fault is best effort - the
