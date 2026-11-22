@@ -21,7 +21,7 @@ public sealed record AgentRunOutcome(
 ///     handed here.</summary>
 public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferences? preferences = null,
     IContextWindowSource? windowSource = null, IContextCompactor? contextCompactor = null,
-    IModelCatalog? catalog = null, IModelProviderResolver? resolver = null)
+    IModelProviderResolver? resolver = null)
     : IAgentRunner
 {
 
@@ -40,18 +40,34 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
   ///     task prompt: identifies watchdog restarts in the transcript.</summary>
   public const string WrapUpNudgeSentinel = "[watchdog] You showed no activity for";
 
-  /// <summary>The child model's vision capability from the session catalog. A missing or
-  ///     failed catalog resolves false — capability is never guessed (legacy wiring keeps
-  ///     byte-identical false, like the legacy window sentinel).</summary>
-  private async Task<bool> AcceptsImagesAsync(string modelId, CancellationToken ct)
+  /// <summary>The child model's vision capability, resolved from the catalog of the vendor that
+  ///     serves it. A missing resolver, a failed read, or a vendor with no catalog resolves
+  ///     false — capability is never guessed (legacy wiring keeps byte-identical false, like the
+  ///     legacy window sentinel).</summary>
+  private async Task<bool> AcceptsImagesAsync(string modelId, string? vendorId, CancellationToken ct)
   {
-    if (_catalog is null)
+    if (_resolver is null)
     {
       return false;
     }
 
-    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
-    return entries.IsSuccess && entries.Value.Any(e => e.ModelId == modelId && e.SupportsVision);
+    foreach (string vendor in vendorId is { Length: > 0 } named ? [named] : ModelVendors.All)
+    {
+      Result<IModelCatalog> catalog = _resolver.Catalog(vendor);
+      if (!catalog.IsSuccess)
+      {
+        continue;
+      }
+
+      Result<IReadOnlyList<ModelProviderEntry>> entries =
+          await catalog.Value.GetAsync(ct).ConfigureAwait(false);
+      if (entries.IsSuccess && entries.Value.Any(e => e.ModelId == modelId && e.SupportsVision))
+      {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private readonly IModelProviderFactory _factory = services.Factory ?? throw new ArgumentNullException(nameof(services), "Factory must not be null.");
@@ -64,7 +80,7 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
-  private readonly IModelCatalog? _catalog = catalog;
+
   // The vendor-keyed provider resolution a child's model walk uses. Null (legacy wiring,
   // tests) leaves the child on the single provider its factory built.
   private readonly IModelProviderResolver? _resolver = resolver;
@@ -168,13 +184,13 @@ public sealed class AgentRunLoop(AgentRunServices services, SessionModelPreferen
     string baseModel = ModelVariants.BaseOf(child.ModelUsed);
     int? window = _windowSource is null
         ? ChildLegacyWindowFallback
-        : await _windowSource.WindowForAsync(baseModel, ct).ConfigureAwait(false)
+        : await _windowSource.WindowForAsync(baseModel, child.Provider, ct).ConfigureAwait(false)
           ?? throw new InvalidOperationException(
               $"Child model '{baseModel}' has no catalog context window (catalog unavailable or model unknown); the child run cannot proceed. "
               + "This is a composition wiring fault: every spawnable model must have a catalog-known window.");
     ModelConfig config = ModelPreferencesOverlay.Apply(ModelConfig.Create(
         baseModel, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort,
-        acceptsImageInput: await AcceptsImagesAsync(baseModel, ct).ConfigureAwait(false)).Value!,
+        acceptsImageInput: await AcceptsImagesAsync(baseModel, child.Provider, ct).ConfigureAwait(false)).Value!,
         _preferences);
     return (config, window.Value);
   }

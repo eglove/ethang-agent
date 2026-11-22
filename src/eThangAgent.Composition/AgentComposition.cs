@@ -461,6 +461,9 @@ public static class AgentComposition
         // Issue #106: ONE access per container - the mcp tool's dispatches and the
         // Desktop status view share this workspace's pooled sessions.
         .AddSingleton(SharedMcpServerAccess)
+        // The window and capability lookups are VENDOR-KEYED: a session's model list names the
+        // vendor serving each entry, so one catalog held here would answer for whichever vendor
+        // the session opened under and report every other vendor's models as unknown.
         .AddSingleton<IContextWindowSource, CatalogContextWindowSource>()
         // The prices stamped onto every usage row at write time (issue #23): ONE memoized
         // source per container, shared by the root loop and every child run. A session
@@ -1174,7 +1177,6 @@ public static class AgentComposition
             sp.GetRequiredService<SessionModelPreferences>(),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<DefaultContextCompactor>(),
-            sp.GetRequiredService<IModelCatalog>(),
             sp.GetRequiredService<IModelProviderResolver>()));
   }
 
@@ -1478,7 +1480,7 @@ public static class AgentComposition
                 defaultModel.MaxTokens,
                 defaultModel.Temperature,
                 sp.GetRequiredService<IContextWindowSource>(),
-                sp.GetRequiredService<IModelCatalog>()),
+                sp.GetRequiredService<IModelProviderResolver>()),
             sp.GetRequiredService<SessionModelPreferences>()))
         .AddSingleton(sp => new SendMessageCommandHandler(
             agent: null,
@@ -1967,14 +1969,17 @@ public static class AgentComposition
 
     return providerName switch
     {
+      // THE UNKEYED CATALOG IS THE SESSION'S OWN VENDOR'S KEYED ONE, not a second object over
+      // the same cache: two instances revalidate independently, so a read through one leaves the
+      // other serving a snapshot that is stale while reporting itself fresh.
       Providers.OpenRouter => wired
           .AddSingleton<IModelProviderFactory>(OpenRouterFactory)
-          .AddSingleton<IModelCatalog>(OpenRouterCatalog),
+          .AddSingleton(sp => sp.GetRequiredKeyedService<IModelCatalog>(Providers.OpenRouter)),
       Providers.Cloudflare => wired
           .AddSingleton<IModelProviderFactory>(sp => new CloudflareModelProviderFactory(
               sp.GetRequiredService<CloudflareConfiguration>(),
               sp.GetRequiredService<IHttpClientFactory>().CreateClient(CloudflareHttpClientName)))
-          .AddSingleton<IModelCatalog>(CloudflareCatalog),
+          .AddSingleton(sp => sp.GetRequiredKeyedService<IModelCatalog>(Providers.Cloudflare)),
       _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id."),
     };
   }

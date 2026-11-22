@@ -29,7 +29,7 @@ public class ChildHostRootUsageTests
   private sealed class FixedPriceSource(UsagePrices prices) : IUsagePriceSource
   {
     public Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
-        CancellationToken ct = default)
+        string? vendorId = null, CancellationToken ct = default)
         => Task.FromResult(prices);
   }
 

@@ -112,8 +112,10 @@ public sealed class SessionVisionCapabilityTests
             new AgentHostOptions(FixedWorkspaceContext.ForPath(workspace),
                 new WorkspacePathResolver(workspace)),
             db.Database)
-        // The capability comes from the catalog, so the catalog is what this test states.
-        .AddSingleton<IModelCatalog>(new Catalog(visionModel))
+        // The capability comes from the catalog, so the catalog is what this test states - at
+        // the VENDOR-KEYED seam the container reads, because a model's facts are resolved from
+        // the catalog of the vendor that serves it.
+        .AddKeyedSingleton<IModelCatalog>(Providers.OpenRouter, new Catalog(visionModel))
         .BuildServiceProvider();
   }
 

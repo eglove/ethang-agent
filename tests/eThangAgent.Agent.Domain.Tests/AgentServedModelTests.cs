@@ -26,7 +26,7 @@ public class AgentServedModelTests
     public List<string> Asked { get; } = [];
 
     public Task<UsagePrices> PricesForAsync(string modelId, int promptTokens = 0,
-        CancellationToken ct = default)
+        string? vendorId = null, CancellationToken ct = default)
     {
       Asked.Add(modelId);
       return Task.FromResult(modelId == ServedModel

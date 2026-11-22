@@ -110,6 +110,16 @@ public class PriceTierTests
     }
   }
 
+  /// <summary>A resolver over one catalog, which every vendor lists: the shape a test uses when
+  ///     the vendor does not matter.</summary>
+  private sealed class AnyVendor(IModelCatalog catalog) : IModelProviderResolver
+  {
+    public Result<IModelCatalog> Catalog(string vendorId) => Result.Success(catalog);
+
+    public Result<IModelProvider> Resolve(string vendorId, ModelConfig config) =>
+        Result.Failure<IModelProvider>(new DomainError("ProviderNotConfigured", "none"));
+  }
+
   [Fact]
   public async Task PricesForAsync_TwoCallsOfDifferentSizes_EachGetItsOwnTier()
   {
@@ -117,12 +127,12 @@ public class PriceTierTests
     // serve the first call's tier to every later call, so a long-context call would be
     // billed at the short-context rate silently. One catalog walk, two correct answers.
     FakeCatalog catalog = new([Entry(tiers: [Tier(200_000, 0.000006m, 0.0000006m, 0.0000225m)])]);
-    CatalogUsagePriceSource source = new(catalog);
+    CatalogUsagePriceSource source = new(new AnyVendor(catalog));
 
     UsagePrices shortCall = await source.PricesForAsync("m", 1_000,
-        TestContext.Current.CancellationToken);
+        ModelVendors.OpenRouter, TestContext.Current.CancellationToken);
     UsagePrices longCall = await source.PricesForAsync("m", 300_000,
-        TestContext.Current.CancellationToken);
+        ModelVendors.OpenRouter, TestContext.Current.CancellationToken);
 
     Assert.Equal(0.000003m, shortCall.PromptPricePerToken);
     Assert.Equal(0.000006m, longCall.PromptPricePerToken);
@@ -133,8 +143,8 @@ public class PriceTierTests
   public async Task PricesForAsync_NoSizeSupplied_StampsTheBasePrices()
   {
     // A caller that does not know the size gets the base rung - never the most expensive one.
-    CatalogUsagePriceSource source = new(new FakeCatalog(
-        [Entry(tiers: [Tier(200_000, 0.000006m, 0.0000006m, 0.0000225m)])]));
+    CatalogUsagePriceSource source = new(new AnyVendor(new FakeCatalog(
+        [Entry(tiers: [Tier(200_000, 0.000006m, 0.0000006m, 0.0000225m)])])));
 
     UsagePrices prices = await source.PricesForAsync("m", ct: TestContext.Current.CancellationToken);
 
