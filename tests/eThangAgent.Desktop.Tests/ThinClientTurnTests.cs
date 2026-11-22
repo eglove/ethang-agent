@@ -145,7 +145,7 @@ public sealed class ThinClientTurnTests
       using DirectFileSystemAccess files = new(new EditorConfigTextConventionPolicy(root));
       SessionPathGrants grants = new();
       FakeHostSession session = await FakeHostSession
-          .StartAsync(["done"], references: new ReferenceInjector(files, null, root, grants), grants: grants)
+          .StartAsync(["done"], references: new ReferenceResolver(null, root, grants), grants: grants)
           .ConfigureAwait(true);
 
       string quoted = "@" + (char)34 + Path.Combine(root, "notes.txt") + (char)34;
@@ -160,7 +160,7 @@ public sealed class ThinClientTurnTests
     }
   }
   [Fact]
-  public async Task SubmitAsync_ReferenceBlock_CarriesTheReadOutputAsPreTurn()
+  public async Task SubmitAsync_FileReference_NamesThePathOnTheMessageAndReadsNothing()
   {
     string root = TestTempRoot.CreateDirectory("ethang-thinclient-ref").FullName;
     try
@@ -169,19 +169,18 @@ public sealed class ThinClientTurnTests
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       using DirectFileSystemAccess files = new(new EditorConfigTextConventionPolicy(root));
       FakeHostSession session = await FakeHostSession
-          .StartAsync(["done"], references: new ReferenceInjector(files, null, root))
+          .StartAsync(["done"], references: new ReferenceResolver(null, root))
           .ConfigureAwait(true);
 
       await session.ViewModel.SubmitAsync("check @notes.txt").ConfigureAwait(true);
 
-      // The read output is a CONVERSATION mutation the app made; the host owns the
-      // conversation the model reads, so it must travel with the turn - on the USER
-      // message, never as a fabricated assistant turn.
+      // Nothing was read, so nothing rides as a pre-turn message: the reference is part of
+      // what the user said, and the annotation naming its path travels ON that message.
       RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
-      RootTurnPreTurnMessage preTurn = Assert.Single(request.PreTurn);
-      Assert.Equal("user", preTurn.Role, StringComparer.Ordinal);
-      Assert.Contains("1→ alpha", preTurn.Text, StringComparison.Ordinal);
-      Assert.Equal("check @notes.txt", request.Input, StringComparer.Ordinal);
+      Assert.Empty(request.PreTurn);
+      Assert.StartsWith("check @notes.txt", request.Input, StringComparison.Ordinal);
+      Assert.Contains("@notes.txt", request.Input, StringComparison.Ordinal);
+      Assert.DoesNotContain("1→ alpha", request.Input, StringComparison.Ordinal);
     }
     finally
     {
@@ -446,7 +445,7 @@ internal sealed class FakeHostSession
   ///     the turn in flight until it is cancelled (the stop-button shape).</summary>
   public static Task<FakeHostSession> StartAsync(IReadOnlyList<string> deltas, bool holdOpen = false,
       string? skillName = null, bool commandLine = false, SessionModelPreferences? preferences = null,
-      ReferenceInjector? references = null, SessionPathGrants? grants = null)
+      ReferenceResolver? references = null, SessionPathGrants? grants = null)
   {
     ArgumentNullException.ThrowIfNull(deltas);
     FakeRootTurnChannel host = new(deltas, holdOpen);

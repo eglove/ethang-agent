@@ -35,9 +35,17 @@ if [ -z "$(git ls-files)" ]; then
     exit 0
 fi
 
+# TRACKED FILES THAT STILL EXIST. git ls-files lists a path whose file was DELETED
+# in this change, and every checker here reads bytes: editorconfig-checker panics on
+# a missing path, so a commit that removes a file failed the gate instead of passing
+# it. The filter is on existence, not on status, so a rename or a delete both work.
+tracked_existing() {
+    git ls-files -z | xargs -0 -n 300 sh -c 'for f do [ -e "$f" ] && printf "%s\0" "$f"; done' _
+}
+
 echo "[pre-commit] editorconfig-checker over tracked files..."
 status=0
-git ls-files -z | xargs -0 -n 300 sh -c 'editorconfig-checker -config .editorconfig-checker.json "$@"' _ || status=1
+tracked_existing | xargs -0 -r -n 300 sh -c 'editorconfig-checker -config .editorconfig-checker.json "$@"' _ || status=1
 
 if [ "$status" -ne 0 ]; then
     echo "[pre-commit] editorconfig violations above - fix them (or bypass with --no-verify)." >&2
@@ -51,7 +59,7 @@ fi
 if command -v jsonlint >/dev/null 2>&1; then
     echo "[pre-commit] jsonlint over tracked .json files..."
     status=0
-    git ls-files -z -- '*.json' | xargs -0 -r -n 50 jsonlint -q || status=1
+    tracked_existing | tr '\0' '\n' | grep -E '\.json$' | tr '\n' '\0' | xargs -0 -r -n 50 jsonlint -q || status=1
     if [ "$status" -ne 0 ]; then
         echo "[pre-commit] invalid JSON above - fix it (or bypass with --no-verify)." >&2
         exit 1
@@ -67,7 +75,7 @@ fi
 if command -v secretlint >/dev/null 2>&1; then
     echo "[pre-commit] secretlint over tracked files..."
     status=0
-    git ls-files -z | xargs -0 -r -n 200 secretlint || status=1
+    tracked_existing | xargs -0 -r -n 200 secretlint || status=1
     if [ "$status" -ne 0 ]; then
         echo "[pre-commit] secretlint findings above - fix or extend .secretlintignore (or bypass with --no-verify)." >&2
         exit 1

@@ -45,11 +45,6 @@
       <Setter Property="BorderThickness" Value="2"/>
     </Style>
 
-    <!-- The composer's cost estimate turns amber past the high-token threshold: the same
-         amber as command mode, because both mean 'this line is heavier than it looks'. -->
-    <Style Selector="TextBlock.amber">
-      <Setter Property="Foreground" Value="#FFB454"/>
-    </Style>
   </UserControl.Styles>
   <!-- Issue #307 D1: this view is ONE AGENT CELL, not a workspace. The workbench rail
        and the splitter that sizes it moved to WorkspaceTabView, because the rail is
@@ -193,13 +188,11 @@
         <Grid ColumnDefinitions="*,Auto,Auto" Margin="8,0">
           <TextBox x:Name="InputBox" Grid.Column="0" PlaceholderText="{Binding ChatInputPlaceholder}"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
-          <!-- The composer's running cost estimate: how many references the message carries
-               and roughly what they cost, amber past the high-token threshold. Hidden while
-               the message references nothing. -->
-          <TextBlock x:Name="ReferenceCostText" Grid.Column="1" Margin="8,0,0,0"
+          <!-- How many references the message names. Hidden while it names none. -->
+          <TextBlock x:Name="ReferenceCountText" Grid.Column="1" Margin="8,0,0,0"
                      VerticalAlignment="Center" TextWrapping="NoWrap"
-                     Text="{Binding ReferenceCostLabel}"
-                     IsVisible="{Binding ReferenceCostLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                     Text="{Binding ReferenceCountLabel}"
+                     IsVisible="{Binding ReferenceCountLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <Button x:Name="StopButton" Grid.Column="2" Margin="8,0,0,0" MinWidth="36" Padding="10,8"
                   IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Center"
                   Content="■" FontSize="14" ToolTip.Tip="Stop"/>

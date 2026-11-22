@@ -8,14 +8,13 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>The composer's reference wiring in the chat view: typing '@' opens the popup, a
 ///     commit closes it for good, the CARET feeds the popup (moving out of a token closes it),
 ///     Enter commits while the popup shows and sends only once it is closed, a refused send
-///     keeps the input, and the cost readout follows the message's references.</summary>
+///     keeps the input, and the readout counts the references the message names.</summary>
 [Trait("Category", "Process")]
 public class ReferenceComposerViewTests
 {
@@ -27,22 +26,6 @@ public class ReferenceComposerViewTests
     new("notes.txt", "", ReferenceKind.File, "@notes.txt"),
     new("new", "Start a new session", ReferenceKind.Command, "/new"),
   ];
-
-  /// <summary>One in-memory workspace file: the injector reads through this seam.</summary>
-  private sealed class FakeFiles : IFileSystemAccess
-  {
-    public IReadOnlyList<string> Lines { get; init; } = ["alpha", "beta"];
-
-    public bool Missing { get; init; }
-
-    public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine, CancellationToken ct = default) =>
-        Task.FromResult(Missing
-            ? Result.Failure<FileRead>(new DomainError("FileNotFound", $"File not found: {path}"))
-            : Result.Success(new FileRead(Lines, Lines.Count, Lines.Count)));
-
-    public Task<Result<byte[]>> ReadBytesAsync(string path, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success(Array.Empty<byte>()));
-  }
 
   private sealed class Harness(
       AgentSessionViewModel vm, Window window, AgentView view, TextBox input, List<string> refreshes)
@@ -59,8 +42,8 @@ public class ReferenceComposerViewTests
   }
 
   /// <summary>Hosts an AgentView over a session whose popup catalog is the two-entry catalog
-  ///     plus the closed command registry, and whose injector reads the fake file system.</summary>
-  private static Harness Show(IFileSystemAccess? files = null)
+  ///     plus the closed command registry, and whose resolver names the workspace's paths.</summary>
+  private static Harness Show()
   {
     List<string> refreshes = [];
     AgentSessionViewModel vm = new(
@@ -78,8 +61,7 @@ public class ReferenceComposerViewTests
                   ? o.Kind == ReferenceKind.Command
                   : o.Kind != ReferenceKind.Command)
               .Where(o => o.Name.Contains(query, StringComparison.OrdinalIgnoreCase))],
-          References = new ReferenceInjector(
-              files ?? new FakeFiles(), null, Root),
+          References = new ReferenceResolver(null, Root),
           ReferenceIndexRefresh = () =>
           {
             refreshes.Add("refresh");
@@ -169,14 +151,14 @@ public class ReferenceComposerViewTests
   }
 
   [AvaloniaFact]
-  public async Task AMissingReferencePostsANoticeAndTheMessageSends()
+  public async Task AReferenceOutsideTheWorkspacePostsANoticeAndTheMessageSends()
   {
     // A reference that resolves to nothing is information, not a refusal: the box clears, the
     // message goes, and the notice says what was left out.
-    Harness h = Show(new FakeFiles { Missing = true });
+    Harness h = Show();
     _ = h.Input.Focus();
-    h.Input.Text = "read @missing.cs please";
-    h.Input.CaretIndex = 22;
+    h.Input.Text = "read @../outside.cs please";
+    h.Input.CaretIndex = 26;
     Dispatcher.UIThread.RunJobs();
 
     h.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
@@ -184,42 +166,29 @@ public class ReferenceComposerViewTests
 
     Assert.Equal("", h.Input.Text);
     Assert.Contains(h.Vm.Transcript.Entries,
-        e => e is UserMessageEntry u && u.Text == "read @missing.cs please");
+        e => e is UserMessageEntry u && u.Text == "read @../outside.cs please");
     Assert.Contains(h.Vm.Transcript.Entries,
-        e => e is NoticeEntry n && n.Text.Contains("ReferenceNotFound", StringComparison.Ordinal));
+        e => e is NoticeEntry n && n.Text.Contains("ReferenceOutsideWorkspace", StringComparison.Ordinal));
   }
 
   [AvaloniaFact]
-  public async Task TheCostReadoutCountsTheReferences()
+  public async Task TheReadoutCountsTheReferences()
   {
     Harness h = Show();
     h.Input.Text = "check @notes.txt";
     Dispatcher.UIThread.RunJobs();
-    await SettleAsync(() => h.Vm.ReferenceCostLabel.Length > 0).ConfigureAwait(true);
+    await SettleAsync(() => h.Vm.ReferenceCountLabel.Length > 0).ConfigureAwait(true);
 
-    Assert.StartsWith("1 reference · ~", h.Vm.ReferenceCostLabel, StringComparison.Ordinal);
-    Assert.False(h.Vm.ReferenceCostIsHigh);
-    Avalonia.Controls.TextBlock cost = h.View.GetControl<Avalonia.Controls.TextBlock>("ReferenceCostText");
-    Assert.Equal(h.Vm.ReferenceCostLabel, cost.Text);
-    Assert.DoesNotContain("amber", cost.Classes);
+    Assert.Equal("1 reference", h.Vm.ReferenceCountLabel);
+    TextBlock count = h.View.GetControl<TextBlock>("ReferenceCountText");
+    Assert.Equal(h.Vm.ReferenceCountLabel, count.Text);
   }
 
   [AvaloniaFact]
-  public async Task TheCostReadoutTurnsAmberPastThirtyThousandTokens()
+  public async Task ACommittedReferenceSendsTheMessageWithThePathNamed()
   {
-    Harness h = Show(new FakeFiles { Lines = [new string('x', 130_000)] });
-    h.Input.Text = "check @notes.txt";
-    Dispatcher.UIThread.RunJobs();
-    await SettleAsync(() => h.Vm.ReferenceCostIsHigh).ConfigureAwait(true);
-
-    Assert.True(h.Vm.ReferenceCostIsHigh);
-    Avalonia.Controls.TextBlock cost = h.View.GetControl<Avalonia.Controls.TextBlock>("ReferenceCostText");
-    Assert.Contains("amber", cost.Classes);
-  }
-
-  [AvaloniaFact]
-  public async Task ACommittedReferenceSendsWithTheReadOutputBeneathTheMessage()
-  {
+    // Committing a reference puts the path in the message; sending it names that path to the
+    // model. Nothing is read, so no tool card appears beneath the bubble.
     Harness h = Show();
     _ = h.Input.Focus();
     h.Input.Text = "check @not";
@@ -233,12 +202,11 @@ public class ReferenceComposerViewTests
     Assert.False(h.Vm.ReferenceCompletions.IsOpen);
 
     h.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-    await SettleAsync(() => h.Vm.Transcript.Entries.Any(e => e is ToolResultEntry)).ConfigureAwait(true);
+    await SettleAsync(() => h.Vm.Transcript.Entries.Any(e => e is UserMessageEntry)).ConfigureAwait(true);
 
     Assert.Contains(h.Vm.Transcript.Entries,
         e => e is UserMessageEntry u && u.Text == "check @notes.txt");
-    Assert.Contains(h.Vm.Transcript.Entries,
-        e => e is ToolResultEntry t && t.FullContent.Contains("1→ alpha", StringComparison.Ordinal));
+    Assert.DoesNotContain(h.Vm.Transcript.Entries, e => e is ToolResultEntry);
     Assert.Equal("", h.Input.Text);
   }
 

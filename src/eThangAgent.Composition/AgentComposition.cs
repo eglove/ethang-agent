@@ -1379,6 +1379,9 @@ public static class AgentComposition
                 new ExecGuidePromptProvider(
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
                 new ContextHygienePromptProvider(),
+                // What an @ reference is: a pointer the user wrote, never content the harness
+                // fetched. The model decides whether to read it.
+                new ReferencesPromptProvider(),
                 // Computed values and the hardening rule are operating rules like hygiene:
                 // always on, for root and children alike.
                 new ComputedValuesPromptProvider(),

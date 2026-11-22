@@ -163,34 +163,18 @@ internal partial class AgentView : UserControl
   ///     the attach-to-busy wiring cannot be asserted through the private timer field).</summary>
   internal bool IsSpinnerTimerRunning => _statusTimer?.IsEnabled ?? false;
 
-  /// <summary>Starts/stops the spinner timer with the busy phase, and marks the composer's
-  ///     cost readout amber once the message's references pass the high-token threshold.</summary>
+  /// <summary>Starts/stops the spinner timer with the busy phase.</summary>
   private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
   {
-    if (e.PropertyName == nameof(AgentSessionViewModel.IsBusy))
+    if (e.PropertyName != nameof(AgentSessionViewModel.IsBusy))
     {
-      _statusTimer?.Stop();
-      if (sender is AgentSessionViewModel { IsBusy: true })
-      {
-        _statusTimer?.Start();
-      }
-
       return;
     }
 
-    // The amber class follows the flag, and the flag is re-read on every cost change: a
-    // label that appears while the flag is already true still needs the class applied.
-    if (e.PropertyName is nameof(AgentSessionViewModel.ReferenceCostIsHigh)
-        or nameof(AgentSessionViewModel.ReferenceCostLabel))
+    _statusTimer?.Stop();
+    if (sender is AgentSessionViewModel { IsBusy: true })
     {
-      if (sender is AgentSessionViewModel { ReferenceCostIsHigh: true })
-      {
-        ReferenceCostText.Classes.Add("amber");
-      }
-      else
-      {
-        _ = ReferenceCostText.Classes.Remove("amber");
-      }
+      _statusTimer?.Start();
     }
   }
 
@@ -359,7 +343,7 @@ internal partial class AgentView : UserControl
     if (!_suppressReferenceFeed)
     {
       Vm?.UpdateReferenceCompletions(text, InputBox.CaretIndex);
-      _ = Vm?.UpdateReferenceCostAsync(text);
+      Vm?.UpdateReferenceCount(text);
     }
 
     bool commandMode = text.TrimStart().StartsWith('!', StringComparison.Ordinal);
@@ -493,7 +477,7 @@ internal partial class AgentView : UserControl
       InputBox.Text = updated;
       InputBox.CaretIndex = Math.Clamp(commit.CaretIndex, 0, updated.Length);
       Vm?.UpdateReferenceCompletions(updated, InputBox.CaretIndex);
-      _ = Vm?.UpdateReferenceCostAsync(updated);
+      Vm?.UpdateReferenceCount(updated);
     }
     finally
     {

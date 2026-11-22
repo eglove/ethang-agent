@@ -7,7 +7,6 @@ using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
-using eThangAgent.CapabilityDomain;
 using eThangAgent.Cloudflare.ACL;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
@@ -3444,16 +3443,11 @@ internal sealed partial class MainViewModel : ObservableObject
           CommandRunner = session.CommandRunner,
           SkillInvocation = session.SkillInvocation,
           ReferenceCatalogSource = (trigger, query) => ReferenceOptionsOf(session, fileIndex, trigger, query),
-          // A container that registered no file access (a bare test stub) resolves no
-          // references; every production container registers it. The reference resolves
-          // through the SAME tool surface the model uses, so a reference reads exactly as a
-          // tool call does - an image, a PDF page, a document, or a page of text.
-          References = session.Services.GetService<IFileSystemAccess>() is { } referenceFiles
-              ? new ReferenceInjector(referenceFiles, session.SkillInvocation, session.WorkspaceRoot,
-                  session.Services.GetService<SessionPathGrants>(),
-                  session.Services.GetService<AgentToolsProvider>(),
-                  ReadOnlyResolverOf(session))
-              : null,
+          // A reference names a path and invokes a skill; nothing is read, so the seam needs no
+          // tool surface. The resolver's roots are the read tools' roots, so a path the tools
+          // could open is never refused here.
+          References = new ReferenceResolver(session.SkillInvocation, session.WorkspaceRoot,
+              session.Services.GetService<SessionPathGrants>(), ReadOnlyResolverOf(session)),
           PathGrants = session.Services.GetService<SessionPathGrants>(),
           ReferenceIndexRefresh = fileIndex is null ? null : () => fileIndex.RefreshAsync(),
           // Issue #234: the /new slash command and the host's session-request both start a

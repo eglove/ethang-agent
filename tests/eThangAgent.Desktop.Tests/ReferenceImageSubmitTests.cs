@@ -6,49 +6,35 @@ using eThangAgent.Transport.ACL;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>A reference that reads a file the app cannot show as lines: a picture travels as
-///     the bytes the read tool attached, and a file no read tool opens is refused by name while
-///     the message still sends. These drive the transcript's picture rendering, so they need the
+/// <summary>A message that names a file the app cannot show as lines still sends: the harness
+///     names the path and the model decides what to do with it, so nothing is decoded and
+///     nothing is refused for being unreadable. These drive the transcript, so they need the
 ///     headless UI thread and carry the process trait with it.</summary>
 [Trait("Category", "Process")]
 public sealed class ReferenceImageSubmitTests
 {
-  /// <summary>A minimal valid 1x1 PNG: the transcript decodes the bitmap, so a fake header
-  ///     would fail it.</summary>
-  private static byte[] OnePixelPng() => Convert.FromBase64String(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
-
   [AvaloniaFact]
-  public async Task SubmitAsync_ImageReference_CarriesThePictureToTheHost()
+  public async Task SubmitAsync_ImageReference_NamesThePathAndSendsNoBytes()
   {
-    // A referenced picture is a picture the model must SEE: the app read it, so the bytes ride
-    // the turn's pre-turn message rather than staying in this process.
+    // A referenced picture is a POINTER like any other reference: the app does not read it,
+    // so no image rides the turn and the model reads it with read_image if it wants it.
     string root = TestTempRoot.CreateDirectory("ethang-refimage").FullName;
     try
     {
-      await File.WriteAllBytesAsync(Path.Combine(root, "shot.png"), OnePixelPng(),
+      await File.WriteAllBytesAsync(Path.Combine(root, "shot.png"), [1, 2, 3],
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       using DirectFileSystemAccess files = new(new EditorConfigTextConventionPolicy(root));
-      StubReadTool image = ReferenceToolSurface.Image();
       FakeHostSession session = await FakeHostSession
-          .StartAsync(["done"], references: new ReferenceInjector(files, null, root,
-              tools: ReferenceToolSurface.Over(image)))
+          .StartAsync(["done"], references: new ReferenceResolver(null, root))
           .ConfigureAwait(true);
 
       await session.ViewModel.SubmitAsync("what is @shot.png").ConfigureAwait(true);
 
       RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
-      RootTurnPreTurnMessage preTurn = Assert.Single(request.PreTurn);
-      Assert.Equal("user", preTurn.Role, StringComparer.Ordinal);
-      Assert.Contains("[read_image ", preTurn.Text, StringComparison.Ordinal);
-      Assert.Contains("[image: image/png, 3 bytes]", preTurn.Text, StringComparison.Ordinal);
-      RootTurnImage carried = Assert.Single(preTurn.Images);
-      Assert.Equal("image/png", carried.MediaType, StringComparer.Ordinal);
-      Assert.Equal(Convert.ToBase64String([1, 2, 3]), carried.Base64Data, StringComparer.Ordinal);
-      // The transcript shows the picture the message carried, not just the annotation.
-      ToolResultEntry card = Assert.Single(session.ViewModel.Transcript.Entries.OfType<ToolResultEntry>(),
-          e => e.Name == "read_image");
-      _ = Assert.Single(card.Images!);
+      Assert.Empty(request.PreTurn);
+      Assert.Contains("@shot.png", request.Input, StringComparison.Ordinal);
+      Assert.Contains("[references]", request.Input, StringComparison.Ordinal);
+      Assert.DoesNotContain(session.ViewModel.Transcript.Entries, e => e is ToolResultEntry);
     }
     finally
     {
@@ -66,10 +52,10 @@ public sealed class ReferenceImageSubmitTests
   }
 
   [Fact]
-  public async Task SubmitAsync_UnreadableReference_PostsANoticeAndSendsTheMessage()
+  public async Task SubmitAsync_UnreadableReference_IsNamedLikeAnyOtherPath()
   {
-    // An archive is not something a read tool opens, so the reference is refused by name and
-    // the message still travels: the user asked for the message to be sent.
+    // An archive is a path like any other now: nothing tries to open it, so nothing refuses
+    // it, and the model learns what it is when it chooses to look.
     string root = TestTempRoot.CreateDirectory("ethang-refzip").FullName;
     try
     {
@@ -77,16 +63,16 @@ public sealed class ReferenceImageSubmitTests
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       using DirectFileSystemAccess files = new(new EditorConfigTextConventionPolicy(root));
       FakeHostSession session = await FakeHostSession
-          .StartAsync(["done"], references: new ReferenceInjector(files, null, root))
+          .StartAsync(["done"], references: new ReferenceResolver(null, root))
           .ConfigureAwait(true);
 
       await session.ViewModel.SubmitAsync("look at @bundle.zip").ConfigureAwait(true);
 
-      Assert.Contains(session.ViewModel.Transcript.Entries,
-          e => e is NoticeEntry notice && notice.Text.Contains("ReferenceUnreadable", StringComparison.Ordinal));
+      Assert.DoesNotContain(session.ViewModel.Transcript.Entries, e => e is NoticeEntry);
       RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
       Assert.Empty(request.PreTurn);
-      Assert.Equal("look at @bundle.zip", request.Input, StringComparer.Ordinal);
+      Assert.StartsWith("look at @bundle.zip", request.Input, StringComparison.Ordinal);
+      Assert.Contains("bundle.zip", request.Input, StringComparison.Ordinal);
     }
     finally
     {

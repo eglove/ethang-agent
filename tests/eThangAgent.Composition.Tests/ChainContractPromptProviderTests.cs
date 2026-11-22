@@ -112,6 +112,7 @@ public sealed class ChainContractPromptProviderTests
         new ExecGuidePromptProvider(
             new Lazy<ICapabilityRegistry>(services.GetRequiredService<ICapabilityRegistry>)),
         new ContextHygienePromptProvider(),
+        new ReferencesPromptProvider(),
         new ComputedValuesPromptProvider(),
         new HardeningPromptProvider(),
         new TrustedDirectoriesPromptProvider(services.GetRequiredService<ResolvedTrustedDirectories>().List),

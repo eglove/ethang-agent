@@ -90,6 +90,24 @@ public class OperatingGuidancePromptTests
   public void StakeholderVoice_ReachesTheSessionPrompt() =>
       Assert.Contains(StakeholderVoicePromptProvider.Guidance, SessionPrompt(), StringComparison.Ordinal);
 
+  [Fact]
+  public void References_NameAPointerAndLeaveTheReadToTheModel()
+  {
+    // A reference is a path the user wrote, not content the harness fetched: the guidance
+    // must not read as an instruction to read, because the model may already hold the file.
+    string guidance = ReferencesPromptProvider.Guidance;
+
+    Assert.Contains("@path", guidance, StringComparison.Ordinal);
+    Assert.Contains("[references]", guidance, StringComparison.Ordinal);
+    Assert.Contains("without reading it", guidance, StringComparison.Ordinal);
+    Assert.Contains("Read one only when you need what is inside it", guidance, StringComparison.Ordinal);
+    Assert.Contains("may already hold the file", guidance, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void References_ReachesTheSessionPrompt() =>
+      Assert.Contains(ReferencesPromptProvider.Guidance, SessionPrompt(), StringComparison.Ordinal);
+
   // The voice guidance qualifies the identity, so it must be read after the identity and
   // before the operating guidance that follows it.
   [Fact]

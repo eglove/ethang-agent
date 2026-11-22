@@ -11,10 +11,10 @@ using eThangAgent.ToolDomain;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Reference resolution on the submit path: a message's <c>@</c> tokens resolve
-///     through the injector before any turn starts, the transcript bubble keeps exactly what
-///     the user typed, each resolved file's read output lands beneath that bubble, a missing
-///     reference refuses the send and keeps the input, and a slash name outside the closed
-///     command registry falls through as a plain message.</summary>
+///     through the resolver before any turn starts, the transcript bubble keeps exactly what
+///     the user typed, a referenced file is NAMED to the model rather than read for it, a
+///     reference that resolves to nothing posts a notice and the message still sends, and a
+///     slash name outside the closed command registry falls through as a plain message.</summary>
 public class ReferenceSubmitTests
 {
   private static SkillDefinition Skill(string name) => new(
@@ -29,10 +29,8 @@ public class ReferenceSubmitTests
         Task.FromResult(Result.Failure<SkillDefinition>(new DomainError("SkillNotFound", name)));
   }
 
-  /// <summary>The built session plus the temp workspace it reads; disposing it releases the
-  ///     file-system access and removes the directory.</summary>
-  /// <summary>Counts reads so a test can prove the cost estimate did (or did not) touch the
-  ///     file system for a given input.</summary>
+  /// <summary>Counts reads so a test can prove the submit path never touched the file system
+  ///     for a reference.</summary>
   private sealed class CountingFiles(IFileSystemAccess inner) : IFileSystemAccess
   {
     public int ReadCount { get; private set; }
@@ -75,8 +73,7 @@ public class ReferenceSubmitTests
     }
   }
 
-  /// <summary>Builds a session over a temp workspace whose files are the given ones. The
-  ///     injector reads the same real file system the read tool does.</summary>
+  /// <summary>Builds a session over a temp workspace whose files are the given ones.</summary>
   private static Harness Build(IReadOnlyDictionary<string, string[]> files, params SkillDefinition[] skills)
   {
     string root = TestTempRoot.CreateDirectory("ethang-refsubmit").FullName;
@@ -105,8 +102,7 @@ public class ReferenceSubmitTests
         {
           WorkspaceRoot = root,
           SkillInvocation = skills.Length == 0 ? null : new SkillInvocationService(new FakeCatalog(skills)),
-          References = new ReferenceInjector(
-              counter,
+          References = new ReferenceResolver(
               skills.Length == 0 ? null : new SkillInvocationService(new FakeCatalog(skills)),
               root,
               grants),
@@ -141,27 +137,27 @@ public class ReferenceSubmitTests
   }
 
   [Fact]
-  public async Task AMissingReferencePostsANoticeAndTheMessageStillSends()
+  public async Task AReferenceEscapingTheWorkspacePostsANoticeAndTheMessageStillSends()
   {
     // A reference that resolves to nothing must not cost the user the message: the notice
     // says what was left out and the turn runs with the text exactly as typed.
     using Harness h = Build(new Dictionary<string, string[]>());
 
-    await h.Vm.SubmitAsync("read @missing.cs please").ConfigureAwait(true);
+    await h.Vm.SubmitAsync("read @../outside.cs please").ConfigureAwait(true);
     await h.Vm.WaitForTurnAsync().ConfigureAwait(true);
 
     Assert.Contains(h.Vm.Transcript.Entries,
-        e => e is NoticeEntry n && n.Text.Contains("ReferenceNotFound", StringComparison.Ordinal));
+        e => e is NoticeEntry n && n.Text.Contains("ReferenceOutsideWorkspace", StringComparison.Ordinal));
     Assert.Contains(h.Vm.Transcript.Entries,
-        e => e is UserMessageEntry u && u.Text == "read @missing.cs please");
-    Assert.Equal(["read @missing.cs please"], h.Turns);
+        e => e is UserMessageEntry u && u.Text == "read @../outside.cs please");
+    Assert.Equal(["read @../outside.cs please"], h.Turns);
   }
 
   [Fact]
-  public async Task AQuotedExternalPathIsReadBeneathTheUserMessage()
+  public async Task AQuotedExternalPathIsGrantedAndNamedButNotRead()
   {
-    // The quoted form is what grants the path, and the grant is what lets the injector read a
-    // file the workspace resolver refuses.
+    // The quoted form is what grants the path, and the grant is what lets the read tools reach
+    // a file the workspace resolver refuses. The harness still does not read it.
     string external = TestTempRoot.CreateDirectory("ethang-refexternal").FullName;
     string file = Path.Combine(external, "View encrypted message.pdf.txt");
     await File.WriteAllLinesAsync(file, ["secret", "payload"], TestContext.Current.CancellationToken);
@@ -174,9 +170,11 @@ public class ReferenceSubmitTests
 
       Assert.DoesNotContain(h.Vm.Transcript.Entries,
           e => e is NoticeEntry n && n.Text.Contains("Reference", StringComparison.Ordinal));
-      Assert.Contains(h.Vm.Transcript.Entries,
-          e => e is ToolResultEntry t && t.FullContent.Contains("1→ secret", StringComparison.Ordinal));
-      _ = Assert.Single(h.Turns);
+      Assert.DoesNotContain(h.Vm.Transcript.Entries, e => e is ToolResultEntry);
+      Assert.Equal(0, h.Files.ReadCount);
+      string sent = Assert.Single(h.Turns);
+      Assert.Contains("[references]", sent, StringComparison.Ordinal);
+      Assert.Contains("granted read-only", sent, StringComparison.Ordinal);
     }
     finally
     {
@@ -209,42 +207,46 @@ public class ReferenceSubmitTests
   }
 
   [Fact]
-  public async Task TheCostEstimateDoesNotReReadForUnchangedReferences()
+  public void TheReadoutCountsReferencesWithoutResolvingThem()
   {
-    // Typing prose around a reference must not re-read the file: the estimate keys on the
-    // reference NAMES, so an unchanged set reuses the last resolution.
+    // The readout is a count of what the message names. It never resolves or reads, so every
+    // keystroke may ask it and the file system is never touched.
     using Harness h = Build(new Dictionary<string, string[]> { ["notes.txt"] = ["alpha", "beta"] });
 
-    await h.Vm.UpdateReferenceCostAsync("check @notes.txt").ConfigureAwait(true);
-    int reads = h.Files.ReadCount;
-    Assert.True(reads > 0, "the first estimate must resolve the reference");
+    h.Vm.UpdateReferenceCount("check @notes.txt");
+    Assert.Equal("1 reference", h.Vm.ReferenceCountLabel);
 
-    await h.Vm.UpdateReferenceCostAsync("check @notes.txt please").ConfigureAwait(true);
-    await h.Vm.UpdateReferenceCostAsync("check @notes.txt please now").ConfigureAwait(true);
-    Assert.Equal(reads, h.Files.ReadCount);
+    h.Vm.UpdateReferenceCount("check @notes.txt and @other.txt");
+    Assert.Equal("2 references", h.Vm.ReferenceCountLabel);
+    Assert.Equal(0, h.Files.ReadCount);
   }
 
   [Fact]
-  public async Task PlainProseNeverResolvesAReference()
+  public void PlainProseShowsNoReadout()
   {
     using Harness h = Build(new Dictionary<string, string[]> { ["notes.txt"] = ["alpha"] });
 
-    await h.Vm.UpdateReferenceCostAsync("just some words").ConfigureAwait(true);
+    h.Vm.UpdateReferenceCount("just some words");
+    Assert.Equal(string.Empty, h.Vm.ReferenceCountLabel);
     Assert.Equal(0, h.Files.ReadCount);
-    Assert.Equal(string.Empty, h.Vm.ReferenceCostLabel);
   }
 
   [Fact]
-  public async Task ReferenceBlocksAppearBeneathTheUserMessage()
+  public async Task AReferencedFileIsNamedToTheModelAndNotRead()
   {
+    // The bubble shows what the user typed; the model receives the message plus the annotation
+    // naming the path, and decides for itself whether to read it.
     using Harness h = Build(new Dictionary<string, string[]> { ["notes.txt"] = ["alpha", "beta"] });
 
     await h.Vm.SubmitAsync("check @notes.txt").ConfigureAwait(true);
     await h.Vm.WaitForTurnAsync().ConfigureAwait(true);
 
     Assert.Contains(h.Vm.Transcript.Entries, e => e is UserMessageEntry u && u.Text == "check @notes.txt");
-    Assert.Contains(h.Vm.Transcript.Entries,
-        e => e is ToolResultEntry t && t.FullContent.Contains("1→ ", StringComparison.Ordinal));
-    Assert.Equal(["check @notes.txt"], h.Turns);
+    Assert.DoesNotContain(h.Vm.Transcript.Entries, e => e is ToolResultEntry);
+    Assert.Equal(0, h.Files.ReadCount);
+    string sent = Assert.Single(h.Turns);
+    Assert.StartsWith("check @notes.txt", sent, StringComparison.Ordinal);
+    Assert.Contains("@notes.txt", sent, StringComparison.Ordinal);
+    Assert.DoesNotContain("1→ alpha", sent, StringComparison.Ordinal);
   }
 }

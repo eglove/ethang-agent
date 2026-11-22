@@ -96,9 +96,10 @@ internal sealed record AgentSessionViewModelOptions
   ///     without a catalog).</summary>
   public Func<ReferenceTrigger, string, IReadOnlyList<ReferenceOption>>? ReferenceCatalogSource { get; init; }
 
-  /// <summary>Resolves a submitted message's <c>@</c> references into read-tool output before
-  ///     the turn starts. Null = the message travels exactly as typed (headless stubs).</summary>
-  public ReferenceInjector? References { get; init; }
+  /// <summary>Resolves a submitted message's <c>@</c> references before the turn starts: a skill
+  ///     is invoked, a file is named by path, and nothing is read. Null = the message travels
+  ///     exactly as typed (headless stubs).</summary>
+  public ReferenceResolver? References { get; init; }
 
   /// <summary>The session's quoted-path grants: the same set the reference injector fills when a
   ///     message quotes a path, carried on every turn so the conversation host - a different
@@ -430,7 +431,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   public ComposerReferenceViewModel? ReferenceCompletions { get; }
 
   /// <summary>Resolves a submitted message's references. Null = nothing to resolve.</summary>
-  private readonly ReferenceInjector? _references;
+  private readonly ReferenceResolver? _references;
   private readonly SessionPathGrants? _grants;
 
   /// <summary>Re-enumerates the popup's file cache. Null = the popup lists no workspace files.</summary>
@@ -504,119 +505,28 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   public void UpdateReferenceCompletions(string input, int caretIndex) =>
       ReferenceCompletions?.Update(input, caretIndex);
 
-  /// <summary>The estimate above which the composer's cost readout turns amber.</summary>
-  private const int ReferenceCostHighTokens = 30_000;
-
-  /// <summary>The newest input the cost estimate was asked about.</summary>
-  private string _referenceCostInput = string.Empty;
-
-  /// <summary>The reference names the last estimate resolved, so an unchanged set reuses it
-  ///     instead of re-reading every referenced file.</summary>
-  private string _referenceCostKey = string.Empty;
-
-  /// <summary>True while a cost resolution runs, so a burst of keystrokes resolves once.</summary>
-  private bool _referenceCostRunning;
-
-  /// <summary>True when the input changed during a running resolution: that pass re-reads the
-  ///     newest input instead of leaving a stale estimate behind.</summary>
-  private bool _referenceCostDirty;
-
-  /// <summary>The composer's running cost estimate for the input's references: how many resolve
-  ///     and roughly how many tokens they carry. Empty when the input references nothing.</summary>
+  /// <summary>The composer's readout for the input's references: how many the message names.
+  ///     Empty when it names none. There is no token estimate because nothing is read - the
+  ///     message carries pointers, and what a read would cost is the model's decision.</summary>
   [ObservableProperty]
-  public partial string ReferenceCostLabel { get; private set; } = string.Empty;
-
-  /// <summary>True once the estimate passes <see cref="ReferenceCostHighTokens"/>, which is what
-  ///     turns the readout amber.</summary>
-  [ObservableProperty]
-  public partial bool ReferenceCostIsHigh { get; private set; }
+  public partial string ReferenceCountLabel { get; private set; } = string.Empty;
 
   /// <summary>Re-enumerates the popup's workspace file cache so the first <c>@</c> has one.</summary>
   public Task RefreshReferenceIndexAsync() => _referenceIndexRefresh?.Invoke() ?? Task.CompletedTask;
 
-  /// <summary>Recomputes the cost estimate for <paramref name="input"/>. Resolving a reference
-  ///     reads its content, so this runs only when the message's SET of reference names changes:
-  ///     typing prose around a reference costs nothing, and an unchanged set reuses the last
-  ///     estimate. A resolution already running re-reads the newest input when it finishes, so the
-  ///     estimate never lags the box.</summary>
-  public async Task UpdateReferenceCostAsync(string input)
+  /// <summary>Recomputes the readout for <paramref name="input"/>: the number of <c>@</c>
+  ///     tokens the message names, escaped literals excluded. Pure and synchronous - a reference
+  ///     is counted, never resolved or read, so every keystroke may ask.</summary>
+  public void UpdateReferenceCount(string input)
   {
     ArgumentNullException.ThrowIfNull(input);
-    _referenceCostInput = input;
-    if (_references is null)
+    int count = _references is null ? 0 : ReferenceResolver.Names(input).Count;
+    ReferenceCountLabel = count switch
     {
-      ClearReferenceCost();
-      return;
-    }
-
-    // No references means no estimate, and no read: the common case of plain prose costs nothing.
-    string key = string.Join('\u001f', ReferenceInjector.Names(input));
-    if (key.Length == 0)
-    {
-      _referenceCostKey = string.Empty;
-      ClearReferenceCost();
-      return;
-    }
-
-    if (string.Equals(key, _referenceCostKey, StringComparison.Ordinal))
-    {
-      return; // same references: the last estimate still holds
-    }
-
-    if (_referenceCostRunning)
-    {
-      _referenceCostDirty = true;
-      return;
-    }
-
-    _referenceCostRunning = true;
-    try
-    {
-      while (true)
-      {
-        _referenceCostDirty = false;
-        string resolvedKey = string.Join('\u001f', ReferenceInjector.Names(_referenceCostInput));
-        if (resolvedKey.Length == 0)
-        {
-          _referenceCostKey = string.Empty;
-          ClearReferenceCost();
-          return;
-        }
-
-        ReferenceInjectionResult resolved = await _references
-            .InjectAsync(_referenceCostInput, CancellationToken.None).ConfigureAwait(true);
-        _referenceCostKey = resolvedKey;
-        ApplyReferenceCost(resolved);
-        if (!_referenceCostDirty)
-        {
-          return;
-        }
-      }
-    }
-    finally
-    {
-      _referenceCostRunning = false;
-    }
-  }
-
-  private void ApplyReferenceCost(ReferenceInjectionResult resolved)
-  {
-    if (resolved.ReferenceCount == 0)
-    {
-      ClearReferenceCost();
-      return;
-    }
-
-    string plural = resolved.ReferenceCount == 1 ? "" : "s";
-    ReferenceCostLabel =
-        $"{resolved.ReferenceCount} reference{plural} · ~{resolved.EstimatedTokens / 1000}k tokens";
-    ReferenceCostIsHigh = resolved.EstimatedTokens > ReferenceCostHighTokens;
-  }
-
-  private void ClearReferenceCost()
-  {
-    ReferenceCostLabel = string.Empty;
-    ReferenceCostIsHigh = false;
+      0 => string.Empty,
+      1 => "1 reference",
+      _ => $"{count} references",
+    };
   }
 
   /// <summary>At most this many popup rows for one query.</summary>
@@ -1149,86 +1059,64 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Resolves a message's references and sends it. A reference that resolves to
   ///     nothing posts a notice and the message still sends: the user asked for the message,
   ///     and a path that named nothing is information rather than a reason to withhold it.
-  ///     <para>The bubble shows exactly what the user typed; each resolved file's read output
-  ///     is appended beneath it as a transcript-only entry and rides the USER message to the
-  ///     model, so no assistant turn is fabricated for a read the harness performed.</para></summary>
+  ///     <para>The bubble shows exactly what the user typed. A referenced file is NOT read:
+  ///     the annotation naming it rides the USER message to the model, which decides whether
+  ///     it needs the contents - it may already hold the file from an earlier turn. An invoked
+  ///     skill's system line is the one thing appended beneath the bubble, because invoking a
+  ///     skill IS the harness's act and its body is what the message asked for.</para></summary>
   private async Task SendMessageAsync(string input)
   {
     string messageText = input;
+    string annotation = string.Empty;
     IReadOnlyList<ReferenceBlock> blocks = [];
     if (_references is not null)
     {
-      ReferenceInjectionResult resolved = await _references.InjectAsync(input, CancellationToken.None).ConfigureAwait(true);
+      ReferenceResolution resolved = await _references.ResolveAsync(input, CancellationToken.None).ConfigureAwait(true);
       foreach (string notice in resolved.Notices)
       {
         Transcript.AddNotice(notice);
       }
 
       messageText = resolved.MessageText;
-      blocks = resolved.AppendedBlocks;
+      annotation = resolved.Annotation;
+      blocks = resolved.Blocks;
     }
 
     foreach (ReferenceBlock block in blocks)
     {
       Transcript.AddToolResult(block.ToolName, ReferenceBlockSummary(block.Content), block.Content,
-          isError: false, title: "reference", images: ReferenceImages(block));
+          isError: false, title: "reference");
     }
+
+    // The annotation travels with the message, on the same user turn: a reference is part of
+    // what the user said, so it never becomes a message of its own.
+    string carried = WithAnnotation(messageText, annotation);
 
     // While a turn runs, input steers it: posted to the session inbox for delivery at the
     // loop's next safe point, and echoed into the transcript immediately. Never dropped.
-    // The read blocks ride the STEERING message itself — a pre-turn entry queued here would
-    // never be consumed by a running turn and would leak into the NEXT turn's prefix. The
-    // inbox carries TEXT, so a block's images cannot ride a steer: each one's marker says it
-    // did not travel and names the tool that fetches it, rather than naming bytes nobody sent.
     if (IsBusy)
     {
-      Steer(blocks.Count == 0
-          ? messageText
-          : string.Join(Environment.NewLine + Environment.NewLine,
-              [messageText, .. blocks.Select(b => b.ModelText(imagesAttached: false))]));
+      Steer(carried);
       return;
     }
 
-    foreach (ReferenceBlock block in blocks)
-    {
-      _pendingPreTurn.Add(new RootTurnPreTurnMessage("user", block.ModelText())
-      {
-        Images = ReferenceWireImages(block),
-      });
-    }
-
     // Real turn — start and track it.
-    _runningTurn = ExecuteTurnAsync(messageText);
+    _runningTurn = ExecuteTurnAsync(messageText, annotation);
     await _runningTurn.ConfigureAwait(true);
   }
 
-  /// <summary>The read annotation line a reference block opens with, used as its card summary.</summary>
+  /// <summary>The message text with its reference annotation appended, or the text alone when
+  ///     the message names no files.</summary>
+  private static string WithAnnotation(string text, string annotation) =>
+      annotation.Length == 0 ? text : text + Environment.NewLine + Environment.NewLine + annotation;
+
+  /// <summary>The first line of a reference block, used as its card summary.</summary>
   private static string ReferenceBlockSummary(string content)
   {
     int newline = content.IndexOf('\n', StringComparison.Ordinal);
     return newline < 0 ? content : content[..newline].TrimEnd('\r');
   }
 
-  /// <summary>A reference block's images as transcript pictures, or null when it attached none.</summary>
-  private static List<TranscriptImage>? ReferenceImages(ReferenceBlock block)
-  {
-    if (block.Images.Count == 0)
-    {
-      return null;
-    }
-
-    List<TranscriptImage> images = [];
-    foreach (ToolResultImage image in block.Images)
-    {
-      images.Add(new TranscriptImage(Convert.FromBase64String(image.Base64Data)));
-    }
-
-    return images;
-  }
-
-  /// <summary>A reference block's images in the wire form the host rebuilds its parts from.</summary>
-  private static IReadOnlyList<RootTurnImage> ReferenceWireImages(ReferenceBlock block)
-      => [.. block.Images.Select(image => new RootTurnImage(image.MediaType, image.Base64Data))];
 
   /// <summary>Resolves a slash input through the closed command registry. A registered name
   ///     runs its command with the rest of the input as its arguments; any other name is not
@@ -1293,25 +1181,18 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 
     // The prompt is a message like any other, so its references resolve first; a reference
-    // that resolves to nothing posts a notice and the command still runs.
+    // that resolves to nothing posts a notice and the command still runs. The annotation
+    // rides the prompt itself, because the new session runs the turn and a pre-turn entry
+    // queued here would never be consumed.
     if (_references is not null)
     {
-      ReferenceInjectionResult resolved = await _references.InjectAsync(prompt, CancellationToken.None).ConfigureAwait(true);
+      ReferenceResolution resolved = await _references.ResolveAsync(prompt, CancellationToken.None).ConfigureAwait(true);
       foreach (string notice in resolved.Notices)
       {
         Transcript.AddNotice(notice);
       }
 
-      // The blocks ride the PROMPT, not this session's pre-turn queue: the new session runs
-      // the turn, so a pre-turn entry queued here would never be consumed and would leak into
-      // this session's next turn instead.
-      // The new session reads the blocks as one prompt, so a block's images travel as the
-      // prompt's own markers: the prompt is text, and a marker that named bytes nobody sent
-      // would read as a picture the model is looking at and cannot see.
-      prompt = resolved.AppendedBlocks.Count == 0
-          ? resolved.MessageText
-          : string.Join(Environment.NewLine + Environment.NewLine,
-              [resolved.MessageText, .. resolved.AppendedBlocks.Select(b => b.ModelText(imagesAttached: false))]);
+      prompt = WithAnnotation(resolved.MessageText, resolved.Annotation);
     }
 
     Transcript.AddNotice("[new session: starting a fresh session with the prompt you gave.]");
@@ -1846,11 +1727,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
   }
 
-  private async Task ExecuteTurnAsync(string input)
+  private async Task ExecuteTurnAsync(string input, string annotation)
   {
     try
     {
-      await ExecuteTurnCoreAsync(input);
+      await ExecuteTurnCoreAsync(input, annotation);
     }
     // A faulting turn must surface, never vanish: the view fire-and-forgets the turn
     // task (an unobserved exception is invisible), so the fault is delivered to the
@@ -1873,7 +1754,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
   }
 
-  private async Task ExecuteTurnCoreAsync(string input)
+  private async Task ExecuteTurnCoreAsync(string input, string annotation)
   {
     MessageCount++;
 
@@ -1906,6 +1787,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // ONE identity per SUBMIT, minted here and carried by every attempt: minting it inside
     // the send loop would give a resend a fresh id and defeat the host's deduplication.
     string userMessageId = Guid.NewGuid().ToString("N");
+    // The bubble shows what the user typed; the reference annotation rides the message the
+    // model reads, because a pointer the user put in their message is part of the message.
     Transcript.AddUser(input, transcriptImages, transcriptImageLabels, userMessageId);
     Status.Phase = TurnPhase.Thinking;
     IsBusy = true;
@@ -1920,7 +1803,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _pendingPreTurn.Clear();
 
     int messageCountBefore = _conversation.Messages.Count;
-    TurnFacts facts = new(input, imageParts, preTurn, userMessageId, cts.Token);
+    TurnFacts facts = new(WithAnnotation(input, annotation), imageParts, preTurn, userMessageId, cts.Token);
     Result<string>? result = await RunTurnAsync(facts).ConfigureAwait(true);
     if (result is null)
     {
