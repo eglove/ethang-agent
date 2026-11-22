@@ -12,6 +12,19 @@ public interface IModelCatalog
   Task<Result<IReadOnlyList<ModelProviderEntry>>> RefreshAsync(CancellationToken ct = default)
       => GetAsync(ct);
 
+  /// <summary>Takes a catalog that was pulled elsewhere as the one this catalog serves from now
+  ///     on, and returns it. A catalog that keeps no copy of its own returns the entries
+  ///     unchanged.
+  ///     <para>WHY THIS EXISTS: a credential can be tested and pulled from a surface that is not
+  ///     this catalog - the settings dialog, before the key is even saved - and a catalog that
+  ///     kept serving its own copy would leave the model search showing the old list until the
+  ///     app was restarted.</para></summary>
+  /// <param name="entries">The pulled entries.</param>
+  /// <param name="ct">Cancellation.</param>
+  Task<Result<IReadOnlyList<ModelProviderEntry>>> AdoptAsync(
+      IReadOnlyList<ModelProviderEntry> entries, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(entries));
+
   /// <summary>The cache-hit rates providers publish for their endpoints, keyed by
   ///     <see cref="ModelProviderEntry.Key"/>, or empty when none are available (issue #296
   ///     follow-up).

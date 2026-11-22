@@ -8,6 +8,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
+using eThangAgent.Cloudflare.ACL;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
@@ -114,6 +115,13 @@ internal sealed record MainViewModelOptions
   /// <summary>Protects keys before they reach durable storage. When null (tests),
   ///     key saves are not persisted at all.</summary>
   public IApiKeyProtector? ApiKeyProtector { get; init; }
+
+  /// <summary>Pulls one vendor's model catalog with credential values that are not saved yet,
+  ///     so the settings dialog can prove a key and fill the model search in one action. Null
+  ///     (tests, hosts with no app database) means the dialog offers no Test button.</summary>
+  public Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProviderProbe
+  { get; init; }
 
   /// <summary>Builds the provider sign-in for a base URL. When null (tests, hosts without
   ///     a browser), the settings modal offers no sign-in and the key field is the only way
@@ -420,6 +428,12 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>The sign-in the settings modal offers, or null when this host wired none.</summary>
   public Func<Uri, IProviderSignIn>? ProviderSignInFactory { get; }
 
+  /// <summary>The catalog probe the settings modal offers, or null when this host wired
+  ///     none.</summary>
+  public Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProviderProbe
+  { get; }
+
   /// <summary>The configured OpenRouter management key - the settings modal's
   ///     prefill (null when unset or settings editing is disabled).</summary>
   public string? ConfiguredOpenRouterManagementKey => _settings?.OpenRouter.ManagementKey;
@@ -564,6 +578,7 @@ internal sealed partial class MainViewModel : ObservableObject
     SeedWatchdogSeams(options, out _watchdogLoop, out _watchdogPolicy);
     _sessionFactory = options?.SessionFactory;
     _keyProtector = options?.ApiKeyProtector;
+    ProviderProbe = ProbeFrom(options);
     ProviderSignInFactory = SignInFactoryFrom(options);
     _sessionCatalog = options?.SessionCatalog;
     _createSession = CreateSessionDelegate(createSession);
@@ -597,6 +612,11 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>The host's sign-in factory, or null when it wired none.</summary>
   private static Func<Uri, IProviderSignIn>? SignInFactoryFrom(MainViewModelOptions? options)
       => options?.ProviderSignIn;
+
+  /// <summary>The host's catalog probe, or null when it wired none.</summary>
+  private static Func<string, string?, string?, Uri?, CancellationToken, Task<Result<ProviderProbeResult>>>?
+      ProbeFrom(MainViewModelOptions? options)
+      => options?.ProviderProbe;
 
   /// <summary>Refuses a shell with no session source at all: neither a creation
   ///     delegate nor the settings/factory pair settings editing needs.</summary>
@@ -1149,8 +1169,97 @@ internal sealed partial class MainViewModel : ObservableObject
         .WithCloudflareCredentialSaved(persisted.CloudflareAccountId, persisted.CloudflareApiToken);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
-    PushLiveKeys(persisted.OpenRouterKey, persisted.ManagementKey);
+    PushLiveKeys(persisted.OpenRouterKey, persisted.ManagementKey, _settings);
     RefreshProviderSurface(_settings);
+  }
+
+  /// <summary>Pulls one vendor's catalog with credential values that are not saved yet, then
+  ///     makes both halves of the result live: the credential goes onto every open session's
+  ///     carrier, and the pulled entries are adopted by every open catalog of that vendor.
+  ///     <para>THE PULL IS THE TEST AND THE FIX IN ONE ACT. A key that answers with models is
+  ///     proven, and the models are in the model search immediately - the alternative was a
+  ///     restart, because a session's catalog had already been built and cached against a
+  ///     credential that did not include this one.</para>
+  ///     <para>A FAILED PULL CHANGES NOTHING: the credential is not pushed onto the carriers, so
+  ///     a wrong key cannot break a session that was working.</para></summary>
+  /// <param name="vendor">The vendor to read.</param>
+  /// <param name="accountId">The Cloudflare account id, or null for a vendor that needs none.
+  /// </param>
+  /// <param name="apiToken">The Cloudflare API token, or null for a vendor that needs none.
+  /// </param>
+  /// <param name="openRouterBaseUrl">The OpenRouter host to read, or null for the default.
+  /// </param>
+  /// <param name="ct">Cancellation.</param>
+  public async Task<Result<ProviderProbeResult>> ProbeProviderAsync(string vendor, string? accountId,
+      string? apiToken, Uri? openRouterBaseUrl, CancellationToken ct = default)
+  {
+    if (ProviderProbe is not { } probe)
+    {
+      return Result.Failure<ProviderProbeResult>(new DomainError("ProbeUnavailable",
+          "this host has no catalog probe wired, so a credential cannot be tested here."));
+    }
+
+    Result<ProviderProbeResult> pulled = await probe(vendor, accountId, apiToken,
+        openRouterBaseUrl, ct).ConfigureAwait(true);
+    if (!pulled.IsSuccess)
+    {
+      return pulled;
+    }
+
+    PushLiveCredential(vendor, accountId, apiToken);
+    await AdoptPulledCatalogAsync(vendor, pulled.Value.Entries, ct).ConfigureAwait(true);
+    return pulled;
+  }
+
+  /// <summary>Pushes a credential that just proved itself onto every open session's carrier for
+  ///     that vendor, so the next call a session makes uses it.
+  ///     <para>ONLY THE VENDOR THAT WAS PULLED IS TOUCHED: a Cloudflare test must not rewrite the
+  ///     OpenRouter key, and a test that changed a provider nobody asked about would be a
+  ///     surprise the user could not see.</para></summary>
+  /// <param name="vendor">The vendor whose credential was proven.</param>
+  /// <param name="accountId">The account id, or null.</param>
+  /// <param name="apiToken">The API token, or null.</param>
+  private void PushLiveCredential(string vendor, string? accountId, string? apiToken)
+  {
+    if (!string.Equals(vendor, Providers.Cloudflare, StringComparison.Ordinal))
+    {
+      return;
+    }
+
+    foreach (AgentCellViewModel cell in Tabs.SelectMany(tab => tab.Snapshot()))
+    {
+      if (cell.Container?.Services.GetService<CloudflareCredentialCarrier>() is { } carrier)
+      {
+        carrier.Set(accountId, apiToken);
+      }
+    }
+  }
+
+  /// <summary>Hands a pulled catalog to every open session's catalog of that vendor, so the
+  ///     model search reads what was just pulled instead of the list it cached at startup.
+  ///     <para>A TAB WITH NO CATALOG FOR THE VENDOR IS SKIPPED: the pull already succeeded, and
+  ///     a session that cannot hold this vendor's models is not a reason to fail the test.
+  ///     </para></summary>
+  /// <param name="vendor">The vendor that was pulled.</param>
+  /// <param name="entries">The pulled entries.</param>
+  /// <param name="ct">Cancellation.</param>
+  private async Task AdoptPulledCatalogAsync(string vendor,
+      IReadOnlyList<ModelProviderEntry> entries, CancellationToken ct)
+  {
+    foreach (AgentCellViewModel cell in Tabs.SelectMany(tab => tab.Snapshot()))
+    {
+      if (cell.Container is not { } container)
+      {
+        continue;
+      }
+
+      Result<IModelCatalog> catalog = container.Services
+          .GetRequiredService<IModelProviderResolver>().Catalog(vendor);
+      if (catalog.IsSuccess)
+      {
+        _ = await catalog.Value.AdoptAsync(entries, ct).ConfigureAwait(true);
+      }
+    }
   }
 
   /// <summary>Live key push: every open session's carriers take the saved keys
@@ -1158,8 +1267,11 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     restart to pick a key up (2026-10-08). Both clients read their carrier at
   ///     dispatch, so the NEXT model call and the next openrouter_management call use
   ///     the key just saved, including a key minted by sign-in. Sessions without a
-  ///     carrier (headless stubs) skip the push silently.</summary>
-  private void PushLiveKeys(string? openRouterKey, string? managementKey)
+  ///     carrier (headless stubs) skip the push silently.
+  ///     <para>THE CLOUDFLARE CREDENTIAL RIDES THE SAME PUSH, for the same reason and with the
+  ///     same effect: a credential saved while a session is open is in force on that session's
+  ///     next call, instead of requiring the app to be restarted.</para></summary>
+  private void PushLiveKeys(string? openRouterKey, string? managementKey, AgentSettings settings)
   {
     foreach (AgentCellViewModel cell in Tabs.SelectMany(tab => tab.Snapshot()))
     {
@@ -1177,6 +1289,11 @@ internal sealed partial class MainViewModel : ObservableObject
       if (services.GetService<OpenRouterManagementKeyCarrier>() is { } management)
       {
         management.Current = managementKey;
+      }
+
+      if (services.GetService<CloudflareCredentialCarrier>() is { } cloudflare)
+      {
+        cloudflare.Set(settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken);
       }
     }
   }

@@ -114,11 +114,19 @@ public sealed class GitViewWatchTests : IDisposable
     await WaitForAsync(() => git.Reads >= 1);
     int baseline = git.Reads;
 
+    // THE WRITES ARE SYNCHRONOUS ON PURPOSE: the subject is how one burst collapses, and an
+    // await between them would make the burst's duration a property of the machine - on a
+    // loaded runner fifteen awaited writes span several debounce windows and the test then
+    // measures the load rather than the collapse.
+    // Named decision (CA1849, S6966): the writes are deliberately synchronous - awaiting
+    // between them would make the burst's duration a property of the machine, which is exactly
+    // what this test must not measure.
+#pragma warning disable CA1849, S6966 // synchronous writes are the subject
     for (int i = 0; i < 15; i++)
     {
-      await File.WriteAllTextAsync(Path.Combine(_root, $"burst{i}.txt"), "x",
-          TestContext.Current.CancellationToken);
+      File.WriteAllText(Path.Combine(_root, $"burst{i}.txt"), "x");
     }
+#pragma warning restore CA1849, S6966
 
     await WaitForAsync(() => git.Reads > baseline);
     await Task.Delay(600, TestContext.Current.CancellationToken).ConfigureAwait(true);

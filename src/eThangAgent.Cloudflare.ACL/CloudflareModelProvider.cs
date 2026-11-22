@@ -82,6 +82,11 @@ public sealed class CloudflareModelProvider(HttpClient http, CloudflareConfigura
       CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(config);
+    if (!_config.IsConfigured)
+    {
+      return Result.Failure<ModelResponse>(Unconfigured());
+    }
+
     Result<Dictionary<string, object?>> body = BuildBody(config, request, stream: false);
     return body.IsSuccess
         ? await SendOnceAsync(config, body.Value, stream: false, null, null, ct)
@@ -95,6 +100,11 @@ public sealed class CloudflareModelProvider(HttpClient http, CloudflareConfigura
       Action<string>? onReasoningDelta = null, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(config);
+    if (!_config.IsConfigured)
+    {
+      return Result.Failure<ModelResponse>(Unconfigured());
+    }
+
     Result<Dictionary<string, object?>> body = BuildBody(config, request, stream: true);
     return body.IsSuccess
         ? await SendOnceAsync(config, body.Value, stream: true, onContentDelta, onReasoningDelta,
@@ -150,6 +160,12 @@ public sealed class CloudflareModelProvider(HttpClient http, CloudflareConfigura
     }
   }
 
+  /// <summary>The named failure an absent credential earns. A container can outlive the
+  ///     credential it was built with, and a call that names no account is a configuration fact
+  ///     rather than a transport fault.</summary>
+  private static DomainError Unconfigured() => new(ProviderUnauthorized,
+      "Cloudflare needs both an account id and an API token before a model can be called.");
+
   /// <summary>The outbound request: the model in the path, the token as a bearer credential,
   ///     and the body as JSON. The caller owns the returned instance and disposes it.</summary>
   /// <param name="config">The model this call names.</param>
@@ -161,7 +177,7 @@ public sealed class CloudflareModelProvider(HttpClient http, CloudflareConfigura
       Content = JsonContent.Create(body),
     };
     request.Headers.Authorization =
-        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ApiToken);
+        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.EffectiveApiToken);
     return request;
   }
 

@@ -97,21 +97,65 @@ public class CloudflareWiringTests
   }
 
   [Fact]
-  public void WithoutACloudflareCredential_TheVendorHasNoTransportAndNoCatalog()
+  public async Task WithoutACloudflareCredential_TheVendorIsRegistered_AndItsReadNamesTheMissingHalf()
   {
+    // The vendor is wired whether or not a credential exists, because a credential can arrive
+    // after the container was built. What it does NOT do is answer with models: a read without
+    // a credential is a named configuration failure, never an empty catalog.
     using TestAppDatabase dbservices = TestAppDatabase.Create();
     using ServiceProvider services = Build(dbservices,
         Settings(cloudflareAccountId: null, cloudflareApiToken: null), Providers.OpenRouter);
     IModelProviderResolver resolver = services.GetRequiredService<IModelProviderResolver>();
 
-    Result<IModelProvider> provider = resolver.Resolve(Providers.Cloudflare, Config());
     Result<IModelCatalog> catalog = resolver.Catalog(Providers.Cloudflare);
 
-    Assert.False(provider.IsSuccess);
-    Assert.Equal(ProviderResolver.ProviderNotConfigured, provider.Error.Code);
-    Assert.Contains("Cloudflare", provider.Error.Message, StringComparison.Ordinal);
-    Assert.False(catalog.IsSuccess);
-    Assert.Equal(ProviderResolver.ProviderNotConfigured, catalog.Error.Code);
+    Assert.True(catalog.IsSuccess, catalog.Error?.Message);
+    Result<IReadOnlyList<ModelProviderEntry>> read =
+        await catalog.Value.GetAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.False(read.IsSuccess);
+    Assert.Equal("ProviderNotConfigured", read.Error.Code);
+    Assert.Contains("account id and an API token", read.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public Task ACredentialEnteredAfterTheContainerWasBuilt_IsWhatTheCatalogReads()
+  {
+    // The defect this pins: a credential saved mid-session had no effect until the app was
+    // restarted, because the container had captured the credential it was built with. The
+    // carrier is what makes the saved value live.
+    using TestAppDatabase dbservices = TestAppDatabase.Create();
+    using ServiceProvider services = Build(dbservices,
+        Settings(cloudflareAccountId: null, cloudflareApiToken: null), Providers.OpenRouter);
+    CloudflareCredentialCarrier carrier = services.GetRequiredService<CloudflareCredentialCarrier>();
+    Assert.False(carrier.IsConfigured);
+
+    carrier.Set("acct-late", "token-late");
+
+    CloudflareConfiguration configuration = services.GetRequiredService<CloudflareConfiguration>();
+    Assert.True(configuration.IsConfigured);
+    Assert.Equal("acct-late", configuration.EffectiveAccountId);
+    Assert.Equal("token-late", configuration.EffectiveApiToken);
+    Assert.Equal(
+        "https://api.cloudflare.com/client/v4/accounts/acct-late/ai/models/search",
+        configuration.Endpoint("ai/models/search").AbsoluteUri);
+    return Task.CompletedTask;
+  }
+
+  [Fact]
+  public void AClearedCredential_DoesNotFallBackToTheSnapshotTheContainerWasBuiltWith()
+  {
+    // Clearing is a value, not an absence: falling back to the positional credential would
+    // resurrect the value the user just removed.
+    using TestAppDatabase dbservices = TestAppDatabase.Create();
+    using ServiceProvider services = Build(dbservices, Settings(), Providers.OpenRouter);
+    CloudflareCredentialCarrier carrier = services.GetRequiredService<CloudflareCredentialCarrier>();
+    Assert.True(carrier.IsConfigured);
+
+    carrier.Set(null, null);
+
+    CloudflareConfiguration configuration = services.GetRequiredService<CloudflareConfiguration>();
+    Assert.False(configuration.IsConfigured);
+    Assert.Null(configuration.EffectiveAccountId);
   }
 
   [Fact]

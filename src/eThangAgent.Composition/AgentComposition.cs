@@ -98,7 +98,7 @@ public static class AgentComposition
     wired = AddPersistenceServices(wired, host, database, providerName);
     wired = AddSkillServices(wired, settings);
     wired = AddMailboxServices(wired);
-    wired = AddModelServices(wired, settings, providerName);
+    wired = AddModelServices(wired, providerName);
     wired = AddAgentRunServices(wired);
     wired = AddCapabilityServices(wired);
     wired = AddCapabilityRegistry(wired);
@@ -1930,27 +1930,38 @@ public static class AgentComposition
         .Services;
   }
 
-  /// <summary>Cloudflare's configuration and named HttpClient, registered only when a
-  ///     credential exists. A host that supplies none gets no Cloudflare transport at all.
+  /// <summary>Cloudflare's configuration, its live credential carrier, and the named HttpClient
+  ///     every Cloudflare request goes through.
+  ///     <para>THE TRANSPORT IS REGISTERED WHETHER OR NOT A CREDENTIAL EXISTS. A credential can be
+  ///     entered after a session is open, and a container that registered nothing for the vendor
+  ///     could never serve the models that credential unlocks - the user would have to restart the
+  ///     app for them to appear. The carrier is what makes the credential live: the catalog and
+  ///     the provider read it at dispatch, and the host pushes a saved credential onto it.
+  ///     </para>
+  ///     <para>OPENING A SESSION ON THE VENDOR STILL REQUIRES THE CREDENTIAL, which is a
+  ///     different question from whether the vendor's models can be listed.</para>
   ///     </summary>
   private static IServiceCollection AddCloudflareTransport(IServiceCollection services,
       AgentSettings settings, string providerName)
   {
-    if (!settings.HasCloudflare)
+    if (!settings.HasCloudflare && providerName == Providers.Cloudflare)
     {
-      return providerName == Providers.Cloudflare
-          ? throw new InvalidOperationException(
-              $"Provider '{Providers.DisplayName(Providers.Cloudflare)}' is selected but its account id and API token are "
-              + "not configured. Add them under Settings (gear icon) before opening a session with it.")
-          : services;
+      throw new InvalidOperationException(
+          $"Provider '{Providers.DisplayName(Providers.Cloudflare)}' is selected but its account id and API token are "
+          + "not configured. Add them under Settings (gear icon) before opening a session with it.");
     }
 
+    CloudflareCredentialCarrier carrier = new();
+    carrier.Set(settings.Cloudflare?.AccountId, settings.Cloudflare?.ApiToken);
+
     CloudflareConfiguration configuration = new(
-        settings.Cloudflare!.AccountId!,
-        settings.Cloudflare.ApiToken!,
-        new Uri(CloudflareSettings.ApiBaseUrl));
+        settings.Cloudflare?.AccountId,
+        settings.Cloudflare?.ApiToken,
+        new Uri(CloudflareSettings.ApiBaseUrl),
+        carrier);
 
     return services
+        .AddSingleton(carrier)
         .AddSingleton(configuration)
         .AddHttpClient(CloudflareHttpClientName, client => client.Timeout = TimeSpan.FromSeconds(120))
         .Services;
@@ -1961,11 +1972,11 @@ public static class AgentComposition
   ///     <para>A VENDOR'S CATALOG FAILURE IS ITS OWN: each catalog is a separate object behind
   ///     its own key, so a Cloudflare read that fails leaves the OpenRouter catalog intact and
   ///     the reverse.</para></summary>
-  private static IServiceCollection AddModelServices(IServiceCollection services, AgentSettings settings,
+  private static IServiceCollection AddModelServices(IServiceCollection services,
       string providerName)
   {
     IServiceCollection wired = AddOpenRouterModelServices(services);
-    wired = AddCloudflareModelServices(wired, settings.HasCloudflare);
+    wired = AddCloudflareModelServices(wired);
 
     return providerName switch
     {
@@ -2003,13 +2014,14 @@ public static class AgentComposition
         .AddKeyedSingleton<IModelCatalog>(Providers.OpenRouter, (sp, _) => OpenRouterCatalog(sp));
   }
 
-  /// <summary>Cloudflare's factory and catalog, keyed by its vendor id, registered only when
-  ///     a credential exists.</summary>
-  private static IServiceCollection AddCloudflareModelServices(IServiceCollection services, bool configured)
+  /// <summary>Cloudflare's factory and catalog, keyed by its vendor id.
+  ///     <para>REGISTERED WHETHER OR NOT A CREDENTIAL EXISTS, for the same reason its transport
+  ///     is: the credential can arrive after the container was built, and a vendor with no
+  ///     registration can never serve the models it unlocks. A read without a credential is a
+  ///     named <c>ProviderNotConfigured</c> failure from the catalog itself.</para></summary>
+  private static IServiceCollection AddCloudflareModelServices(IServiceCollection services)
   {
-    return !configured
-        ? services
-        : services
+    return services
         .AddKeyedSingleton<IModelProviderFactory>(Providers.Cloudflare, (sp, _) =>
             new CloudflareModelProviderFactory(
                 sp.GetRequiredService<CloudflareConfiguration>(),

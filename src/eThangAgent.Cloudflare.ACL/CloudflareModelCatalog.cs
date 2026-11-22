@@ -41,9 +41,11 @@ public sealed class CloudflareModelCatalog(
   private readonly SemaphoreSlim _gate = new(1, 1);
 
   /// <summary>The cache key: the provider id AND the account it was read from, so two accounts
-  ///     never serve each other's catalog.</summary>
-  private readonly string _cacheKey =
-      $"{ProviderKey}|{config?.Endpoint(SearchPath).AbsoluteUri}";
+  ///     never serve each other's catalog.
+  ///     <para>THE KEY IS REBUILT PER READ, not fixed at construction: the credential can be
+  ///     replaced live, and a key computed once would keep writing one account's catalog under
+  ///     the account the container was built with.</para></summary>
+  private string CacheKey => $"{ProviderKey}|{_config.Endpoint(SearchPath).AbsoluteUri}";
 
   private IReadOnlyList<ModelProviderEntry>? _cached;
   private DateTimeOffset _fetchedAt;
@@ -51,6 +53,11 @@ public sealed class CloudflareModelCatalog(
   /// <inheritdoc />
   public async Task<Result<IReadOnlyList<ModelProviderEntry>>> GetAsync(CancellationToken ct = default)
   {
+    if (!_config.IsConfigured)
+    {
+      return Result.Failure<IReadOnlyList<ModelProviderEntry>>(Unconfigured());
+    }
+
     if (_cached is not null && IsFresh())
     {
       return Result.Success(_cached);
@@ -81,10 +88,34 @@ public sealed class CloudflareModelCatalog(
   public async Task<Result<IReadOnlyList<ModelProviderEntry>>> RefreshAsync(
       CancellationToken ct = default)
   {
+    if (!_config.IsConfigured)
+    {
+      return Result.Failure<IReadOnlyList<ModelProviderEntry>>(Unconfigured());
+    }
+
     await _gate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
       return await FetchAsync(ct).ConfigureAwait(false);
+    }
+    finally
+    {
+      _ = _gate.Release();
+    }
+  }
+
+  /// <inheritdoc />
+  public async Task<Result<IReadOnlyList<ModelProviderEntry>>> AdoptAsync(
+      IReadOnlyList<ModelProviderEntry> entries, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(entries);
+    await _gate.WaitAsync(ct).ConfigureAwait(false);
+    try
+    {
+      _cached = entries;
+      _fetchedAt = DateTimeOffset.UtcNow;
+      await PersistAsync(ct).ConfigureAwait(false);
+      return Result.Success(entries);
     }
     finally
     {
@@ -114,7 +145,7 @@ public sealed class CloudflareModelCatalog(
       return;
     }
 
-    Result<ModelCatalogSnapshot> stored = await _cache.ReadAsync(_cacheKey, ct).ConfigureAwait(false);
+    Result<ModelCatalogSnapshot> stored = await _cache.ReadAsync(CacheKey, ct).ConfigureAwait(false);
     if (stored.IsSuccess)
     {
       _cached = stored.Value.Entries;
@@ -148,7 +179,7 @@ public sealed class CloudflareModelCatalog(
   {
     using HttpRequestMessage request = new(HttpMethod.Get, _config.Endpoint(SearchPath));
     request.Headers.Authorization =
-        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ApiToken);
+        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.EffectiveApiToken);
 
     HttpResponseMessage response;
     try
@@ -169,6 +200,12 @@ public sealed class CloudflareModelCatalog(
           : Result.Failure<List<ModelProviderEntry>>(StatusFailure(response.StatusCode, body));
     }
   }
+
+  /// <summary>The named failure an absent credential earns. A container can outlive the
+  ///     credential it was built with, and a read that names no account is a configuration fact
+  ///     rather than a transport fault.</summary>
+  private static DomainError Unconfigured() => new("ProviderNotConfigured",
+      "Cloudflare needs both an account id and an API token before its models can be read.");
 
   /// <summary>The named failure a non-success status earns.
   ///     <para>A REFUSED CREDENTIAL IS ITS OWN CODE: 401 and 403 mean the token was not accepted,
@@ -257,7 +294,7 @@ public sealed class CloudflareModelCatalog(
       return;
     }
 
-    _ = await _cache.WriteAsync(_cacheKey,
+    _ = await _cache.WriteAsync(CacheKey,
         new ModelCatalogSnapshot(_cached, _fetchedAt, ModelCatalogSnapshot.CurrentShapeVersion),
         ct).ConfigureAwait(false);
   }

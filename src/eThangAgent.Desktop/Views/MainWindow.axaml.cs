@@ -158,6 +158,7 @@ internal partial class MainWindow : Window
       ToolsPage = ToolsPage(),
       LanguageServersPage = LanguageServersPage(),
       ProviderSignInFactory = _vm.ProviderSignInFactory,
+      ProviderProbe = _vm.ProviderProbe is null ? null : _vm.ProbeProviderAsync,
     });
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
