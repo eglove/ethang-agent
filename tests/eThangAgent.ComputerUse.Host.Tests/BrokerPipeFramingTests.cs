@@ -135,9 +135,14 @@ internal sealed class HostHarness : IAsyncDisposable
   {
     string token = "test-token-" + Guid.NewGuid().ToString("N");
     NamedPipeServerStream server = new(pipeName, PipeDirection.InOut, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+    // Double-backed send hooks, never the zero-hook construction: zero hooks resolve the
+    // REAL NativeInput surface, so the UTF-8 framing test's type_text injected real
+    // keystrokes into whatever window had focus on the developer's desktop.
     PipeServer broker = bigObserver
-      ? new PipeServer(new BrokerConfig(pipeName, token), new BigObserver())
-      : new PipeServer(new BrokerConfig(pipeName, token), new FakeObserver());
+      ? new PipeServer(new BrokerConfig(pipeName, token), new BigObserver(), foregroundPid: () => -1,
+          hooks: FakeConnectionFactory.InertHooks())
+      : new PipeServer(new BrokerConfig(pipeName, token), new FakeObserver(), foregroundPid: () => -1,
+          hooks: FakeConnectionFactory.InertHooks());
     Task loop = PipeServeLoop.ServeOnceAsync(server, broker);
     return new HostHarness(server, loop, token, broker);
   }
@@ -148,7 +153,8 @@ internal sealed class HostHarness : IAsyncDisposable
   internal static HostHarness StartConcurrent(string pipeName)
   {
     string token = "test-token-" + Guid.NewGuid().ToString("N");
-    PipeServer broker = new(new BrokerConfig(pipeName, token), new FakeObserver());
+    PipeServer broker = new(new BrokerConfig(pipeName, token), new FakeObserver(), foregroundPid: () => -1,
+      hooks: FakeConnectionFactory.InertHooks());
     CancellationTokenSource acceptCts = new();
     Task loop = PipeServeLoop.ServeConcurrentAsync(
       () => new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous),

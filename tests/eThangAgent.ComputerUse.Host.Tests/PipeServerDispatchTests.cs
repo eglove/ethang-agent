@@ -285,7 +285,14 @@ public class PipeServerDispatchTests
 ///     WithForeground/WithAlwaysSucceedingInput inject dispatch hooks for gate/A3 tests.</summary>
 internal static class FakeConnectionFactory
 {
-  public static PipeServer Token(string token) => new(new BrokerConfig("ignored-pipe", token));
+  /// <summary>A server whose five send hooks are recording doubles, so NO test that builds
+  ///     one can reach the real SendInput surface. Every construction in this factory goes
+  ///     through here: a zero-hook construction resolves the REAL NativeInput surface, and a
+  ///     test that then dispatches an input method types into whatever window has focus on
+  ///     the developer's desktop. That is not hypothetical - the UTF-8 framing test typed
+  ///     "naive 中文 ok" into a live browser and the free-lease lease test pressed a real
+  ///     'a'. RealInputLeakGuardFixture fails the assembly if anything injects anyway.</summary>
+  public static PipeServer Token(string token) => WithAlwaysSucceedingDrag(foreground: -1, token: token);
 
   public static PipeServer WithAlwaysSucceedingInput() => WithAlwaysSucceedingDrag(foreground: -1);
 
@@ -302,16 +309,21 @@ internal static class FakeConnectionFactory
     return WithAlwaysSucceedingDrag(actual);
   }
 
-  public static PipeServer WithAlwaysSucceedingDrag(int foreground)
+  /// <summary>The complete recording hook set: every send answers true and injects nothing.
+  ///     The resolution contract requires all five or none, and NONE resolves the real
+  ///     SendInput surface - so a server built without this set live-fires.</summary>
+  public static InputHooks InertHooks()
   {
     static bool Yes(KeyChord _) => true;
     static bool YesText(string _) => true;
     static bool YesDrag(string button, int fx, int fy, int tx, int ty) => true;
     static bool YesButtonAt(string button, int x, int y) => true;
     static bool YesWheel(string direction, int pages, int x, int y) => true;
-    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => foreground,
-      hooks: new InputHooks(Yes, YesText, YesDrag, YesButtonAt, YesWheel));
+    return new InputHooks(Yes, YesText, YesDrag, YesButtonAt, YesWheel);
   }
+
+  public static PipeServer WithAlwaysSucceedingDrag(int foreground, string token = "t") =>
+    new(new BrokerConfig("ignored-pipe", token), foregroundPid: () => foreground, hooks: InertHooks());
   public static PipeServer WithRecordingClick(int foreground) => WithAlwaysSucceedingDrag(foreground);
   public static PipeServer Authorized(params int[] connectionIds)
   {

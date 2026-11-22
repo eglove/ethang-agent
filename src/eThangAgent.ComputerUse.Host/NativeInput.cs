@@ -351,8 +351,22 @@ internal static partial class NativeInput
   [LibraryImport("user32.dll")]
   private static partial int GetSystemMetrics(int index);
 
-  private static bool Inject(Input[] rows) =>
-    SendInput((uint)rows.Length, rows, Marshal.SizeOf<Input>()) == rows.Length;
+  /// <summary>How many real SendInput batches this process has injected. Every real send
+  ///     funnels through Inject, so this counter is the whole live-fire surface: a test
+  ///     assembly snapshots it at start and fails if it grew.</summary>
+  internal static int RealInjections => Volatile.Read(ref _realInjections);
+
+  private static int _realInjections;
+
+  private static bool Inject(Input[] rows)
+  {
+    if (rows.Length > 0)
+    {
+      _ = Interlocked.Increment(ref _realInjections);
+    }
+
+    return SendInput((uint)rows.Length, rows, Marshal.SizeOf<Input>()) == rows.Length;
+  }
 
   /// <summary>The Win32 INPUT union (explicit layout, Win64 shapes): the type tag rides
   ///     offset 0 (padded to 8) and MOUSEINPUT/KEYBDINPUT overlay at offset 8 - exactly the
