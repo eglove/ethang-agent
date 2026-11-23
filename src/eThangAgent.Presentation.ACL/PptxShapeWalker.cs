@@ -171,7 +171,10 @@ internal static class PptxShapeWalker
     return new PptxTextBoxShape(index, address, TextOf(shape.TextBody), IsTitle(type), type is not null);
   }
 
-  private static P.PlaceholderValues? PlaceholderType(P.Shape shape)
+  /// <summary>The placeholder type a shape declares, or null when it is not a
+  ///     placeholder.</summary>
+  /// <param name="shape">The shape to read.</param>
+  internal static P.PlaceholderValues? PlaceholderType(P.Shape shape)
     => shape.NonVisualShapeProperties?.ApplicationNonVisualDrawingProperties?.PlaceholderShape?.Type?.Value;
 
   private static bool IsTitle(P.PlaceholderValues? type)
@@ -358,6 +361,36 @@ internal static class PptxShapeWalker
     "0" => "withPrevious",
     _ => "afterPrevious",
   };
+
+  /// <summary>The shape element a shape path reaches: the document-order numbering
+  ///     <see cref="Walk"/> assigns, walked over the part's own element tree so an edit
+  ///     mutates the element a read described. A path that runs past a shape with no shape
+  ///     children reaches nothing.</summary>
+  /// <param name="slidePart">The slide part whose shape tree is walked.</param>
+  /// <param name="shapePath">The 1-based shape path, one entry per level of group nesting.</param>
+  internal static OpenXmlElement? ElementAt(SlidePart slidePart, IReadOnlyList<int> shapePath)
+  {
+    ArgumentNullException.ThrowIfNull(shapePath);
+    OpenXmlElement? container = slidePart.Slide?.CommonSlideData?.ShapeTree;
+    OpenXmlElement? found = null;
+    foreach (int index in shapePath)
+    {
+      found = container is null ? null : ShapesIn(container).ElementAtOrDefault(index - 1);
+      if (found is null)
+      {
+        return null;
+      }
+
+      container = found;
+    }
+
+    return found;
+  }
+
+  /// <summary>The shape children of a container, in the order <see cref="Walk"/> numbers
+  ///     them.</summary>
+  private static IEnumerable<OpenXmlElement> ShapesIn(OpenXmlElement container)
+    => container.ChildElements.Where(IsShape);
 
   /// <summary>Walks a shape path level by level. A level that carries no shape at the
   ///     requested index ends the walk, so a path that runs past a non-group shape names

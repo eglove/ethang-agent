@@ -39,6 +39,11 @@ internal sealed record TestSlideSpec
   /// <summary>A legacy comment anchored at the slide, authored by 'Reviewer'.</summary>
   internal bool WithLegacyComment { get; init; }
 
+  /// <summary>The title placeholder carries explicit character formatting (24pt bold,
+  ///     centred) and an explicit position and size, as a deck authored in PowerPoint
+  ///     does.</summary>
+  internal bool WithFormattedTitle { get; init; }
+
   internal bool WithTable { get; init; }
 
   internal bool WithChart { get; init; }
@@ -136,7 +141,9 @@ internal static class TestPptxFactory
   {
     StringBuilder shapes = new();
     int nextId = 2;
-    _ = shapes.Append(TestPptxXml.TitleShape(nextId++, spec.Title));
+    _ = shapes.Append(spec.WithFormattedTitle
+        ? TestPptxXml.FormattedTitleShape(nextId++, spec.Title)
+        : TestPptxXml.TitleShape(nextId++, spec.Title));
     _ = shapes.Append(TestPptxXml.BodyShape(nextId++, spec.Body));
     int firstShapeId = 2;
     if (spec.WithPicture)

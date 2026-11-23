@@ -15,6 +15,14 @@ internal static class TestPptxXml
 
   private const string Header = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>";
 
+  /// <summary>The three markup slots a text shape can state: its shape properties, its
+  ///     run properties and its paragraph properties. Plain is the unformatted default.
+  ///     </summary>
+  internal sealed record TextShapeMarkup(string ShapeProperties, string RunProperties, string ParagraphProperties)
+  {
+    internal static readonly TextShapeMarkup Plain = new("<p:spPr/>", "<a:rPr lang=\"en-US\"/>", string.Empty);
+  }
+
   private const string Root = "xmlns:a=\"" + NsA + "\" xmlns:r=\"" + NsR + "\" xmlns:p=\"" + NsP + "\"";
 
   private const string GroupProperties =
@@ -39,6 +47,21 @@ internal static class TestPptxXml
   ///     </summary>
   internal static string TitleShape(int id, string text)
     => TextShape(id, "Title " + id, "title", null, text);
+
+  /// <summary>A title placeholder whose run carries explicit character formatting and
+  ///     whose shape carries an explicit position and size, as a deck authored in
+  ///     PowerPoint does.</summary>
+  internal static string FormattedTitleShape(int id, string text)
+    => TextShape(id, "Title " + id, "title", null, text, FormattedTitleMarkup);
+
+  /// <summary>The markup a formatted title carries: an explicit position and size, 24pt
+  ///     bold character formatting and centred paragraphs.</summary>
+  private static readonly TextShapeMarkup FormattedTitleMarkup = new(
+      "<p:spPr><a:xfrm><a:off x=\"838200\" y=\"365125\"/>"
+      + "<a:ext cx=\"10515600\" cy=\"1325563\"/></a:xfrm>"
+      + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>",
+      "<a:rPr lang=\"en-US\" sz=\"2400\" b=\"1\"/>",
+      "<a:pPr algn=\"ctr\"/>");
 
   /// <summary>A body placeholder carrying the given text, one paragraph per line.
   ///     </summary>
@@ -97,8 +120,10 @@ internal static class TestPptxXml
   internal static string PlainTextBox(int id, string text)
     => TextShape(id, "TextBox " + id, null, null, text);
 
-  private static string TextShape(int id, string name, string? placeholderType, string? placeholderIndex, string text)
+  private static string TextShape(int id, string name, string? placeholderType, string? placeholderIndex, string text,
+      TextShapeMarkup? markup = null)
   {
+    TextShapeMarkup shape = markup ?? TextShapeMarkup.Plain;
     string index = placeholderIndex is null ? string.Empty : " idx=\"" + placeholderIndex + "\"";
     string placeholder = placeholderType is null
         ? "<p:nvPr/>"
@@ -107,16 +132,22 @@ internal static class TestPptxXml
           + "/></p:nvPr>";
     return "<p:sp><p:nvSpPr><p:cNvPr id=\"" + id + "\" name=\"" + name + "\"/>"
         + "<p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>" + placeholder + "</p:nvSpPr>"
-        + "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>" + Paragraphs(text) + "</p:txBody></p:sp>";
+        + shape.ShapeProperties
+        + "<p:txBody><a:bodyPr/><a:lstStyle/>" + Paragraphs(text, shape) + "</p:txBody></p:sp>";
   }
 
   /// <summary>One paragraph per line of text; an empty text is a single empty paragraph.
   ///     </summary>
   internal static string Paragraphs(string text)
+    => Paragraphs(text, TextShapeMarkup.Plain);
+
+  private static string Paragraphs(string text, TextShapeMarkup markup)
   {
     string[] lines = text.Length == 0 ? [string.Empty] : text.Split('\n');
     return string.Concat(lines.Select(line =>
-        "<a:p><a:r><a:rPr lang=\"en-US\"/><a:t>" + Escape(line) + "</a:t></a:r></a:p>"));
+        "<a:p>" + markup.ParagraphProperties
+        + "<a:r>" + markup.RunProperties
+        + "<a:t>" + Escape(line) + "</a:t></a:r></a:p>"));
   }
 
   /// <summary>A picture shape displaying the media part reached by the given relationship

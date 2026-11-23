@@ -14,6 +14,9 @@ public static class PptxLimits
   ///     OversizePresentation before its slides are walked.</summary>
   public const int MaxSlides = 1000;
 
+  /// <summary>Maximum operations in one edit batch.</summary>
+  public const int MaxOperationsPerEdit = 50;
+
   /// <summary>OpenSettings.MaxCharactersInPart - the SDK's own pathological-XML cap.
   ///     </summary>
   public const int MaxCharactersInPart = 10_000_000;
