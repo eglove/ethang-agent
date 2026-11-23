@@ -45,6 +45,54 @@ internal static class TestPptxXml
   internal static string BodyShape(int id, string text)
     => TextShape(id, "Content " + id, "body", "1", text);
 
+  /// <summary>A plain text box whose single paragraph carries an explicit line break
+  ///     between two runs.</summary>
+  internal static string BreakShape(int id, string first, string second)
+    => "<p:sp><p:nvSpPr><p:cNvPr id=\"" + id + "\" name=\"Break " + id + "\"/>"
+       + "<p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>"
+       + "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>"
+       + "<a:r><a:rPr lang=\"en-US\"/><a:t>" + Escape(first) + "</a:t></a:r>"
+       + "<a:br/>"
+       + "<a:r><a:rPr lang=\"en-US\"/><a:t>" + Escape(second) + "</a:t></a:r>"
+       + "</a:p></p:txBody></p:sp>";
+
+  /// <summary>A plain text box with five runs in one paragraph, the second and fourth of
+  ///     them empty, as a real deck's authoring leaves behind.</summary>
+  internal static string EmptyRunsShape(int id)
+    => "<p:sp><p:nvSpPr><p:cNvPr id=\"" + id + "\" name=\"Runs " + id + "\"/>"
+       + "<p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>"
+       + "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>"
+       + "<a:r><a:rPr lang=\"en-US\"/><a:t>Alpha</a:t></a:r>"
+       + "<a:r><a:rPr lang=\"en-US\"/><a:t></a:t></a:r>"
+       + "<a:r><a:rPr lang=\"en-US\"/><a:t>Beta</a:t></a:r>"
+       + "<a:r><a:rPr lang=\"en-US\"/><a:t></a:t></a:r>"
+       + "<a:r><a:rPr lang=\"en-US\"/><a:t>Gamma</a:t></a:r>"
+       + "</a:p></p:txBody></p:sp>";
+
+  /// <summary>A timing element with no effect in it: a main sequence that carries no
+  ///     effect node, which is what a deck with no animation writes.</summary>
+  internal static string EmptyTiming()
+    => "<p:timing><p:tnLst><p:par><p:cTn id=\"1\" dur=\"indefinite\" restart=\"never\" nodeType=\"tmRoot\">"
+       + "<p:childTnLst><p:seq concurrent=\"1\" nextAc=\"seek\"><p:cTn id=\"2\" dur=\"indefinite\" nodeType=\"mainSeq\"/>"
+       + "</p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>";
+
+  /// <summary>A legacy comment part: one comment anchored at the slide's first shape, by
+  ///     author id 1.</summary>
+  internal static string LegacyComments(string text)
+    => Header
+       + "<p:cmLst " + Root + ">"
+       + "<p:cm authorId=\"1\" dt=\"2024-01-01T00:00:00\" idx=\"1\">"
+       + "<p:pos x=\"10\" y=\"10\"/>"
+       + "<p:text>" + Escape(text) + "</p:text></p:cm>"
+       + "</p:cmLst>";
+
+  /// <summary>The legacy author list: author id 1 is 'Reviewer'.</summary>
+  internal static string CommentAuthors()
+    => Header
+       + "<p:cmAuthorLst " + Root + ">"
+       + "<p:cmAuthor id=\"1\" name=\"Reviewer\" initials=\"R\" lastIdx=\"1\" clrIdx=\"0\"/>"
+       + "</p:cmAuthorLst>";
+
   /// <summary>A plain text box that is not a placeholder.</summary>
   internal static string PlainTextBox(int id, string text)
     => TextShape(id, "TextBox " + id, null, null, text);

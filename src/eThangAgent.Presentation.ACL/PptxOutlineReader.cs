@@ -77,7 +77,7 @@ internal static class PptxOutlineReader
   /// <summary>The deck's slides in presentation order, resolved through the slide-id
   ///     list. A relationship the list names but the package does not carry is skipped
   ///     rather than throwing.</summary>
-  private static List<SlidePart> SlideParts(PresentationPart presentationPart, P.Presentation presentation)
+  internal static List<SlidePart> SlideParts(PresentationPart presentationPart, P.Presentation presentation)
   {
     List<SlidePart> slides = [];
     if (presentation.SlideIdList is null)
@@ -167,7 +167,7 @@ internal static class PptxOutlineReader
 
   /// <summary>Every image part in the package, in part-graph order, with its content
   ///     type and byte count.</summary>
-  private static List<PptxMediaInfo> Media(PresentationPart presentationPart)
+  internal static List<PptxMediaInfo> Media(PresentationPart presentationPart)
     => [.. Descendants(presentationPart)
         .Where(part => part.ContentType.StartsWith(ImageContentTypePrefix, StringComparison.OrdinalIgnoreCase))
         .Select(part => new PptxMediaInfo(part.Uri.OriginalString, part.ContentType, ByteCount(part)))];

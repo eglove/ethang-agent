@@ -22,6 +22,23 @@ internal sealed record TestSlideSpec
 
   internal bool WithPicture { get; init; }
 
+  /// <summary>The table's cells, row by row, when <see cref="WithTable"/> is set. Null
+  ///     builds a 2x2 table.</summary>
+  internal IReadOnlyList<IReadOnlyList<string>>? TableCells { get; init; }
+
+  /// <summary>A plain text box whose single paragraph carries a line break.</summary>
+  internal bool WithLineBreak { get; init; }
+
+  /// <summary>A plain text box with five runs, two of them empty.</summary>
+  internal bool WithEmptyRuns { get; init; }
+
+  /// <summary>A timing element with no effect in it, as a deck that has a sequence but no
+  ///     animation writes.</summary>
+  internal bool WithEmptyTiming { get; init; }
+
+  /// <summary>A legacy comment anchored at the slide, authored by 'Reviewer'.</summary>
+  internal bool WithLegacyComment { get; init; }
+
   internal bool WithTable { get; init; }
 
   internal bool WithChart { get; init; }
@@ -62,6 +79,12 @@ internal static class TestPptxFactory
     Dictionary<string, SlideLayoutPart> layouts = AddLayouts(presentationPart, layoutNames);
     List<string> slideRelationshipIds = AddSlides(presentationPart, slides, layouts);
     List<string> orderedRelationshipIds = [.. presentationOrder.Select(index => slideRelationshipIds[index])];
+    if (slides.Any(slide => slide.WithLegacyComment))
+    {
+      CommentAuthorsPart authorsPart = presentationPart.AddNewPart<CommentAuthorsPart>("rIdAuthors");
+      authorsPart.FeedData(Utf8(TestPptxXml.CommentAuthors()));
+    }
+
     presentationPart.FeedData(Utf8(TestPptxXml.Presentation(orderedRelationshipIds, MasterRelationshipId)));
     return path;
   }
@@ -126,7 +149,7 @@ internal static class TestPptxFactory
 
     if (spec.WithTable)
     {
-      _ = shapes.Append(TestPptxXml.TableShape(nextId++, [["R1C1", "R1C2"], ["R2C1", "R2C2"]]));
+      _ = shapes.Append(TestPptxXml.TableShape(nextId++, spec.TableCells ?? [["R1C1", "R1C2"], ["R2C1", "R2C2"]]));
     }
 
     if (spec.WithChart)
@@ -141,6 +164,22 @@ internal static class TestPptxFactory
       _ = shapes.Append(TestPptxXml.GroupShape(nextId, "Grouped one", "Grouped two"));
     }
 
+    if (spec.WithLineBreak)
+    {
+      _ = shapes.Append(TestPptxXml.BreakShape(nextId++, "First line", "Second line"));
+    }
+
+    if (spec.WithEmptyRuns)
+    {
+      _ = shapes.Append(TestPptxXml.EmptyRunsShape(nextId));
+    }
+
+    if (spec.WithLegacyComment)
+    {
+      SlideCommentsPart commentsPart = slidePart.AddNewPart<SlideCommentsPart>("rIdComments");
+      commentsPart.FeedData(Utf8(TestPptxXml.LegacyComments("Check this figure")));
+    }
+
     if (spec.Notes.Length > 0)
     {
       NotesSlidePart notesPart = slidePart.AddNewPart<NotesSlidePart>("rIdNotes");
@@ -148,8 +187,14 @@ internal static class TestPptxFactory
       notesPart.FeedData(Utf8(TestPptxXml.Notes(spec.Notes)));
     }
 
-    return TestPptxXml.Slide(shapes.ToString(), spec.Hidden, spec.WithAnimation ? TestPptxXml.Timing(firstShapeId) : null);
+    return TestPptxXml.Slide(shapes.ToString(), spec.Hidden, Timing(spec, firstShapeId));
   }
+
+  private static string? Timing(TestSlideSpec spec, int firstShapeId)
+    => spec.WithAnimation ? TestPptxXml.Timing(firstShapeId) : EmptyTiming(spec);
+
+  private static string? EmptyTiming(TestSlideSpec spec)
+    => spec.WithEmptyTiming ? TestPptxXml.EmptyTiming() : null;
 
   private static MemoryStream Utf8(string xml) => new(Encoding.UTF8.GetBytes(xml));
 }

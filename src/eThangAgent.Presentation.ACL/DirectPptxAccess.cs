@@ -19,9 +19,14 @@ public sealed class DirectPptxAccess : IPptxAccess
     return Task.FromResult(ReadOutline(path));
   }
 
-  /// <summary>Staged placeholder: the slide read lands with its own task.</summary>
+  /// <summary>Reads one slide: its shapes in document order with their addresses, its
+  ///     speaker notes, the deck's media, its comments and its animation effects in
+  ///     playback order. A slide number outside 1..SlideCount is SlideNotFound.</summary>
   public Task<Result<PptxSlideSnapshot>> ReadSlideAsync(string path, int slide, CancellationToken ct = default)
-    => throw new NotImplementedException("The pptx slide read has not been implemented yet.");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    return Task.FromResult(ReadSlide(path, slide));
+  }
 
   /// <summary>Staged placeholder: the atomic edit batch lands with its own task.</summary>
   public Task<Result<PptxEditOutcome>> EditAsync(string path, FileVersion expectedVersion, IReadOnlyList<PptxOperation> operations, CancellationToken ct = default)
@@ -60,6 +65,21 @@ public sealed class DirectPptxAccess : IPptxAccess
     return sniff.IsSuccess
       ? PptxOutlineReader.Read(path, version)
       : Result.Failure<PptxOutline>(sniff.Error);
+  }
+
+  private static Result<PptxSlideSnapshot> ReadSlide(string path, int slide)
+  {
+    if (!File.Exists(path))
+    {
+      return Result.Failure<PptxSlideSnapshot>(new DomainError(PptxErrorCodes.FileNotFound, $"File not found: '{path}'."));
+    }
+
+    FileInfo info = new(path);
+    FileVersion version = new(info.Length, info.LastWriteTimeUtc);
+    Result<string> sniff = PptxFormatSniffer.Inspect(path);
+    return sniff.IsSuccess
+      ? PptxSlideReader.Read(path, slide, version)
+      : Result.Failure<PptxSlideSnapshot>(sniff.Error);
   }
 
   private static Result<PptxOutline> Failure(string code, string message)
