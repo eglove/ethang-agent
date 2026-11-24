@@ -140,11 +140,8 @@ internal static class TestPptxFactory
   private static string BuildSlide(SlidePart slidePart, TestSlideSpec spec)
   {
     StringBuilder shapes = new();
-    int nextId = 2;
-    _ = shapes.Append(spec.WithFormattedTitle
-        ? TestPptxXml.FormattedTitleShape(nextId++, spec.Title)
-        : TestPptxXml.TitleShape(nextId++, spec.Title));
-    _ = shapes.Append(TestPptxXml.BodyShape(nextId++, spec.Body));
+    _ = shapes.Append(TestPptxXml.SlidePlaceholders(spec.LayoutName, spec.Title, spec.Body, spec.WithFormattedTitle));
+    int nextId = PlaceholderCount(spec.LayoutName) + 2;
     int firstShapeId = 2;
     if (spec.WithPicture)
     {
@@ -202,6 +199,14 @@ internal static class TestPptxFactory
 
   private static string? EmptyTiming(TestSlideSpec spec)
     => spec.WithEmptyTiming ? TestPptxXml.EmptyTiming() : null;
+
+  /// <summary>The number of placeholders a layout kind writes, so the shapes after them take
+  ///     the next drawing id.</summary>
+  private static int PlaceholderCount(string layoutName) => layoutName switch
+  {
+    "Title Only" => 1,
+    _ => 2,
+  };
 
   private static MemoryStream Utf8(string xml) => new(Encoding.UTF8.GetBytes(xml));
 }

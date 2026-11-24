@@ -387,6 +387,17 @@ internal static class PptxShapeWalker
     return found;
   }
 
+  /// <summary>A slide's top-level shapes in document order: the elements <see cref="Walk"/>
+  ///     numbers from 1, so the Nth entry is the shape an address's first path entry names.
+  ///     </summary>
+  /// <param name="slidePart">The slide part whose shape tree is read.</param>
+  internal static List<OpenXmlElement> TopLevelShapes(SlidePart slidePart)
+  {
+    ArgumentNullException.ThrowIfNull(slidePart);
+    OpenXmlElement? tree = slidePart.Slide?.CommonSlideData?.ShapeTree;
+    return tree is null ? [] : [.. ShapesIn(tree)];
+  }
+
   /// <summary>The shape children of a container, in the order <see cref="Walk"/> numbers
   ///     them.</summary>
   private static IEnumerable<OpenXmlElement> ShapesIn(OpenXmlElement container)

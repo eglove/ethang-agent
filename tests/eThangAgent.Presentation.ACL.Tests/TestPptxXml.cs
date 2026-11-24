@@ -223,17 +223,80 @@ internal static class TestPptxXml
 
   /// <summary>A layout part with the given display name and a title plus body
   ///     placeholder.</summary>
-  internal static string Layout(string name)
+  internal static string Layout(string name) => name switch
+  {
+    "Title Slide" => KindLayout(name, "title", TitleSlidePlaceholders),
+    "Title Only" => KindLayout(name, "titleOnly", TitleOnlyPlaceholders),
+    _ => DefaultLayout(name),
+  };
+
+  /// <summary>A layout part of the given type, with the placeholders the given builder
+  ///     states.</summary>
+  private static string KindLayout(string name, string type, Func<string> placeholders)
     => Header
-       + "<p:sldLayout " + Root + " type=\"titleAndContent\" preserve=\"1\">"
+       + "<p:sldLayout " + Root + " type=\"" + type + "\" preserve=\"1\">"
        + "<p:cSld name=\"" + Escape(name) + "\"><p:spTree>" + GroupProperties
-       + "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Title 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>"
-       + "<p:nvPr><p:ph type=\"title\"/></p:nvPr></p:nvSpPr><p:spPr/>"
-       + "<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang=\"en-US\"/></a:p></p:txBody></p:sp>"
-       + "<p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"Content Placeholder 2\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>"
-       + "<p:nvPr><p:ph idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/>"
-       + "<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang=\"en-US\"/></a:p></p:txBody></p:sp>"
+       + placeholders()
        + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>";
+
+  /// <summary>A title slide's placeholders: a centre title and a subtitle.</summary>
+  private static string TitleSlidePlaceholders()
+    => Placeholder(2, "Title 1", "ctrTitle", null, null, TitleGeometry)
+       + Placeholder(3, "Subtitle 2", "subTitle", "1", null, BodyGeometry);
+
+  /// <summary>A title-only layout's placeholders: a title and nothing else.</summary>
+  private static string TitleOnlyPlaceholders()
+    => Placeholder(2, "Title 1", "title", null, null, TitleGeometry);
+
+  /// <summary>A placeholder shape with the given identity, index, text and geometry.
+  ///     </summary>
+  private static string Placeholder(int id, string name, string? type, string? index, string? text, string geometry)
+  {
+    string typeAttribute = type is null ? string.Empty : " type=\"" + type + "\"";
+    string indexAttribute = index is null ? string.Empty : " idx=\"" + index + "\"";
+    string body = text is null ? "<a:p><a:endParaRPr lang=\"en-US\"/></a:p>" : Paragraphs(text);
+    return "<p:sp><p:nvSpPr><p:cNvPr id=\"" + id + "\" name=\"" + name + "\"/>"
+        + "<p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>"
+        + "<p:nvPr><p:ph" + typeAttribute + indexAttribute + "/></p:nvPr></p:nvSpPr>"
+        + geometry
+        + "<p:txBody><a:bodyPr/><a:lstStyle/>" + body + "</p:txBody></p:sp>";
+  }
+
+  /// <summary>The position and size a layout gives its title placeholder.</summary>
+  private const string TitleGeometry =
+      "<p:spPr><a:xfrm><a:off x=\"838200\" y=\"365125\"/><a:ext cx=\"10515600\" cy=\"1325563\"/></a:xfrm>"
+      + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>";
+
+  /// <summary>The position and size a layout gives its body placeholder.</summary>
+  private const string BodyGeometry =
+      "<p:spPr><a:xfrm><a:off x=\"838200\" y=\"1825625\"/><a:ext cx=\"10515600\" cy=\"4351338\"/></a:xfrm>"
+      + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>";
+
+  /// <summary>A slide's placeholders, matching the layout kind it is built on. The ids run
+  ///     from 2 so the shape tree's own group id stays 1.</summary>
+  internal static string SlidePlaceholders(string layoutName, string title, string body, bool formattedTitle)
+  {
+    if (layoutName == "Title Slide")
+    {
+      return TextShape(2, "Title 2", "ctrTitle", null, title, formattedTitle ? FormattedTitleMarkup : null)
+          + TextShape(3, "Subtitle 3", "subTitle", "1", body);
+    }
+
+    string titleShape = formattedTitle ? FormattedTitleShape(2, title) : TitleShape(2, title);
+    return layoutName == "Title Only" ? titleShape : titleShape + BodyShape(3, body);
+  }
+
+  /// <summary>A layout part with the given display name and a title plus body
+  ///     placeholder.</summary>
+  private static string DefaultLayout(string name)
+    => KindLayout(name, "titleAndContent", DefaultPlaceholders);
+
+  /// <summary>A title-and-content layout's placeholders: a title and an untyped object
+  ///     placeholder at index 1, which is what PowerPoint writes for a content box.</summary>
+  private static string DefaultPlaceholders()
+    => Placeholder(2, "Title 1", "title", null, null, TitleGeometry)
+       + Placeholder(3, "Content Placeholder 2", null, "1", null, BodyGeometry);
+
 
   /// <summary>The slide master, naming the layout relationship ids it owns.</summary>
   internal static string Master(IReadOnlyList<string> layoutRelationshipIds)

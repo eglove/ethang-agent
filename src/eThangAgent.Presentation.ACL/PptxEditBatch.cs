@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using eThangAgent.SharedKernel;
@@ -56,7 +58,11 @@ internal static class PptxEditBatch
       edit.Apply();
     }
 
-    return Result.Success(resolved.Select(edit => edit.Key).Distinct(StringComparer.Ordinal).Count());
+    return Result.Success(resolved
+        .Select(edit => edit.Key)
+        .Where(key => key.Length > 0)
+        .Distinct(StringComparer.Ordinal)
+        .Count());
   }
 
   /// <summary>Resolves one operation to its mutation. The operation types whose task has
@@ -65,12 +71,155 @@ internal static class PptxEditBatch
   {
     ReplaceText replace => ResolveReplaceText(slides, replace),
     SetNotes notes => ResolveSetNotes(slides, notes),
+    InsertSlide insert => ResolveInsertSlide(slides, insert),
+    DeleteSlide delete => ResolveDeleteSlide(slides, delete),
+    MoveSlide move => ResolveMoveSlide(slides, move),
+    SetSlideLayout layout => ResolveSetSlideLayout(slides, layout),
     _ => Unsupported(operation),
   };
 
   private static Result<PptxResolvedEdit> Unsupported(PptxOperation operation)
     => Failed(PptxErrorCodes.OperationUnsupported,
-        $"The '{operation.GetType().Name}' operation is not supported yet; this build applies replaceText and setNotes only.");
+        $"The '{operation.GetType().Name}' operation is not supported yet; this build applies replaceText, setNotes, insertSlide, deleteSlide, moveSlide and setSlideLayout only.");
+
+  /// <summary>Resolves a slide insertion. The slide is built on the named layout and its
+  ///     id entry lands at the requested position; the key is the position the new slide
+  ///     takes, so a batch that inserts twice counts two changed slides.</summary>
+  private static Result<PptxResolvedEdit> ResolveInsertSlide(IReadOnlyList<SlidePart> slides, InsertSlide operation)
+  {
+    PresentationPart? presentationPart = PresentationOf(slides);
+    if (presentationPart is null)
+    {
+      return Failed(PptxErrorCodes.CorruptPresentation, "The package has no readable presentation part.");
+    }
+
+    if (operation.AfterSlide < 0 || operation.AfterSlide > slides.Count)
+    {
+      return Failed(PptxErrorCodes.SlideNotFound,
+          $"Slide {operation.AfterSlide} cannot be inserted after: the deck has {slides.Count} slide(s), so AfterSlide runs 0 to {slides.Count}.");
+    }
+
+    Result<SlideLayoutPart> layout = PptxSlideStructure.LayoutNamed(presentationPart, operation.LayoutName);
+    if (!layout.IsSuccess)
+    {
+      return Failed(layout.Error.Code, layout.Error.Message);
+    }
+
+    string key = PptxAddress.ForSlide(operation.AfterSlide + 1).Render();
+    return Result.Success(new PptxResolvedEdit(key, () =>
+        _ = PptxSlideStructure.Insert(presentationPart, operation.AfterSlide, operation.LayoutName)));
+  }
+
+  /// <summary>Resolves a slide deletion. Deleting the deck's last slide is refused here,
+  ///     before anything is removed, so the batch stays atomic.</summary>
+  private static Result<PptxResolvedEdit> ResolveDeleteSlide(IReadOnlyList<SlidePart> slides, DeleteSlide operation)
+  {
+    if (operation.Slide < 1 || operation.Slide > slides.Count)
+    {
+      return Failed(PptxErrorCodes.SlideNotFound,
+          $"Slide {operation.Slide} does not exist: the deck has {slides.Count} slide(s), numbered 1 to {slides.Count}.");
+    }
+
+    if (slides.Count == 1)
+    {
+      return Failed(PptxErrorCodes.StrandedContent,
+          $"Slide {operation.Slide} is the deck's only slide; a presentation always keeps at least one slide.");
+    }
+
+    PresentationPart? presentationPart = PresentationOf(slides);
+    if (presentationPart is null)
+    {
+      return Failed(PptxErrorCodes.CorruptPresentation, "The package has no readable presentation part.");
+    }
+
+    int slide = operation.Slide;
+    string key = PptxAddress.ForSlide(slide).Render();
+    return Result.Success(new PptxResolvedEdit(key, () =>
+        _ = PptxSlideStructure.Delete(presentationPart, slide)));
+  }
+
+  /// <summary>Resolves a slide move. A move to the position the slide already holds is
+  ///     accepted and changes nothing, so it is resolved to a key that records the slide
+  ///     without mutating it.</summary>
+  private static Result<PptxResolvedEdit> ResolveMoveSlide(IReadOnlyList<SlidePart> slides, MoveSlide operation)
+  {
+    if (operation.From < 1 || operation.From > slides.Count)
+    {
+      return Failed(PptxErrorCodes.SlideNotFound,
+          $"Slide {operation.From} does not exist: the deck has {slides.Count} slide(s), numbered 1 to {slides.Count}.");
+    }
+
+    if (operation.To < 1 || operation.To > slides.Count)
+    {
+      return Failed(PptxErrorCodes.SlideNotFound,
+          $"Slide {operation.To} does not exist: the deck has {slides.Count} slide(s), numbered 1 to {slides.Count}.");
+    }
+
+    PresentationPart? presentationPart = PresentationOf(slides);
+    if (presentationPart is null)
+    {
+      return Failed(PptxErrorCodes.CorruptPresentation, "The package has no readable presentation part.");
+    }
+
+    int from = operation.From;
+    int to = operation.To;
+    string key = from == to ? string.Empty : PptxAddress.ForSlide(from).Render();
+    return Result.Success(new PptxResolvedEdit(key, () => _ = PptxSlideStructure.Move(presentationPart, from, to)));
+  }
+
+  /// <summary>Resolves a layout change. The mapping is computed before anything mutates, so
+  ///     a change that would strand a shape refuses the whole batch and names the shapes.</summary>
+  private static Result<PptxResolvedEdit> ResolveSetSlideLayout(IReadOnlyList<SlidePart> slides, SetSlideLayout operation)
+  {
+    if (operation.Slide < 1 || operation.Slide > slides.Count)
+    {
+      return Failed(PptxErrorCodes.SlideNotFound,
+          $"Slide {operation.Slide} does not exist: the deck has {slides.Count} slide(s), numbered 1 to {slides.Count}.");
+    }
+
+    PresentationPart? presentationPart = PresentationOf(slides);
+    if (presentationPart is null)
+    {
+      return Failed(PptxErrorCodes.CorruptPresentation, "The package has no readable presentation part.");
+    }
+
+    Result<SlideLayoutPart> layout = PptxSlideStructure.LayoutNamed(presentationPart, operation.LayoutName);
+    if (!layout.IsSuccess)
+    {
+      return Failed(layout.Error.Code, layout.Error.Message);
+    }
+
+    SlidePart slidePart = slides[operation.Slide - 1];
+    List<PptxLayoutMapping> stranded = [.. PptxLayoutMapper.Map(slidePart, operation.Slide, layout.Value)
+        .Where(mapping => mapping.IsStranded)];
+    if (stranded.Count > 0)
+    {
+      return Failed(PptxErrorCodes.StrandedContent, StrandedMessage(operation.Slide, operation.LayoutName, stranded));
+    }
+
+    int slide = operation.Slide;
+    string key = PptxAddress.ForSlide(slide).Render();
+    return Result.Success(new PptxResolvedEdit(key, () =>
+        _ = PptxSlideStructure.SetLayout(presentationPart, slide, operation.LayoutName)));
+  }
+
+  /// <summary>The presentation the slides belong to, or null when the package carries none.
+  ///     </summary>
+  private static PresentationPart? PresentationOf(IReadOnlyList<SlidePart> slides)
+    => slides.Count > 0 && slides[0].OpenXmlPackage is PresentationDocument doc ? doc.PresentationPart : null;
+
+  /// <summary>The refusal message for a layout change: every shape that would be left with
+  ///     no position, by address and placeholder family.</summary>
+  private static string StrandedMessage(int slide, string layoutName, List<PptxLayoutMapping> stranded)
+  {
+    StringBuilder message = new();
+    _ = message.Append(CultureInfo.InvariantCulture,
+        $"Moving slide {slide} onto layout '{layoutName}' would strand {stranded.Count} shape(s) with no place on the slide: ");
+    _ = message.Append(string.Join(", ", stranded.Select(mapping =>
+        mapping.Address + " (" + mapping.Family.ToString() + " placeholder)")));
+    _ = message.Append(". Nothing was changed.");
+    return message.ToString();
+  }
 
   /// <summary>Resolves a text replacement to the addressed text box's text body. A
   ///     table cell is its own address, so a cell address reaches the cell's text body
