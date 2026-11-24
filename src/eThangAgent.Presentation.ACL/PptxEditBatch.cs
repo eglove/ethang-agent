@@ -44,7 +44,7 @@ internal static class PptxEditBatch
     List<PptxResolvedEdit> resolved = [];
     for (int index = 0; index < operations.Count; index++)
     {
-      Result<PptxResolvedEdit> one = Resolve(slides, operations[index]);
+      Result<PptxResolvedEdit> one = Resolve(slides, operations[index], index);
       if (!one.IsSuccess)
       {
         return FailedCount(one.Error.Code, $"operations[{index}]: {one.Error.Message}");
@@ -67,20 +67,21 @@ internal static class PptxEditBatch
 
   /// <summary>Resolves one operation to its mutation. The operation types whose task has
   ///     not landed are refused here, so a batch that names one changes nothing.</summary>
-  private static Result<PptxResolvedEdit> Resolve(IReadOnlyList<SlidePart> slides, PptxOperation operation) => operation switch
-  {
-    ReplaceText replace => ResolveReplaceText(slides, replace),
-    SetNotes notes => ResolveSetNotes(slides, notes),
-    InsertSlide insert => ResolveInsertSlide(slides, insert),
-    DeleteSlide delete => ResolveDeleteSlide(slides, delete),
-    MoveSlide move => ResolveMoveSlide(slides, move),
-    SetSlideLayout layout => ResolveSetSlideLayout(slides, layout),
-    _ => Unsupported(operation),
-  };
+  private static Result<PptxResolvedEdit> Resolve(IReadOnlyList<SlidePart> slides, PptxOperation operation, int ordinal)
+    => operation switch
+    {
+      ReplaceText replace => ResolveReplaceText(slides, replace),
+      SetNotes notes => ResolveSetNotes(slides, notes),
+      InsertSlide insert => ResolveInsertSlide(slides, insert),
+      DeleteSlide delete => ResolveDeleteSlide(slides, delete),
+      MoveSlide move => ResolveMoveSlide(slides, move),
+      SetSlideLayout layout => ResolveSetSlideLayout(slides, layout),
+      _ => PptxMediaWriter.Resolve(slides, operation, ordinal) ?? Unsupported(operation),
+    };
 
   private static Result<PptxResolvedEdit> Unsupported(PptxOperation operation)
     => Failed(PptxErrorCodes.OperationUnsupported,
-        $"The '{operation.GetType().Name}' operation is not supported yet; this build applies replaceText, setNotes, insertSlide, deleteSlide, moveSlide and setSlideLayout only.");
+        $"The '{operation.GetType().Name}' operation is not supported yet; this build applies replaceText, setNotes, insertSlide, deleteSlide, moveSlide, setSlideLayout, replacePicture, insertPicture, insertTable and insertTextBox only.");
 
   /// <summary>Resolves a slide insertion. The slide is built on the named layout and its
   ///     id entry lands at the requested position; the key is the position the new slide

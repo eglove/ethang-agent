@@ -168,9 +168,15 @@ internal static class PptxOutlineReader
   /// <summary>Every image part in the package, in part-graph order, with its content
   ///     type and byte count.</summary>
   internal static List<PptxMediaInfo> Media(PresentationPart presentationPart)
-    => [.. Descendants(presentationPart)
-        .Where(part => part.ContentType.StartsWith(ImageContentTypePrefix, StringComparison.OrdinalIgnoreCase))
+    => [.. ImageParts(presentationPart)
         .Select(part => new PptxMediaInfo(part.Uri.OriginalString, part.ContentType, ByteCount(part)))];
+
+  /// <summary>Every image part in the package, in part-graph order: the parts the outline
+  ///     reports as media and the parts an extraction reads the bytes from.</summary>
+  internal static List<ImagePart> ImageParts(PresentationPart presentationPart)
+    => [.. Descendants(presentationPart)
+        .OfType<ImagePart>()
+        .Where(part => part.ContentType.StartsWith(ImageContentTypePrefix, StringComparison.OrdinalIgnoreCase))];
 
   /// <summary>Every part reachable from the container, each visited once. The part graph is
   ///     cyclic - a slide references its notes and the notes reference the slide back - so

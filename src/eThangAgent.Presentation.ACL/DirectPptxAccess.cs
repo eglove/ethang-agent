@@ -57,9 +57,14 @@ public sealed class DirectPptxAccess : IPptxAccess
   public Task<Result<PptxSaveOutcome>> DeleteCommentAsync(string path, FileVersion expectedVersion, int commentId, CancellationToken ct = default)
     => throw new NotImplementedException("Pptx comment deletion has not been implemented yet.");
 
-  /// <summary>Staged placeholder: media extraction lands with its own task.</summary>
+  /// <summary>Extracts the deck's media as model-attachable images: every PNG and JPEG
+  ///     part, or the subset the names select. A listed name the deck does not carry, and a
+  ///     media part that is neither PNG nor JPEG, are both ImageNotAttachable.</summary>
   public Task<Result<IReadOnlyList<ToolResultImage>>> ExtractImagesAsync(string path, IReadOnlyList<string>? names, CancellationToken ct = default)
-    => throw new NotImplementedException("Pptx media extraction has not been implemented yet.");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    return Task.FromResult(PptxMediaWriter.Extract(path, names));
+  }
 
   private static Result<PptxOutline> ReadOutline(string path)
   {
