@@ -45,17 +45,36 @@ public sealed class DirectPptxAccess : IPptxAccess
   public Task<Result<PptxSaveOutcome>> CreateAsync(string path, string markdown, CancellationToken ct = default)
     => throw new NotImplementedException("Pptx creation has not been implemented yet.");
 
-  /// <summary>Staged placeholder: comment reading lands with its own task.</summary>
+  /// <summary>Lists every comment in the deck, slide by slide in presentation order:
+  ///     each with its author, text, the address of the shape it anchors to and whether it
+  ///     came from the legacy comment shape. A deck carrying both shapes lists both.</summary>
   public Task<Result<IReadOnlyList<PptxCommentInfo>>> ListCommentsAsync(string path, CancellationToken ct = default)
-    => throw new NotImplementedException("Pptx comment reading has not been implemented yet.");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    return Task.FromResult(PptxComments.List(path));
+  }
 
-  /// <summary>Staged placeholder: comment writing lands with its own task.</summary>
+  /// <summary>Adds a comment in the CURRENT shape, anchored at the addressed shape, and
+  ///     saves the deck. Legacy comments the deck already carries are left as they are. A
+  ///     version that is not the file's current one is StalePresentation.</summary>
   public Task<Result<PptxSaveOutcome>> AddCommentAsync(string path, FileVersion expectedVersion, string address, string author, string text, CancellationToken ct = default)
-    => throw new NotImplementedException("Pptx comment writing has not been implemented yet.");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    ArgumentNullException.ThrowIfNull(expectedVersion);
+    ArgumentNullException.ThrowIfNull(author);
+    ArgumentNullException.ThrowIfNull(text);
+    return Task.FromResult(PptxComments.Add(path, expectedVersion, address, author, text));
+  }
 
-  /// <summary>Staged placeholder: comment deletion lands with its own task.</summary>
+  /// <summary>Deletes one comment by id, from whichever shape holds it, and saves the
+  ///     deck. An id that names no comment is CommentNotFound; a version that is not the
+  ///     file's current one is StalePresentation.</summary>
   public Task<Result<PptxSaveOutcome>> DeleteCommentAsync(string path, FileVersion expectedVersion, int commentId, CancellationToken ct = default)
-    => throw new NotImplementedException("Pptx comment deletion has not been implemented yet.");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    ArgumentNullException.ThrowIfNull(expectedVersion);
+    return Task.FromResult(PptxComments.Delete(path, expectedVersion, commentId));
+  }
 
   /// <summary>Extracts the deck's media as model-attachable images: every PNG and JPEG
   ///     part, or the subset the names select. A listed name the deck does not carry, and a

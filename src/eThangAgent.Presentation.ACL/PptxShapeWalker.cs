@@ -150,7 +150,7 @@ internal static class PptxShapeWalker
 
   /// <summary>A shape's drawing id: the id its own non-visual drawing properties carry,
   ///     which is the first cNvPr below the shape element for every shape type.</summary>
-  private static uint? ShapeId(OpenXmlElement element)
+  internal static uint? ShapeId(OpenXmlElement element)
     => element.Descendants<P.NonVisualDrawingProperties>().FirstOrDefault()?.Id?.Value;
 
   private static PptxShapeInfo Describe(WalkContext context, OpenXmlElement element, int index,

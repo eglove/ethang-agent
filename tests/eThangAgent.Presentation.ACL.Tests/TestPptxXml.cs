@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text;
+
 namespace eThangAgent.Presentation.ACL.Tests;
 
 /// <summary>The raw part XML every fixture deck is assembled from. Parts are fed as text
@@ -9,6 +12,12 @@ internal static class TestPptxXml
   internal const string NsR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
   internal const string NsP = "http://schemas.openxmlformats.org/presentationml/2006/main";
   internal const string NsC = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+  internal const string Ns188 = "http://schemas.microsoft.com/office/powerpoint/2018/8/main";
+  internal const string NsOac = "http://schemas.microsoft.com/office/drawing/2013/main/command";
+
+  /// <summary>The author id a current-shape comment names, matching the entry
+  ///     <see cref="CurrentAuthors"/> writes.</summary>
+  internal const string CurrentAuthorId = "{AAAA0000-1111-2222-3333-444444444444}";
 
   internal const string TableGraphicUri = "http://schemas.openxmlformats.org/drawingml/2006/table";
   internal const string ChartGraphicUri = NsC;
@@ -102,12 +111,56 @@ internal static class TestPptxXml
   /// <summary>A legacy comment part: one comment anchored at the slide's first shape, by
   ///     author id 1.</summary>
   internal static string LegacyComments(string text)
+    => LegacyComments([text]);
+
+  /// <summary>A legacy comment part carrying one comment per text, each by author id 1.
+  ///     </summary>
+  internal static string LegacyComments(IReadOnlyList<string> texts)
+  {
+    StringBuilder list = new();
+    for (int index = 0; index < texts.Count; index++)
+    {
+      _ = list.Append("<p:cm authorId=\"1\" dt=\"2024-01-01T00:00:00\" idx=\"");
+      _ = list.Append((index + 1).ToString(CultureInfo.InvariantCulture));
+      _ = list.Append("\"><p:pos x=\"10\" y=\"10\"/><p:text>");
+      _ = list.Append(Escape(texts[index]));
+      _ = list.Append("</p:text></p:cm>");
+    }
+
+    return Header + "<p:cmLst " + Root + ">" + list + "</p:cmLst>";
+  }
+
+  /// <summary>A current comment part (p188:cmLst) carrying one comment per text, each
+  ///     anchored at the shape whose drawing id is <paramref name="shapeId"/> and authored
+  ///     by the entry <see cref="CurrentAuthors"/> writes.</summary>
+  internal static string CurrentComments(IReadOnlyList<string> texts, int shapeId)
+  {
+    StringBuilder list = new();
+    for (int index = 0; index < texts.Count; index++)
+    {
+      _ = list.Append("<p188:cm id=\"{7D5B1C2E-0000-4000-8000-00000000000");
+      _ = list.Append((index + 1).ToString(CultureInfo.InvariantCulture));
+      _ = list.Append("}\" authorId=\"" + CurrentAuthorId + "\" created=\"2024-05-01T10:00:00\">");
+      _ = list.Append("<p188:pos x=\"1580000\" y=\"900000\"/>");
+      _ = list.Append("<p188:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\"/><a:t>");
+      _ = list.Append(Escape(texts[index]));
+      _ = list.Append("</a:t></a:r></a:p></p188:txBody>");
+      _ = list.Append("<oac:deMkLst><oac:spMk id=\"");
+      _ = list.Append(shapeId.ToString(CultureInfo.InvariantCulture));
+      _ = list.Append("\"/></oac:deMkLst></p188:cm>");
+    }
+
+    return Header
+        + "<p188:cmLst xmlns:p188=\"" + Ns188 + "\" xmlns:oac=\"" + NsOac + "\""
+        + " xmlns:a=\"" + NsA + "\" xmlns:p=\"" + NsP + "\">" + list + "</p188:cmLst>";
+  }
+
+  /// <summary>The current author list: one author named 'Reviewer'.</summary>
+  internal static string CurrentAuthors()
     => Header
-       + "<p:cmLst " + Root + ">"
-       + "<p:cm authorId=\"1\" dt=\"2024-01-01T00:00:00\" idx=\"1\">"
-       + "<p:pos x=\"10\" y=\"10\"/>"
-       + "<p:text>" + Escape(text) + "</p:text></p:cm>"
-       + "</p:cmLst>";
+       + "<p188:authorLst xmlns:p188=\"" + Ns188 + "\">"
+       + "<p188:author id=\"" + CurrentAuthorId + "\" name=\"Reviewer\" initials=\"R\"/>"
+       + "</p188:authorLst>";
 
   /// <summary>The legacy author list: author id 1 is 'Reviewer'.</summary>
   internal static string CommentAuthors()
@@ -210,14 +263,14 @@ internal static class TestPptxXml
   ///     effect itself with the visibility behaviour it animates by.</summary>
   private static string Effect(int shapeId, int firstId, int duration)
   {
-    string group = firstId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-    string step = (firstId + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
-    string effect = (firstId + 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
-    string visibility = (firstId + 3).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    string group = firstId.ToString(CultureInfo.InvariantCulture);
+    string step = (firstId + 1).ToString(CultureInfo.InvariantCulture);
+    string effect = (firstId + 2).ToString(CultureInfo.InvariantCulture);
+    string visibility = (firstId + 3).ToString(CultureInfo.InvariantCulture);
     return "<p:par><p:cTn id=\"" + group + "\" fill=\"hold\"><p:stCondLst><p:cond delay=\"indefinite\"/></p:stCondLst>"
         + "<p:childTnLst><p:par><p:cTn id=\"" + step + "\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst>"
         + "<p:childTnLst><p:par><p:cTn id=\"" + effect + "\" presetID=\"10\" presetClass=\"entr\" presetSubtype=\"0\" fill=\"hold\" nodeType=\"clickEffect\" dur=\""
-        + duration.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\">"
+        + duration.ToString(CultureInfo.InvariantCulture) + "\">"
         + "<p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>"
         + "<p:set><p:cBhvr><p:cTn id=\"" + visibility + "\" dur=\"1\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst></p:cTn>"
         + "<p:tgtEl><p:spTgt spid=\"" + shapeId + "\"/></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>"
@@ -405,7 +458,7 @@ internal static class TestPptxXml
       IReadOnlyList<double> values)
   {
     string column = ((char)('B' + position)).ToString();
-    string last = (categories.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    string last = (categories.Count + 1).ToString(CultureInfo.InvariantCulture);
     return "<c:ser><c:idx val=\"" + position + "\"/><c:order val=\"" + position + "\"/>"
         + "<c:tx><c:strRef><c:f>Sheet1!$" + column + "$1</c:f><c:strCache><c:ptCount val=\"1\"/>"
         + "<c:pt idx=\"0\"><c:v>" + name + "</c:v></c:pt></c:strCache></c:strRef></c:tx>"
@@ -423,7 +476,7 @@ internal static class TestPptxXml
   private static string NumberPoints(IReadOnlyList<double> points)
     => string.Concat(points.Select((point, position) =>
         "<c:pt idx=\"" + position + "\"><c:v>"
-        + point.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "</c:v></c:pt>"));
+        + point.ToString("R", CultureInfo.InvariantCulture) + "</c:v></c:pt>"));
 
   private static string ExternalData(string? workbookRelationshipId)
     => workbookRelationshipId is null

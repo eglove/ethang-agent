@@ -59,7 +59,8 @@ internal static class PptxSlideReader
     PptxSlideContent content = new(number, LayoutName(slidePart), IsHidden(slidePart), tree.Shapes);
     return Result.Success(new PptxSlideSnapshot(version, content, PptxShapeWalker.Notes(slidePart),
         PptxOutlineReader.Media(doc.PresentationPart),
-        PptxCommentReader.Read(doc.PresentationPart, slidePart, number, tree.AddressesByShapeId),
+        PptxCommentReader.Read(doc.PresentationPart, slidePart, number, tree.AddressesByShapeId,
+            PptxCommentReader.Offset(slides, number)),
         PptxShapeWalker.Animations(slidePart, number, tree.AddressesByShapeId)));
   }
 

@@ -153,7 +153,7 @@ public sealed class PptxSlideReadTests
   public async Task Reads_a_legacy_comment_with_its_author_and_anchor()
   {
     string path = TestPptxFactory.CreateDeck(ScratchFile("comments.pptx"),
-        [new TestSlideSpec { Title = "T", WithLegacyComment = true }]);
+        [new TestSlideSpec { Title = "T", LegacyComments = ["Check this figure"] }]);
     PptxCommentInfo comment = Assert.Single((await ReadSlide(path, 1)).Comments);
     Assert.Equal("Reviewer", comment.Author);
     Assert.Equal("Check this figure", comment.Text);

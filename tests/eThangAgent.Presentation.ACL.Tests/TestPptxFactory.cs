@@ -40,8 +40,13 @@ internal sealed record TestSlideSpec
   ///     animation writes.</summary>
   internal bool WithEmptyTiming { get; init; }
 
-  /// <summary>A legacy comment anchored at the slide, authored by 'Reviewer'.</summary>
-  internal bool WithLegacyComment { get; init; }
+  /// <summary>Legacy comments (p:cmLst) anchored at the slide, authored by 'Reviewer':
+  ///     one per text. Null or empty writes no legacy comment part.</summary>
+  internal IReadOnlyList<string>? LegacyComments { get; init; }
+
+  /// <summary>Current comments (p188:cmLst) anchored at the title placeholder, authored by
+  ///     'Reviewer': one per text. Null or empty writes no current comment part.</summary>
+  internal IReadOnlyList<string>? CurrentComments { get; init; }
 
   /// <summary>The title placeholder carries explicit character formatting (24pt bold,
   ///     centred) and an explicit position and size, as a deck authored in PowerPoint
@@ -107,10 +112,16 @@ internal static class TestPptxFactory
     Dictionary<string, SlideLayoutPart> layouts = AddLayouts(presentationPart, layoutNames);
     List<string> slideRelationshipIds = AddSlides(presentationPart, slides, layouts);
     List<string> orderedRelationshipIds = [.. presentationOrder.Select(index => slideRelationshipIds[index])];
-    if (slides.Any(slide => slide.WithLegacyComment))
+    if (slides.Any(slide => slide.LegacyComments is { Count: > 0 }))
     {
       CommentAuthorsPart authorsPart = presentationPart.AddNewPart<CommentAuthorsPart>("rIdAuthors");
       authorsPart.FeedData(Utf8(TestPptxXml.CommentAuthors()));
+    }
+
+    if (slides.Any(slide => slide.CurrentComments is { Count: > 0 }))
+    {
+      PowerPointAuthorsPart authorsPart = presentationPart.AddNewPart<PowerPointAuthorsPart>("rIdAuthors188");
+      authorsPart.FeedData(Utf8(TestPptxXml.CurrentAuthors()));
     }
 
     presentationPart.FeedData(Utf8(TestPptxXml.Presentation(orderedRelationshipIds, MasterRelationshipId)));
@@ -215,10 +226,16 @@ internal static class TestPptxFactory
       _ = shapes.Append(TestPptxXml.EmptyRunsShape(nextId));
     }
 
-    if (spec.WithLegacyComment)
+    if (spec.LegacyComments is { Count: > 0 } legacy)
     {
       SlideCommentsPart commentsPart = slidePart.AddNewPart<SlideCommentsPart>("rIdComments");
-      commentsPart.FeedData(Utf8(TestPptxXml.LegacyComments("Check this figure")));
+      commentsPart.FeedData(Utf8(TestPptxXml.LegacyComments(legacy)));
+    }
+
+    if (spec.CurrentComments is { Count: > 0 } current)
+    {
+      PowerPointCommentPart commentsPart = slidePart.AddNewPart<PowerPointCommentPart>("rIdComments188");
+      commentsPart.FeedData(Utf8(TestPptxXml.CurrentComments(current, firstShapeId)));
     }
 
     if (spec.Notes.Length > 0)
