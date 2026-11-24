@@ -14,6 +14,7 @@ using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.PDF.ACL;
 using eThangAgent.PlanDomain;
+using eThangAgent.Presentation.ACL;
 using eThangAgent.Roslyn.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
@@ -164,6 +165,7 @@ public static class AgentComposition
         .AddSingleton<IHtmlToMarkdown, HtmlAgilityMarkdownConverter>()
         .AddSingleton<IDocxAccess, DirectDocxAccess>()
         .AddSingleton<IPdfAccess, DirectPdfAccess>()
+        .AddSingleton<IPptxAccess, DirectPptxAccess>()
         // The local rasterizer behind the compose_image tool: a scene document rendered to PNG
         // pixels inside this process. No provider, no model, no network.
         .AddSingleton<IImageCompositionAccess, SkiaImageCompositionAccess>();
@@ -187,7 +189,7 @@ public static class AgentComposition
       .. ComputerToolBindings(sp, settings),
   ];
 
-  /// <summary>File and document tool bindings: read, image, docx, pdf, write,
+  /// <summary>File and document tool bindings: read, image, docx, pdf, pptx, write,
   ///     write-markdown, edit, and file-name search.</summary>
   private static IReadOnlyList<AgentToolBinding> FileToolBindings(IServiceProvider sp) =>
   [
@@ -210,6 +212,11 @@ public static class AgentComposition
               sp.GetRequiredService<IPdfAccess>(),
               new SessionImageInputCapability(sp)),
           "Read, render, create, and manipulate PDF documents."),
+      new AgentToolBinding(
+          new PptxTool(Resolver(sp),
+              sp.GetRequiredService<IPptxAccess>(),
+              new SessionImageInputCapability(sp)),
+          "Read, edit, create, and inspect .pptx presentations."),
       new AgentToolBinding(
           new WriteTool(Resolver(sp),
               sp.GetRequiredService<IFileWriteAccess>(),
