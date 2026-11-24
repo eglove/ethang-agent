@@ -110,9 +110,9 @@ internal static class PptxShapeWalker
   {
     P.TimeNodeList? list = slidePart.Slide?.Timing?.TimeNodeList;
     return list is null ? [] : [.. list.Descendants<P.CommonTimeNode>()
-        .Where(node => node.PresetId is not null || node.PresetClass is not null)
+        .Where(IsEffect)
         .Select((node, position) => new PptxAnimationInfo(position + 1, Target(node, slide, addressesByShapeId),
-            EffectName(node), Trigger(node), node.Duration?.InnerText ?? string.Empty))];
+            EffectName(node), Trigger(node), Milliseconds(node.Duration?.Value)))];
   }
 
   private static List<PptxShapeInfo> WalkLevel(WalkContext context, OpenXmlElement container,
@@ -321,6 +321,23 @@ internal static class PptxShapeWalker
             : PptxAddress.ForSlide(slide).Render();
   }
 
+  /// <summary>Whether a timing node is an animation effect: an effect is the node that carries
+  ///     a preset, and the nodes around it carry the click and the timing of the sequence.
+  ///     </summary>
+  /// <param name="node">The timing node to test.</param>
+  internal static bool IsEffect(P.CommonTimeNode node)
+  {
+    ArgumentNullException.ThrowIfNull(node);
+    return node.PresetId is not null || node.PresetClass is not null;
+  }
+
+  /// <summary>A duration as a whole number of milliseconds, or the empty string when the
+  ///     node states none.</summary>
+  private static string Milliseconds(string? duration)
+    => int.TryParse(duration, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
+        ? value.ToString(CultureInfo.InvariantCulture)
+        : string.Empty;
+
   /// <summary>The effect's name as the file states it: the preset's class and id joined by
   ///     a colon. The package carries no readable effect name and the preset-id table is
   ///     not part of it, so the preset's own spelling is what is reported.</summary>
@@ -343,7 +360,7 @@ internal static class PptxShapeWalker
   ///     stated event. An effect's own node carries delay 0 and inherits the click from the
   ///     node above it, so the click is found on the enclosing node, not on the effect.
   ///     </summary>
-  private static bool StartsOnAClick(P.Condition condition)
+  internal static bool StartsOnAClick(P.Condition condition)
     => condition.Event?.InnerText is { Length: > 0 } || condition.Delay?.Value == "indefinite";
 
   private static string TriggerOf(P.Condition? condition)

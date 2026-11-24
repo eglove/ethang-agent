@@ -71,7 +71,9 @@ internal sealed record TestSlideSpec
 
   internal bool WithGroup { get; init; }
 
-  internal bool WithAnimation { get; init; }
+  /// <summary>The number of entrance effects the slide's timing carries, each targeting
+  ///     the title placeholder and each its own click step.</summary>
+  internal int AnimationEffects { get; init; }
 }
 
 /// <summary>Builds fixture decks from <see cref="TestSlideSpec"/> values. The package is
@@ -230,7 +232,7 @@ internal static class TestPptxFactory
   }
 
   private static string? Timing(TestSlideSpec spec, int firstShapeId)
-    => spec.WithAnimation ? TestPptxXml.Timing(firstShapeId) : EmptyTiming(spec);
+    => spec.AnimationEffects > 0 ? TestPptxXml.Timing(firstShapeId, spec.AnimationEffects) : EmptyTiming(spec);
 
   private static string? EmptyTiming(TestSlideSpec spec)
     => spec.WithEmptyTiming ? TestPptxXml.EmptyTiming() : null;

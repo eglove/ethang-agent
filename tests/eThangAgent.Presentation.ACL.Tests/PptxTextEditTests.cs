@@ -143,17 +143,6 @@ public sealed class PptxTextEditTests
   }
 
   [Fact]
-  public async Task Refuses_an_operation_type_this_build_does_not_apply()
-  {
-    string path = TestPptxFactory.CreateDeck(ScratchFile("unsupported.pptx"),
-        [new TestSlideSpec { Title = "One" }, new TestSlideSpec { Title = "Two" }]);
-    byte[] before = Bytes(path);
-    string code = await EditCode(path, (await Outline(path)).Version, new SetAnimation(1, 1, "fade", null, null));
-    Assert.Equal(PptxErrorCodes.OperationUnsupported, code);
-    Assert.Equal(before, Bytes(path));
-  }
-
-  [Fact]
   public async Task Refuses_an_address_that_does_not_parse()
   {
     string path = TestPptxFactory.CreateMinimalDeck(ScratchFile("bad-address.pptx"));

@@ -76,14 +76,21 @@ internal static class PptxEditBatch
       DeleteSlide delete => ResolveDeleteSlide(slides, delete),
       MoveSlide move => ResolveMoveSlide(slides, move),
       SetSlideLayout layout => ResolveSetSlideLayout(slides, layout),
-      _ => PptxMediaWriter.Resolve(slides, operation, ordinal)
-          ?? PptxChartEditor.Resolve(slides, operation)
-          ?? Unsupported(operation),
+      _ => Delegated(slides, operation, ordinal),
     };
+
+  /// <summary>Resolves an operation through the editors that own the later tasks' operation
+  ///     types, or refuses it when none of them claims it.</summary>
+  private static Result<PptxResolvedEdit> Delegated(IReadOnlyList<SlidePart> slides, PptxOperation operation,
+      int ordinal)
+    => PptxMediaWriter.Resolve(slides, operation, ordinal)
+        ?? PptxChartEditor.Resolve(slides, operation)
+        ?? PptxAnimationEditor.Resolve(slides, operation)
+        ?? Unsupported(operation);
 
   private static Result<PptxResolvedEdit> Unsupported(PptxOperation operation)
     => Failed(PptxErrorCodes.OperationUnsupported,
-        $"The '{operation.GetType().Name}' operation is not supported yet; this build applies replaceText, setNotes, insertSlide, deleteSlide, moveSlide, setSlideLayout, replacePicture, insertPicture, insertTable, insertTextBox and setChartData only.");
+        $"The '{operation.GetType().Name}' operation is not supported yet; this build applies replaceText, setNotes, insertSlide, deleteSlide, moveSlide, setSlideLayout, replacePicture, insertPicture, insertTable, insertTextBox, setChartData, setAnimation and removeAnimation only.");
 
   /// <summary>Resolves a slide insertion. The slide is built on the named layout and its
   ///     id entry lands at the requested position; the key is the position the new slide

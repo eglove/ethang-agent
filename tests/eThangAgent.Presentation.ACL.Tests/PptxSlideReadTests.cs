@@ -165,7 +165,7 @@ public sealed class PptxSlideReadTests
   public async Task Reads_an_animation_effect_in_playback_order_with_its_target()
   {
     string path = TestPptxFactory.CreateDeck(ScratchFile("anim.pptx"),
-        [new TestSlideSpec { Title = "T", WithAnimation = true }]);
+        [new TestSlideSpec { Title = "T", AnimationEffects = 1 }]);
     PptxAnimationInfo effect = Assert.Single((await ReadSlide(path, 1)).Animations);
     Assert.Equal(1, effect.Index);
     Assert.Equal("s1.sh1", effect.Address);

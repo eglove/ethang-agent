@@ -195,20 +195,35 @@ internal static class TestPptxXml
        + PlainTextBox(id + 1, firstText) + PlainTextBox(id + 2, secondText)
        + "</p:grpSp>";
 
-  /// <summary>A timing element carrying one entrance effect on the given shape id.
-  ///     </summary>
-  internal static string Timing(int shapeId)
+  /// <summary>A timing element carrying the given number of entrance effects on the given
+  ///     shape id, each as its own click step. The Nth effect runs for 100N milliseconds, so a
+  ///     test can tell the effects apart by duration after one of them is removed.</summary>
+  internal static string Timing(int shapeId, int effects)
     => "<p:timing><p:tnLst><p:par><p:cTn id=\"1\" dur=\"indefinite\" restart=\"never\" nodeType=\"tmRoot\">"
        + "<p:childTnLst><p:seq concurrent=\"1\" nextAc=\"seek\"><p:cTn id=\"2\" dur=\"indefinite\" nodeType=\"mainSeq\">"
-       + "<p:childTnLst><p:par><p:cTn id=\"3\" fill=\"hold\"><p:stCondLst><p:cond delay=\"indefinite\"/></p:stCondLst>"
-       + "<p:childTnLst><p:par><p:cTn id=\"4\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst>"
-       + "<p:childTnLst><p:par><p:cTn id=\"5\" presetID=\"10\" presetClass=\"entr\" presetSubtype=\"0\" fill=\"hold\" nodeType=\"clickEffect\">"
-       + "<p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>"
-       + "<p:set><p:cBhvr><p:cTn id=\"6\" dur=\"1\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst></p:cTn>"
-       + "<p:tgtEl><p:spTgt spid=\"" + shapeId + "\"/></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>"
-       + "</p:cBhvr><p:to><p:strVal val=\"visible\"/></p:to></p:set>"
-       + "</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst>"
-       + "</p:cTn></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>";
+       + "<p:childTnLst>"
+       + string.Concat(Enumerable.Range(0, effects).Select(step =>
+           Effect(shapeId, 3 + (step * 4), (step + 1) * 100)))
+       + "</p:childTnLst></p:cTn></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>";
+
+  /// <summary>One click step: the node PowerPoint waits on, the step inside it, and the
+  ///     effect itself with the visibility behaviour it animates by.</summary>
+  private static string Effect(int shapeId, int firstId, int duration)
+  {
+    string group = firstId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    string step = (firstId + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    string effect = (firstId + 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    string visibility = (firstId + 3).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    return "<p:par><p:cTn id=\"" + group + "\" fill=\"hold\"><p:stCondLst><p:cond delay=\"indefinite\"/></p:stCondLst>"
+        + "<p:childTnLst><p:par><p:cTn id=\"" + step + "\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst>"
+        + "<p:childTnLst><p:par><p:cTn id=\"" + effect + "\" presetID=\"10\" presetClass=\"entr\" presetSubtype=\"0\" fill=\"hold\" nodeType=\"clickEffect\" dur=\""
+        + duration.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\">"
+        + "<p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>"
+        + "<p:set><p:cBhvr><p:cTn id=\"" + visibility + "\" dur=\"1\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst></p:cTn>"
+        + "<p:tgtEl><p:spTgt spid=\"" + shapeId + "\"/></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>"
+        + "</p:cBhvr><p:to><p:strVal val=\"visible\"/></p:to></p:set>"
+        + "</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>";
+  }
 
   /// <summary>A notes slide part carrying the given text in its body placeholder.
   ///     </summary>
