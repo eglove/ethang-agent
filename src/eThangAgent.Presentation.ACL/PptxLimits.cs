@@ -17,6 +17,10 @@ public static class PptxLimits
   /// <summary>Maximum operations in one edit batch.</summary>
   public const int MaxOperationsPerEdit = 50;
 
+  /// <summary>Maximum characters a create source may carry, the same cap the docx
+  ///     create action applies to its markdown.</summary>
+  public const int MaxMarkdownChars = 100_000;
+
   /// <summary>OpenSettings.MaxCharactersInPart - the SDK's own pathological-XML cap.
   ///     </summary>
   public const int MaxCharactersInPart = 10_000_000;

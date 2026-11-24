@@ -41,9 +41,15 @@ public sealed class DirectPptxAccess : IPptxAccess
     return Task.FromResult(EditCore(path, expectedVersion, operations));
   }
 
-  /// <summary>Staged placeholder: deck creation lands with its own task.</summary>
+  /// <summary>Creates a new deck from the pinned markdown subset: the file must not
+  ///     exist and its parent directory must, a source with no text is MarkdownInvalid,
+  ///     and a line of three hyphens separates slides.</summary>
   public Task<Result<PptxSaveOutcome>> CreateAsync(string path, string markdown, CancellationToken ct = default)
-    => throw new NotImplementedException("Pptx creation has not been implemented yet.");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    ArgumentNullException.ThrowIfNull(markdown);
+    return Task.FromResult(CreateCore(path, markdown));
+  }
 
   /// <summary>Lists every comment in the deck, slide by slide in presentation order:
   ///     each with its author, text, the address of the shape it anchors to and whether it
@@ -83,6 +89,22 @@ public sealed class DirectPptxAccess : IPptxAccess
   {
     ArgumentNullException.ThrowIfNull(path);
     return Task.FromResult(PptxMediaWriter.Extract(path, names));
+  }
+
+  /// <summary>The create preconditions that fail before anything is written: the target
+  ///     must not exist and its parent directory must.</summary>
+  private static Result<PptxSaveOutcome> CreateCore(string path, string markdown)
+  {
+    if (File.Exists(path))
+    {
+      return FailSave(ToolErrorCodes.InvalidParameterValue,
+          $"'{path}' already exists; create is for new paths (delete first is the model's explicit move).");
+    }
+
+    string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+    return directory is not null && !Directory.Exists(directory)
+      ? FailSave(PptxErrorCodes.FileNotFound, $"Directory not found: '{directory}'.")
+      : PptxDeckBuilder.Build(path, markdown);
   }
 
   private static Result<PptxOutline> ReadOutline(string path)
@@ -253,4 +275,7 @@ public sealed class DirectPptxAccess : IPptxAccess
 
   private static Result<PptxOutline> Failure(string code, string message)
     => Result.Failure<PptxOutline>(new DomainError(code, message));
+
+  private static Result<PptxSaveOutcome> FailSave(string code, string message)
+    => Result.Failure<PptxSaveOutcome>(new DomainError(code, message));
 }
