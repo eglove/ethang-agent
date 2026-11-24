@@ -9,16 +9,17 @@ namespace eThangAgent.Presentation.ACL.Tests;
 /// <summary>Structural edits against the real 41-slide teaching deck, read in place and
 ///     mutated only on a temporary copy that is deleted afterwards. The deck is licensed
 ///     material belonging to another project, so it is a verification input only.</summary>
+[Trait("Category", "OptIn")]
 public sealed class PptxRealDeckStructureTests
 {
-  private const string TeachingDeck = @"C:\Users\glove\projects\lakewood\intro-to-computers\A+  220-1201 Module 1.pptx";
+  private const string TeachingDeck = PptxRealDeck.TeachingDeckPath;
 
   private readonly DirectPptxAccess _access = new();
 
   [Fact]
   public async Task Inserts_a_slide_into_the_teaching_deck_and_keeps_every_other_slide()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     string copy = Copy();
     try
     {
@@ -43,7 +44,7 @@ public sealed class PptxRealDeckStructureTests
   [Fact]
   public async Task Deletes_a_slide_from_the_teaching_deck_and_leaves_no_orphaned_part()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     string copy = Copy();
     try
     {
@@ -63,7 +64,7 @@ public sealed class PptxRealDeckStructureTests
   [Fact]
   public async Task Moves_a_slide_in_the_teaching_deck()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     string copy = Copy();
     try
     {
@@ -84,7 +85,7 @@ public sealed class PptxRealDeckStructureTests
   [Fact]
   public async Task Changes_a_teaching_deck_slide_from_TITLE_to_OBJECT_and_keeps_its_text()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     string copy = Copy();
     try
     {
@@ -106,7 +107,7 @@ public sealed class PptxRealDeckStructureTests
   [Fact]
   public async Task Refuses_to_move_a_teaching_deck_slide_onto_a_layout_that_would_strand_its_pictures()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     string copy = Copy();
     try
     {

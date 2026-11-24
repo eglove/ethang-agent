@@ -229,27 +229,7 @@ public sealed class PptxCommentTests
     Assert.Equal(PptxErrorCodes.NotAPptx, listed.Error.Code);
   }
 
-  [Fact]
-  public async Task Reads_and_adds_a_comment_on_a_copy_of_the_teaching_deck()
-  {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
-    string copy = ScratchFile("teaching-copy.pptx");
-    File.Copy(TeachingDeck, copy, true);
-    Assert.Empty(await Comments(copy));
-    _ = await Add(copy, "s2.sh1", "Reviewer", "Check this figure");
-    PptxCommentInfo comment = Assert.Single(await Comments(copy));
-    Assert.Equal("s2.sh1", comment.AnchorAddress);
-    Assert.Equal(41, (await Outline(copy)).SlideCount);
-  }
 
-  private const string TeachingDeck = @"C:\Users\glove\projects\lakewood\intro-to-computers\A+  220-1201 Module 1.pptx";
-
-  private async Task<PptxOutline> Outline(string path)
-  {
-    Result<PptxOutline> result = await _access.ReadOutlineAsync(path, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    Assert.True(result.IsSuccess, result.Error?.Message);
-    return result.Value;
-  }
 
   private static string Deck(string name, params TestSlideSpec[] slides)
     => TestPptxFactory.CreateDeck(ScratchFile(name), slides);

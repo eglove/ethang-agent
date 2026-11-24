@@ -9,16 +9,17 @@ namespace eThangAgent.Presentation.ACL.Tests;
 /// <summary>Text edits against the real 41-slide teaching deck: read in place, mutated only
 ///     on a temporary copy that is deleted afterwards. The deck is licensed material
 ///     belonging to another project, so it is a verification input only.</summary>
+[Trait("Category", "OptIn")]
 public sealed class PptxRealDeckTextEditTests
 {
-  private const string TeachingDeck = @"C:\Users\glove\projects\lakewood\intro-to-computers\A+  220-1201 Module 1.pptx";
+  private const string TeachingDeck = PptxRealDeck.TeachingDeckPath;
 
   private readonly DirectPptxAccess _access = new();
 
   [Fact]
   public async Task Reads_the_teaching_deck_outline_with_every_slide_and_its_layouts()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     PptxOutline outline = await Outline(TeachingDeck);
 
     Assert.Equal(41, outline.SlideCount);
@@ -34,7 +35,7 @@ public sealed class PptxRealDeckTextEditTests
   [Fact]
   public async Task Reads_the_notes_of_every_slide_in_the_teaching_deck()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     PptxOutline outline = await Outline(TeachingDeck);
 
     foreach (PptxSlideSummary summary in outline.Slides)
@@ -52,7 +53,7 @@ public sealed class PptxRealDeckTextEditTests
   [Fact]
   public async Task Replacing_one_title_leaves_every_other_slide_note_and_media_part_intact()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     string copy = Copy();
     try
     {

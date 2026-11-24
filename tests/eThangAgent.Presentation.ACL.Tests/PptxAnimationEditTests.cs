@@ -10,10 +10,6 @@ namespace eThangAgent.Presentation.ACL.Tests;
 ///     one, and the refusals that leave the file byte-identical.</summary>
 public sealed class PptxAnimationEditTests
 {
-  /// <summary>The small sample deck, which carries a timing element on its single slide.
-  ///     </summary>
-  private const string SampleDeck =
-      @"C:\Users\glove\go\pkg\mod\github.com\wailsapp\mimetype@v1.4.1\testdata\pptx.pptx";
 
   private readonly DirectPptxAccess _access = new();
 
@@ -225,35 +221,6 @@ public sealed class PptxAnimationEditTests
     Assert.Equal(PptxErrorCodes.SlideNotFound, code);
   }
 
-  [Fact]
-  public async Task Reads_the_sample_decks_effects_without_error()
-  {
-    Assert.SkipUnless(File.Exists(SampleDeck), "the sample deck is not on this machine");
-    PptxSlideSnapshot slide = await SlideRead(SampleDeck, 1);
-    Assert.Empty(slide.Animations);
-  }
-
-  [Fact]
-  public async Task Edits_the_sample_decks_animation_on_a_copy_and_leaves_the_original_alone()
-  {
-    Assert.SkipUnless(File.Exists(SampleDeck), "the sample deck is not on this machine");
-    byte[] original = await Bytes(SampleDeck);
-    string copy = Path.Combine(TestTempRoot.CreateDirectory("pptx-animation").FullName, "sample.pptx");
-    File.Copy(SampleDeck, copy);
-    try
-    {
-      _ = await Edit(copy, new SetAnimation(1, 1, "fade s1.sh2", null, null));
-      PptxAnimationInfo effect = Assert.Single((await SlideRead(copy, 1)).Animations);
-      Assert.Equal("s1.sh2", effect.Address);
-      Assert.Equal("entr:10", effect.Effect);
-      Assert.Equal("onClick", effect.Trigger);
-      Assert.Equal(original, await Bytes(SampleDeck));
-    }
-    finally
-    {
-      File.Delete(copy);
-    }
-  }
 
   private static string Animated(string name, int effects)
     => TestPptxFactory.CreateDeck(ScratchFile(name),

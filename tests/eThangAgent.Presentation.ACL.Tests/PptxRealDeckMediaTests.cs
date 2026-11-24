@@ -10,16 +10,17 @@ namespace eThangAgent.Presentation.ACL.Tests;
 ///     41 slides and 99 picture shapes, read in place and mutated only on a temporary copy
 ///     that is deleted afterwards. The deck is licensed material belonging to another
 ///     project, so it is a verification input only.</summary>
+[Trait("Category", "OptIn")]
 public sealed class PptxRealDeckMediaTests
 {
-  private const string TeachingDeck = @"C:\Users\glove\projects\lakewood\intro-to-computers\A+  220-1201 Module 1.pptx";
+  private const string TeachingDeck = PptxRealDeck.TeachingDeckPath;
 
   private readonly DirectPptxAccess _access = new();
 
   [Fact]
   public async Task Extracts_every_media_part_the_outline_lists()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     PptxOutline outline = await Outline(TeachingDeck);
     Assert.Equal(19, outline.Media.Count);
     Result<IReadOnlyList<ToolResultImage>> extracted =
@@ -33,7 +34,7 @@ public sealed class PptxRealDeckMediaTests
   [Fact]
   public async Task Returns_the_bytes_the_deck_carries_for_each_media_part()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     PptxOutline outline = await Outline(TeachingDeck);
     Result<IReadOnlyList<ToolResultImage>> extracted =
         await _access.ExtractImagesAsync(TeachingDeck, null, TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -46,7 +47,7 @@ public sealed class PptxRealDeckMediaTests
   [Fact]
   public async Task Replaces_one_picture_without_changing_a_picture_that_shares_its_media()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     string copy = Copy();
     try
     {
@@ -74,7 +75,7 @@ public sealed class PptxRealDeckMediaTests
   [Fact]
   public async Task Inserts_a_picture_a_table_and_a_text_box_into_the_teaching_deck()
   {
-    Assert.SkipUnless(File.Exists(TeachingDeck), "the teaching deck is not on this machine");
+    PptxRealDeck.Teaching();
     string copy = Copy();
     try
     {
