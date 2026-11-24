@@ -276,7 +276,7 @@ internal static class PptxShapeWalker
 
   /// <summary>The chart's type, named as PowerPoint's own chart gallery names the family.
   ///     A bar chart's direction decides between bar and column.</summary>
-  private static string ChartType(C.PlotArea plotArea)
+  internal static string ChartType(C.PlotArea plotArea)
     => plotArea.GetFirstChild<C.BarChart>() is { } bar
       ? BarType(bar)
       : ChartFamilies.FirstOrDefault(family => family.Present(plotArea)).Name ?? "unknown";

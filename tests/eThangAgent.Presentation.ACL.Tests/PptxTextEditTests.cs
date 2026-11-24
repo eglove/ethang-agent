@@ -148,7 +148,7 @@ public sealed class PptxTextEditTests
     string path = TestPptxFactory.CreateDeck(ScratchFile("unsupported.pptx"),
         [new TestSlideSpec { Title = "One" }, new TestSlideSpec { Title = "Two" }]);
     byte[] before = Bytes(path);
-    string code = await EditCode(path, (await Outline(path)).Version, new SetChartData("s1.sh1", null, null, null));
+    string code = await EditCode(path, (await Outline(path)).Version, new SetAnimation(1, 1, "fade", null, null));
     Assert.Equal(PptxErrorCodes.OperationUnsupported, code);
     Assert.Equal(before, Bytes(path));
   }

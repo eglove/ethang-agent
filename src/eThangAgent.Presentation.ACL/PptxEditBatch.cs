@@ -76,12 +76,14 @@ internal static class PptxEditBatch
       DeleteSlide delete => ResolveDeleteSlide(slides, delete),
       MoveSlide move => ResolveMoveSlide(slides, move),
       SetSlideLayout layout => ResolveSetSlideLayout(slides, layout),
-      _ => PptxMediaWriter.Resolve(slides, operation, ordinal) ?? Unsupported(operation),
+      _ => PptxMediaWriter.Resolve(slides, operation, ordinal)
+          ?? PptxChartEditor.Resolve(slides, operation)
+          ?? Unsupported(operation),
     };
 
   private static Result<PptxResolvedEdit> Unsupported(PptxOperation operation)
     => Failed(PptxErrorCodes.OperationUnsupported,
-        $"The '{operation.GetType().Name}' operation is not supported yet; this build applies replaceText, setNotes, insertSlide, deleteSlide, moveSlide, setSlideLayout, replacePicture, insertPicture, insertTable and insertTextBox only.");
+        $"The '{operation.GetType().Name}' operation is not supported yet; this build applies replaceText, setNotes, insertSlide, deleteSlide, moveSlide, setSlideLayout, replacePicture, insertPicture, insertTable, insertTextBox and setChartData only.");
 
   /// <summary>Resolves a slide insertion. The slide is built on the named layout and its
   ///     id entry lands at the requested position; the key is the position the new slide

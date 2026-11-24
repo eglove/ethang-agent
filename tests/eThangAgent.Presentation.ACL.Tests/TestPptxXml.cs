@@ -348,6 +348,74 @@ internal static class TestPptxXml
        + "<c:delete val=\"0\"/><c:axPos val=\"l\"/><c:crossAx val=\"111111111\"/></c:valAx>"
        + "</c:plotArea><c:plotVisOnly val=\"1\"/></c:chart></c:chartSpace>";
 
+  /// <summary>A chart part of the named family carrying the given series, categories and
+  ///     values as cached data, and referencing an embedded workbook when a relationship id
+  ///     is given. The family names are the ones the read reports: bar, column, line, pie
+  ///     and radar.</summary>
+  internal static string ChartPartXml(string family, IReadOnlyList<string> seriesNames,
+      IReadOnlyList<string> categories, IReadOnlyList<IReadOnlyList<double>> values,
+      string? workbookRelationshipId)
+  {
+    string series = string.Concat(seriesNames.Select((name, position) =>
+        Series(name, position, categories, values[position])));
+    return Header
+        + "<c:chartSpace xmlns:c=\"" + NsC + "\" xmlns:a=\"" + NsA + "\" xmlns:r=\"" + NsR + "\">"
+        + "<c:chart><c:plotArea><c:layout/>" + Family(family, series) + Axes(family)
+        + "</c:plotArea><c:plotVisOnly val=\"1\"/></c:chart>"
+        + ExternalData(workbookRelationshipId)
+        + "</c:chartSpace>";
+  }
+
+  private static string Family(string family, string series) => family switch
+  {
+    "line" => "<c:lineChart><c:grouping val=\"standard\"/><c:varyColors val=\"0\"/>" + series
+        + "<c:marker val=\"1\"/><c:axId val=\"111111111\"/><c:axId val=\"222222222\"/></c:lineChart>",
+    "pie" => "<c:pieChart><c:varyColors val=\"1\"/>" + series + "</c:pieChart>",
+    "radar" => "<c:radarChart><c:radarStyle val=\"marker\"/><c:varyColors val=\"0\"/>" + series
+        + "<c:axId val=\"111111111\"/><c:axId val=\"222222222\"/></c:radarChart>",
+    "bar" => "<c:barChart><c:barDir val=\"bar\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>"
+        + series + "<c:axId val=\"111111111\"/><c:axId val=\"222222222\"/></c:barChart>",
+    _ => "<c:barChart><c:barDir val=\"col\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>"
+        + series + "<c:axId val=\"111111111\"/><c:axId val=\"222222222\"/></c:barChart>",
+  };
+
+  private static string Axes(string family) => family == "pie"
+      ? string.Empty
+      : "<c:catAx><c:axId val=\"111111111\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling>"
+        + "<c:delete val=\"0\"/><c:axPos val=\"b\"/><c:crossAx val=\"222222222\"/></c:catAx>"
+        + "<c:valAx><c:axId val=\"222222222\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling>"
+        + "<c:delete val=\"0\"/><c:axPos val=\"l\"/><c:crossAx val=\"111111111\"/></c:valAx>";
+
+  private static string Series(string name, int position, IReadOnlyList<string> categories,
+      IReadOnlyList<double> values)
+  {
+    string column = ((char)('B' + position)).ToString();
+    string last = (categories.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    return "<c:ser><c:idx val=\"" + position + "\"/><c:order val=\"" + position + "\"/>"
+        + "<c:tx><c:strRef><c:f>Sheet1!$" + column + "$1</c:f><c:strCache><c:ptCount val=\"1\"/>"
+        + "<c:pt idx=\"0\"><c:v>" + name + "</c:v></c:pt></c:strCache></c:strRef></c:tx>"
+        + "<c:cat><c:strRef><c:f>Sheet1!$A$2:$A$" + last + "</c:f><c:strCache>"
+        + "<c:ptCount val=\"" + categories.Count + "\"/>" + Points(categories) + "</c:strCache></c:strRef></c:cat>"
+        + "<c:val><c:numRef><c:f>Sheet1!$" + column + "$2:$" + column + "$" + last + "</c:f><c:numCache>"
+        + "<c:formatCode>General</c:formatCode><c:ptCount val=\"" + values.Count + "\"/>"
+        + NumberPoints(values) + "</c:numCache></c:numRef></c:val></c:ser>";
+  }
+
+  private static string Points(IReadOnlyList<string> points)
+    => string.Concat(points.Select((point, position) =>
+        "<c:pt idx=\"" + position + "\"><c:v>" + point + "</c:v></c:pt>"));
+
+  private static string NumberPoints(IReadOnlyList<double> points)
+    => string.Concat(points.Select((point, position) =>
+        "<c:pt idx=\"" + position + "\"><c:v>"
+        + point.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "</c:v></c:pt>"));
+
+  private static string ExternalData(string? workbookRelationshipId)
+    => workbookRelationshipId is null
+        ? string.Empty
+        : "<c:externalData xmlns:r=\"" + NsR + "\" r:id=\"" + workbookRelationshipId + "\">"
+          + "<c:autoUpdate val=\"0\"/></c:externalData>";
+
   /// <summary>The theme a deck needs to open with a design rather than a blank page.
   ///     </summary>
   internal static string Theme()

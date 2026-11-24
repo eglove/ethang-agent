@@ -1,7 +1,11 @@
 using System.Text;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
+using S = DocumentFormat.OpenXml.Spreadsheet;
 
+// S3220 flags the element trees built by handing their children to the constructor below:
+// that is the overload the SDK declares for them.
+#pragma warning disable S3220
 namespace eThangAgent.Presentation.ACL.Tests;
 
 /// <summary>One slide a fixture deck is built from: the text its title and body
@@ -47,6 +51,23 @@ internal sealed record TestSlideSpec
   internal bool WithTable { get; init; }
 
   internal bool WithChart { get; init; }
+
+  /// <summary>The chart's family when <see cref="WithChart"/> is set: column, bar, line,
+  ///     pie or radar. Null builds a column chart.</summary>
+  internal string? ChartFamily { get; init; }
+
+  /// <summary>The chart's series names, categories and values when <see cref="WithChart"/>
+  ///     is set. Null builds one series of two categories.</summary>
+  internal IReadOnlyList<string>? ChartSeriesNames { get; init; }
+
+  internal IReadOnlyList<string>? ChartCategories { get; init; }
+
+  internal IReadOnlyList<IReadOnlyList<double>>? ChartValues { get; init; }
+
+  /// <summary>The chart carries an embedded workbook holding its data, which is what a
+  ///     chart PowerPoint wrote has. False builds a chart part with cached values only.
+  ///     </summary>
+  internal bool WithChartWorkbook { get; init; }
 
   internal bool WithGroup { get; init; }
 
@@ -159,7 +180,21 @@ internal static class TestPptxFactory
     if (spec.WithChart)
     {
       ChartPart chartPart = slidePart.AddNewPart<ChartPart>("rIdChart1");
-      chartPart.FeedData(Utf8(TestPptxXml.Chart()));
+      string? workbookRelationshipId = spec.WithChartWorkbook ? "rIdWorkbook1" : null;
+      chartPart.FeedData(Utf8(TestPptxXml.ChartPartXml(spec.ChartFamily ?? "column",
+          spec.ChartSeriesNames ?? ["Series 1"],
+          spec.ChartCategories ?? ["Cat A", "Cat B"],
+          spec.ChartValues ?? [[1d, 2d]],
+          workbookRelationshipId)));
+      if (workbookRelationshipId is not null)
+      {
+        EmbeddedPackagePart workbook = chartPart.AddNewPart<EmbeddedPackagePart>(
+            EmbeddedPackagePartType.Xlsx.ContentType, workbookRelationshipId);
+        workbook.FeedData(Workbook(spec.ChartSeriesNames ?? ["Series 1"],
+            spec.ChartCategories ?? ["Cat A", "Cat B"],
+            spec.ChartValues ?? [[1d, 2d]]));
+      }
+
       _ = shapes.Append(TestPptxXml.ChartShape(nextId++, "rIdChart1"));
     }
 
@@ -207,6 +242,69 @@ internal static class TestPptxFactory
     "Title Only" => 1,
     _ => 2,
   };
+
+  /// <summary>An xlsx workbook holding the chart's data: series names across the first
+  ///     row, category names down the first column and the values beneath them, which is
+  ///     the layout the chart's own formulas address.</summary>
+  private static MemoryStream Workbook(IReadOnlyList<string> seriesNames, IReadOnlyList<string> categories,
+      IReadOnlyList<IReadOnlyList<double>> values)
+  {
+    MemoryStream buffer = new();
+    using (SpreadsheetDocument document = SpreadsheetDocument.Create(buffer, SpreadsheetDocumentType.Workbook))
+    {
+      WorkbookPart workbookPart = document.AddWorkbookPart();
+      workbookPart.Workbook = new S.Workbook();
+      WorksheetPart worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+      worksheetPart.Worksheet = new S.Worksheet(SheetData(seriesNames, categories, values));
+      _ = workbookPart.Workbook.AppendChild(new S.Sheets(new S.Sheet
+      {
+        Id = workbookPart.GetIdOfPart(worksheetPart),
+        SheetId = 1U,
+        Name = "Sheet1",
+      }));
+      workbookPart.Workbook.Save();
+    }
+
+    buffer.Position = 0;
+    return buffer;
+  }
+
+  private static S.SheetData SheetData(IReadOnlyList<string> seriesNames, IReadOnlyList<string> categories,
+      IReadOnlyList<IReadOnlyList<double>> values)
+  {
+    S.SheetData data = new();
+    S.Row header = new() { RowIndex = 1U };
+    header.Append(TextCell("A1", string.Empty));
+    for (int position = 0; position < seriesNames.Count; position++)
+    {
+      header.Append(TextCell(Column(position + 1) + "1", seriesNames[position]));
+    }
+
+    data.Append(header);
+    for (int position = 0; position < categories.Count; position++)
+    {
+      uint index = (uint)(position + 2);
+      S.Row row = new() { RowIndex = index };
+      row.Append(TextCell("A" + index.ToString(System.Globalization.CultureInfo.InvariantCulture), categories[position]));
+      for (int series = 0; series < values.Count; series++)
+      {
+        row.Append(NumberCell(Column(series + 1) + index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            values[series][position]));
+      }
+
+      data.Append(row);
+    }
+
+    return data;
+  }
+
+  private static S.Cell TextCell(string reference, string text)
+    => new() { CellReference = reference, DataType = S.CellValues.InlineString, InlineString = new S.InlineString(new S.Text(text)) };
+
+  private static S.Cell NumberCell(string reference, double value)
+    => new() { CellReference = reference, CellValue = new S.CellValue(value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)) };
+
+  private static string Column(int series) => ((char)('A' + series)).ToString();
 
   private static MemoryStream Utf8(string xml) => new(Encoding.UTF8.GetBytes(xml));
 }
