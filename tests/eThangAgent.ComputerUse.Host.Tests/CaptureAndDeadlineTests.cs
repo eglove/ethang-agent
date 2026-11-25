@@ -1,11 +1,10 @@
 
 namespace eThangAgent.ComputerUse.Host.Tests;
 
-/// <summary>Fix round I3: REAL unit coverage for the capture-side fake-testable logic
-///     (blank detection math, minimize policy) and the UIA walker deadline mechanics
-///     (injectable worker, join under deadline, abandon on timeout). No claimed-but-absent
-///     coverage: the real GDI raster and the real CUIAutomation walk stay deferred to
-///     Task 18 integration.</summary>
+/// <summary>Real unit coverage for the capture-side fake-testable logic (blank detection
+///     math, minimize policy) and the UIA call bound the walk depends on. No
+///     claimed-but-absent coverage: the real GDI raster and the live walk stay
+///     integration concerns.</summary>
 public class CaptureAndDeadlineTests
 {
   [Fact]
@@ -36,28 +35,11 @@ public class CaptureAndDeadlineTests
   }
 
   [Fact]
-  public void WalkerDeadline_FastWorker_ReturnsResult()
+  public void Session_BoundsEveryUiaCall()
   {
-    UiaTreeWalker walker = new(() => ["row"]);
-    string[]? rows = walker.WalkWithDeadline(TimeSpan.FromSeconds(5));
-    Assert.NotNull(rows);
-    Assert.Equal(["row"], rows);
-  }
-
-  [Fact]
-  public void WalkerDeadline_SlowWorker_ReturnsNull_AndIsAbandoned()
-  {
-    using ManualResetEventSlim workerStarted = new(false);
-    using ManualResetEventSlim releaseWorker = new(false);
-    UiaTreeWalker walker = new(() =>
-    {
-      workerStarted.Set();
-      bool released = releaseWorker.Wait(TimeSpan.FromSeconds(60)); // held past the deadline on purpose
-      _ = released;
-      return null;
-    });
-    string[]? rows = walker.WalkWithDeadline(TimeSpan.FromMilliseconds(100));
-    Assert.Null(rows); // deadline exceeded: null answers timeout, worker abandoned by design
-    releaseWorker.Set(); // release the abandoned worker so its thread can exit
+    // The walk's timeout answer is the automation's own bound, not a harness deadline:
+    // a provider that stops answering fails its call instead of hanging the request.
+    Assert.True(Uia3Session.ConnectionTimeout > TimeSpan.Zero);
+    Assert.True(Uia3Session.TransactionTimeout > Uia3Session.ConnectionTimeout);
   }
 };

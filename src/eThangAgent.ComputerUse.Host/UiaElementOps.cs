@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Exceptions;
@@ -79,7 +80,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (FlaUIException ex)
+    catch (Exception ex) when (ex is FlaUIException or COMException)
     {
       return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the invoke (UIA {ex.HResult}); nothing ran.");
     }
@@ -117,7 +118,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (FlaUIException ex)
+    catch (Exception ex) when (ex is FlaUIException or COMException)
     {
       return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the scroll (UIA {ex.HResult}); nothing scrolled.");
     }
@@ -164,7 +165,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return BrokerResponse.Fail("not_settable", $"element {element} rejected the value: {ex.Message}");
     }
-    catch (FlaUIException ex)
+    catch (Exception ex) when (ex is FlaUIException or COMException)
     {
       return BrokerResponse.Fail("not_settable", $"element {element} rejected the value (UIA {ex.HResult}).");
     }
@@ -212,7 +213,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (FlaUIException ex)
+    catch (Exception ex) when (ex is FlaUIException or COMException)
     {
       return BrokerResponse.Fail("action_unavailable",
         $"element {element} rejected action '{actionName}' (UIA {ex.HResult}); nothing ran.");
@@ -291,7 +292,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (FlaUIException ex)
+    catch (Exception ex) when (ex is FlaUIException or COMException)
     {
       return BrokerResponse.Fail("internal", $"SetFocus failed (UIA {ex.HResult}).", "action_sent=false");
     }
@@ -312,7 +313,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       nativeWindow = target.Properties.NativeWindowHandle.ValueOrDefault;
     }
-    catch (FlaUIException)
+    catch (Exception ex) when (ex is FlaUIException or COMException)
     {
       return; // the element went stale between focus and read; nothing to settle
     }
@@ -347,7 +348,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
           _ = landed.TrySetResult();
         }
       }
-      catch (FlaUIException)
+      catch (Exception ex) when (ex is FlaUIException or COMException)
       {
         // A stale sender mid-handshake cannot signal the wait.
       }

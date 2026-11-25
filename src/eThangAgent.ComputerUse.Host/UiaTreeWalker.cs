@@ -34,65 +34,6 @@ public sealed record UiaElementRow(
 #pragma warning restore CA1819
 }
 
-/// <summary>The per-request UIA walk worker (task 17): every request runs on a fresh
-///     STA thread (COM UIA requires it), joined with the 45-second deadline cap; a
-///     timed-out worker is abandoned (its thread dies with the process; COM teardown on
-///     an abandoned STA is unsafe by design, so we orphan it deliberately). The walk
-///     itself reads the tree through FlaUI's UIA3 automation, whose tree walkers supply
-///     the control and raw views and whose elements supply the property and pattern
-///     reads. RealBrokerObserver assigns dense walk-order indices with a 400-element
-///     cap; the ACL's TreeTextRenderer additionally tolerates sparse tables and trims
-///     for display, so the two sides only agree on the index semantics, not a density
-///     requirement. COVERAGE: the deadline join/abandon mechanics are unit-tested over
-///     the injectable worker; the live walk stays an integration concern.</summary>
-public sealed partial class UiaTreeWalker(Func<string[]?>? walkCore = null)
-{
-  /// <summary>The hard deadline for one walk request.</summary>
-  public static readonly TimeSpan WalkDeadline = TimeSpan.FromSeconds(45);
-
-  private readonly Func<string[]?> _walkCore = walkCore ?? RealWalkCore;
-
-  /// <summary>Runs one walk with the deadline. Returns the element rows (wire JSON
-  ///     strings), or null when the walk timed out - the caller answers timeout.</summary>
-  public string[]? WalkWithDeadline(TimeSpan? deadline = null)
-  {
-    TimeSpan cap = deadline ?? WalkDeadline;
-    string[]? result = null;
-    Exception? fault = null;
-    using ManualResetEventSlim done = new(false);
-    ThreadStart body = RunWorker;
-    Thread worker = new(new ThreadStart(body));
-    worker.SetApartmentState(ApartmentState.STA);
-    worker.IsBackground = true;
-    worker.Start();
-    if (!done.Wait(cap))
-    {
-      return null; // deadline exceeded: the worker is abandoned by design
-    }
-
-#pragma warning disable CA1508 // Named decision: fault IS written on the worker thread; the analyzer cannot see the closure write ordering.
-    return fault is null ? result : throw new InvalidOperationException("UIA walk failed on the STA worker.", fault);
-#pragma warning restore CA1508
-
-    void RunWorker()
-    {
-      try
-      {
-        result = _walkCore();
-      }
-#pragma warning disable CA1031 // Named decision: the STA worker boundary must never crash the process; the fault is delivered to the caller as internal.
-      catch (Exception ex)
-      {
-        fault = ex;
-      }
-#pragma warning restore CA1031
-      done.Set();
-    }
-  }
-
-  private static string[]? RealWalkCore() => null; // the injected walk seam; production resolves RealBrokerObserver's FlaUI walk
-}
-
 /// <summary>The element rows of one window, in walk order, with the runtime elements
 ///     the element-op dispatcher resolves model indices against. The cache holds null
 ///     for a row whose element vanished mid-walk: the row is still reported so indices

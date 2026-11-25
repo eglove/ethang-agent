@@ -3,13 +3,19 @@ using FlaUI.UIA3;
 
 namespace eThangAgent.ComputerUse.Host;
 
-/// <summary>Owns the broker's single UIA3 automation object. FlaUI's automation is
-///     thread-affine COM: every element it produces is a proxy that must be reached
-///     from the thread that created it. The broker therefore keeps one instance for
-///     the process lifetime and reaches it only from the STA walk worker, which is
-///     the thread that created it.</summary>
+/// <summary>Owns the broker's single UIA3 automation object. One instance serves the
+///     process lifetime, and its connection and transaction timeouts are the bound on
+///     every UIA call the broker makes: a provider that stops answering fails its call
+///     instead of hanging the pipe request that triggered it.</summary>
 public sealed class Uia3Session : IDisposable
 {
+  /// <summary>How long a UIA call waits for a provider to answer before failing.</summary>
+  public static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(5);
+
+  /// <summary>The bound on one UIA transaction. A walk is many transactions, so this is
+  ///     the per-call ceiling rather than a whole-walk deadline.</summary>
+  public static readonly TimeSpan TransactionTimeout = TimeSpan.FromSeconds(20);
+
   private readonly Lock _gate = new();
   private UIA3Automation? _automation;
   private bool _disposed;
@@ -23,7 +29,11 @@ public sealed class Uia3Session : IDisposable
       lock (_gate)
       {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _automation ??= new UIA3Automation();
+        return _automation ??= new UIA3Automation
+        {
+          ConnectionTimeout = ConnectionTimeout,
+          TransactionTimeout = TransactionTimeout,
+        };
       }
     }
   }

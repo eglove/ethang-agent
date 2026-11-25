@@ -315,25 +315,26 @@ public partial class RealBrokerObserver : IBrokerObserver, IDisposable
 
   // ---- walk ----
 
+  /// <summary>Walks one window's element tree. Null answers the retryable timeout:
+  ///     the session's UIA transaction bound elapsed, or the window no longer resolves.
+  ///     The bound is the automation's own (FlaUI's TransactionTimeout), not a harness
+  ///     deadline - a walk that outlives it fails the same way a dead window does.</summary>
   internal virtual UiaWalk? WalkElements(nint window)
   {
     AutomationElement? root = _session.FromHandle(window);
-    UiaWalk? walked = null;
-    UiaTreeWalker walker = new(() =>
+    if (root is null)
     {
-      walked = root is null ? null : UiaWalk.Of(root);
-      return [];
-    });
-    string[]? outcome = WalkOnce(window, walker);
-    return outcome is null ? null : walked ?? UiaWalk.Empty;
-  }
+      return null;
+    }
 
-  /// <summary>The walk seam (fix round 5): production joins the walker's deadline;
-  ///     tests override to hand back a fixed outcome (null = the deadline won).</summary>
-  internal virtual string[]? WalkOnce(nint window, UiaTreeWalker walker)
-  {
-    _ = window;
-    return walker.WalkWithDeadline();
+    try
+    {
+      return UiaWalk.Of(root);
+    }
+    catch (FlaUI.Core.Exceptions.FlaUIException)
+    {
+      return null;
+    }
   }
 
   // ---- raster ----
