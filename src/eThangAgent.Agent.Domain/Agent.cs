@@ -1305,6 +1305,29 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     return tool;
   }
 
+  /// <summary>The unknown-tool refusal, naming the route to a tool that exists only
+  ///     inside exec. A bare 'Unknown tool: read' costs a turn and teaches nothing: the
+  ///     action is real, it is simply not a top-level tool, and the message says so.
+  ///     </summary>
+  private static string UnknownToolMessage(string name) => IsExecAction(name)
+    ? $"Error [UnknownTool]: '{name}' is not a top-level tool; it is an exec action - call it as Tools.{name}(...) inside an exec program."
+    : $"Error [UnknownTool]: Unknown tool: {name}.";
+
+  /// <summary>True for a name the exec surface binds (read, write, edit, web_fetch, ...):
+  ///     the caller reached for an action as though it were a top-level tool.</summary>
+  private static bool IsExecAction(string name) => ExecActionNames.Contains(name);
+
+  // The exec surface's action names: reaching for one as a top-level tool is the
+  // mistake the message corrects.
+  private static readonly HashSet<string> ExecActionNames =
+  [
+    "read", "write", "edit", "find_files", "web_fetch", "mcp", "lsp", "docx", "pdf", "pptx",
+    "compose_image", "db_schema", "db_query", "sqlite_query", "skill_view", "skill_list", "skill_search",
+    "skill_lint", "skill_registry", "skill_invoke", "experiment", "context_edit", "git_status",
+    "working_diff", "git_commit", "worktree", "command_output", "openrouter_management", "cycle_check",
+    "state", "plan", "chain", "telemetry", "computer", "agent",
+  ];
+
   /// <summary>Executes one resolved tool call (or renders the unknown-tool refusal):
   ///     a registry that owns the grant policy explains the refusal in its own words
   ///     (R1.3: GrantViolation, distinguishable from typo); a plain registry renders
@@ -1316,7 +1339,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     if (tool is null)
     {
       return new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)
-          ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true);
+          ?? UnknownToolMessage(call.Name), true);
     }
 
     // The serving model is ambient for the call and restored after it, so a tool that

@@ -8,11 +8,12 @@ namespace eThangAgent.ToolDomain;
 ///     pre-joined string so the write backend can join with the target file's own
 ///     line-ending convention — a join here would have to guess the convention
 ///     before the file is known.</summary>
-public sealed record WriteToolInput(string Path, string? Content, IReadOnlyList<string>? Lines, bool Overwrite)
+public sealed record WriteToolInput(string Path, string? Content, IReadOnlyList<string>? Lines, bool Overwrite, bool Force = false)
 {
   private const string ContentName = "content";
   private const string LinesName = "lines";
   private const string OverwriteName = "overwrite";
+  private const string ForceName = "force";
 
   public static Result<WriteToolInput> Create(string jsonArguments)
   {
@@ -24,14 +25,14 @@ public sealed record WriteToolInput(string Path, string? Content, IReadOnlyList<
 
     JsonElement json = baseParse.Value;
 
-    HashSet<string> known = new(["path", ContentName, LinesName, OverwriteName, ToolTimeout.ParameterName], StringComparer.Ordinal);
+    HashSet<string> known = new(["path", ContentName, LinesName, OverwriteName, ForceName, ToolTimeout.ParameterName], StringComparer.Ordinal);
     List<string> unknown = [.. json.EnumerateObject()
         .Where(p => !known.Contains(p.Name))
         .Select(p => p.Name)];
     if (unknown.Count > 0)
     {
       return Fail(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, content or lines (exactly one), overwrite, {ToolTimeout.ParameterName}."));
+          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, content or lines (exactly one), overwrite, force, {ToolTimeout.ParameterName}."));
     }
 
     if (!json.TryGetProperty("path", out JsonElement pathEl))
@@ -60,20 +61,30 @@ public sealed record WriteToolInput(string Path, string? Content, IReadOnlyList<
     // Omitted 'overwrite' defaults to refusing replacement: the call stays a create-only
     // write and an existing file fails with FileExists. Replacement still requires the
     // explicit opt-in, so nothing is ever silently replaced.
-    if (!json.TryGetProperty(OverwriteName, out JsonElement owEl))
+    Result<bool> overwrite = OptionalFlag(json, OverwriteName);
+    if (!overwrite.IsSuccess)
     {
-      return Result.Success<WriteToolInput>(new(path, content.Value.Content, content.Value.Lines, Overwrite: false));
+      return Fail(overwrite.Error);
     }
 
-    if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-    {
-      return WrongType(OverwriteName, "boolean", owEl.ValueKind);
-    }
-
-    bool overwrite = owEl.GetBoolean();
-
-    return Result.Success<WriteToolInput>(new(path, content.Value.Content, content.Value.Lines, overwrite));
+    Result<bool> force = OptionalFlag(json, ForceName);
+    return force.IsSuccess
+      ? Result.Success<WriteToolInput>(new(path, content.Value.Content, content.Value.Lines, overwrite.Value, force.Value))
+      : Fail(force.Error);
   }
+
+  /// <summary>An optional boolean flag: false when absent, the typed error when present
+  ///     but not a boolean.</summary>
+  private static Result<bool> OptionalFlag(JsonElement json, string name) =>
+    json.TryGetProperty(name, out JsonElement el) ? FlagValue(el, name) : Result.Success(false);
+
+  /// <summary>A present flag's value, or the typed error naming the kind it actually
+  ///     carried.</summary>
+  private static Result<bool> FlagValue(JsonElement el, string name) =>
+    el.ValueKind is JsonValueKind.True or JsonValueKind.False
+      ? Result.Success(el.GetBoolean())
+      : Result.Failure<bool>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{name}' must be a boolean, but got {el.ValueKind}."));
 
   /// <summary>Exactly one of 'content' (string) or 'lines' (string array). An empty
   ///     'lines' array is the explicit empty file; an empty string inside 'lines' is a

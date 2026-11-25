@@ -67,6 +67,52 @@ public sealed class FileWriteIntegrationTests : IDisposable
   }
 
   [Fact]
+  public async Task WriteExisting_DrasticShrink_IsRefused_ContentShrunk_AndTheFileIsUntouched()
+  {
+    // A round-tripped read result that lost its body overwrote a 151-line report with 38
+    // lines. That shape is a truncation far more often than an intended rewrite, so it is
+    // refused rather than performed.
+    string path = Path.Combine(_root, "report.txt");
+    string full = string.Join("\n", Enumerable.Repeat("a line of the report", 40));
+    _ = await _access.WriteFileAsync(path, full, overwrite: false, ct: TestContext.Current.CancellationToken);
+
+    Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, "a line of the report", overwrite: true, ct: TestContext.Current.CancellationToken);
+
+    Assert.False(r.IsSuccess);
+    Assert.Equal("ContentShrunk", r.Error.Code);
+    Assert.Equal(full, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task WriteExisting_ModestShrink_IsAllowed()
+  {
+    string path = Path.Combine(_root, "notes.txt");
+    string full = string.Join("\n", Enumerable.Repeat("a line of notes", 20));
+    _ = await _access.WriteFileAsync(path, full, overwrite: false, ct: TestContext.Current.CancellationToken);
+
+    // Two thirds of the file survives: an ordinary edit, not a lost body.
+    string trimmed = string.Join("\n", Enumerable.Repeat("a line of notes", 13));
+    Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, trimmed, overwrite: true, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal(trimmed, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task WriteExisting_ShortFileShrinkingToNothing_IsAllowed()
+  {
+    // Below the floor there is no body to lose: a short file being rewritten short is
+    // ordinary editing.
+    string path = Path.Combine(_root, "small.txt");
+    _ = await _access.WriteFileAsync(path, "a short note", overwrite: false, ct: TestContext.Current.CancellationToken);
+
+    Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, "x", overwrite: true, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal("x", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
   public async Task BytesWritten_ReflectsUtf8ByteCount_NoBom()
   {
     string path = Path.Combine(_root, "bytes.txt");

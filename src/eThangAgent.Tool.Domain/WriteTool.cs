@@ -25,6 +25,8 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
       "that itself contains raw-string delimiters belongs here rather than built inside " +
       "an exec script. The call fails if " +
       "the file exists unless overwrite is exactly true — it will never silently replace anything. " +
+      "A replacement that keeps less than half of an existing file of 200+ characters is refused with ContentShrunk " +
+      "unless force is exactly true: that shape is a truncated round-trip far more often than an intended rewrite. " +
       "Omitting overwrite keeps the call create-only. Parent directories are never created " +
       "automatically; the DirectoryNotFound error names the missing directory and the remedy. " +
       "Paths resolve inside the workspace; escapes are rejected. Content is written as " +
@@ -50,6 +52,8 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
                 "File content as one string per line, joined with the target file's line-ending convention (the project's for a new file). Empty elements are blank lines; an empty array writes an empty file. Exactly one of content or lines."),
             new ToolParameter("overwrite", ToolParameterType.Flag,
                 "Optional. Defaults to refusing replacement of an existing file; true replaces it."),
+            new ToolParameter("force", ToolParameterType.Flag,
+                "Optional. Defaults to refusing a replacement that keeps less than half of an existing file of 200+ characters (ContentShrunk); true allows the shrink."),
       ],
       ["timeoutSeconds", "path"],  // exactly one of content/lines is a cross-parameter rule the parser enforces
       MutatesWorkspace: true);
@@ -89,7 +93,7 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files, IA
     // WriteToolInput guarantees exactly one of Lines/Content is set, so the null-forgiving
     // operator below is the parser's contract restated at its only consumer.
     Result<FileWriteOutcome> written = args.Lines is { } lines
-        ? await _files.WriteFileLinesAsync(path, lines, args.Overwrite, ct).ConfigureAwait(false)
+        ? await _files.WriteFileLinesAsync(path, lines, args.Overwrite || args.Force, ct).ConfigureAwait(false)
         : await _files.WriteFileAsync(path, args.Content!, args.Overwrite, ct).ConfigureAwait(false);
     if (!written.IsSuccess)
     {

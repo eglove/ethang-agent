@@ -70,6 +70,7 @@ public sealed class DirectFileSystemAccess(ITextConventionPolicy conventions) : 
   public Task<Result<FileWriteOutcome>> WriteFileAsync(
       string path, string content, bool overwrite, CancellationToken ct = default)
   {
+    ArgumentNullException.ThrowIfNull(content);
     if (File.Exists(path) && !overwrite)
     {
       return Task.FromResult(Result.Failure<FileWriteOutcome>(
@@ -86,6 +87,14 @@ public sealed class DirectFileSystemAccess(ITextConventionPolicy conventions) : 
 
     bool created = !File.Exists(path);
     string? before = created ? null : ReadTextOrNull(path);
+    if (before is not null && IsDrasticShrink(before, content))
+    {
+      return Task.FromResult(Result.Failure<FileWriteOutcome>(new DomainError("ContentShrunk",
+          $"Refusing to replace {path}: the new content is {content.Length} characters against {before.Length} already there " +
+          "(less than half), which is what a truncated round-trip looks like rather than an intended rewrite. " +
+          "Nothing was written. Re-read the file and write the whole content, or pass force=true when the shrink is intended.")));
+    }
+
     TextConvention convention = ResolveConvention(path, before);
     string landed = LineEndings.Normalize(content, convention.Ending);
     if (convention.InsertFinalNewline)
@@ -124,6 +133,19 @@ public sealed class DirectFileSystemAccess(ITextConventionPolicy conventions) : 
         ? project
         : project with { Ending = LineEndings.DetectDominant(existing) ?? project.Ending };
   }
+
+  /// <summary>True when replacing 'before' with 'after' would drop most of the file. A
+  ///     rewrite that keeps less than half of a file that had real content is far more
+  ///     often a truncated round-trip - content copied out of a read result that carried a
+  ///     header instead of the file's text - than an intended replacement, and the cost of
+  ///     guessing wrong in that direction is the user's file. Small files are exempt: below
+  ///     the floor there is no body to lose.</summary>
+  private static bool IsDrasticShrink(string before, string after) =>
+      before.Length >= DrasticShrinkFloor && after.Length * 2 < before.Length;
+
+  /// <summary>The size below which a shrink is never refused: a short file being rewritten
+  ///     short is ordinary editing, not a lost body.</summary>
+  private const int DrasticShrinkFloor = 200;
 
   private static string? ReadTextOrNull(string path)
   {
