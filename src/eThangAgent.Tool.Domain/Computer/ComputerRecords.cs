@@ -20,21 +20,24 @@ public abstract record ComputerCommand
   /// <summary>Observes one window: element tree, optional screenshot.</summary>
   public sealed record Observe(ComputerAppRef App, bool IncludeScreenshot, bool DisableDiffing) : ComputerCommand;
 
-  /// <summary>Clicks a target.</summary>
+  /// <summary>Clicks a target. Foreground asks the broker to bring the target window
+  ///     forward before dispatching; the broker refuses an input dispatch aimed at a
+  ///     background window either way.</summary>
   public sealed record Click(ComputerTarget Target, ComputerAppRef? App, string MouseButton = "left",
-      int ClickCount = 1, string Modifiers = "", string Strategy = "auto", string ReturnState = "none") : ComputerCommand;
+      int ClickCount = 1, string Modifiers = "", string Strategy = "auto", string ReturnState = "none",
+      bool Foreground = false) : ComputerCommand;
 
   /// <summary>Drags from one target to another.</summary>
   public sealed record Drag(ComputerTarget From, ComputerTarget To, ComputerAppRef? App,
-      string Modifiers = "", string ReturnState = "none") : ComputerCommand;
+      string Modifiers = "", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
 
   /// <summary>Scrolls at a target.</summary>
   public sealed record Scroll(ComputerTarget Target, string ScrollDirection, int ScrollAmount, ComputerAppRef? App,
-      string Strategy = "auto", string ReturnState = "none") : ComputerCommand;
+      string Strategy = "auto", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
 
   /// <summary>Types text, optionally into a focused element target.</summary>
   public sealed record TypeText(string Text, ComputerTarget? Target, ComputerAppRef? App,
-      string Strategy = "auto", string ReturnState = "none") : ComputerCommand;
+      string Strategy = "auto", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
 
   /// <summary>Sets an element's value directly over UIA.</summary>
   public sealed record SetValue(ComputerTarget Target, string Value, ComputerAppRef? App,
@@ -48,11 +51,11 @@ public abstract record ComputerCommand
   ///     two nullable members precede the optional strings because C# requires
   ///     required-before-optional (brief name ruling: keep names, reorder).</summary>
   public sealed record Key(string Text, int? Repeat, double? HoldSeconds, ComputerAppRef? App,
-      string Strategy = "auto", string ReturnState = "none") : ComputerCommand;
+      string Strategy = "auto", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
 
   /// <summary>Pastes via a broker-owned atomic clipboard borrow.</summary>
   public sealed record Paste(string Text, ComputerTarget? Target, ComputerAppRef? App,
-      string Format = "text", string ReturnState = "none") : ComputerCommand;
+      string Format = "text", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
 
   /// <summary>Invokes a named action advertised on an element; membership is checked
   ///     at execution time by the ACL/broker, not here.</summary>

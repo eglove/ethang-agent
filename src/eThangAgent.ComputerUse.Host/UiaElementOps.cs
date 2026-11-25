@@ -70,7 +70,8 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
       }
 
       return BrokerResponse.Fail("action_unavailable",
-        $"element {element} advertises no invoke/toggle pattern; nothing ran.");
+        $"element {element} advertises no invoke/toggle pattern, so it cannot be clicked; nothing ran. " +
+        "Reach it another way: click a coordinate at its bounds centre, or focus it with Tab and press Return.");
     }
     catch (ElementNotAvailableException)
     {
@@ -97,7 +98,8 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
       || pattern is not ScrollPattern scroll)
     {
       return BrokerResponse.Fail("action_unavailable",
-        $"element {element} exposes no UIA Scroll pattern; nothing scrolled.");
+        $"element {element} exposes no UIA Scroll pattern; nothing scrolled. " +
+        "Scroll the window instead with a coordinate target over the region, or focus a control inside it and press PageDown.");
     }
 
     try
@@ -130,6 +132,12 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     return target is null ? ElementUnavailable(element) : TrySetFocus(target, element);
   }
 
+  /// <summary>Sets the element's value and then READS IT BACK: the Value pattern accepts
+  ///     a write without applying it for controls that render their own text (native
+  ///     spinners, segmented date fields, some combo boxes), so a receipt that only
+  ///     reports the write was sent claims an effect nobody observed. A value that did
+  ///     not take is the honest not_settable refusal naming what the element holds.
+  ///     </summary>
   public BrokerResponse SetValue(int element, string text)
   {
     AutomationElement? target = Resolve(element);
@@ -146,7 +154,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     try
     {
       valuePattern.SetValue(text);
-      return BrokerResponse.Accepted();
+      return VerifyValue(element, target, text);
     }
     catch (ElementNotAvailableException)
     {
@@ -160,6 +168,31 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return BrokerResponse.Fail("not_settable", $"element {element} rejected the value (COM {ex.HResult}).");
     }
+  }
+
+  /// <summary>Reads the value back after a write. A value the element did not take is a
+  ///     typed refusal naming what it holds instead of a receipt for an effect that did
+  ///     not happen; an element that vanished mid-write is the honest unavailable.</summary>
+  private static BrokerResponse VerifyValue(int element, AutomationElement target, string written)
+  {
+    string? actual;
+    try
+    {
+      actual = target.TryGetCurrentPattern(ValuePattern.Pattern, out object? readBack) && readBack is ValuePattern reread
+        ? reread.Current.Value
+        : null;
+    }
+    catch (ElementNotAvailableException)
+    {
+      return ElementUnavailable(element);
+    }
+
+    return string.Equals(actual, written, StringComparison.Ordinal)
+      ? BrokerResponse.Accepted()
+      : BrokerResponse.Fail("not_settable",
+        $"element {element} accepted the write but still reads '{actual ?? "(no value)"}': the control does not apply a Value write (native spinners and segmented fields render their own text). " +
+        "Nothing was changed; focus the field and type into it instead.",
+        "action_sent=false");
   }
 
   public BrokerResponse PerformAction(int element, string actionName)

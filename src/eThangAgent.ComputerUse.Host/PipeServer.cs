@@ -79,7 +79,7 @@ public sealed class PipeServer
   private readonly HashSet<int> _authenticated = [];
   private readonly bool _targetedInput;
 
-  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, InputHooks? hooks = null, bool targetedInput = false, Action<string>? log = null)
+  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, InputHooks? hooks = null, bool targetedInput = false, Action<string>? log = null, Func<int, BrokerResponse?>? bringForward = null)
   {
     _config = config ?? throw new ArgumentNullException(nameof(config));
     _targetedInput = targetedInput;
@@ -101,7 +101,8 @@ public sealed class PipeServer
         foregroundPid ?? InputDispatch.ReadForegroundPid,
         hooks ?? InputDispatch.RealHooks(),
         DoubleBacked: anyHook,
-        Targeted: targetedInput));
+        Targeted: targetedInput,
+        BringForward: bringForward));
     Observer = observer ?? new SkeletonObserver();
     Lease.OwnerLost += Observer.OnOwnerLost;
     Lease.OwnerLost += _ => InputDispatch.CancelActiveInput();
@@ -557,11 +558,9 @@ public sealed class PipeServer
   private BrokerResponse HandlePaste(InputOperation operation, JsonElement? parameters)
   {
     int targetPid = InputRouter.TargetPid(parameters);
-    if (!InputDispatch.GateAllowsForPaste(targetPid))
+    if (InputDispatch.RequireForeground(targetPid > 0 ? targetPid : null, InputDispatch.WantsForeground(parameters)) is { } foregroundRefusal)
     {
-      return BrokerResponse.Fail("foreground_required",
-        $"paste requires the target app (pid {targetPid}) to be foreground (foreground pid: {InputDispatch.CurrentForegroundPid}); the clipboard was not touched.",
-        "action_sent=false");
+      return foregroundRefusal;
     }
 
     // An element-targeted paste focuses the element first (the type_text F7 pattern)

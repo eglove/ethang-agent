@@ -345,9 +345,63 @@ public partial class RealBrokerObserver : IBrokerObserver
       return;
     }
 
-    foreach (AutomationElement child in element.FindAll(TreeScope.Children, Condition.TrueCondition))
+    foreach (AutomationElement child in ChildrenOf(element))
     {
       WalkElement(child, rows, cache, depth + 1);
+    }
+  }
+
+  /// <summary>The children to descend into. The CONTROL view stops at a frame's document
+  ///     node, so a cross-origin iframe - an application form embedded in a host page, the
+  ///     common shape of a job-application portal - contributes one opaque Document row and
+  ///     nothing inside it is reachable, addressable, or scrollable. A frame or document
+  ///     node is therefore descended through the RAW view, which is where the hosted content
+  ///     lives; every other element keeps the control view so the tree stays free of the raw
+  ///     view's layout noise.</summary>
+  private static List<AutomationElement> ChildrenOf(AutomationElement element) =>
+    IsFrameNode(element) ? RawChildren(element) : ControlChildren(element);
+
+  /// <summary>The control-view children: what an ordinary element exposes to a screen
+  ///     reader.</summary>
+  private static List<AutomationElement> ControlChildren(AutomationElement element) =>
+    [.. element.FindAll(TreeScope.Children, Condition.TrueCondition).Cast<AutomationElement>()];
+
+  /// <summary>The raw-view children of a frame node. A frame's hosted document is reachable
+  ///     only through the raw view, and the raw view also carries the frame's own chrome, so
+  ///     the walk keeps only the nodes that can hold content. A frame whose raw view yields
+  ///     nothing falls back to its control children rather than contributing no subtree.
+  ///     </summary>
+  private static List<AutomationElement> RawChildren(AutomationElement element)
+  {
+    List<AutomationElement> children = [];
+    TreeWalker walker = TreeWalker.RawViewWalker;
+    try
+    {
+      for (AutomationElement? child = walker.GetFirstChild(element); child is not null; child = walker.GetNextSibling(child))
+      {
+        children.Add(child);
+      }
+    }
+    catch (ElementNotAvailableException)
+    {
+      return ControlChildren(element);
+    }
+
+    return children.Count > 0 ? children : ControlChildren(element);
+  }
+
+  /// <summary>True when the element hosts a separate document whose content the control
+  ///     view does not expose: a frame pane or a document node.</summary>
+  private static bool IsFrameNode(AutomationElement element)
+  {
+    try
+    {
+      ControlType type = element.Current.ControlType;
+      return type == ControlType.Pane || type == ControlType.Document;
+    }
+    catch (ElementNotAvailableException)
+    {
+      return false;
     }
   }
 

@@ -61,9 +61,11 @@ public class InputDispatchForegroundGateTests
   }
 
   [Fact]
-  public void Key_NoStrategy_IsNotGated()
+  public void Key_NoStrategy_IsGatedToo_BackgroundTargetIsRefused()
   {
-    // Strategy-less keys stay ungated (the lease-holder's own action vocabulary).
+    // Injection reaches whatever window holds focus, so a strategy-less chord aimed at a
+    // background window is the same hazard as a strategy=event one: it types into whatever
+    // the user is looking at. The gate is therefore unconditional, and this pins it.
     // LIVE-FIRE FIX: this test used to run on a zero-hook server — PipeServer's
     // resolution contract resolves that to the REAL NativeInput — and its ungated
     // press_key live-fired a real 'y' keystroke into whatever window had focus on
@@ -75,7 +77,74 @@ public class InputDispatchForegroundGateTests
     _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "press_key", JsonElement.Parse("""{"key":"y","app_ref":{"pid":42}}"""), connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("foreground_required", reply.Error.Value.Code);
+    Assert.Equal(0, server.InputDispatch.SendInputCalls);
+  }
+
+  [Fact]
+  public void Type_NoStrategy_IsGatedToo_BackgroundTargetIsRefused()
+  {
+    PipeServer server = FakeConnectionFactory.WithForeground(expected: 42, actual: 99);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "type_text", JsonElement.Parse("""{"text":"hello","app_ref":{"pid":42}}"""), connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("foreground_required", reply.Error.Value.Code);
+    Assert.Equal(0, server.InputDispatch.SendInputCalls);
+  }
+
+  [Fact]
+  public void Click_NoStrategy_BackgroundTarget_IsRefusedBeforeAnyRow()
+  {
+    PipeServer server = FakeConnectionFactory.WithForeground(expected: 42, actual: 99);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "click", JsonElement.Parse("""{"x":10,"y":10,"app_ref":{"pid":42}}"""), connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("foreground_required", reply.Error.Value.Code);
+    Assert.Equal(0, server.InputDispatch.ClickCalls);
+  }
+
+  [Fact]
+  public void Click_NoAppRef_DispatchesAtTheCurrentFocus()
+  {
+    // No app_ref means no target to verify: the dispatch goes to whatever holds focus by
+    // intent, which is the documented way to act on the foreground window.
+    PipeServer server = FakeConnectionFactory.WithRecordingClick(foreground: 99);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "click", JsonElement.Parse("""{"x":10,"y":10}"""), connectionId: 1);
     Assert.Null(reply.Error);
-    Assert.True(server.InputDispatch.SendInputCalls > 0, "the chord dispatch must have run");
+    Assert.Equal(1, server.InputDispatch.ClickCalls);
+  }
+
+  [Fact]
+  public void Key_ForegroundTrue_BringsTheTargetForward_ThenDispatches()
+  {
+    // foreground=true is the escape hatch: the broker surfaces the window and re-reads the
+    // foreground before dispatching, so the keystrokes land where they were aimed.
+    int foreground = 99;
+    PipeServer server = FakeConnectionFactory.WithForegroundAndBringForward(() => foreground, _ => foreground = 42);
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "press_key",
+        JsonElement.Parse("""{"key":"Tab","foreground":true,"app_ref":{"pid":42}}"""), connectionId: 1);
+    Assert.Null(reply.Error);
+    Assert.Equal(42, foreground);
+    Assert.True(server.InputDispatch.SendInputCalls > 0, "the chord dispatch must have run after the window came forward");
+  }
+
+  [Fact]
+  public void Key_ForegroundTrue_WhenTheWindowWillNotSurface_Refuses()
+  {
+    PipeServer server = FakeConnectionFactory.WithForegroundAndBringForward(() => 99, _ => { });
+    _ = server.Dispatch(0, "authenticate", JsonElement.Parse("""{"token":"t"}"""), connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "press_key",
+        JsonElement.Parse("""{"key":"Tab","foreground":true,"app_ref":{"pid":42}}"""), connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("foreground_required", reply.Error.Value.Code);
+    Assert.Equal(0, server.InputDispatch.SendInputCalls);
   }
 };

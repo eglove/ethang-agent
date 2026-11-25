@@ -79,7 +79,9 @@ public static class TreeTextRenderer
     AppendHeader(sb, capture);
     _ = sb.Append("No material accessibility change since ")
         .Append(capture.BaseStateId)
-        .Append(": the element list, its order, and every index are identical. Take the next action instead of re-observing.");
+        .Append(": the accessibility element list, its order, and every index are identical. ")
+        .Append("A page that visibly changed while its accessibility tree did not (a canvas, a cross-origin frame, a dialog that closed without a tree event) looks exactly like this - ")
+        .Append("re-observe with force=true to re-scan and get the full tree, or take the next action if the tree is what you needed.");
     return sb.ToString();
   }
 
@@ -94,10 +96,29 @@ public static class TreeTextRenderer
     CaptureAppWindow w = capture.Window;
     _ = sb.Append("window: ").Append(Quote(w.Title)).Append(" id=")
         .Append(CultureInfo.InvariantCulture, $"{w.WindowId} bounds=[{w.Bounds[0]},{w.Bounds[1]},{w.Bounds[2]},{w.Bounds[3]}]\n");
+    AppendScreenshotScale(sb, capture, w);
     if (w.SurfaceKind != "window" || w.SurfaceLifecycle != "stable")
     {
       _ = sb.Append("surface: kind=").Append(w.SurfaceKind).Append(" lifecycle=").Append(w.SurfaceLifecycle).Append('\n');
     }
+  }
+
+  /// <summary>The screenshot-to-screen mapping, stated whenever a screenshot accompanies
+  ///     the observation. The delivered raster is downscaled, so a coordinate read off the
+  ///     image is NOT a screen coordinate; without the factor the model has no way to know
+  ///     what it is looking at and every coordinate click lands somewhere else. The factor
+  ///     is the window's width divided by the raster's, which is exact for the uniform
+  ///     downscale the encoder applies.</summary>
+  private static void AppendScreenshotScale(StringBuilder sb, CaptureAppResult capture, CaptureAppWindow window)
+  {
+    if (capture.Screenshot is not { } shot || shot.Width <= 0 || window.Bounds.Length < 4 || window.Bounds[2] <= 0)
+    {
+      return;
+    }
+
+    double factor = window.Bounds[2] / (double)shot.Width;
+    _ = sb.Append(CultureInfo.InvariantCulture,
+        $"screenshot: {shot.Width}x{shot.Height} pixels for a {window.Bounds[2]}x{window.Bounds[3]} window; multiply a screenshot coordinate by {factor:0.###} to get the screen coordinate a coordinate target expects.\n");
   }
 
   private static void AppendRow(StringBuilder sb, CaptureAppElement e, int indent, bool changed = false)

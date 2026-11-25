@@ -89,8 +89,34 @@ public class TreeTextRendererTests
         "state_id s-4",
         "app: Microsoft.WindowsNotepad_8wekyb3d8bbwe!App pid=1234 \"Notepad\"",
         "window: \"Untitled - Notepad\" id=77 bounds=[10,20,800,600]",
-        "No material accessibility change since s-3: the element list, its order, and every index are identical. Take the next action instead of re-observing.");
+        "No material accessibility change since s-3: the accessibility element list, its order, and every index are identical. " +
+        "A page that visibly changed while its accessibility tree did not (a canvas, a cross-origin frame, a dialog that closed without a tree event) looks exactly like this - " +
+        "re-observe with force=true to re-scan and get the full tree, or take the next action if the tree is what you needed.");
     Assert.Equal(expected, text);
+  }
+
+  [Fact]
+  public void ScreenshotScale_StatesTheFactorFromScreenshotPixelsToScreenPixels()
+  {
+    // The delivered raster is downscaled to a 1280 longest edge, so a coordinate read off
+    // the image is not a screen coordinate. Without the factor the model has no way to know
+    // what it is looking at, and every coordinate click lands somewhere else.
+    CaptureAppResult capture = new("s-1", "full", null, Notepad, MainWindow, [],
+        new CaptureAppScreenshot(string.Empty, 1280, 704, null, Blank: false), null);
+
+    string text = TreeTextRenderer.Render(capture);
+
+    Assert.Contains(
+        "screenshot: 1280x704 pixels for a 800x600 window; multiply a screenshot coordinate by 0.625 to get the screen coordinate a coordinate target expects.",
+        text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ScreenshotScale_IsAbsentWhenNoScreenshotAccompaniesTheObservation()
+  {
+    string text = TreeTextRenderer.Render(Capture("s-1", "full", null, MainWindow));
+
+    Assert.DoesNotContain("screenshot:", text, StringComparison.Ordinal);
   }
 
   [Fact]

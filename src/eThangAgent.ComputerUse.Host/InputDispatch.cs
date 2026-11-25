@@ -34,7 +34,7 @@ public sealed record InputHooks(
 ///     send hooks, and the two mode flags (double-backed wire-test surface, targeted
 ///     delivery). Parameter object for <see cref="InputDispatch"/>'s primary
 ///     constructor (S107: constructor parameter count).</summary>
-public sealed record InputDispatchServices(Func<int> ForegroundPid, InputHooks Hooks, bool DoubleBacked = false, bool Targeted = false);
+public sealed record InputDispatchServices(Func<int> ForegroundPid, InputHooks Hooks, bool DoubleBacked = false, bool Targeted = false, Func<int, BrokerResponse?>? BringForward = null);
 
 public sealed partial class InputDispatch(InputDispatchServices services)
 {
@@ -116,11 +116,11 @@ public sealed partial class InputDispatch(InputDispatchServices services)
 
   /// <summary>Production instance: real foreground read + real NativeInput dispatch.</summary>
   public static InputDispatch Create(Func<int>? foregroundPid = null) =>
-    new(new InputDispatchServices(foregroundPid ?? ReadForegroundPid, RealHooks()));
+    new(new InputDispatchServices(foregroundPid ?? ReadForegroundPid, RealHooks(), BringForward: BringWindowForward));
 
   /// <summary>Production: real foreground read + real NativeInput dispatch.</summary>
   public InputDispatch(Func<int>? foregroundPid = null)
-    : this(new InputDispatchServices(foregroundPid ?? ReadForegroundPid, RealHooks()))
+    : this(new InputDispatchServices(foregroundPid ?? ReadForegroundPid, RealHooks(), BringForward: BringWindowForward))
   {
   }
 
@@ -191,6 +191,60 @@ public sealed partial class InputDispatch(InputDispatchServices services)
   /// <summary>The strategy=event gate: real foreground read against the target pid.</summary>
   public bool GateAllows(string? strategy, int targetPid) =>
     strategy != "event" || _foregroundPid() == targetPid;
+
+  /// <summary>The foreground precondition every input-dispatching action passes before it
+  ///     sends anything. Keyboard and pointer injection reaches whatever window holds
+  ///     focus, so a dispatch aimed at a background window delivers its keystrokes to
+  ///     whatever the user is actually looking at - including the agent's own input box.
+  ///     A target that is not foreground is therefore refused with foreground_required
+  ///     naming both pids, unless the caller asked for the window to be brought forward
+  ///     first. A null target pid means the caller named no app: the dispatch goes to the
+  ///     current focus by intent and there is nothing to verify.</summary>
+  public BrokerResponse? RequireForeground(int? targetPid, bool bringForward)
+  {
+    if (targetPid is not int target || target <= 0)
+    {
+      return null;
+    }
+
+    int current = _foregroundPid();
+    if (current == target)
+    {
+      return null;
+    }
+
+    if (bringForward)
+    {
+      // The seam either surfaces the window (null) or names why it could not.
+      return _bringForward(target) ?? (_foregroundPid() == target ? null : Refuse(target));
+    }
+
+    return Refuse(target);
+
+    BrokerResponse Refuse(int pid) => BrokerResponse.Fail("foreground_required",
+      $"the target app (pid {pid}) is not the foreground window (foreground pid: {current}); nothing was dispatched. " +
+      "Keyboard and pointer input reaches whatever window holds focus, so this action would have landed elsewhere. " +
+      "Pass foreground=true to bring the target forward first, or focus it yourself.",
+      "action_sent=false");
+  }
+
+  /// <summary>The bring-forward seam: production restores and activates the target window;
+  ///     tests inject it. Null means the window is now foreground; a response is the
+  ///     refusal to surface.</summary>
+  private readonly Func<int, BrokerResponse?> _bringForward = services.BringForward ?? NoBringForward;
+
+  /// <summary>No bring-forward surface wired (test doubles): the refusal names it.</summary>
+  private static BrokerResponse? NoBringForward(int pid)
+  {
+    _ = pid;
+    return BrokerResponse.Fail("action_unavailable",
+      "foreground=true was requested but no bring-forward surface is wired; nothing was dispatched.",
+      "action_sent=false");
+  }
+
+  /// <summary>True when the parameters ask for the target to be brought forward first.</summary>
+  internal static bool WantsForeground(JsonElement? parameters) =>
+    parameters is { } p && p.TryGetProperty("foreground", out JsonElement el) && el.ValueKind == JsonValueKind.True;
 
   /// <summary>The paste gate (fix round 5, F6; closure in F8): the foreground window
   ///     must ALREADY be the target app's (the paste cannot position a cursor, so it
@@ -489,6 +543,17 @@ public sealed partial class InputDispatch(InputDispatchServices services)
   private BrokerResponse DispatchCore(string method, JsonElement? parameters)
   {
     int targetPid = Pid(parameters);
+    // The foreground precondition (every input-dispatching method): injection reaches
+    // whatever window holds focus, so a dispatch aimed at a background window would
+    // deliver its keystrokes somewhere else entirely. Element-path ops are real UIA
+    // window-targeted operations and are exempt; everything that reaches a delivery
+    // hook must be aimed at the window that is actually in front.
+    if (ReachesDeliveryHook(method, parameters)
+      && RequireForeground(targetPid > 0 ? targetPid : null, WantsForeground(parameters)) is { } foregroundRefusal)
+    {
+      return foregroundRefusal;
+    }
+
     // Targeted delivery safety: any dispatch that would reach a delivery hook (chords,
     // text, positioned clicks, drag, wheel) gates on the target pid REGARDLESS of
     // strategy — the hook delivers to the verified foreground target, so an unverified
@@ -807,6 +872,85 @@ public sealed partial class InputDispatch(InputDispatchServices services)
     _ = GetWindowThreadProcessId(window, out int pid);
     return pid;
   }
+
+  /// <summary>Brings the target window forward and verifies it arrived: restore it if it
+  ///     is minimized, then activate it. A window that refuses to surface is named
+  ///     honestly rather than followed by a blind dispatch.</summary>
+  internal static BrokerResponse? BringWindowForward(int pid)
+  {
+    nint window = ForegroundWindowForPid(pid);
+    if (window == 0)
+    {
+      return BrokerResponse.Fail("app_not_found",
+        $"no visible window belongs to pid {pid}; nothing was dispatched.",
+        "action_sent=false");
+    }
+
+    if (IsIconic(window))
+    {
+      _ = ShowWindow(window, SwRestore);
+    }
+
+    _ = SetForegroundWindow(window);
+    return ReadForegroundPid() == pid
+      ? null
+      : BrokerResponse.Fail("foreground_required",
+        $"pid {pid}'s window would not come to the foreground (foreground pid: {ReadForegroundPid()}); nothing was dispatched.",
+        "action_sent=false");
+  }
+
+  /// <summary>The first visible top-level window owned by the pid; 0 when the process has
+  ///     none.</summary>
+  private static nint ForegroundWindowForPid(int pid)
+  {
+    nint found = 0;
+    bool Handler(nint window, nint parameter)
+    {
+      _ = parameter;
+      _ = GetWindowThreadProcessId(window, out int owner);
+      if (owner != pid || !IsWindowVisible(window))
+      {
+        return true;
+      }
+
+      found = window;
+      return false;
+    }
+
+    _ = EnumWindows(Handler, 0);
+    return found;
+  }
+
+  /// <summary>The EnumWindows callback shape (true continues the enumeration).</summary>
+  private delegate bool EnumWindowsProc(nint window, nint parameter);
+
+  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("user32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static partial bool EnumWindows(EnumWindowsProc callback, nint parameter);
+
+  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static partial bool IsWindowVisible(nint window);
+
+  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static partial bool IsIconic(nint window);
+
+  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static partial bool ShowWindow(nint window, int command);
+
+  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static partial bool SetForegroundWindow(nint window);
+
+  /// <summary>SW_RESTORE - un-minimize without changing the window's size.</summary>
+  private const int SwRestore = 9;
 };
 
 /// <summary>Receipt vocabulary (spec 7): accepted only after a real dispatch; possibly_sent

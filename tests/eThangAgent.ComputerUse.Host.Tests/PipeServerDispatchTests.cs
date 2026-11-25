@@ -324,6 +324,17 @@ internal static class FakeConnectionFactory
 
   public static PipeServer WithAlwaysSucceedingDrag(int foreground, string token = "t") =>
     new(new BrokerConfig("ignored-pipe", token), foregroundPid: () => foreground, hooks: InertHooks());
+
+  /// <summary>A server whose foreground read is live and whose bring-forward seam is the
+  ///     given action, so the foreground=true path is exercised without touching a real
+  ///     window.</summary>
+  public static PipeServer WithForegroundAndBringForward(Func<int> foreground, Action<int> bringForward) =>
+    new(new BrokerConfig("ignored-pipe", "t"), foregroundPid: foreground, hooks: InertHooks(),
+        bringForward: pid =>
+        {
+          bringForward(pid);
+          return null;
+        });
   public static PipeServer WithRecordingClick(int foreground) => WithAlwaysSucceedingDrag(foreground);
   public static PipeServer Authorized(params int[] connectionIds)
   {

@@ -13,6 +13,17 @@ namespace eThangAgent.ComputerUse.Host;
 ///     wheel scrolls build move+wheel rows over the same injected-extents seam.</summary>
 internal static partial class NativeInput
 {
+  /// <summary>The virtual desktop in physical pixels: its extent and the screen point
+  ///     of its top-left corner. The origin is (0, 0) on a single-monitor desktop and
+  ///     negative whenever a monitor sits above or left of the primary one, which is
+  ///     exactly the case an extent-only normalization gets wrong.</summary>
+  internal readonly record struct DesktopMetrics(int Cx, int Cy, int Ox = 0, int Oy = 0)
+  {
+    /// <summary>True when the extent can be divided by: a degenerate desktop yields no
+    ///     rows rather than a NaN or a divide-by-zero.</summary>
+    public bool IsUsable => Cx > 0 && Cy > 0;
+  }
+
   private const uint MouseMove = 0x0001;
   private const uint MouseAbsolute = 0x8000;
   private const uint MouseVirtualDesk = 0x4000;
@@ -21,8 +32,10 @@ internal static partial class NativeInput
   /// <summary>Windows' wheel delta: one NOTCH of the wheel is 120 raw units; scroll
   ///     pages are injected as signed multiples of it.</summary>
   internal const int WheelDelta = 120;
-  internal const int ExtentWidthMetric = 78;  // SM_CXVIRTUALSCREEN - the EXTENT, not the origin (76)
-  internal const int ExtentHeightMetric = 79; // SM_CYVIRTUALSCREEN - the EXTENT, not the origin (77)
+  internal const int ExtentWidthMetric = 78;  // SM_CXVIRTUALSCREEN - the EXTENT
+  internal const int ExtentHeightMetric = 79; // SM_CYVIRTUALSCREEN - the EXTENT
+  internal const int OriginXMetric = 76;      // SM_XVIRTUALSCREEN - the virtual-desktop LEFT edge (negative on a left-hand monitor)
+  internal const int OriginYMetric = 77;      // SM_YVIRTUALSCREEN - the virtual-desktop TOP edge
 
   /// <summary>The dispatcher's call-counter probe (test surface only): real input goes
   ///     through <see cref="SendChord"/>; tests count dispatches on InputDispatch.
@@ -98,19 +111,20 @@ internal static partial class NativeInput
   ///     extents build no rows, and Inject of an empty batch returns false - the honest
   ///     refusal, never a degenerate event.</summary>
   public static bool SendMouseButtonAt(string button, int x, int y) =>
-    TryExtents(out int cx, out int cy) && Inject(FromTaggedRows(BuildClickRows(button, x, y, cx, cy)));
+    TryExtents(out DesktopMetrics desktop)
+      && Inject(FromTaggedRows(BuildClickRows(button, x, y, desktop)));
 
   /// <summary>Fix round 5 (F3): a targeted vertical wheel scroll - the move row to the
   ///     resolved point, then the wheel row(s). Horizontal directions are refused by the
   ///     dispatcher before reaching here.</summary>
   public static bool SendWheelAt(string direction, int pages, int x, int y)
   {
-    if (!TryExtents(out int cx, out int cy))
+    if (!TryExtents(out DesktopMetrics desktop))
     {
       return false;
     }
 
-    List<TaggedMouseRow> rows = [Tag(BuildMoveParts(x, y, cx, cy))];
+    List<TaggedMouseRow> rows = [Tag(BuildMoveParts(x, y, desktop))];
     rows.AddRange(BuildWheelRows(direction, pages));
     return Inject(FromTaggedRows([.. rows]));
   }
@@ -172,14 +186,15 @@ internal static partial class NativeInput
   /// <summary>C3/fix round 4: full drag - absolute normalized move to the start (with
   ///     MOUSEEVENTF_MOVE: ABSOLUTE|VIRTUALDESK alone is a no-op event), button down, 8
   ///     interpolated absolute moves, button up. The row SHAPE is built by
-  ///     <see cref="BuildDragRows"/> over extents the caller passes - the injected-metrics
-  ///     seam the pins exercise with fake values - so this method only fetches the real
-  ///     virtual-desktop extents and injects the built rows. Coordinates normalize
-  ///     against the extents (SM_CX/CYVIRTUALSCREEN); zero extents refuse the send
-  ///     honestly instead of dividing by zero. True when SendInput accepted every event.</summary>
+  ///     <see cref="BuildDragRows(string, int, int, int, int, DesktopMetrics)"/> over the
+  ///     metrics the caller passes - the injected-metrics seam the pins exercise with fake
+  ///     values - so this method only fetches the real virtual-desktop metrics and injects
+  ///     the built rows. Coordinates normalize against the virtual desktop's extent AND
+  ///     origin; a degenerate desktop refuses the send honestly instead of dividing by
+  ///     zero. True when SendInput accepted every event.</summary>
   public static bool SendDrag(string button, int fromX, int fromY, int toX, int toY) =>
-    TryExtents(out int cx, out int cy)
-    && Inject(FromDragRows(BuildDragRows(button, fromX, fromY, toX, toY, cx, cy)));
+    TryExtents(out DesktopMetrics desktop)
+    && Inject(FromDragRows(BuildDragRows(button, fromX, fromY, toX, toY, desktop)));
 
   /// <summary>Linear interpolation between the drag endpoints, both ends inclusive.</summary>
   internal static (int X, int Y) StepPoint(int fromX, int fromY, int toX, int toY, int steps, int step)
@@ -193,22 +208,28 @@ internal static partial class NativeInput
   ///     the event flags, and the absolute normalized coordinates (button rows carry 0,0).</summary>
   internal readonly record struct DragRow(uint Type, uint Flags, int Dx, int Dy);
 
-  /// <summary>Absolute move-row parts over the GIVEN extents (fake metrics - the injected
-  ///     seam): 0..65535 normalized, clamped into the normalized range; flags carry
-  ///     MOVE|ABSOLUTE|VIRTUALDESK. Zero or negative extents yield the honest refusal
-  ///     marker (0, 0, 0) - no NaN, no divide-by-zero.</summary>
-  internal static (uint flags, int dx, int dy) BuildMoveParts(int x, int y, int cx, int cy)
+  /// <summary>Absolute move-row parts over the GIVEN extents with the desktop origin
+  ///     at (0, 0) - the primary-monitor case, and the injected seam the row-shape pins
+  ///     drive with fake metrics.</summary>
+  internal static (uint flags, int dx, int dy) BuildMoveParts(int x, int y, int cx, int cy) =>
+    BuildMoveParts(x, y, new DesktopMetrics(cx, cy));
+
+  /// <summary>The move row over an ORIGIN-AWARE virtual desktop (see
+  ///     <see cref="DesktopMetrics"/>): the screen point is rebased onto the virtual
+  ///     desktop before it is normalized, because ABSOLUTE|VIRTUALDESK normalizes
+  ///     against the virtual screen and not against the primary monitor. A point
+  ///     outside the desktop clamps to its nearest edge rather than wrapping. A
+  ///     degenerate extent yields the refusal marker (0, 0, 0) - no NaN, no
+  ///     divide-by-zero.</summary>
+  internal static (uint flags, int dx, int dy) BuildMoveParts(int x, int y, DesktopMetrics desktop)
   {
-#pragma warning disable IDE0046 // Named decision: the degenerate-extents guard names the refusal; the ternary form hides it.
-    if (cx <= 0 || cy <= 0)
+    if (!desktop.IsUsable)
     {
       return (0, 0, 0);
     }
 
-#pragma warning restore IDE0046
-
-    double dx = Math.Clamp(x * 65535.0 / cx, 0, 65535);
-    double dy = Math.Clamp(y * 65535.0 / cy, 0, 65535);
+    double dx = Math.Clamp((x - desktop.Ox) * 65535.0 / desktop.Cx, 0, 65535);
+    double dy = Math.Clamp((y - desktop.Oy) * 65535.0 / desktop.Cy, 0, 65535);
     const uint moveFlags = MouseMove | MouseAbsolute | MouseVirtualDesk;
     return (moveFlags, (int)Math.Round(dx), (int)Math.Round(dy));
   }
@@ -219,7 +240,12 @@ internal static partial class NativeInput
   ///     button down at that position, 8 interpolated moves whose last row IS the
   ///     to-point, button up. Zero or negative extents yield NO rows - the honest
   ///     refusal - never a degenerate event.</summary>
-  internal static DragRow[] BuildDragRows(string button, int fromX, int fromY, int toX, int toY, int cx, int cy)
+  internal static DragRow[] BuildDragRows(string button, int fromX, int fromY, int toX, int toY, int cx, int cy) =>
+    BuildDragRows(button, fromX, fromY, toX, toY, new DesktopMetrics(cx, cy));
+
+  /// <summary>The drag row sequence over an origin-aware virtual desktop (see
+  ///     <see cref="BuildMoveParts(int, int, DesktopMetrics)"/>).</summary>
+  internal static DragRow[] BuildDragRows(string button, int fromX, int fromY, int toX, int toY, DesktopMetrics desktop)
   {
     string normalized = button.ToUpperInvariant();
     uint down = normalized switch
@@ -235,20 +261,20 @@ internal static partial class NativeInput
       _ => 0x0004,
     };
 
-    if (cx <= 0 || cy <= 0)
+    if (!desktop.IsUsable)
     {
       return [];
     }
 
     // Order is the Win32 drag idiom: position the cursor at the start FIRST (a button
     // row acts at the CURRENT cursor position), press, trace the path, release.
-    (uint fromFlags, int fromDx, int fromDy) = BuildMoveParts(fromX, fromY, cx, cy);
+    (uint fromFlags, int fromDx, int fromDy) = BuildMoveParts(fromX, fromY, desktop);
     List<DragRow> rows = [new(0, fromFlags, fromDx, fromDy), new(0, down, 0, 0)];
     const int steps = 8;
     for (int step = 1; step <= steps; step++)
     {
       (int x, int y) = StepPoint(fromX, fromY, toX, toY, steps, step);
-      (uint flags, int dx, int dy) = BuildMoveParts(x, y, cx, cy);
+      (uint flags, int dx, int dy) = BuildMoveParts(x, y, desktop);
       rows.Add(new DragRow(0, flags, dx, dy));
     }
 
@@ -289,7 +315,12 @@ internal static partial class NativeInput
   ///     the injected seam): a leading MOVE|ABSOLUTE|VIRTUALDESK row to the point, then
   ///     button down, then button up. Zero or negative extents yield NO rows - the
   ///     honest refusal - never a degenerate event.</summary>
-  internal static TaggedMouseRow[] BuildClickRows(string button, int x, int y, int cx, int cy)
+  internal static TaggedMouseRow[] BuildClickRows(string button, int x, int y, int cx, int cy) =>
+    BuildClickRows(button, x, y, new DesktopMetrics(cx, cy));
+
+  /// <summary>The click row sequence over an origin-aware virtual desktop (see
+  ///     <see cref="BuildMoveParts(int, int, DesktopMetrics)"/>).</summary>
+  internal static TaggedMouseRow[] BuildClickRows(string button, int x, int y, DesktopMetrics desktop)
   {
     string normalized = button.ToUpperInvariant();
     (uint down, uint up) = normalized switch
@@ -299,12 +330,12 @@ internal static partial class NativeInput
       _ => (0x0002u, 0x0004u),
     };
 
-    if (cx <= 0 || cy <= 0)
+    if (!desktop.IsUsable)
     {
       return [];
     }
 
-    (uint moveFlags, int dx, int dy) = BuildMoveParts(x, y, cx, cy);
+    (uint moveFlags, int dx, int dy) = BuildMoveParts(x, y, desktop);
     return
     [
       Tag(moveFlags, dx, dy, "move"),
@@ -340,12 +371,23 @@ internal static partial class NativeInput
   }
   /// <summary>Virtual-desktop extents (physical pixels); false when either is not positive
   ///     - the honest refusal for a degenerate desktop, never a divide-by-zero.</summary>
-  private static bool TryExtents(out int cx, out int cy)
+  /// <summary>The real virtual-desktop metrics; false when either extent is not
+  ///     positive - the honest refusal for a degenerate desktop, never a
+  ///     divide-by-zero.</summary>
+  private static bool TryExtents(out DesktopMetrics desktop)
   {
-    cx = GetSystemMetrics(ExtentWidthMetric);
-    cy = GetSystemMetrics(ExtentHeightMetric);
-    return cx > 0 && cy > 0;
+    desktop = ReadDesktopMetrics();
+    return desktop.IsUsable;
   }
+
+  /// <summary>Reads the virtual-desktop extent and origin in physical pixels. The origin
+  ///     is read alongside the extent because an absolute injection is normalized
+  ///     against the virtual screen, not against the primary monitor.</summary>
+  internal static DesktopMetrics ReadDesktopMetrics() => new(
+    GetSystemMetrics(ExtentWidthMetric),
+    GetSystemMetrics(ExtentHeightMetric),
+    GetSystemMetrics(OriginXMetric),
+    GetSystemMetrics(OriginYMetric));
 
   [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   [LibraryImport("user32.dll")]

@@ -361,19 +361,22 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     ["click_count"] = c.ClickCount,
     ["modifiers"] = c.Modifiers,
     ["strategy"] = c.Strategy,
+    ["foreground"] = c.Foreground,
   };
 
-  private static Dictionary<string, object?> ParameterMapForDrag(ComputerCommand.Drag d) => new() { ["modifiers"] = d.Modifiers };
+  private static Dictionary<string, object?> ParameterMapForDrag(ComputerCommand.Drag d) =>
+    new() { ["modifiers"] = d.Modifiers, ["foreground"] = d.Foreground };
 
   private static Dictionary<string, object?> ParameterMapForScroll(ComputerCommand.Scroll s) => new()
   {
     ["scroll_direction"] = s.ScrollDirection,
     ["scroll_amount"] = s.ScrollAmount,
     ["strategy"] = s.Strategy,
+    ["foreground"] = s.Foreground,
   };
 
   private static Dictionary<string, object?> ParameterMapForTypeText(ComputerCommand.TypeText t) =>
-    new() { ["text"] = t.Text, ["strategy"] = t.Strategy };
+    new() { ["text"] = t.Text, ["strategy"] = t.Strategy, ["foreground"] = t.Foreground };
 
   private static Dictionary<string, object?> ParameterMapForSetValue(ComputerCommand.SetValue v) =>
     new() { ["value"] = v.Value, ["strategy"] = v.Strategy };
@@ -392,10 +395,11 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     ["repeat"] = k.Repeat,
     ["hold_seconds"] = k.HoldSeconds,
     ["strategy"] = k.Strategy,
+    ["foreground"] = k.Foreground,
   };
 
   private static Dictionary<string, object?> ParameterMapForPaste(ComputerCommand.Paste p) =>
-    new() { ["text"] = p.Text, ["format"] = p.Format };
+    new() { ["text"] = p.Text, ["format"] = p.Format, ["foreground"] = p.Foreground };
 
   private static Dictionary<string, object?> ParameterMapForPerformAction(ComputerCommand.PerformAction a) =>
     new() { ["action_name"] = a.Action };
