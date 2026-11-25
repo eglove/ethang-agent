@@ -145,8 +145,22 @@ public sealed class PipeServer
   ///     <see cref="DropConnection"/> when it ends.</summary>
   public BrokerResponse Dispatch(int id, string method, JsonElement? parameters, int connectionId)
   {
-    BrokerResponse? handshake = TryHandshake(id, method, parameters, connectionId);
-    return handshake ?? DispatchWhenAuthenticated(id, method, parameters, connectionId);
+    try
+    {
+      BrokerResponse? handshake = TryHandshake(id, method, parameters, connectionId);
+      return handshake ?? DispatchWhenAuthenticated(id, method, parameters, connectionId);
+    }
+#pragma warning disable CA1031 // The dispatch boundary: a handler fault answers a typed error, never escapes into the serve loop.
+    catch (Exception ex)
+    {
+      // An exception out of a connection task disposes that connection's pipe; the client
+      // reads EOF as transport loss and the supervisor answers by killing and respawning the
+      // broker. One faulty handler would become a dropped connection and a wasted restart.
+      // The fault answers on the wire instead, so the caller can act on it.
+      _log?.Invoke("dispatch fault: " + method + ": " + ex.GetType().Name + ": " + ex.Message);
+      return BrokerResponse.Fail("internal", "the broker handler failed: " + ex.Message, "action_sent=false");
+    }
+#pragma warning restore CA1031
   }
 
   /// <summary>The handshake routers: authenticate (id 0) and hello (fixed id 1, M8).
