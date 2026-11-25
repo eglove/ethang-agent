@@ -150,6 +150,15 @@ public sealed record CaptureAppResult(
   CaptureAppScreenshot? Screenshot,
   string? EffectEvidence)
 {
+  /// <summary>The first element index this capture carries.</summary>
+  public int ElementOffset { get; init; }
+
+  /// <summary>How many elements the walk collected in total, across every page.</summary>
+  public int ElementTotal { get; init; }
+
+  /// <summary>True when the depth cap cut the tree short, so <see cref="ElementTotal"/> is
+  ///     a floor rather than a count.</summary>
+  public bool ElementTruncated { get; init; }
   /// <summary>Parses the reply's result as a capture_app result; null when the result is
   ///     absent, not an object, or missing required keys of the wrong kinds.</summary>
   public static CaptureAppResult? From(BrokerReply reply)
@@ -168,6 +177,11 @@ public sealed record CaptureAppResult(
     && TryParseScreenshot(root, out CaptureAppScreenshot? screenshot)
       ? new CaptureAppResult(stateId, snapshotMode, Wire.StrOr(root, "base_state_id"), app, window,
           elements, screenshot, Wire.StrOr(root, "effect_evidence"))
+      {
+        ElementOffset = Wire.Int(root, "element_offset") ?? 0,
+        ElementTotal = Wire.Int(root, "element_total") ?? elements.Count,
+        ElementTruncated = Wire.Bool(root, "element_truncated"),
+      }
       : null;
 
   /// <summary>Reads the mandatory header keys: state_id, a known snapshot_mode, and the

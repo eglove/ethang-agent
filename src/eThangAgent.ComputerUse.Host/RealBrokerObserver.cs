@@ -86,9 +86,23 @@ public partial class RealBrokerObserver : IBrokerObserver, IDisposable
     bool forceFull = parameters is { } pf && pf.TryGetProperty("snapshot_mode", out JsonElement modeEl)
         && modeEl.ValueKind == JsonValueKind.String && modeEl.GetString() == "force_full";
 
+    int? requestedOffset = RequestInt(parameters, "offset");
+    int? requestedLimit = RequestInt(parameters, "limit");
+
     ReadAppRef(parameters, out string? reqName, out string? reqAumid, out int? reqWindowId);
-    return CaptureResolved(pid, includeScreenshot, forceFull, reqName, reqAumid, reqWindowId);
+    CaptureRequest request = new(pid, includeScreenshot, forceFull, reqName, reqAumid, reqWindowId,
+        requestedOffset ?? 0, requestedLimit ?? UiaWalkWindow.DefaultLimit,
+        Paged: requestedOffset is not null || requestedLimit is not null);
+    return CaptureResolved(request);
   }
+
+  /// <summary>Reads one optional non-negative integer parameter; absent or malformed
+  ///     reads as null so the caller's default applies.</summary>
+  private static int? RequestInt(JsonElement? parameters, string name) =>
+    parameters is { } p && p.TryGetProperty(name, out JsonElement el)
+      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int value) && value >= 0
+        ? value
+        : null;
 
   /// <summary>Reads the optional app_ref selectors (name / aumid / window_id) into the
   ///     out parameters; absent selectors stay null.</summary>
@@ -125,13 +139,26 @@ public partial class RealBrokerObserver : IBrokerObserver, IDisposable
 
   /// <summary>The resolved capture path: app-ref resolution, the surface lifecycle
   ///     observation, the walk, and the envelope.</summary>
-  private JsonElement? CaptureResolved(int pid, bool includeScreenshot, bool forceFull, string? reqName, string? reqAumid, int? reqWindowId)
+  /// <summary>One capture request: the resolved selectors, the flags, and the paging
+  ///     window the caller asked for.</summary>
+  private sealed record CaptureRequest(
+      int Pid,
+      bool IncludeScreenshot,
+      bool ForceFull,
+      string? Name,
+      string? Aumid,
+      int? WindowId,
+      int Offset,
+      int Limit,
+      bool Paged);
+
+  private JsonElement? CaptureResolved(CaptureRequest request)
   {
-    bool resolved = TryResolveAppRef(pid, reqName, reqAumid, reqWindowId,
+    bool resolved = TryResolveAppRef(request.Pid, request.Name, request.Aumid, request.WindowId,
         out AppRefResolution resolution2, out AppRefResolutionFailure? resolutionFailure);
     if (!resolved)
     {
-      return ResolutionFailure(pid, resolutionFailure!);
+      return ResolutionFailure(request.Pid, resolutionFailure!);
     }
 
     int resolvedPid = resolution2.Pid;
@@ -159,7 +186,7 @@ public partial class RealBrokerObserver : IBrokerObserver, IDisposable
     }
 
     string stateId = NewStateId();
-    JsonElement? screenshot = includeScreenshot ? CaptureRaster(target, rect) : null;
+    JsonElement? screenshot = request.IncludeScreenshot ? CaptureRaster(target, rect) : null;
 
     // F9: serialize this walk's table, then diff against the last ACCEPTED one.
     List<string> fingerprints = [.. walk.Rows.Select(row =>
@@ -168,8 +195,24 @@ public partial class RealBrokerObserver : IBrokerObserver, IDisposable
       return Fingerprint(doc.RootElement);
     })];
 
+    // A page request always answers a FULL snapshot of that page. Diffing compares
+    // against the last accepted table, which belongs to whichever page was shown before,
+    // so a delta sliced to a different page would name a base_state_id whose rows are
+    // not the ones this answer carries. Paging therefore disables diffing.
+    bool paging = request.Paged;
     (string snapshotMode, string? baseStateId, List<object> rowsToSend) =
-      DecideSnapshot(target, stateId, forceFull, walk, fingerprints);
+      DecideSnapshot(target, stateId, request.ForceFull || paging, walk, fingerprints);
+
+    // The window is applied AFTER the snapshot decision: the diff is computed over the
+    // whole tree so a page boundary never reads as a structural change, and only the
+    // rows that travel are sliced.
+    UiaWalkWindow window = UiaWalkWindow.Select(walk.Rows.Count, request.Offset, request.Limit) with
+    {
+      Truncated = walk.Truncated,
+    };
+    List<object> paged = window.Shown == rowsToSend.Count
+      ? rowsToSend
+      : [.. rowsToSend.Skip(window.Offset).Take(window.Shown)];
 
     var envelope = new
     {
@@ -178,7 +221,10 @@ public partial class RealBrokerObserver : IBrokerObserver, IDisposable
       base_state_id = baseStateId,
       app = AppObject(resolvedPid),
       window = WindowObject(target, title, rect, lifecycle),
-      elements = rowsToSend,
+      elements = paged,
+      element_offset = window.Offset,
+      element_total = window.Total,
+      element_truncated = window.Truncated,
       screenshot,
     };
     return JsonSerializer.SerializeToElement(envelope);

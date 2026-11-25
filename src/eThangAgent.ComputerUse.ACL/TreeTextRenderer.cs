@@ -53,7 +53,50 @@ public static class TreeTextRenderer
           $"note: {shown} of {capture.Elements.Count} elements shown (selected by priority, ancestors kept) - indices are sparse; {capture.Elements.Count - shown} hidden.\n");
     }
 
+    AppendWindowNote(sb, capture);
     return sb.ToString().TrimEnd('\n');
+  }
+
+  /// <summary>The paging disclosure: what this capture showed, what exists beyond it,
+  ///     and the offset that reaches the rest. A model that cannot see the whole tree must
+  ///     be told the tree continues and how to ask for it - silence here reads as a
+  ///     complete picture and produces confident action on a partial one.</summary>
+  private static void AppendWindowNote(StringBuilder sb, CaptureAppResult capture)
+  {
+    int total = capture.ElementTotal;
+    int offset = capture.ElementOffset;
+    int shown = capture.Elements.Count;
+    bool more = offset + shown < total;
+    if (!capture.ElementTruncated && !more && offset == 0)
+    {
+      return;
+    }
+
+    string totalText = capture.ElementTruncated
+      ? string.Create(CultureInfo.InvariantCulture, $"at least {total}")
+      : total.ToString(CultureInfo.InvariantCulture);
+    string range = shown == 0
+      ? string.Create(CultureInfo.InvariantCulture, $"no elements at offset {offset}")
+      : string.Create(CultureInfo.InvariantCulture, $"elements {offset}-{offset + shown - 1} of {totalText}");
+    _ = sb.Append(CultureInfo.InvariantCulture, $"paging: showing {range}.");
+    if (more)
+    {
+      _ = sb.Append(CultureInfo.InvariantCulture,
+          $" The tree continues: observe again with offset={offset + shown} to see the next page.");
+    }
+
+    if (offset > 0)
+    {
+      _ = sb.Append(CultureInfo.InvariantCulture,
+          $" Earlier pages: observe with offset=0.");
+    }
+
+    if (capture.ElementTruncated)
+    {
+      _ = sb.Append(" The tree is deeper than the walk's depth cap, so the total is a floor and elements below that depth are not reachable by paging.");
+    }
+
+    _ = sb.Append('\n');
   }
 
   private static string RenderDelta(CaptureAppResult capture)

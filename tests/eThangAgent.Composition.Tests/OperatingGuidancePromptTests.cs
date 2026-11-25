@@ -87,6 +87,21 @@ public class OperatingGuidancePromptTests
   }
 
   [Fact]
+  public void StakeholderVoice_FinishesTheWorkInsteadOfDisclosingIt()
+  {
+    // A gap the agent could have closed is work it skipped. The guidance must forbid
+    // handing one back as a caveat, and must require evidence before a claim of
+    // necessity - an unverified claim presented as fact survives review.
+    string guidance = StakeholderVoicePromptProvider.Guidance;
+
+    Assert.Contains("FINISH THE WORK BEFORE REPORTING IT", guidance, StringComparison.Ordinal);
+    Assert.Contains("not a limitation to disclose", guidance, StringComparison.Ordinal);
+    Assert.Contains("if you can name the fix, make the fix", guidance, StringComparison.Ordinal);
+    Assert.Contains("READ ITS ACTUAL CONTRACT", guidance, StringComparison.Ordinal);
+    Assert.Contains("hypothesis until a test or a measurement confirms it", guidance, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void StakeholderVoice_ReachesTheSessionPrompt() =>
       Assert.Contains(StakeholderVoicePromptProvider.Guidance, SessionPrompt(), StringComparison.Ordinal);
 

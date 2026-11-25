@@ -44,6 +44,10 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         new ToolParameter("force", ToolParameterType.Flag,
             "Optional, observe only (default false): always re-scan and return the full tree, whatever the previous observation was. " +
             "Same effect as disable_diffing; use it when a delta or no-change answer looks wrong."),
+        new ToolParameter("offset", ToolParameterType.WholeNumber,
+            "Optional, observe only (default 0): the element index to start this page at. The tree text's paging line names the offset that reaches the next page."),
+        new ToolParameter("limit", ToolParameterType.WholeNumber,
+            "Optional, observe only (default 400, max 2000): how many elements this page carries. A larger tree is paged, never silently cut."),
         new ToolParameter("mouse_button", ToolParameterType.Text,
             "Optional, click only: left | right | middle (default left)."),
         new ToolParameter("click_count", ToolParameterType.WholeNumber,
@@ -104,7 +108,7 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         .Append(" app_ref is an object with exactly one of name (string), pid (integer; pid must be positive), or aumid (string), optionally plus window_id (integer; window_id must be positive);")
         .Append(" it is required for list_windows and observe. target is an object: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>};")
         .Append(" it is required for click, scroll, set_value, select_text, and perform_action, optional for type and paste.")
-        .Append(" Observe accepts include_screenshot, disable_diffing, and force (force always re-scans and returns the full tree); stop accepts reason; drag takes from_target and to; perform_action takes action_name;")
+        .Append(" Observe accepts include_screenshot, disable_diffing, force, offset, and limit (force always re-scans and returns the full tree); stop accepts reason; drag takes from_target and to; perform_action takes action_name;")
         .Append(" select_text takes prefix, suffix, and selection_type; key takes repeat and hold_seconds; paste takes format; click takes mouse_button, click_count, and modifiers.")
         .Append(" click, drag, scroll, type, key, and paste accept foreground=true to bring the target window forward first.")
         .Append(" Every input action refuses with FOREGROUND_REQUIRED when the target app is not the foreground window, because injection reaches whatever window holds focus.")
@@ -115,6 +119,7 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         .Append(" return_state compact|full|none; selection_type text|cursor_before|cursor_after; paste format text|md|html; scroll_direction up|down|left|right.")
         .Append(" Key names are case-insensitive: a-z, 0-9, F1-F24, Return, Enter, Tab, Escape, Esc, Backspace, Delete, Del, Insert, Home, End, PageUp, Prior, PageDown, Next, Up, Down, Left, Right, Space;")
         .Append(" modifiers ctrl|control|alt|shift|win|super|meta join with '+' and come first (ctrl+shift+Tab). One key per call.")
+        .Append(" Observe shows one page of the element tree: 400 elements by default, starting at offset. When elements exist beyond the page, the tree text ends with a `paging:` line naming the total and the offset that reaches the next page - so a large tree is walked page by page and never silently cut. A tree deeper than the walk's depth cap says so in that line, and elements below that depth are not reachable by paging.")
         .Append(" Output: observe renders the element tree text as content; with include_screenshot true the screenshot is attached as an image when the model has image input,")
         .Append(" otherwise the line `[computer] screenshot withheld: model has no image input` is appended (the capture is still requested).")
         .Append(" A screenshot is downscaled so its longest edge is at most 1280 pixels, and the tree header's `screenshot:` line states the exact factor:")

@@ -37,16 +37,21 @@ public sealed record UiaElementRow(
 /// <summary>The element rows of one window, in walk order, with the runtime elements
 ///     the element-op dispatcher resolves model indices against. The cache holds null
 ///     for a row whose element vanished mid-walk: the row is still reported so indices
-///     stay dense, and an operation aimed at it answers element_unavailable.</summary>
+///     stay dense, and an operation aimed at it answers element_unavailable.
+///     <para>The walk is COMPLETE: every element within the depth cap is collected, and
+///     the caller selects the window it shows. Truncating here instead would leave the
+///     caller unable to say how much it withheld, and unable to reach what it cut.</para></summary>
 public sealed record UiaWalk(IReadOnlyList<object> Rows, IReadOnlyList<AutomationElement?> Cache)
 {
   /// <summary>An empty walk: no rows, no cached elements.</summary>
   public static UiaWalk Empty { get; } = new([], []);
 
-  /// <summary>The sampling cap that keeps huge trees bounded.</summary>
-  public const int ElementCap = 400;
+  /// <summary>True when the depth cap cut the tree short, so <see cref="Rows"/> is a
+  ///     floor on the element count rather than the whole tree.</summary>
+  public bool Truncated { get; init; }
 
-  /// <summary>The depth cap: deeper subtrees are not walked.</summary>
+  /// <summary>The depth cap: deeper subtrees are not walked, because a tree that deep is
+  ///     layout scaffolding rather than content.</summary>
   public const int DepthCap = 12;
 
   /// <summary>Walks one window's element tree from its root element.</summary>
@@ -54,29 +59,30 @@ public sealed record UiaWalk(IReadOnlyList<object> Rows, IReadOnlyList<Automatio
   {
     List<object> rows = [];
     List<AutomationElement?> cache = [];
-    Walk(root, rows, cache, 0);
-    return new UiaWalk(rows, cache);
+    bool truncated = Walk(root, rows, cache, 0);
+    return new UiaWalk(rows, cache) { Truncated = truncated };
   }
 
-  private static void Walk(AutomationElement element, List<object> rows, List<AutomationElement?> cache, int depth)
+  /// <summary>Walks one element and its subtree; true when the depth cap stopped it short
+  ///     of the whole subtree, which the caller reports rather than hides.</summary>
+  private static bool Walk(AutomationElement element, List<object> rows, List<AutomationElement?> cache, int depth)
   {
-    if (cache.Count >= ElementCap)
-    {
-      return;
-    }
-
     int index = cache.Count;
     cache.Add(element);
     rows.Add(RowFor(index, element, depth));
-    if (depth > DepthCap)
+    if (depth >= DepthCap)
     {
-      return;
+      // A node at the cap may still have children; the tree below it is not collected.
+      return ChildrenOf(element).Count > 0;
     }
 
+    bool truncated = false;
     foreach (AutomationElement child in ChildrenOf(element))
     {
-      Walk(child, rows, cache, depth + 1);
+      truncated |= Walk(child, rows, cache, depth + 1);
     }
+
+    return truncated;
   }
 
   /// <summary>The children to descend into. The control view stops at a frame's document

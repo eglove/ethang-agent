@@ -17,8 +17,13 @@ public abstract record ComputerCommand
   /// <summary>Lists an application's windows.</summary>
   public sealed record ListWindows(ComputerAppRef App) : ComputerCommand;
 
-  /// <summary>Observes one window: element tree, optional screenshot.</summary>
-  public sealed record Observe(ComputerAppRef App, bool IncludeScreenshot, bool DisableDiffing) : ComputerCommand;
+  /// <summary>Observes one window: one page of the element tree, optional screenshot.
+  ///     <para><see cref="Offset"/> is the first element index the page carries and
+  ///     <see cref="Limit"/> how many it carries; a limit of 0 means the default page
+  ///     size. Paging exists so a tree larger than one answer is reachable rather than
+  ///     cut at a fixed ceiling.</para></summary>
+  public sealed record Observe(ComputerAppRef App, bool IncludeScreenshot, bool DisableDiffing,
+      int Offset = 0, int Limit = 0) : ComputerCommand;
 
   /// <summary>Clicks a target. Foreground asks the broker to bring the target window
   ///     forward before dispatching; the broker refuses an input dispatch aimed at a
@@ -227,7 +232,13 @@ public abstract record ComputerOutcome
       IReadOnlyList<ComputerElement> Elements,
       ComputerFrameRef? Frame,
       string? WithheldReason,
-      ToolResultImage? Screenshot) : ComputerOutcome;
+      ToolResultImage? Screenshot) : ComputerOutcome
+  {
+    /// <summary>The paging window this observation carries: which slice of the element
+    ///     table travelled, and how much exists beyond it. Null for results that carry no
+    ///     element table (an app or window listing).</summary>
+    public ComputerElementWindow? ElementWindow { get; init; }
+  }
 
   /// <summary>An action result: whether the action was actually sent, the dispatch
   ///     status (accepted | possibly_sent — delivery-state honesty), an optional
@@ -243,4 +254,22 @@ public abstract record ComputerOutcome
   ///     plus a human-readable message. The tool renders the standard
   ///     'Error [Code]: message' block plus the retry hint line.</summary>
   public sealed record Failure(string Code, string Message) : ComputerOutcome;
+}
+
+/// <summary>Which slice of an observation's element table the model was shown, and how
+///     much exists beyond it. The model reads this to decide whether it has seen the
+///     whole tree or must page for the rest.</summary>
+public sealed record ComputerElementWindow(int Offset, int Total, bool Truncated)
+{
+  /// <summary>How many elements this observation carried.</summary>
+  public int Shown { get; init; }
+
+  /// <summary>True when elements exist before this window.</summary>
+  public bool HasPrevious => Offset > 0;
+
+  /// <summary>True when elements exist after this window.</summary>
+  public bool HasMore => Offset + Shown < Total;
+
+  /// <summary>The offset a follow-up observation starts at, or null when nothing remains.</summary>
+  public int? NextOffset => HasMore ? Offset + Shown : null;
 }

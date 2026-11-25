@@ -117,6 +117,10 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
       app_ref = AppRef(command.App),
       include_screenshot = command.IncludeScreenshot,
       snapshot_mode = command.DisableDiffing ? "force_full" : "auto",
+      // The paging window travels only when the caller named one: an ordinary observe
+      // sends neither key and the broker's own defaults decide the page.
+      offset = command.Offset,
+      limit = command.Limit,
     }, BrokerWire.Options);
     return await RequestAsync("capture_app", parameters, ct).ConfigureAwait(false);
   }
@@ -512,7 +516,14 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     IReadOnlyList<ComputerElement> elements = [.. capture.Elements.Select(e => new ComputerElement(
         e.Index, e.Role, e.Kind, e.Title, e.Value, e.Bounds, e.Enabled, e.Editable, e.Actions,
         e.Focused, e.Selected, e.Pressable, e.HasMenu, e.ChildrenTotal, e.ChildrenShown, e.ChildrenOffset))];
-    return new ComputerOutcome.Observation(treeText, stateId, elements, frame, withheld, screenshot);
+    return new ComputerOutcome.Observation(treeText, stateId, elements, frame, withheld, screenshot)
+    {
+      ElementWindow = new ComputerElementWindow(
+          capture.ElementOffset, capture.ElementTotal, capture.ElementTruncated)
+      {
+        Shown = capture.Elements.Count,
+      },
+    };
   }
 
   /// <summary>Re-encodes a delivered raster as the observation's screenshot frame: a

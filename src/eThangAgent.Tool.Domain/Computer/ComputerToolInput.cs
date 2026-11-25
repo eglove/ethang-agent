@@ -18,6 +18,8 @@ public sealed record ComputerToolInput(
     bool? IncludeScreenshot,
     bool? DisableDiffing,
     bool? Force,
+    int? Offset,
+    int? Limit,
     ComputerTarget? Target,
     ComputerTarget? From,
     ComputerTarget? To,
@@ -113,7 +115,7 @@ public sealed record ComputerToolInput(
   {
     [ComputerAction.ListApps] = ["action", ToolTimeout.ParameterName],
     [ComputerAction.ListWindows] = ["action", ToolTimeout.ParameterName, "app_ref"],
-    [ComputerAction.Observe] = ["action", ToolTimeout.ParameterName, "app_ref", "include_screenshot", "disable_diffing", "force"],
+    [ComputerAction.Observe] = ["action", ToolTimeout.ParameterName, "app_ref", "include_screenshot", "disable_diffing", "force", "offset", "limit"],
     [ComputerAction.Click] = ["action", ToolTimeout.ParameterName, "target", "app_ref", "mouse_button", "click_count", "modifiers", "strategy", "return_state", "foreground"],
     [ComputerAction.Drag] = ["action", ToolTimeout.ParameterName, "from_target", "to", "app_ref", "modifiers", "return_state", "foreground"],
     [ComputerAction.Scroll] = ["action", ToolTimeout.ParameterName, "target", "scroll_direction", "scroll_amount", "app_ref", "strategy", "return_state", "foreground"],
@@ -135,7 +137,7 @@ public sealed record ComputerToolInput(
       {
         [ComputerAction.ListApps] = _ => new ComputerCommand.ListApps(),
         [ComputerAction.ListWindows] = v => new ComputerCommand.ListWindows(v.AppRef!),
-        [ComputerAction.Observe] = v => new ComputerCommand.Observe(v.AppRef!, v.IncludeScreenshot ?? false, (v.DisableDiffing ?? false) || (v.Force ?? false)),
+        [ComputerAction.Observe] = v => new ComputerCommand.Observe(v.AppRef!, v.IncludeScreenshot ?? false, (v.DisableDiffing ?? false) || (v.Force ?? false), v.Offset ?? 0, v.Limit ?? 0),
         [ComputerAction.Click] = v => new ComputerCommand.Click(v.Target!, v.AppRef, v.MouseButton ?? "left", v.ClickCount ?? 1, v.Modifiers ?? "", v.Strategy ?? "auto", v.ReturnState ?? "none", v.Foreground ?? false),
         [ComputerAction.Drag] = v => new ComputerCommand.Drag(v.From!, v.To!, v.AppRef, v.Modifiers ?? "", v.ReturnState ?? "none", v.Foreground ?? false),
         [ComputerAction.Scroll] = v => new ComputerCommand.Scroll(v.Target!, v.ScrollDirection!, v.ScrollAmount!.Value, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none", v.Foreground ?? false),
@@ -163,7 +165,7 @@ public sealed record ComputerToolInput(
     }
 
     ComputerToolInput input = new(action, f._appRef, f._includeScreenshot, f._disableDiffing, f._force,
-        f._target, f._from, f._to, f._scrollAmount, f._scrollDirection, f._text, f._value,
+        f._offset, f._limit, f._target, f._from, f._to, f._scrollAmount, f._scrollDirection, f._text, f._value,
         f._prefix, f._suffix, f._selectionType, f._repeat, f._holdSeconds,
         f._format, f._actionName, f._mouseButton, f._clickCount, f._modifiers,
         f._strategy, f._returnState, f._reason, f._foreground);
@@ -199,6 +201,10 @@ public sealed record ComputerToolInput(
     public string? _returnState { get; set; }
     public bool? _foreground { get; set; }
     public bool? _force { get; set; }
+
+    public int? _offset { get; set; }
+
+    public int? _limit { get; set; }
   }
 
   // Sub-objects: app_ref and the three target shapes.
@@ -235,6 +241,26 @@ public sealed record ComputerToolInput(
     return null;
   }
 
+  /// <summary>The observe paging window: the first element index and the page size.
+  ///     Absent values leave the caller's defaults in place.</summary>
+  private static DomainError? ParsePaging(JsonElement json, ParsedFields f)
+  {
+    Result<int?> offset = ToolArguments.OptionalInt(json, "offset");
+    if (!offset.IsSuccess)
+    {
+      return offset.Error;
+    }
+    f._offset = offset.Value;
+
+    Result<int?> limit = ToolArguments.OptionalInt(json, "limit");
+    if (!limit.IsSuccess)
+    {
+      return limit.Error;
+    }
+    f._limit = limit.Value;
+    return null;
+  }
+
   // Scalar optionals: booleans, integers, and the fractional-seconds field.
   private static DomainError? ParseScalars(JsonElement json, ParsedFields f)
   {
@@ -258,6 +284,12 @@ public sealed record ComputerToolInput(
       return force.Error;
     }
     f._force = force.Value;
+
+    DomainError? paging = ParsePaging(json, f);
+    if (paging is not null)
+    {
+      return paging;
+    }
 
     Result<bool?> foreground = ToolArguments.OptionalBool(json, "foreground");
     if (!foreground.IsSuccess)
