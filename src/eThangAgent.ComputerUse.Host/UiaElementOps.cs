@@ -1,17 +1,19 @@
-using System.Runtime.InteropServices;
-using System.Windows.Automation;
+using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Definitions;
+using FlaUI.Core.Exceptions;
+using FlaUI.Core.Patterns;
 
 namespace eThangAgent.ComputerUse.Host;
 
 /// <summary>Real UIA element operations (task 18, R1): the dispatcher's element path
 ///     resolves the target from the broker's last-walk element cache and performs the
-///     REAL pattern operation (Value/Invoke/SetFocus). Every unsupported pattern is an
-///     honest typed error - not_settable / not_selectable / action_unavailable - never
-///     a faked receipt. Resolution failure answers element_unavailable.</summary>
+///     REAL pattern operation (Value/Invoke/SetFocus) through FlaUI. Every unsupported
+///     pattern is an honest typed error - not_settable / not_selectable /
+///     action_unavailable - never a faked receipt. Resolution failure answers
+///     element_unavailable.</summary>
 public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IElementBoundsResolver, IElementActionSink
 {
   private readonly Func<int, AutomationElement?> _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
-
 
   /// <summary>C3: resolves the element's bounds center through the UIA cache for the drag
   ///     path. False when the element is absent from the cache or its rectangle is empty
@@ -28,14 +30,14 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
 
     try
     {
-      System.Windows.Rect bounds = target.Current.BoundingRectangle;
+      Rectangle bounds = target.BoundingRectangle;
       if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0)
       {
         return false;
       }
 
-      centerX = (int)(bounds.X + (bounds.Width / 2));
-      centerY = (int)(bounds.Y + (bounds.Height / 2));
+      centerX = bounds.X + (bounds.Width / 2);
+      centerY = bounds.Y + (bounds.Height / 2);
       return true;
     }
     catch (ElementNotAvailableException)
@@ -57,13 +59,13 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
 
     try
     {
-      if (target.TryGetCurrentPattern(InvokePattern.Pattern, out object? invokePattern) && invokePattern is InvokePattern invoke)
+      if (target.Patterns.Invoke.TryGetPattern(out IInvokePattern? invoke))
       {
         invoke.Invoke();
         return BrokerResponse.Accepted();
       }
 
-      if (target.TryGetCurrentPattern(TogglePattern.Pattern, out object? togglePattern) && togglePattern is TogglePattern toggle)
+      if (target.Patterns.Toggle.TryGetPattern(out ITogglePattern? toggle))
       {
         toggle.Toggle();
         return BrokerResponse.Accepted();
@@ -77,9 +79,9 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (COMException ex)
+    catch (FlaUIException ex)
     {
-      return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the invoke (COM {ex.HResult}); nothing ran.");
+      return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the invoke (UIA {ex.HResult}); nothing ran.");
     }
   }
 
@@ -94,8 +96,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
       return ElementUnavailable(element);
     }
 
-    if (!target.TryGetCurrentPattern(ScrollPattern.Pattern, out object? pattern)
-      || pattern is not ScrollPattern scroll)
+    if (!target.Patterns.Scroll.TryGetPattern(out IScrollPattern? scroll))
     {
       return BrokerResponse.Fail("action_unavailable",
         $"element {element} exposes no UIA Scroll pattern; nothing scrolled. " +
@@ -116,9 +117,9 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (COMException ex)
+    catch (FlaUIException ex)
     {
-      return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the scroll (COM {ex.HResult}); nothing scrolled.");
+      return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the scroll (UIA {ex.HResult}); nothing scrolled.");
     }
     catch (InvalidOperationException ex)
     {
@@ -136,8 +137,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
   ///     a write without applying it for controls that render their own text (native
   ///     spinners, segmented date fields, some combo boxes), so a receipt that only
   ///     reports the write was sent claims an effect nobody observed. A value that did
-  ///     not take is the honest not_settable refusal naming what the element holds.
-  ///     </summary>
+  ///     not take is the honest not_settable refusal naming what the element holds.</summary>
   public BrokerResponse SetValue(int element, string text)
   {
     AutomationElement? target = Resolve(element);
@@ -146,7 +146,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
       return ElementUnavailable(element);
     }
 
-    if (!target.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern) || pattern is not ValuePattern valuePattern)
+    if (!target.Patterns.Value.TryGetPattern(out IValuePattern? valuePattern))
     {
       return BrokerResponse.Fail("not_settable", $"element {element} does not support the UIA Value pattern; nothing was changed.");
     }
@@ -154,7 +154,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     try
     {
       valuePattern.SetValue(text);
-      return VerifyValue(element, target, text);
+      return VerifyValue(element, valuePattern, text);
     }
     catch (ElementNotAvailableException)
     {
@@ -164,23 +164,21 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return BrokerResponse.Fail("not_settable", $"element {element} rejected the value: {ex.Message}");
     }
-    catch (COMException ex)
+    catch (FlaUIException ex)
     {
-      return BrokerResponse.Fail("not_settable", $"element {element} rejected the value (COM {ex.HResult}).");
+      return BrokerResponse.Fail("not_settable", $"element {element} rejected the value (UIA {ex.HResult}).");
     }
   }
 
   /// <summary>Reads the value back after a write. A value the element did not take is a
   ///     typed refusal naming what it holds instead of a receipt for an effect that did
   ///     not happen; an element that vanished mid-write is the honest unavailable.</summary>
-  private static BrokerResponse VerifyValue(int element, AutomationElement target, string written)
+  private static BrokerResponse VerifyValue(int element, IValuePattern valuePattern, string written)
   {
     string? actual;
     try
     {
-      actual = target.TryGetCurrentPattern(ValuePattern.Pattern, out object? readBack) && readBack is ValuePattern reread
-        ? reread.Current.Value
-        : null;
+      actual = valuePattern.Value.ValueOrDefault;
     }
     catch (ElementNotAvailableException)
     {
@@ -214,10 +212,10 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (COMException ex)
+    catch (FlaUIException ex)
     {
       return BrokerResponse.Fail("action_unavailable",
-        $"element {element} rejected action '{actionName}' (COM {ex.HResult}); nothing ran.");
+        $"element {element} rejected action '{actionName}' (UIA {ex.HResult}); nothing ran.");
     }
   }
 
@@ -227,15 +225,15 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
   {
     switch (actionName)
     {
-      case "press" or "invoke" or "click" when target.TryGetCurrentPattern(InvokePattern.Pattern, out object? invokePattern) && invokePattern is InvokePattern invoke:
+      case "press" or "invoke" or "click" when target.Patterns.Invoke.TryGetPattern(out IInvokePattern? invoke):
         invoke.Invoke();
         return BrokerResponse.Accepted();
 
-      case "toggle" or "press" or "click" when target.TryGetCurrentPattern(TogglePattern.Pattern, out object? togglePattern) && togglePattern is TogglePattern toggle:
+      case "toggle" or "press" or "click" when target.Patterns.Toggle.TryGetPattern(out ITogglePattern? toggle):
         toggle.Toggle();
         return BrokerResponse.Accepted();
 
-      case "expand" or "collapse" or "open" when target.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out object? expandPattern) && expandPattern is ExpandCollapsePattern expandCollapse:
+      case "expand" or "collapse" or "open" when target.Patterns.ExpandCollapse.TryGetPattern(out IExpandCollapsePattern? expandCollapse):
         return RunExpandCollapse(expandCollapse, actionName);
 
       default:
@@ -244,7 +242,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     }
   }
 
-  private static BrokerResponse RunExpandCollapse(ExpandCollapsePattern expandCollapse, string actionName)
+  private static BrokerResponse RunExpandCollapse(IExpandCollapsePattern expandCollapse, string actionName)
   {
     if (actionName == "collapse")
     {
@@ -257,6 +255,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
 
     return BrokerResponse.Accepted();
   }
+
   public BrokerResponse SelectText(int element)
   {
     AutomationElement? target = Resolve(element);
@@ -265,13 +264,13 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
       return ElementUnavailable(element);
     }
 
-    if (!target.TryGetCurrentPattern(TextPattern.Pattern, out _))
+    if (!target.Patterns.Text.IsSupported)
     {
       return BrokerResponse.Fail("not_selectable", $"element {element} exposes no UIA Text pattern; no selection was made.");
     }
 
-    // The UIA Text pattern is read-only on the client side: selection shaping needs the
-    // pattern's range APIs that the client surface does not expose. Honest refusal.
+    // The UIA Text pattern exposes no client-side selection shaping: its ranges are
+    // read-only over this surface. Honest refusal.
     return BrokerResponse.Fail("not_selectable", $"element {element}'s text pattern is read-only over UIA; selection is unavailable.");
   }
 
@@ -284,7 +283,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
   {
     try
     {
-      target.SetFocus();
+      target.Focus();
       WaitFocusLands(target);
       return BrokerResponse.Accepted();
     }
@@ -292,17 +291,17 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (COMException ex)
+    catch (FlaUIException ex)
     {
-      return BrokerResponse.Fail("internal", $"SetFocus failed (COM {ex.HResult}).", "action_sent=false");
+      return BrokerResponse.Fail("internal", $"SetFocus failed (UIA {ex.HResult}).", "action_sent=false");
     }
   }
 
   /// <summary>UIA SetFocus returns before the Win32 focus state (GetGUIThreadInfo)
-  ///     reflects the move — and targeted delivery reads exactly that state, so a
+  ///     reflects the move - and targeted delivery reads exactly that state, so a
   ///     delivery racing the settle posts its characters to the stale focus target.
   ///     Event-driven settle (R5.1): a focus-changed event handler signals when the
-  ///     element's native window becomes the focused window, bounded by a timeout —
+  ///     element's native window becomes the focused window, bounded by a timeout -
   ///     best-effort: an element without a native handle, or a focus that never
   ///     lands within the bound, proceeds unchanged (delivery falls back to the
   ///     foreground window as before).</summary>
@@ -311,9 +310,9 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     nint nativeWindow;
     try
     {
-      nativeWindow = target.Current.NativeWindowHandle;
+      nativeWindow = target.Properties.NativeWindowHandle.ValueOrDefault;
     }
-    catch (COMException)
+    catch (FlaUIException)
     {
       return; // the element went stale between focus and read; nothing to settle
     }
@@ -324,8 +323,8 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     }
 
     TaskCompletionSource landed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    AutomationFocusChangedEventHandler onFocus = OnFocusChanged;
-    Automation.AddAutomationFocusChangedEventHandler(onFocus);
+    FlaUI.Core.AutomationBase automation = target.Automation;
+    FlaUI.Core.EventHandlers.FocusChangedEventHandlerBase handler = automation.RegisterFocusChangedEvent(OnFocusChanged);
     try
     {
       landed.Task.WaitAsync(FocusSettleBound, CancellationToken.None).GetAwaiter().GetResult();
@@ -336,19 +335,19 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     }
     finally
     {
-      Automation.RemoveAutomationFocusChangedEventHandler(onFocus);
+      automation.UnregisterFocusChangedEvent(handler);
     }
 
-    void OnFocusChanged(object sender, AutomationFocusChangedEventArgs e)
+    void OnFocusChanged(AutomationElement focused)
     {
       try
       {
-        if (sender is AutomationElement focused && focused.Current.NativeWindowHandle == nativeWindow)
+        if (focused.Properties.NativeWindowHandle.ValueOrDefault == nativeWindow)
         {
           _ = landed.TrySetResult();
         }
       }
-      catch (COMException)
+      catch (FlaUIException)
       {
         // A stale sender mid-handshake cannot signal the wait.
       }

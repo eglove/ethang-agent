@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Windows.Automation;
+using FlaUI.Core.AutomationElements;
 
 namespace eThangAgent.ComputerUse.Host.Tests;
 
@@ -23,7 +23,7 @@ public class SnapshotDiffingWireTests
   [Fact]
   public void FirstWalk_IsFull()
   {
-    SteadyStateObserver observer = new();
+    using SteadyStateObserver observer = new();
     BrokerResponse first = Capture(observer);
     Assert.Null(first.Error);
     Assert.Equal("full", SnapshotMode(first));
@@ -32,7 +32,7 @@ public class SnapshotDiffingWireTests
   [Fact]
   public void UnchangedSecondWalk_IsNoChange_EchoingBaseStateId()
   {
-    SteadyStateObserver observer = new();
+    using SteadyStateObserver observer = new();
     BrokerResponse first = Capture(observer);
     string firstStateId = StateId(first);
     BrokerResponse second = Capture(observer);
@@ -44,7 +44,7 @@ public class SnapshotDiffingWireTests
   [Fact]
   public void ChangedValue_IsDelta_NamingTheChangedRow()
   {
-    SteadyStateObserver observer = new();
+    using SteadyStateObserver observer = new();
     _ = Capture(observer);
     observer.Mutate("ed-1", "typed text");
     BrokerResponse third = Capture(observer);
@@ -60,7 +60,7 @@ public class SnapshotDiffingWireTests
   [Fact]
   public void StructuralChange_IsFull()
   {
-    SteadyStateObserver observer = new();
+    using SteadyStateObserver observer = new();
     _ = Capture(observer);
     observer.RemoveElement("btn-1");
     BrokerResponse third = Capture(observer);
@@ -72,7 +72,7 @@ public class SnapshotDiffingWireTests
   [Fact]
   public void DisableDiffing_ForcesFull_AndAdvancesTheBaseline()
   {
-    SteadyStateObserver observer = new();
+    using SteadyStateObserver observer = new();
     _ = Capture(observer);
     BrokerResponse forced = Capture(observer, disableDiffing: true);
     Assert.Equal("full", SnapshotMode(forced));
@@ -86,7 +86,7 @@ public class SnapshotDiffingWireTests
   {
     // Delta rows carry the FULL element shape, not a partial patch - the ACL
     // parser fails closed on incomplete rows.
-    SteadyStateObserver observer = new();
+    using SteadyStateObserver observer = new();
     _ = Capture(observer);
     observer.Mutate("ed-1", "new value");
     BrokerResponse delta = Capture(observer);
@@ -148,10 +148,10 @@ internal sealed class SteadyStateObserver : RealBrokerObserver
     return true;
   }
 
-  internal override WalkResult? WalkElements(nint window)
+  internal override UiaWalk? WalkElements(nint window)
   {
     List<object> rows = [];
-    List<AutomationElement> cache = [];
+    List<AutomationElement?> cache = [];
     for (int i = 0; i < _rows.Count; i++)
     {
       Row row = _rows[i];
@@ -174,9 +174,9 @@ internal sealed class SteadyStateObserver : RealBrokerObserver
         children_shown = (int?)null,
         children_offset = (int?)null,
       });
-      cache.Add(null!); // the cache mirrors rows 1:1; rows never resolve in these tests
+      cache.Add(null); // the cache mirrors rows 1:1; rows never resolve in these tests
     }
 
-    return new WalkResult(rows, cache);
+    return new UiaWalk(rows, cache);
   }
 }

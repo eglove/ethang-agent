@@ -2,7 +2,7 @@ using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Windows.Automation;
+using FlaUI.Core.AutomationElements;
 
 namespace eThangAgent.ComputerUse.Host;
 
@@ -11,11 +11,12 @@ namespace eThangAgent.ComputerUse.Host;
 ///     walk order and cached for the element-op dispatcher), window listing, application
 ///     identity, and the PrintWindow raster with blank detection. Owner loss resets the
 ///     element cache (A3: a new controller starts from a fresh observation).</summary>
-public partial class RealBrokerObserver : IBrokerObserver
+public partial class RealBrokerObserver : IBrokerObserver, IDisposable
 {
   private readonly Lock _gate = new();
   private readonly SurfaceTracker _surfaces = new();
-  private readonly List<AutomationElement> _elementCache = [];
+  private readonly Uia3Session _session = new();
+  private readonly List<AutomationElement?> _elementCache = [];
 
   /// <summary>The element-op seam for InputDispatch (R1): resolves a model index into
   ///     the walk's cached runtime element.</summary>
@@ -26,6 +27,23 @@ public partial class RealBrokerObserver : IBrokerObserver
     lock (_gate)
     {
       return index >= 0 && index < _elementCache.Count ? _elementCache[index] : null;
+    }
+  }
+
+  /// <summary>Releases the UIA3 automation object the walk and element operations share.</summary>
+  public void Dispose()
+  {
+    Dispose(true);
+    GC.SuppressFinalize(this);
+  }
+
+  /// <summary>Releases the UIA3 automation object; the broker owns no unmanaged state of
+  ///     its own, so the finalizer path has nothing further to release.</summary>
+  protected virtual void Dispose(bool disposing)
+  {
+    if (disposing)
+    {
+      _session.Dispose();
     }
   }
 
@@ -123,7 +141,7 @@ public partial class RealBrokerObserver : IBrokerObserver
     NativeRect rect = WindowRect(target);
     SurfaceLifecycle lifecycle = ObserveSurface(resolvedPid, target, title);
 
-    WalkResult? walk = WalkElements(target);
+    UiaWalk? walk = WalkElements(target);
     if (walk is null)
     {
       // F2 (fix round 5): a walk that hit its deadline fabricates nothing - the typed
@@ -230,8 +248,9 @@ public partial class RealBrokerObserver : IBrokerObserver
   ///     => delta naming the changed rows (baseline advances); structural change =>
   ///     full (baseline advances). Serialized rows parse into fingerprints once here.</summary>
   private (string SnapshotMode, string? BaseStateId, List<object> RowsToSend) DecideSnapshot(
-      nint window, string stateId, bool forceFull, WalkResult walk, List<string> fingerprints)
+      nint window, string stateId, bool forceFull, UiaWalk walk, List<string> fingerprints)
   {
+    List<object> rows = [.. walk.Rows];
     lock (_gate)
     {
       bool havePrevious = _lastAcceptedTables.TryGetValue(window, out (string StateId, List<string> Fingerprints) previous);
@@ -239,7 +258,7 @@ public partial class RealBrokerObserver : IBrokerObserver
       {
         // First walk or client disable_diffing: a full snapshot IS the new baseline.
         _lastAcceptedTables[window] = (stateId, fingerprints);
-        return ("full", null, walk.Rows);
+        return ("full", null, rows);
       }
 
       if (previous.Fingerprints.Count == fingerprints.Count
@@ -270,7 +289,7 @@ public partial class RealBrokerObserver : IBrokerObserver
 
       // Structural change: a full snapshot IS the new baseline.
       _lastAcceptedTables[window] = (stateId, fingerprints);
-      return ("full", null, walk.Rows);
+      return ("full", null, rows);
     }
   }
 
@@ -296,22 +315,17 @@ public partial class RealBrokerObserver : IBrokerObserver
 
   // ---- walk ----
 
-  internal sealed record WalkResult(List<object> Rows, List<AutomationElement> Cache);
-
-  internal virtual WalkResult? WalkElements(nint window)
+  internal virtual UiaWalk? WalkElements(nint window)
   {
-    AutomationElement root = AutomationElement.FromHandle(window);
-    List<object>? rows = null;
-    List<AutomationElement>? cache = null;
+    AutomationElement? root = _session.FromHandle(window);
+    UiaWalk? walked = null;
     UiaTreeWalker walker = new(() =>
     {
-      WalkResult result = WalkTree(root);
-      rows = result.Rows;
-      cache = result.Cache;
+      walked = root is null ? null : UiaWalk.Of(root);
       return [];
     });
     string[]? outcome = WalkOnce(window, walker);
-    return outcome is null ? null : new WalkResult(rows ?? [], cache ?? []);
+    return outcome is null ? null : walked ?? UiaWalk.Empty;
   }
 
   /// <summary>The walk seam (fix round 5): production joins the walker's deadline;
@@ -320,188 +334,6 @@ public partial class RealBrokerObserver : IBrokerObserver
   {
     _ = window;
     return walker.WalkWithDeadline();
-  }
-
-  private static WalkResult WalkTree(AutomationElement root)
-  {
-    List<object> rows = [];
-    List<AutomationElement> cache = [];
-    WalkElement(root, rows, cache, 0);
-    return new WalkResult(rows, cache);
-  }
-
-  private static void WalkElement(AutomationElement element, List<object> rows, List<AutomationElement> cache, int depth)
-  {
-    if (cache.Count >= 400)
-    {
-      return; // the sampling cap keeps huge trees bounded
-    }
-
-    int index = cache.Count;
-    cache.Add(element);
-    rows.Add(RowFor(index, element, depth));
-    if (depth > 12)
-    {
-      return;
-    }
-
-    foreach (AutomationElement child in ChildrenOf(element))
-    {
-      WalkElement(child, rows, cache, depth + 1);
-    }
-  }
-
-  /// <summary>The children to descend into. The CONTROL view stops at a frame's document
-  ///     node, so a cross-origin iframe - an application form embedded in a host page, the
-  ///     common shape of a job-application portal - contributes one opaque Document row and
-  ///     nothing inside it is reachable, addressable, or scrollable. A frame or document
-  ///     node is therefore descended through the RAW view, which is where the hosted content
-  ///     lives; every other element keeps the control view so the tree stays free of the raw
-  ///     view's layout noise.</summary>
-  private static List<AutomationElement> ChildrenOf(AutomationElement element) =>
-    IsFrameNode(element) ? RawChildren(element) : ControlChildren(element);
-
-  /// <summary>The control-view children: what an ordinary element exposes to a screen
-  ///     reader.</summary>
-  private static List<AutomationElement> ControlChildren(AutomationElement element) =>
-    [.. element.FindAll(TreeScope.Children, Condition.TrueCondition).Cast<AutomationElement>()];
-
-  /// <summary>The raw-view children of a frame node. A frame's hosted document is reachable
-  ///     only through the raw view, and the raw view also carries the frame's own chrome, so
-  ///     the walk keeps only the nodes that can hold content. A frame whose raw view yields
-  ///     nothing falls back to its control children rather than contributing no subtree.
-  ///     </summary>
-  private static List<AutomationElement> RawChildren(AutomationElement element)
-  {
-    List<AutomationElement> children = [];
-    TreeWalker walker = TreeWalker.RawViewWalker;
-    try
-    {
-      for (AutomationElement? child = walker.GetFirstChild(element); child is not null; child = walker.GetNextSibling(child))
-      {
-        children.Add(child);
-      }
-    }
-    catch (ElementNotAvailableException)
-    {
-      return ControlChildren(element);
-    }
-
-    return children.Count > 0 ? children : ControlChildren(element);
-  }
-
-  /// <summary>True when the element hosts a separate document whose content the control
-  ///     view does not expose: a frame pane or a document node.</summary>
-  private static bool IsFrameNode(AutomationElement element)
-  {
-    try
-    {
-      ControlType type = element.Current.ControlType;
-      return type == ControlType.Pane || type == ControlType.Document;
-    }
-    catch (ElementNotAvailableException)
-    {
-      return false;
-    }
-  }
-
-  private static object RowFor(int index, AutomationElement element, int depth)
-  {
-    try
-    {
-      return RowFromLiveElement(index, element, depth);
-    }
-    catch (ElementNotAvailableException)
-    {
-      return RowForUnavailableElement(index);
-    }
-  }
-
-  private static object RowFromLiveElement(int index, AutomationElement element, int depth)
-  {
-    System.Windows.Rect bounds = element.Current.BoundingRectangle;
-    string role = element.Current.ControlType?.ProgrammaticName?.Replace("ControlType.", string.Empty, StringComparison.Ordinal) ?? "unknown";
-    string name = element.Current.Name ?? string.Empty;
-    bool pressable = element.TryGetCurrentPattern(InvokePattern.Pattern, out _);
-    bool toggleable = element.TryGetCurrentPattern(TogglePattern.Pattern, out _);
-    string[] actions = ActionsFor(pressable, toggleable);
-    bool valueBacked = element.TryGetCurrentPattern(ValuePattern.Pattern, out _);
-    string? value = ElementValue(element, valueBacked);
-    bool selected = element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _);
-    bool hasMenu = element.Current.ControlType == ControlType.Menu;
-    return new
-    {
-      index,
-      role,
-      kind = depth == 0 ? "window" : "control",
-      title = name,
-      value,
-      bounds = new[] { (int)bounds.X, (int)bounds.Y, (int)bounds.Width, (int)bounds.Height },
-      enabled = element.Current.IsEnabled,
-      editable = valueBacked,
-      actions,
-      focused = element.Current.HasKeyboardFocus,
-      selected,
-      pressable = pressable || toggleable,
-      has_menu = hasMenu,
-      children_total = (int?)null,
-      children_shown = (int?)null,
-      children_offset = (int?)null,
-    };
-  }
-
-  /// <summary>The action list from the pressable/toggleable pattern flags.</summary>
-  private static string[] ActionsFor(bool pressable, bool toggleable)
-  {
-    return (pressable, toggleable) switch
-    {
-      (true, true) => ["press", "toggle"],
-      (true, false) => ["press"],
-      (false, true) => ["toggle"],
-      _ => [],
-    };
-  }
-
-  /// <summary>Reads the Value pattern's current value; a value that vanishes
-  ///     mid-read (the element died between the pattern check and the read) is null.</summary>
-  private static string? ElementValue(AutomationElement element, bool valueBacked)
-  {
-    if (!valueBacked || !element.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern) || pattern is not ValuePattern vp)
-    {
-      return null;
-    }
-
-    try
-    {
-      return vp.Current.Value;
-    }
-    catch (ElementNotAvailableException)
-    {
-      return null;
-    }
-  }
-
-  private static object RowForUnavailableElement(int index)
-  {
-    return new
-    {
-      index,
-      role = "unknown",
-      kind = "control",
-      title = string.Empty,
-      value = (string?)null,
-      bounds = new[] { 0, 0, 0, 0 },
-      enabled = false,
-      editable = false,
-      actions = Array.Empty<string>(),
-      focused = false,
-      selected = false,
-      pressable = false,
-      has_menu = false,
-      children_total = (int?)null,
-      children_shown = (int?)null,
-      children_offset = (int?)null,
-    };
   }
 
   // ---- raster ----

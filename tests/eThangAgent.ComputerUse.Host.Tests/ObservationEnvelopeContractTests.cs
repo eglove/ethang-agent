@@ -16,7 +16,7 @@ public class ObservationEnvelopeContractTests
   {
     // The injectable walk times out (WalkElements => null); resolution is pinned to
     // succeed so the WALK's deadline behavior is the only variable under test.
-    TimedOutObserver observer = new();
+    using TimedOutObserver observer = new();
     PipeServer server = new(new BrokerConfig("ignored-pipe", "t"), observer);
     _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     BrokerResponse reply = server.Dispatch(2, "capture_app",
@@ -29,7 +29,7 @@ public class ObservationEnvelopeContractTests
   [Fact]
   public void CaptureApp_UnknownPid_ErrorEnvelopeAppNotFound_NotErrorInsideOk()
   {
-    RealBrokerObserver observer = new();
+    using RealBrokerObserver observer = new();
     PipeServer server = new(new BrokerConfig("ignored-pipe", "t"), observer);
     _ = server.Dispatch(0, "authenticate", JsonElement.Parse("{\"token\":\"t\"}"), connectionId: 1);
     BrokerResponse reply = server.Dispatch(2, "capture_app",
@@ -70,5 +70,5 @@ internal sealed class TimedOutObserver : RealBrokerObserver
     return true;
   }
 
-  internal override WalkResult? WalkElements(nint window) => null; // the deadline always wins
+  internal override UiaWalk? WalkElements(nint window) => null; // the deadline always wins
 }

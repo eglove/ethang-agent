@@ -31,8 +31,8 @@
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- R1 (task 18): the element-op dispatcher runs REAL UIA patterns through
-         System.Windows.Automation (UIAutomationClient ships in the desktop WPF profile). -->
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+    <!-- The UIA tree walk and element operations run through FlaUI's UIA3 client
+         (raw COM UIA3, no WPF profile needed). -->
+    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
   </ItemGroup>
 </Project>
