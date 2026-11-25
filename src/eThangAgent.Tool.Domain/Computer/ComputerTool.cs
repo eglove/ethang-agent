@@ -94,10 +94,9 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         new ToolParameter("min_score", ToolParameterType.WholeNumber,
             "Optional, locate_image only: the match threshold 0..1 (default 0.8). Never clamped."),
         new ToolParameter("region", ToolParameterType.ObjectValue,
-            "Optional, read_text only: {x, y, width, height} in raster pixels, restricting the read to that area. Reported bounds stay in the full raster's space."),
-        new ToolParameter("foreground", ToolParameterType.Flag,
-            "Optional, click/drag/scroll/type/key/paste (default false): bring the target window to the foreground first. " +
-            "Input aimed at a window that is not in front is refused with FOREGROUND_REQUIRED, because injection reaches whatever window holds focus."),
+            "Optional, observe and read_text: {x, y, width, height} in DELIVERED-RASTER pixels. " +
+            "observe crops the screenshot to that rect and resamples it up to fill the delivery ceiling, so text too small to read at whole-window scale arrives legible; " +
+            "read_text restricts the OCR to that area. Reported bounds stay in the full raster's space."),
       ],
       [ToolTimeout.ParameterName, "action"]);
 
@@ -115,15 +114,14 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         .Append(" app_ref is an object with exactly one of name (string), pid (integer; pid must be positive), or aumid (string), optionally plus window_id (integer; window_id must be positive);")
         .Append(" it is required for list_windows and observe. target is an object: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>};")
         .Append(" it is required for click, scroll, set_value, select_text, and perform_action, optional for type and paste.")
-        .Append(" Observe accepts include_screenshot, disable_diffing, force, offset, and limit (force always re-scans and returns the full tree); stop accepts reason; drag takes from_target and to; perform_action takes action_name;")
+        .Append(" Observe accepts include_screenshot, disable_diffing, force, offset, limit, and region (force always re-scans and returns the full tree); stop accepts reason; drag takes from_target and to; perform_action takes action_name;")
         .Append(" select_text takes prefix, suffix, and selection_type; key takes repeat and hold_seconds; paste takes format; click takes mouse_button, click_count, and modifiers.")
         .Append(" locate_image takes template_path (an image file to find inside the window's raster) and min_score (0..1, default 0.8);")
         .Append(" read_text takes an optional region {x, y, width, height} in raster pixels.")
         .Append(" These two are the vision path for surfaces that expose pixels instead of an accessibility tree - a remote desktop, a video frame, a drawing:")
-        .Append(" they render one line per finding carrying x, y, width, height, centre, and score (matches) or confidence (words), all in RASTER pixels, so convert with the observe header's factor before using a coordinate target.")
+        .Append(" they render one line per finding carrying x, y, width, height, centre, and score (matches) or confidence (words), all in RASTER pixels - the same space a coordinate target accepts, so a reported centre is usable as-is.")
         .Append(" A template with no visual variation is refused rather than matched everywhere.")
-        .Append(" click, drag, scroll, type, key, and paste accept foreground=true to bring the target window forward first.")
-        .Append(" Every input action refuses with FOREGROUND_REQUIRED when the target app is not the foreground window, because injection reaches whatever window holds focus.")
+        .Append(" Every input action naming an app_ref brings that window to the foreground first, automatically: injection reaches whatever window holds focus, so the tool focuses the target rather than requiring the caller to ask.")
         .Append(" Uploading a file through a native Open dialog: observe the dialog, set_value the 'File name:' edit to the absolute path (the receipt is verified against what the element reads back),")
         .Append(" then click the Open button by element index. Both steps are UIA operations on the dialog itself, so neither depends on which window holds focus; type and Return do, and are the fallback only when the edit exposes no Value pattern.")
         .Append(" Ranges, never clamped: scroll_amount 0..100, click_count >= 1, repeat 1..100, hold_seconds 0..30.")
@@ -135,8 +133,8 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         .Append(" Observe shows one page of the element tree: 400 elements by default, starting at offset. When elements exist beyond the page, the tree text ends with a `paging:` line naming the total and the offset that reaches the next page - so a large tree is walked page by page and never silently cut. A tree deeper than the walk's depth cap says so in that line, and elements below that depth are not reachable by paging.")
         .Append(" Output: observe renders the element tree text as content; with include_screenshot true the screenshot is attached as an image when the model has image input,")
         .Append(" otherwise the line `[computer] screenshot withheld: model has no image input` is appended (the capture is still requested).")
-        .Append(" A screenshot is downscaled so its longest edge is at most 1280 pixels, and the tree header's `screenshot:` line states the exact factor:")
-        .Append(" screenshot coordinates are NOT screen coordinates - multiply by the stated factor to get screen pixels for a coordinate target, or use an element index and avoid the conversion entirely.")
+        .Append(" A screenshot is downscaled so its longest edge is at most 1280 pixels, and the tree header's `coordinates:` line states the contract exactly:")
+        .Append(" a coordinate target takes DELIVERED-RASTER pixels - the pixel you read off the image, never multiplied by anything. When the text in a region is too small to read, observe again with region={x,y,width,height} to get that area zoomed.")
         .Append(" Every other action renders one line `[computer] ok <action> action_sent=<true|false> dispatch=<accepted|possibly_sent>`;")
         .Append(" when the command requested a post-action state and the receipt carries a tree, that tree is appended;")
         .Append(" when a click, drag, or scroll reports effect_evidence=unchanged, the line `[computer] effect_evidence=unchanged - the app state is byte-identical; do not repeat the same coordinate; prefer an element index or keyboard` is appended.")

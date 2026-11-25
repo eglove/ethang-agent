@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.ACL;
 
@@ -22,27 +23,27 @@ public static class TreeTextRenderer
   ///     parameter is a TEST-ONLY knob so fixtures can exercise the trim on
   ///     small tables.</summary>
   public static string Render(CaptureAppResult capture, int maxElements = DefaultTrimCap,
-      int? deliveredWidth = null, int? deliveredHeight = null)
+      int? deliveredWidth = null, int? deliveredHeight = null, VisionRect? region = null)
   {
     ArgumentNullException.ThrowIfNull(capture);
     return capture.SnapshotMode switch
     {
-      "delta" => RenderDelta(capture, deliveredWidth, deliveredHeight),
-      "no_change" => RenderNoChange(capture, deliveredWidth, deliveredHeight),
-      "full" => RenderFull(capture, maxElements, deliveredWidth, deliveredHeight),
+      "delta" => RenderDelta(capture, deliveredWidth, deliveredHeight, region),
+      "no_change" => RenderNoChange(capture, deliveredWidth, deliveredHeight, region),
+      "full" => RenderFull(capture, maxElements, deliveredWidth, deliveredHeight, region),
       _ => throw new InvalidOperationException(
           $"unknown snapshot_mode '{capture.SnapshotMode}': BrokerProtocol.CaptureAppResult.From fails closed on modes outside {{full, delta, no_change}}, so this is a programmer error"),
     };
   }
 
   private static string RenderFull(CaptureAppResult capture, int maxElements,
-      int? deliveredWidth, int? deliveredHeight)
+      int? deliveredWidth, int? deliveredHeight, VisionRect? region)
   {
     int shown;
     IReadOnlyList<int> order;
     (shown, order) = Trim(capture.Elements, maxElements);
     StringBuilder sb = new();
-    AppendHeader(sb, capture, deliveredWidth, deliveredHeight);
+    AppendHeader(sb, capture, deliveredWidth, deliveredHeight, region);
     _ = sb.Append(CultureInfo.InvariantCulture, $"elements ({shown}):\n");
     foreach (int index in order)
     {
@@ -102,10 +103,10 @@ public static class TreeTextRenderer
   }
 
   private static string RenderDelta(CaptureAppResult capture,
-      int? deliveredWidth, int? deliveredHeight)
+      int? deliveredWidth, int? deliveredHeight, VisionRect? region)
   {
     StringBuilder sb = new();
-    AppendHeader(sb, capture, deliveredWidth, deliveredHeight);
+    AppendHeader(sb, capture, deliveredWidth, deliveredHeight, region);
     _ = sb.Append(CultureInfo.InvariantCulture,
         $"ax_snapshot: mode=delta base_state_id={capture.BaseStateId} elements={capture.Elements.Count}\n");
     _ = sb.Append(CultureInfo.InvariantCulture, $"elements ({capture.Elements.Count}):\n");
@@ -120,10 +121,10 @@ public static class TreeTextRenderer
   }
 
   private static string RenderNoChange(CaptureAppResult capture,
-      int? deliveredWidth, int? deliveredHeight)
+      int? deliveredWidth, int? deliveredHeight, VisionRect? region)
   {
     StringBuilder sb = new();
-    AppendHeader(sb, capture, deliveredWidth, deliveredHeight);
+    AppendHeader(sb, capture, deliveredWidth, deliveredHeight, region);
     _ = sb.Append("No material accessibility change since ")
         .Append(capture.BaseStateId)
         .Append(": the accessibility element list, its order, and every index are identical. ")
@@ -133,7 +134,7 @@ public static class TreeTextRenderer
   }
 
   private static void AppendHeader(StringBuilder sb, CaptureAppResult capture,
-      int? deliveredWidth, int? deliveredHeight)
+      int? deliveredWidth, int? deliveredHeight, VisionRect? region = null)
   {
     _ = sb.Append("state_id ").Append(capture.StateId).Append('\n');
     // The brief pins the app line to aumid|exe only; when neither is known the
@@ -144,23 +145,23 @@ public static class TreeTextRenderer
     CaptureAppWindow w = capture.Window;
     _ = sb.Append("window: ").Append(Quote(w.Title)).Append(" id=")
         .Append(CultureInfo.InvariantCulture, $"{w.WindowId} bounds=[{w.Bounds[0]},{w.Bounds[1]},{w.Bounds[2]},{w.Bounds[3]}]\n");
-    AppendScreenshotScale(sb, capture, w, deliveredWidth, deliveredHeight);
+    AppendScreenshotScale(sb, capture, w, deliveredWidth, deliveredHeight, region);
     if (w.SurfaceKind != "window" || w.SurfaceLifecycle != "stable")
     {
       _ = sb.Append("surface: kind=").Append(w.SurfaceKind).Append(" lifecycle=").Append(w.SurfaceLifecycle).Append('\n');
     }
   }
 
-  /// <summary>The screenshot-to-screen mapping, stated whenever a screenshot accompanies
-  ///     the observation. The model receives a DOWNSCALED raster, so a coordinate read off
-  ///     the image is NOT a screen coordinate; without the factor the model has no way to
-  ///     know what it is looking at and every coordinate click lands somewhere else. The
-  ///     factor is the window's width divided by the DELIVERED raster's, which is exact for
-  ///     the uniform downscale the encoder applies. The broker's own raster dimensions are
-  ///     the wrong numerator: they describe an image the model never sees, and using them
-  ///     reports a factor of 1 while the delivered image is shrunk.</summary>
+  /// <summary>The coordinate-space contract, stated whenever a screenshot accompanies the
+  ///     observation. A coordinate target is addressed in the DELIVERED raster's pixels -
+  ///     the same pixels the model reads off the image - so the header must say so rather
+  ///     than hand out a screen-space factor the target does not accept. The scale is
+  ///     disclosed for orientation only: it is what the raster shrinks the window by, and
+  ///     it is NOT applied to a coordinate target. The factor uses the DELIVERED raster's
+  ///     width, never the broker's, because the broker's describes an image the model never
+  ///     sees and would report 1 while the delivered image is shrunk.</summary>
   private static void AppendScreenshotScale(StringBuilder sb, CaptureAppResult capture,
-      CaptureAppWindow window, int? deliveredWidth, int? deliveredHeight)
+      CaptureAppWindow window, int? deliveredWidth, int? deliveredHeight, VisionRect? region = null)
   {
     if (capture.Screenshot is not { } shot || window.Bounds.Length < 4 || window.Bounds[2] <= 0)
     {
@@ -175,8 +176,13 @@ public static class TreeTextRenderer
     }
 
     double factor = window.Bounds[2] / (double)width;
+    string crop = region is { } r
+      ? $" (zoomed to region {r.X},{r.Y} {r.Width}x{r.Height} of the full raster, resampled up to fill this one)"
+      : string.Empty;
     _ = sb.Append(CultureInfo.InvariantCulture,
-        $"screenshot: {width}x{height} pixels for a {window.Bounds[2]}x{window.Bounds[3]} window; multiply a screenshot coordinate by {factor:0.###} to get the screen coordinate a coordinate target expects.\n");
+        $"screenshot: {width}x{height} pixels for a {window.Bounds[2]}x{window.Bounds[3]} window (the window is {factor:0.###}x this raster){crop}.\n");
+    _ = sb.Append(CultureInfo.InvariantCulture,
+        $"coordinates: x and y are DELIVERED-RASTER pixels, 0..{width - 1} across and 0..{height - 1} down - exactly what you read off the image. Do NOT multiply by {factor:0.###}; a coordinate target takes the raster pixel as-is.\n");
   }
 
   private static void AppendRow(StringBuilder sb, CaptureAppElement e, int indent, bool changed = false)

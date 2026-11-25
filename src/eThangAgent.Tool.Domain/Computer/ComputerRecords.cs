@@ -21,28 +21,33 @@ public abstract record ComputerCommand
   ///     <para><see cref="Offset"/> is the first element index the page carries and
   ///     <see cref="Limit"/> how many it carries; a limit of 0 means the default page
   ///     size. Paging exists so a tree larger than one answer is reachable rather than
-  ///     cut at a fixed ceiling.</para></summary>
+  ///     cut at a fixed ceiling.</para>
+  ///     <para><see cref="Region"/> zooms the delivered screenshot: the raster is cropped
+  ///     to that rect and resampled to fill the delivery ceiling, so a region whose text
+  ///     was too small to read at whole-window scale arrives legible. The rect is in the
+  ///     DELIVERED raster's pixels - the same space a coordinate target uses - and a null
+  ///     region delivers the whole window.</para></summary>
   public sealed record Observe(ComputerAppRef App, bool IncludeScreenshot, bool DisableDiffing,
-      int Offset = 0, int Limit = 0) : ComputerCommand;
+      int Offset = 0, int Limit = 0, VisionRect? Region = null) : ComputerCommand;
 
-  /// <summary>Clicks a target. Foreground asks the broker to bring the target window
-  ///     forward before dispatching; the broker refuses an input dispatch aimed at a
-  ///     background window either way.</summary>
+  /// <summary>Clicks a target. Every input command names the app it acts on, and the
+  ///     broker brings that window forward before dispatching: injection reaches whatever
+  ///     window holds focus, so focusing the target is the tool's job rather than a
+  ///     per-call argument the caller has to remember.</summary>
   public sealed record Click(ComputerTarget Target, ComputerAppRef? App, string MouseButton = "left",
-      int ClickCount = 1, string Modifiers = "", string Strategy = "auto", string ReturnState = "none",
-      bool Foreground = false) : ComputerCommand;
+      int ClickCount = 1, string Modifiers = "", string Strategy = "auto", string ReturnState = "none") : ComputerCommand;
 
   /// <summary>Drags from one target to another.</summary>
   public sealed record Drag(ComputerTarget From, ComputerTarget To, ComputerAppRef? App,
-      string Modifiers = "", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
+      string Modifiers = "", string ReturnState = "none") : ComputerCommand;
 
   /// <summary>Scrolls at a target.</summary>
   public sealed record Scroll(ComputerTarget Target, string ScrollDirection, int ScrollAmount, ComputerAppRef? App,
-      string Strategy = "auto", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
+      string Strategy = "auto", string ReturnState = "none") : ComputerCommand;
 
   /// <summary>Types text, optionally into a focused element target.</summary>
   public sealed record TypeText(string Text, ComputerTarget? Target, ComputerAppRef? App,
-      string Strategy = "auto", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
+      string Strategy = "auto", string ReturnState = "none") : ComputerCommand;
 
   /// <summary>Sets an element's value directly over UIA.</summary>
   public sealed record SetValue(ComputerTarget Target, string Value, ComputerAppRef? App,
@@ -56,11 +61,11 @@ public abstract record ComputerCommand
   ///     two nullable members precede the optional strings because C# requires
   ///     required-before-optional (brief name ruling: keep names, reorder).</summary>
   public sealed record Key(string Text, int? Repeat, double? HoldSeconds, ComputerAppRef? App,
-      string Strategy = "auto", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
+      string Strategy = "auto", string ReturnState = "none") : ComputerCommand;
 
   /// <summary>Pastes via a broker-owned atomic clipboard borrow.</summary>
   public sealed record Paste(string Text, ComputerTarget? Target, ComputerAppRef? App,
-      string Format = "text", string ReturnState = "none", bool Foreground = false) : ComputerCommand;
+      string Format = "text", string ReturnState = "none") : ComputerCommand;
 
   /// <summary>Invokes a named action advertised on an element; membership is checked
   ///     at execution time by the ACL/broker, not here.</summary>

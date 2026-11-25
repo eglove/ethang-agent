@@ -61,6 +61,33 @@ public class ComputerToolInputTests
   }
 
   [Fact]
+  public void Observe_ParsesRegion()
+  {
+    ComputerToolInput input = ParseOk(WithTimeout(
+        "\"action\":\"observe\"," + AppRef + ",\"include_screenshot\":true,\"region\":{\"x\":10,\"y\":20,\"width\":300,\"height\":150}"));
+    ComputerCommand.Observe command = Assert.IsType<ComputerCommand.Observe>(input.ToCommand());
+    Assert.Equal(new VisionRect(10, 20, 300, 150), command.Region);
+  }
+
+  [Fact]
+  public void Observe_WithoutRegion_LeavesItNull()
+  {
+    ComputerToolInput input = ParseOk(WithTimeout("\"action\":\"observe\"," + AppRef));
+    ComputerCommand.Observe command = Assert.IsType<ComputerCommand.Observe>(input.ToCommand());
+    Assert.Null(command.Region);
+  }
+
+  [Fact]
+  public void Foreground_IsNotAModelFacingArgument()
+  {
+    // Focus is the tool's job: every input action brings the named window forward, so a
+    // caller that passes foreground is told the key does not exist rather than being
+    // quietly accepted into an argument the tool ignores.
+    string json = WithTimeout("\"action\":\"click\"," + ElementTarget + ",\"foreground\":true");
+    Assert.Equal("UnknownParameter", ErrorCode(json));
+  }
+
+  [Fact]
   public void Click_ParsesWithAllOptions()
   {
     ComputerToolInput input = ParseOk(WithTimeout(

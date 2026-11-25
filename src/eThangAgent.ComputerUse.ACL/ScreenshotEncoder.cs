@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.ACL;
 
@@ -122,6 +123,84 @@ public static class ScreenshotEncoder
     return new DeliveredScreenshot(targetW, targetH, jpeg, Convert.ToBase64String(jpeg), quality, overBound);
   }
 
+  /// <summary>Encodes one broker PNG into a delivery-sized JPEG of the CROP the caller
+  ///     asked for, upscaled to fill the delivery ceiling. A crop of a downscaled raster
+  ///     is exactly the legibility problem the whole-raster delivery has, one zoom level
+  ///     deeper: the model asked for a region because the glyphs in it were too small to
+  ///     read, so a crop delivered at its original size would show the same unreadable
+  ///     pixels in a smaller frame. The crop is therefore resampled UP to the ceiling -
+  ///     nearest-neighbour, because interpolating glyph edges invents pixels that were
+  ///     never in the source and makes text softer, not clearer.
+  ///     <para>The region is clamped to the raster: a caller asking for a rect that runs
+  ///     off the edge gets the part that exists rather than an error, because the rect
+  ///     came from reading the image and a rounding overshoot is not a mistake worth
+  ///     failing.</para></summary>
+  public static DeliveredScreenshot EncodeRegion(byte[] pngBytes, VisionRect region)
+  {
+    ArgumentNullException.ThrowIfNull(pngBytes);
+    if (pngBytes.Length == 0)
+    {
+      throw new ArgumentException("PNG bytes must not be empty.", nameof(pngBytes));
+    }
+
+    BitmapFrame source = Decode(pngBytes);
+    FormatConvertedBitmap converted = new(source, PixelFormats.Pbgra32, null, 0);
+    (Int32Rect crop, int cropW, int cropH) = ClampToRaster(region, converted.PixelWidth, converted.PixelHeight);
+
+    // The crop is resampled so its LONGEST edge reaches the delivery ceiling: a small
+    // region is magnified, a large one shrunk, and either way the model gets the largest
+    // raster the delivery bound allows for the area it asked about.
+    (int targetW, int targetH) = FitTo(cropW, cropH, MaxEdge);
+    CroppedBitmap cropped = new(converted, crop);
+    cropped.Freeze();
+    TransformedBitmap scaled = Scaled(cropped, cropW, cropH, targetW, targetH, BitmapScalingMode.NearestNeighbor);
+    byte[] pixels = RasterPixels(scaled, targetW, targetH);
+
+    byte[] jpeg = EncodeJpeg(pixels, targetW, targetH, StartQuality);
+    int quality = StartQuality;
+    while (Base64Length(jpeg) > MaxBase64Length)
+    {
+      int next = quality - QualityStep;
+      if (next >= QualityFloor)
+      {
+        quality = next;
+        jpeg = EncodeJpeg(pixels, targetW, targetH, quality);
+        continue;
+      }
+
+      break;
+    }
+
+    bool overBound = Base64Length(jpeg) > MaxBase64Length;
+    return new DeliveredScreenshot(targetW, targetH, jpeg, Convert.ToBase64String(jpeg), quality, overBound);
+  }
+
+  /// <summary>Clamps a requested region to the raster, guaranteeing at least one pixel in
+  ///     each axis so a region straddling the edge still yields an encodable crop.</summary>
+  internal static (Int32Rect Crop, int Width, int Height) ClampToRaster(VisionRect region, int rasterWidth, int rasterHeight)
+  {
+    int x = Math.Clamp(region.X, 0, rasterWidth - 1);
+    int y = Math.Clamp(region.Y, 0, rasterHeight - 1);
+    int w = Math.Clamp(region.Width, 1, rasterWidth - x);
+    int h = Math.Clamp(region.Height, 1, rasterHeight - y);
+    return (new Int32Rect(x, y, w, h), w, h);
+  }
+
+  /// <summary>Scales a crop so its longest edge EQUALS the cap, magnifying a small one as
+  ///     well as shrinking a large one: the zoom exists to make small text legible, so a
+  ///     crop that fits the ceiling unchanged has not been zoomed at all.</summary>
+  internal static (int W, int H) FitTo(int w, int h, int cap)
+  {
+    int longest = Math.Max(w, h);
+    if (longest == cap)
+    {
+      return (w, h);
+    }
+
+    double scale = cap / (double)longest;
+    return (Math.Max(1, (int)Math.Round(w * scale)), Math.Max(1, (int)Math.Round(h * scale)));
+  }
+
   /// <summary>The largest size at or under (w, h) whose longest edge stays at or
   ///     under the cap, never below one pixel.</summary>
   internal static (int W, int H) ScaledTo(int w, int h, int cap)
@@ -135,10 +214,11 @@ public static class ScreenshotEncoder
     return (Math.Max(1, (int)Math.Round(w * scale)), Math.Max(1, (int)Math.Round(h * scale)));
   }
 
-  private static TransformedBitmap Scaled(BitmapSource source, int w, int h, int targetW, int targetH)
+  private static TransformedBitmap Scaled(BitmapSource source, int w, int h, int targetW, int targetH,
+      BitmapScalingMode mode = BitmapScalingMode.HighQuality)
   {
     TransformedBitmap scaled = new(source, new ScaleTransform(targetW / (double)w, targetH / (double)h, 0, 0));
-    RenderOptions.SetBitmapScalingMode(scaled, BitmapScalingMode.HighQuality);
+    RenderOptions.SetBitmapScalingMode(scaled, mode);
     scaled.Freeze();
     return scaled;
   }

@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Text.Json;
+using System.Windows;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
@@ -209,7 +210,7 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
       offset = command.Offset,
       limit = command.Limit,
     }, BrokerWire.Options);
-    return await RequestAsync("capture_app", parameters, ct).ConfigureAwait(false);
+    return await RequestAsync("capture_app", parameters, ct, command.Region).ConfigureAwait(false);
   }
 
   private async Task<ComputerOutcome> StopAsync(CancellationToken ct)
@@ -446,28 +447,33 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
     }
   }
 
+  // Every input parameter map carries focus=true: the broker focuses the named app's
+  // window before it dispatches, because injection reaches whatever window holds focus.
+  // The caller never states this and cannot forget it.
+  private const bool FocusTarget = true;
+
   private static Dictionary<string, object?> ParameterMapForClick(ComputerCommand.Click c) => new()
   {
     ["mouse_button"] = c.MouseButton,
     ["click_count"] = c.ClickCount,
     ["modifiers"] = c.Modifiers,
     ["strategy"] = c.Strategy,
-    ["foreground"] = c.Foreground,
+    ["foreground"] = FocusTarget,
   };
 
   private static Dictionary<string, object?> ParameterMapForDrag(ComputerCommand.Drag d) =>
-    new() { ["modifiers"] = d.Modifiers, ["foreground"] = d.Foreground };
+    new() { ["modifiers"] = d.Modifiers, ["foreground"] = FocusTarget };
 
   private static Dictionary<string, object?> ParameterMapForScroll(ComputerCommand.Scroll s) => new()
   {
     ["scroll_direction"] = s.ScrollDirection,
     ["scroll_amount"] = s.ScrollAmount,
     ["strategy"] = s.Strategy,
-    ["foreground"] = s.Foreground,
+    ["foreground"] = FocusTarget,
   };
 
   private static Dictionary<string, object?> ParameterMapForTypeText(ComputerCommand.TypeText t) =>
-    new() { ["text"] = t.Text, ["strategy"] = t.Strategy, ["foreground"] = t.Foreground };
+    new() { ["text"] = t.Text, ["strategy"] = t.Strategy, ["foreground"] = FocusTarget };
 
   private static Dictionary<string, object?> ParameterMapForSetValue(ComputerCommand.SetValue v) =>
     new() { ["value"] = v.Value, ["strategy"] = v.Strategy };
@@ -486,11 +492,11 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
     ["repeat"] = k.Repeat,
     ["hold_seconds"] = k.HoldSeconds,
     ["strategy"] = k.Strategy,
-    ["foreground"] = k.Foreground,
+    ["foreground"] = FocusTarget,
   };
 
   private static Dictionary<string, object?> ParameterMapForPaste(ComputerCommand.Paste p) =>
-    new() { ["text"] = p.Text, ["format"] = p.Format, ["foreground"] = p.Foreground };
+    new() { ["text"] = p.Text, ["format"] = p.Format, ["foreground"] = FocusTarget };
 
   private static Dictionary<string, object?> ParameterMapForPerformAction(ComputerCommand.PerformAction a) =>
     new() { ["action_name"] = a.Action };
@@ -520,7 +526,8 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
   ///     Observation (tree text via TreeTextRenderer, ledger + frame registration,
   ///     screenshot re-encoded through ScreenshotEncoder). List results render as an
   ///     Observation whose tree text IS the JSON rows (they carry no element table).</summary>
-  private async Task<ComputerOutcome> RequestAsync(string method, JsonElement? parameters, CancellationToken ct)
+  private async Task<ComputerOutcome> RequestAsync(string method, JsonElement? parameters, CancellationToken ct,
+      VisionRect? region = null)
   {
     BrokerReply reply;
     try
@@ -554,7 +561,7 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
 
     if (method == "capture_app")
     {
-      return CaptureToObservation(reply);
+      return CaptureToObservation(reply, region);
     }
 
     if (BrokerActionReceipt.From(reply) is { } receipt)
@@ -576,7 +583,7 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
   ///     rendered through the renderer, the state registered in the ledger, a delivered
   ///     actionable raster registered as a coordinate frame, and the screenshot
   ///     re-encoded for the model (withheld when the broker marked it blank).</summary>
-  internal ComputerOutcome CaptureToObservation(BrokerReply reply)
+  internal ComputerOutcome CaptureToObservation(BrokerReply reply, VisionRect? region = null)
   {
     if (CaptureAppResult.From(reply) is not { } capture)
     {
@@ -597,11 +604,11 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
         capture.Elements, treeShownToModel: treeShown, screenshotOnly: false);
     _ = stateId;
 
-    RegisterScreenshot(capture, out ToolResultImage? screenshot, out string? withheld, out ComputerFrameRef? frame,
-        out DeliveredScreenshot? delivered);
+    RegisterScreenshot(capture, region, out ToolResultImage? screenshot, out string? withheld,
+        out ComputerFrameRef? frame, out DeliveredScreenshot? delivered);
 
     string treeText = TreeTextRenderer.Render(capture, deliveredWidth: delivered?.Width,
-        deliveredHeight: delivered?.Height);
+        deliveredHeight: delivered?.Height, region: region);
     IReadOnlyList<ComputerElement> elements = [.. capture.Elements.Select(e => new ComputerElement(
         e.Index, e.Role, e.Kind, e.Title, e.Value, e.Bounds, e.Enabled, e.Editable, e.Actions,
         e.Focused, e.Selected, e.Pressable, e.HasMenu, e.ChildrenTotal, e.ChildrenShown, e.ChildrenOffset))];
@@ -617,8 +624,12 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
 
   /// <summary>Re-encodes a delivered raster as the observation's screenshot frame: a
   ///     blank raster is withheld with its reason, a delivered raster re-encodes through
-  ///     ScreenshotEncoder and registers as a coordinate frame over the window bounds.</summary>
-  private void RegisterScreenshot(CaptureAppResult capture, out ToolResultImage? screenshot,
+  ///     ScreenshotEncoder and registers as a coordinate frame over the window bounds.
+  ///     <para>A region crops the raster before encoding and registers the frame over the
+  ///     SCREEN SUB-RECT that crop covers, so a coordinate the model reads off the zoomed
+  ///     image still resolves to the right screen point: the delivered raster is the crop,
+  ///     and the rect it maps onto is the window bounds scaled by the crop's fraction.</para></summary>
+  private void RegisterScreenshot(CaptureAppResult capture, VisionRect? region, out ToolResultImage? screenshot,
       out string? withheld, out ComputerFrameRef? frame, out DeliveredScreenshot? delivered)
   {
     screenshot = null;
@@ -637,12 +648,41 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAcc
     }
 
     byte[] png = Convert.FromBase64String(shot.Data);
-    DeliveredScreenshot encoded = ScreenshotEncoder.Encode(png);
+    DeliveredScreenshot encoded = region is { } crop
+      ? ScreenshotEncoder.EncodeRegion(png, crop)
+      : ScreenshotEncoder.Encode(png);
     delivered = encoded;
     screenshot = new ToolResultImage("image/jpeg", encoded.Base64);
-    ScreenshotWindowRect rect = new(capture.Window.Bounds[0], capture.Window.Bounds[1],
-        capture.Window.Bounds[2], capture.Window.Bounds[3]);
+    ScreenshotWindowRect rect = FrameRectFor(capture, shot, region);
     frame = _frames.Add(encoded.Width, encoded.Height, rect, actionable: true);
+  }
+
+  /// <summary>The screen rect a delivered raster maps onto: the whole window for an
+  ///     uncropped observation, or the sub-rect the crop covers. The crop's fraction is
+  ///     taken against the BROKER raster (the pixels the region was expressed in), then
+  ///     applied to the window bounds - the same pixel-center mapping FrameRegistry
+  ///     inverts, so a coordinate read off the zoomed image lands where it was clicked.</summary>
+  private static ScreenshotWindowRect FrameRectFor(CaptureAppResult capture, CaptureAppScreenshot shot, VisionRect? region)
+  {
+    int x = capture.Window.Bounds[0];
+    int y = capture.Window.Bounds[1];
+    int w = capture.Window.Bounds[2];
+    int h = capture.Window.Bounds[3];
+    if (region is not { } crop || shot.Width <= 0 || shot.Height <= 0)
+    {
+      return new ScreenshotWindowRect(x, y, w, h);
+    }
+
+    (Int32Rect clamped, int cropW, int cropH) = ScreenshotEncoder.ClampToRaster(crop, shot.Width, shot.Height);
+    double fx = clamped.X / (double)shot.Width;
+    double fy = clamped.Y / (double)shot.Height;
+    double fw = cropW / (double)shot.Width;
+    double fh = cropH / (double)shot.Height;
+    return new ScreenshotWindowRect(
+        x + (int)Math.Floor(fx * w),
+        y + (int)Math.Floor(fy * h),
+        Math.Max(1, (int)Math.Floor(fw * w)),
+        Math.Max(1, (int)Math.Floor(fh * h)));
   }
 
   /// <summary>M14: for name/aumid refs the broker resolves the pid; the ledger key derives

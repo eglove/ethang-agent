@@ -40,7 +40,6 @@ public sealed record ComputerToolInput(
     string? Strategy,
     string? ReturnState,
     string? Reason,
-    bool? Foreground,
     string? TemplatePath = null,
     double? MinScore = null,
     VisionRect? Region = null)
@@ -120,15 +119,15 @@ public sealed record ComputerToolInput(
   {
     [ComputerAction.ListApps] = ["action", ToolTimeout.ParameterName],
     [ComputerAction.ListWindows] = ["action", ToolTimeout.ParameterName, "app_ref"],
-    [ComputerAction.Observe] = ["action", ToolTimeout.ParameterName, "app_ref", "include_screenshot", "disable_diffing", "force", "offset", "limit"],
-    [ComputerAction.Click] = ["action", ToolTimeout.ParameterName, "target", "app_ref", "mouse_button", "click_count", "modifiers", "strategy", "return_state", "foreground"],
-    [ComputerAction.Drag] = ["action", ToolTimeout.ParameterName, "from_target", "to", "app_ref", "modifiers", "return_state", "foreground"],
-    [ComputerAction.Scroll] = ["action", ToolTimeout.ParameterName, "target", "scroll_direction", "scroll_amount", "app_ref", "strategy", "return_state", "foreground"],
-    [ComputerAction.Type] = ["action", ToolTimeout.ParameterName, "text", "target", "app_ref", "strategy", "return_state", "foreground"],
+    [ComputerAction.Observe] = ["action", ToolTimeout.ParameterName, "app_ref", "include_screenshot", "disable_diffing", "force", "offset", "limit", "region"],
+    [ComputerAction.Click] = ["action", ToolTimeout.ParameterName, "target", "app_ref", "mouse_button", "click_count", "modifiers", "strategy", "return_state"],
+    [ComputerAction.Drag] = ["action", ToolTimeout.ParameterName, "from_target", "to", "app_ref", "modifiers", "return_state"],
+    [ComputerAction.Scroll] = ["action", ToolTimeout.ParameterName, "target", "scroll_direction", "scroll_amount", "app_ref", "strategy", "return_state"],
+    [ComputerAction.Type] = ["action", ToolTimeout.ParameterName, "text", "target", "app_ref", "strategy", "return_state"],
     [ComputerAction.SetValue] = ["action", ToolTimeout.ParameterName, "target", "value", "app_ref", "strategy", "return_state"],
     [ComputerAction.SelectText] = ["action", ToolTimeout.ParameterName, "target", "text", "prefix", "suffix", "selection_type", "app_ref", "return_state"],
-    [ComputerAction.Key] = ["action", ToolTimeout.ParameterName, "text", "repeat", "hold_seconds", "app_ref", "strategy", "return_state", "foreground"],
-    [ComputerAction.Paste] = ["action", ToolTimeout.ParameterName, "text", "format", "target", "app_ref", "return_state", "foreground"],
+    [ComputerAction.Key] = ["action", ToolTimeout.ParameterName, "text", "repeat", "hold_seconds", "app_ref", "strategy", "return_state"],
+    [ComputerAction.Paste] = ["action", ToolTimeout.ParameterName, "text", "format", "target", "app_ref", "return_state"],
     [ComputerAction.PerformAction] = ["action", ToolTimeout.ParameterName, "target", "action_name", "app_ref", "return_state"],
     [ComputerAction.Stop] = ["action", ToolTimeout.ParameterName, "reason"],
     [ComputerAction.LocateImage] = ["action", ToolTimeout.ParameterName, "app_ref", "template_path", "min_score"],
@@ -144,15 +143,15 @@ public sealed record ComputerToolInput(
       {
         [ComputerAction.ListApps] = _ => new ComputerCommand.ListApps(),
         [ComputerAction.ListWindows] = v => new ComputerCommand.ListWindows(v.AppRef!),
-        [ComputerAction.Observe] = v => new ComputerCommand.Observe(v.AppRef!, v.IncludeScreenshot ?? false, (v.DisableDiffing ?? false) || (v.Force ?? false), v.Offset ?? 0, v.Limit ?? 0),
-        [ComputerAction.Click] = v => new ComputerCommand.Click(v.Target!, v.AppRef, v.MouseButton ?? "left", v.ClickCount ?? 1, v.Modifiers ?? "", v.Strategy ?? "auto", v.ReturnState ?? "none", v.Foreground ?? false),
-        [ComputerAction.Drag] = v => new ComputerCommand.Drag(v.From!, v.To!, v.AppRef, v.Modifiers ?? "", v.ReturnState ?? "none", v.Foreground ?? false),
-        [ComputerAction.Scroll] = v => new ComputerCommand.Scroll(v.Target!, v.ScrollDirection!, v.ScrollAmount!.Value, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none", v.Foreground ?? false),
-        [ComputerAction.Type] = v => new ComputerCommand.TypeText(v.Text!, v.Target, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none", v.Foreground ?? false),
+        [ComputerAction.Observe] = v => new ComputerCommand.Observe(v.AppRef!, v.IncludeScreenshot ?? false, (v.DisableDiffing ?? false) || (v.Force ?? false), v.Offset ?? 0, v.Limit ?? 0, v.Region),
+        [ComputerAction.Click] = v => new ComputerCommand.Click(v.Target!, v.AppRef, v.MouseButton ?? "left", v.ClickCount ?? 1, v.Modifiers ?? "", v.Strategy ?? "auto", v.ReturnState ?? "none"),
+        [ComputerAction.Drag] = v => new ComputerCommand.Drag(v.From!, v.To!, v.AppRef, v.Modifiers ?? "", v.ReturnState ?? "none"),
+        [ComputerAction.Scroll] = v => new ComputerCommand.Scroll(v.Target!, v.ScrollDirection!, v.ScrollAmount!.Value, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none"),
+        [ComputerAction.Type] = v => new ComputerCommand.TypeText(v.Text!, v.Target, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none"),
         [ComputerAction.SetValue] = v => new ComputerCommand.SetValue(v.Target!, v.Value!, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none"),
         [ComputerAction.SelectText] = v => new ComputerCommand.SelectText(v.Target!, v.Text!, v.Prefix, v.Suffix, v.SelectionType ?? "text", v.AppRef, v.ReturnState ?? "none"),
-        [ComputerAction.Key] = v => new ComputerCommand.Key(v.Text!, v.Repeat, v.HoldSeconds, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none", v.Foreground ?? false),
-        [ComputerAction.Paste] = v => new ComputerCommand.Paste(v.Text!, v.Target, v.AppRef, v.Format ?? "text", v.ReturnState ?? "none", v.Foreground ?? false),
+        [ComputerAction.Key] = v => new ComputerCommand.Key(v.Text!, v.Repeat, v.HoldSeconds, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none"),
+        [ComputerAction.Paste] = v => new ComputerCommand.Paste(v.Text!, v.Target, v.AppRef, v.Format ?? "text", v.ReturnState ?? "none"),
         [ComputerAction.PerformAction] = v => new ComputerCommand.PerformAction(v.Target!, v.ActionName!, v.AppRef, v.ReturnState ?? "none"),
         [ComputerAction.Stop] = v => new ComputerCommand.Stop(v.Reason),
         [ComputerAction.LocateImage] = v => new ComputerCommand.LocateImage(v.AppRef!, v.TemplatePath!, v.MinScore ?? 0.8),
@@ -177,7 +176,7 @@ public sealed record ComputerToolInput(
         f._offset, f._limit, f._target, f._from, f._to, f._scrollAmount, f._scrollDirection, f._text, f._value,
         f._prefix, f._suffix, f._selectionType, f._repeat, f._holdSeconds,
         f._format, f._actionName, f._mouseButton, f._clickCount, f._modifiers,
-        f._strategy, f._returnState, f._reason, f._foreground,
+        f._strategy, f._returnState, f._reason,
         f._templatePath, f._minScore, f._region);
 
     return Validate(action, input);
@@ -209,7 +208,6 @@ public sealed record ComputerToolInput(
     public string? _modifiers { get; set; }
     public string? _strategy { get; set; }
     public string? _returnState { get; set; }
-    public bool? _foreground { get; set; }
     public bool? _force { get; set; }
     public string? _templatePath { get; set; }
     public double? _minScore { get; set; }
@@ -303,13 +301,6 @@ public sealed record ComputerToolInput(
     {
       return paging;
     }
-
-    Result<bool?> foreground = ToolArguments.OptionalBool(json, "foreground");
-    if (!foreground.IsSuccess)
-    {
-      return foreground.Error;
-    }
-    f._foreground = foreground.Value;
 
     Result<int?> scrollAmount = ToolArguments.OptionalInt(json, "scroll_amount");
     if (!scrollAmount.IsSuccess)

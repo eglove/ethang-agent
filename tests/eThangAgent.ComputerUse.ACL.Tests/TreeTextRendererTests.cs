@@ -1,3 +1,5 @@
+using eThangAgent.ToolDomain;
+
 namespace eThangAgent.ComputerUse.ACL.Tests;
 
 /// <summary>Golden renderer contract (the batch brief, task 14): full pages, delta
@@ -96,35 +98,49 @@ public class TreeTextRendererTests
   }
 
   [Fact]
-  public void ScreenshotScale_StatesTheFactorFromScreenshotPixelsToScreenPixels()
+  public void ScreenshotScale_StatesTheRasterPixelContract_NotAScreenMultiplier()
   {
-    // The delivered raster is downscaled to a 1280 longest edge, so a coordinate read off
-    // the image is not a screen coordinate. Without the factor the model has no way to know
-    // what it is looking at, and every coordinate click lands somewhere else.
+    // A coordinate target takes DELIVERED-RASTER pixels. The header used to hand out a
+    // screen-space multiplier the target does not accept, so a model that followed it
+    // clicked away from where it meant. The header now states the space it takes.
     CaptureAppResult capture = new("s-1", "full", null, Notepad, MainWindow, [],
         new CaptureAppScreenshot(string.Empty, 1280, 704, null, Blank: false), null);
 
     string text = TreeTextRenderer.Render(capture);
 
     Assert.Contains(
-        "screenshot: 1280x704 pixels for a 800x600 window; multiply a screenshot coordinate by 0.625 to get the screen coordinate a coordinate target expects.",
+        "screenshot: 1280x704 pixels for a 800x600 window (the window is 0.625x this raster).",
         text, StringComparison.Ordinal);
+    Assert.Contains(
+        "coordinates: x and y are DELIVERED-RASTER pixels, 0..1279 across and 0..703 down",
+        text, StringComparison.Ordinal);
+    Assert.Contains("Do NOT multiply by 0.625", text, StringComparison.Ordinal);
   }
 
   [Fact]
   public void ScreenshotScale_ReportsTheDeliveredRaster_NotTheBrokerRaster()
   {
     // The broker's PNG is 1936 wide but the model receives a 1280-wide re-encode.
-    // Stating the broker's dimensions makes the factor 1.0 and every coordinate the
-    // model reads off the image lands 1.5x away from where it meant.
+    // Stating the broker's dimensions would name bounds the model cannot address.
     CaptureAppResult capture = new("s-1", "full", null, Notepad, MainWindow, [],
         new CaptureAppScreenshot(string.Empty, 1936, 1056, null, Blank: false), null);
 
     string text = TreeTextRenderer.Render(capture, deliveredWidth: 1280, deliveredHeight: 698);
 
-    Assert.Contains(
-        "screenshot: 1280x698 pixels for a 800x600 window; multiply a screenshot coordinate by 0.625 to get the screen coordinate a coordinate target expects.",
-        text, StringComparison.Ordinal);
+    Assert.Contains("screenshot: 1280x698 pixels", text, StringComparison.Ordinal);
+    Assert.Contains("0..1279 across and 0..697 down", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ScreenshotScale_NamesTheZoomedRegion_WhenTheObservationIsACrop()
+  {
+    CaptureAppResult capture = new("s-1", "full", null, Notepad, MainWindow, [],
+        new CaptureAppScreenshot(string.Empty, 1936, 1056, null, Blank: false), null);
+
+    string text = TreeTextRenderer.Render(capture, deliveredWidth: 1280, deliveredHeight: 698,
+        region: new VisionRect(200, 300, 400, 200));
+
+    Assert.Contains("zoomed to region 200,300 400x200", text, StringComparison.Ordinal);
   }
 
   [Fact]
