@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace eThangAgent.ComputerUse.Host;
 
 /// <summary>Modifier flags of a key chord (task 17): the wire's ctrl|alt|shift|win
@@ -110,7 +112,8 @@ public static class KeyChordNormalizer
         throw new KeyChordException($"two keys in chord '{text}'; one key per request.");
       }
 
-      keyCode = KeyFor(token, text);
+      (keyCode, KeyModifiers implied) = KeyFor(token, text);
+      modifiers |= implied;
       hasKey = true;
     }
 
@@ -137,7 +140,13 @@ public static class KeyChordNormalizer
       : token;
   }
 
-  private static ushort KeyFor(string token, string chordText)
+  /// <summary>Resolves one key token to its virtual-key code plus any modifier the
+  ///     character itself implies (an uppercase letter or a shifted symbol needs Shift
+  ///     held). A single character resolves through the keyboard layout via
+  ///     <see cref="VkKeyScanW"/>, so punctuation travels as the real key a physical
+  ///     keyboard would press: a canvas surface maps input by virtual key, and a
+  ///     VK_PACKET keystroke reaches it as keyCode 229 ("Unidentified") and is dropped.</summary>
+  private static (ushort KeyCode, KeyModifiers Implied) KeyFor(string token, string chordText)
   {
     string bare = StripSideSuffix(token);
     if (bare.Length == 1)
@@ -145,14 +154,69 @@ public static class KeyChordNormalizer
       char upper = char.ToUpperInvariant(bare[0]);
       if (upper is (>= 'A' and <= 'Z') or (>= '0' and <= '9'))
       {
-        return upper;
+        return (upper, KeyModifiers.None);
+      }
+
+      if (TryLayoutKey(bare[0], out ushort layoutKey, out KeyModifiers implied))
+      {
+        return (layoutKey, implied);
       }
     }
 
     return TryGetNamedOrFunctionKey(bare, out ushort resolved)
-      ? resolved
-      : throw new KeyChordException($"unknown key '{token}' in chord '{chordText}': use a letter, digit, F1-F24, or a name like Return, Tab, Escape, Delete, PageUp.");
+      ? (resolved, KeyModifiers.None)
+      : throw new KeyChordException($"unknown key '{token}' in chord '{chordText}': use a letter, digit, F1-F24, punctuation, or a name like Return, Tab, Escape, Delete, PageUp.");
   }
+
+  /// <summary>Maps one character to the virtual key the active layout produces it with,
+  ///     plus the modifiers that character requires. False when the layout cannot type
+  ///     the character at all.</summary>
+  private static bool TryLayoutKey(char character, out ushort keyCode, out KeyModifiers implied)
+  {
+    keyCode = 0;
+    implied = KeyModifiers.None;
+    short scan = VkKeyScanW(character);
+    if (scan == -1)
+    {
+      return false;
+    }
+
+    ushort vk = (ushort)(scan & 0xFF);
+    if (vk is 0 or 0xFF)
+    {
+      return false;
+    }
+
+    keyCode = vk;
+    int shiftState = (scan >> 8) & 0xFF;
+    if ((shiftState & 1) != 0)
+    {
+      implied |= KeyModifiers.Shift;
+    }
+
+    if ((shiftState & 2) != 0)
+    {
+      implied |= KeyModifiers.Control;
+    }
+
+    if ((shiftState & 4) != 0)
+    {
+      implied |= KeyModifiers.Alt;
+    }
+
+    return true;
+  }
+
+  /// <summary>Maps a character to its virtual-key code and the shift state the active
+  ///     layout needs to produce it; -1 when the layout cannot type it.</summary>
+  // Named decision (SYSLIB1054, the same shape TargetedInputDelivery documents):
+  // LibraryImport cannot marshal a char parameter without disabling runtime marshalling
+  // assembly-wide, so this import rides classic DllImport.
+#pragma warning disable SYSLIB1054
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  private static extern short VkKeyScanW(char ch);
+#pragma warning restore SYSLIB1054
 
   /// <summary>Resolves F1-F24 and every named short key; false when unknown.</summary>
   private static bool TryGetNamedOrFunctionKey(string bare, out ushort keyCode)

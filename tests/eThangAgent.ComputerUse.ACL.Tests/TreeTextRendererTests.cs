@@ -112,6 +112,22 @@ public class TreeTextRendererTests
   }
 
   [Fact]
+  public void ScreenshotScale_ReportsTheDeliveredRaster_NotTheBrokerRaster()
+  {
+    // The broker's PNG is 1936 wide but the model receives a 1280-wide re-encode.
+    // Stating the broker's dimensions makes the factor 1.0 and every coordinate the
+    // model reads off the image lands 1.5x away from where it meant.
+    CaptureAppResult capture = new("s-1", "full", null, Notepad, MainWindow, [],
+        new CaptureAppScreenshot(string.Empty, 1936, 1056, null, Blank: false), null);
+
+    string text = TreeTextRenderer.Render(capture, deliveredWidth: 1280, deliveredHeight: 698);
+
+    Assert.Contains(
+        "screenshot: 1280x698 pixels for a 800x600 window; multiply a screenshot coordinate by 0.625 to get the screen coordinate a coordinate target expects.",
+        text, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void ScreenshotScale_IsAbsentWhenNoScreenshotAccompaniesTheObservation()
   {
     string text = TreeTextRenderer.Render(Capture("s-1", "full", null, MainWindow));

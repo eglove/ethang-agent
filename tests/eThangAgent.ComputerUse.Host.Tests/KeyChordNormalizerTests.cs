@@ -118,4 +118,42 @@ public class KeyChordNormalizerTests
 
   [Fact]
   public void EmptyChord_IsRejected() => _ = Assert.Throws<KeyChordException>(() => KeyChordNormalizer.Parse(string.Empty));
+
+  [Theory]
+  [InlineData(".", 0xBE)]
+  [InlineData(",", 0xBC)]
+  [InlineData("-", 0xBD)]
+  [InlineData("/", 0xBF)]
+  [InlineData(";", 0xBA)]
+  [InlineData("=", 0xBB)]
+  public void Punctuation_ResolvesToItsVirtualKey(string punctuation, int expectedKeyCode)
+  {
+    // A period is VK_OEM_PERIOD, not a Unicode packet: a canvas surface maps input by
+    // virtual key, and a VK_PACKET keystroke reaches it as keyCode 229 ("Unidentified")
+    // which it drops. Punctuation therefore has to travel as a real key press.
+    KeyChord chord = KeyChordNormalizer.Parse(punctuation);
+    Assert.Equal((ushort)expectedKeyCode, chord.KeyCode);
+    Assert.Equal(KeyModifiers.None, chord.Modifiers);
+  }
+
+  [Theory]
+  [InlineData("!", 0x31)]
+  [InlineData("@", 0x32)]
+  [InlineData("#", 0x33)]
+  [InlineData("?", 0xBF)]
+  [InlineData(":", 0xBA)]
+  public void ShiftedPunctuation_ReportsTheShiftModifier(string punctuation, int expectedKeyCode)
+  {
+    KeyChord chord = KeyChordNormalizer.Parse(punctuation);
+    Assert.Equal((ushort)expectedKeyCode, chord.KeyCode);
+    Assert.Equal(KeyModifiers.Shift, chord.Modifiers);
+  }
+
+  [Fact]
+  public void Punctuation_InsideAChord_KeepsTheDeclaredModifier()
+  {
+    KeyChord chord = KeyChordNormalizer.Parse("ctrl+.");
+    Assert.Equal((ushort)0xBE, chord.KeyCode);
+    Assert.Equal(KeyModifiers.Control, chord.Modifiers);
+  }
 }
