@@ -10,6 +10,7 @@ using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
+using eThangAgent.Vision.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition;
@@ -60,7 +61,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   private BrokerComputerAccessProvider ResolveComputerAccessProvider() =>
       ComputerAccessProvider ??= new BrokerComputerAccessProvider(new BrokerRegistry(
           () => Path.Combine(AppContext.BaseDirectory, "eThangAgent.ComputerUse.Host.exe"),
-          BrokerRegistry.DefaultPipeNameFor));
+          BrokerRegistry.DefaultPipeNameFor), new VisionAccess());
 
   /// <summary>Returns a factory over the same database serving the updated settings.
   ///     Hosts call this when credentials change (the Desktop's Settings modal);

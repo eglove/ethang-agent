@@ -2,6 +2,7 @@ using System.Text.Json;
 using eThangAgent.ComputerUse.ACL;
 using eThangAgent.TestSupport;
 using eThangAgent.ToolDomain;
+using eThangAgent.Vision.ACL;
 
 namespace eThangAgent.ComputerUse.Host.Tests;
 
@@ -15,7 +16,7 @@ public class BrokerComputerAccessProviderTests
   public void ForWorkspace_SameRoot_Twice_ReturnsSameInstance()
   {
     BrokerRegistry registry = new(() => "host-exe-does-not-matter", root => "pipe-" + root);
-    BrokerComputerAccessProvider provider = new(registry);
+    BrokerComputerAccessProvider provider = new(registry, new VisionAccess());
     string root = Path.Combine(TestTempRoot.Root, "ethang-f4-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(root);
     try
@@ -34,7 +35,7 @@ public class BrokerComputerAccessProviderTests
   public void ForWorkspace_DifferentRoots_ReturnDifferentInstances()
   {
     BrokerRegistry registry = new(() => "host-exe-does-not-matter", root => "pipe-" + root);
-    BrokerComputerAccessProvider provider = new(registry);
+    BrokerComputerAccessProvider provider = new(registry, new VisionAccess());
     string rootA = Path.Combine(TestTempRoot.Root, "ethang-f4a-" + Guid.NewGuid().ToString("N"));
     string rootB = Path.Combine(TestTempRoot.Root, "ethang-f4b-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(rootA);

@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />
     <ProjectReference Include="../../src/eThangAgent.ComputerUse.Host/eThangAgent.ComputerUse.Host.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.Vision.ACL/eThangAgent.Vision.ACL.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

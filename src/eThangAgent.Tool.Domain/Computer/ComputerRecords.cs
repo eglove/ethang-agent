@@ -67,6 +67,15 @@ public abstract record ComputerCommand
   public sealed record PerformAction(ComputerTarget Target, string Action, ComputerAppRef? App,
       string ReturnState = "none") : ComputerCommand;
 
+  /// <summary>Locates a template image inside the window's current raster: the
+  ///     primitive that makes a canvas addressable. MinScore is the match threshold
+  ///     in 0..1.</summary>
+  public sealed record LocateImage(ComputerAppRef App, string TemplatePath, double MinScore) : ComputerCommand;
+
+  /// <summary>Reads the text in the window's current raster, optionally restricted to one
+  ///     region. Reported bounds are in the delivered raster's pixel space.</summary>
+  public sealed record ReadText(ComputerAppRef App, VisionRect? Region) : ComputerCommand;
+
   /// <summary>Stops computer control and releases the controller lease.</summary>
 #pragma warning disable CA1716 // Named decision: 'Stop' is the model-facing action name (the spec's closed action set); the VB-only collision is accepted to keep the wire name.
   public sealed record Stop(string? Reason) : ComputerCommand;
@@ -249,6 +258,12 @@ public abstract record ComputerOutcome
       string DispatchStatus,
       string? EffectEvidence,
       string? TreeText) : ComputerOutcome;
+
+  /// <summary>A vision result: the matches a locate_image found, or the words a
+  ///     read_text read. Both carry raster-pixel bounds, so the model can turn a
+  ///     finding into a coordinate target directly.</summary>
+  public sealed record VisionResult(IReadOnlyList<VisionMatch> Matches, IReadOnlyList<VisionWord> Words,
+      int RasterWidth, int RasterHeight) : ComputerOutcome;
 
   /// <summary>A typed failure value: one of the ComputerErrorCodes surface codes
   ///     plus a human-readable message. The tool renders the standard

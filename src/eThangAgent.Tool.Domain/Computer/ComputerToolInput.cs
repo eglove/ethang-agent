@@ -40,7 +40,10 @@ public sealed record ComputerToolInput(
     string? Strategy,
     string? ReturnState,
     string? Reason,
-    bool? Foreground)
+    bool? Foreground,
+    string? TemplatePath = null,
+    double? MinScore = null,
+    VisionRect? Region = null)
 {
 
   /// <summary>Parses raw JSON arguments into validated input on the strict
@@ -104,6 +107,8 @@ public sealed record ComputerToolInput(
     ["paste"] = ComputerAction.Paste,
     ["perform_action"] = ComputerAction.PerformAction,
     ["stop"] = ComputerAction.Stop,
+    ["locate_image"] = ComputerAction.LocateImage,
+    ["read_text"] = ComputerAction.ReadText,
   }.ToFrozenDictionary();
 
   /// <summary>The allowed argument keys per action (timeoutSeconds belongs to
@@ -126,6 +131,8 @@ public sealed record ComputerToolInput(
     [ComputerAction.Paste] = ["action", ToolTimeout.ParameterName, "text", "format", "target", "app_ref", "return_state", "foreground"],
     [ComputerAction.PerformAction] = ["action", ToolTimeout.ParameterName, "target", "action_name", "app_ref", "return_state"],
     [ComputerAction.Stop] = ["action", ToolTimeout.ParameterName, "reason"],
+    [ComputerAction.LocateImage] = ["action", ToolTimeout.ParameterName, "app_ref", "template_path", "min_score"],
+    [ComputerAction.ReadText] = ["action", ToolTimeout.ParameterName, "app_ref", "region"],
   }.ToFrozenDictionary();
 
   /// <summary>Builds the seam command, applying the documented defaults for
@@ -148,6 +155,8 @@ public sealed record ComputerToolInput(
         [ComputerAction.Paste] = v => new ComputerCommand.Paste(v.Text!, v.Target, v.AppRef, v.Format ?? "text", v.ReturnState ?? "none", v.Foreground ?? false),
         [ComputerAction.PerformAction] = v => new ComputerCommand.PerformAction(v.Target!, v.ActionName!, v.AppRef, v.ReturnState ?? "none"),
         [ComputerAction.Stop] = v => new ComputerCommand.Stop(v.Reason),
+        [ComputerAction.LocateImage] = v => new ComputerCommand.LocateImage(v.AppRef!, v.TemplatePath!, v.MinScore ?? 0.8),
+        [ComputerAction.ReadText] = v => new ComputerCommand.ReadText(v.AppRef!, v.Region),
       }.ToFrozenDictionary();
 
   /// <summary>Parses the per-action fields against the already-validated action.
@@ -168,7 +177,8 @@ public sealed record ComputerToolInput(
         f._offset, f._limit, f._target, f._from, f._to, f._scrollAmount, f._scrollDirection, f._text, f._value,
         f._prefix, f._suffix, f._selectionType, f._repeat, f._holdSeconds,
         f._format, f._actionName, f._mouseButton, f._clickCount, f._modifiers,
-        f._strategy, f._returnState, f._reason, f._foreground);
+        f._strategy, f._returnState, f._reason, f._foreground,
+        f._templatePath, f._minScore, f._region);
 
     return Validate(action, input);
   }
@@ -201,6 +211,9 @@ public sealed record ComputerToolInput(
     public string? _returnState { get; set; }
     public bool? _foreground { get; set; }
     public bool? _force { get; set; }
+    public string? _templatePath { get; set; }
+    public double? _minScore { get; set; }
+    public VisionRect? _region { get; set; }
 
     public int? _offset { get; set; }
 
@@ -326,7 +339,87 @@ public sealed record ComputerToolInput(
     }
     f._holdSeconds = holdSeconds.Value;
 
+    return ParseVisionScalars(json, f);
+  }
+
+  /// <summary>The vision-only scalars, split out so the shared scalar parser stays
+  ///     inside the complexity gate.</summary>
+  private static DomainError? ParseVisionScalars(JsonElement json, ParsedFields f)
+  {
+    Result<double?> minScore = OptionalScore(json, "min_score");
+    if (!minScore.IsSuccess)
+    {
+      return minScore.Error;
+    }
+    f._minScore = minScore.Value;
+
+    Result<VisionRect?> region = ParseRegionField(json);
+    if (!region.IsSuccess)
+    {
+      return region.Error;
+    }
+    f._region = region.Value;
     return null;
+  }
+
+  /// <summary>An optional match threshold in 0..1: a score outside that range is a typed
+  ///     error, never clamped, because a caller asking for 1.5 means something the tool
+  ///     cannot deliver and should be told so.</summary>
+  private static Result<double?> OptionalScore(JsonElement json, string key)
+  {
+    return !Has(json, key)
+      ? Result.Success<double?>(null)
+      : ReadScore(json, key);
+  }
+
+  private static Result<double?> ReadScore(JsonElement json, string key)
+  {
+    return json.GetProperty(key).ValueKind != JsonValueKind.Number
+        || !json.GetProperty(key).TryGetDouble(out double value)
+      ? Result.Failure<double?>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{key}' must be a number between 0 and 1."))
+      : InScoreRange(key, value);
+  }
+
+  private static Result<double?> InScoreRange(string key, double value) => value is >= 0 and <= 1
+      ? Result.Success<double?>(value)
+      : Result.Failure<double?>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{key}' must be between 0 and 1 (got {value}); it is a match threshold, never clamped."));
+
+  /// <summary>An optional {x, y, width, height} region of a raster; every member is a
+  ///     non-negative integer and width/height must be positive.</summary>
+  private static Result<VisionRect?> ParseRegionField(JsonElement json)
+  {
+    if (!Has(json, "region"))
+    {
+      return Result.Success<VisionRect?>(null);
+    }
+
+    JsonElement region = json.GetProperty("region");
+    if (region.ValueKind != JsonValueKind.Object)
+    {
+      return Result.Failure<VisionRect?>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          "'region' must be an object: {x, y, width, height} in raster pixels."));
+    }
+
+    foreach (string member in new[] { "x", "y", "width", "height" })
+    {
+      if (!region.TryGetProperty(member, out JsonElement el)
+          || el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out int value) || value < 0)
+      {
+        return Result.Failure<VisionRect?>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+            $"'region.{member}' must be a non-negative integer."));
+      }
+    }
+
+    int x = region.GetProperty("x").GetInt32();
+    int y = region.GetProperty("y").GetInt32();
+    int width = region.GetProperty("width").GetInt32();
+    int height = region.GetProperty("height").GetInt32();
+    return width > 0 && height > 0
+      ? Result.Success<VisionRect?>(new VisionRect(x, y, width, height))
+      : Result.Failure<VisionRect?>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'region.width' and 'region.height' must be positive."));
   }
 
   // String and enum-by-name optionals: two halves, each within the complexity gate.
@@ -369,6 +462,13 @@ public sealed record ComputerToolInput(
       return reason.Error;
     }
     f._reason = reason.Value;
+
+    Result<string?> templatePath = ToolArguments.OptionalString(json, "template_path");
+    if (!templatePath.IsSuccess)
+    {
+      return templatePath.Error;
+    }
+    f._templatePath = templatePath.Value;
 
     return null;
   }
@@ -489,7 +589,19 @@ public sealed record ComputerToolInput(
         [ComputerAction.Key] = ValidateKey,
         [ComputerAction.Paste] = ValidatePaste,
         [ComputerAction.PerformAction] = ValidatePerformAction,
+        [ComputerAction.LocateImage] = ValidateLocateImage,
+        [ComputerAction.ReadText] = ValidateReadText,
       }.ToFrozenDictionary();
+
+  private static Result<ComputerToolInput> ValidateLocateImage(ComputerToolInput input) => Required(input, input.AppRef is not null, "app_ref",
+      "The 'locate_image' action requires app_ref: the window whose raster the template is searched in.")
+      .Bind(_ => Required(input, input.TemplatePath is not null, "template_path",
+      "The 'locate_image' action requires template_path: the image file to find inside the window's raster."))
+      .Bind(_ => Check(input, input.TemplatePath is null || input.TemplatePath.Length > 0,
+          ToolErrorCodes.InvalidParameterValue, "'template_path' must be non-empty."));
+
+  private static Result<ComputerToolInput> ValidateReadText(ComputerToolInput input) => Required(input, input.AppRef is not null, "app_ref",
+      "The 'read_text' action requires app_ref: the window whose raster the text is read from.");
 
   private static Result<ComputerToolInput> ValidateListWindows(ComputerToolInput input) => Required(input, input.AppRef is not null, "app_ref",
       "The 'list_windows' action requires app_ref: an object with exactly one of name (string), pid (integer), or aumid (string), optionally plus window_id (integer).");
@@ -896,5 +1008,7 @@ public enum ComputerAction
   Paste,
   PerformAction,
   Stop,
+  LocateImage,
+  ReadText,
 }
 

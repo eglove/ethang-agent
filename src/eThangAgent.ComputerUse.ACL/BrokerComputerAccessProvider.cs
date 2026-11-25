@@ -13,15 +13,16 @@ namespace eThangAgent.ComputerUse.ACL;
 ///     access does not own its supervisor). Registered by net11.0-windows hosts at
 ///     the PROCESS level; hosts without the ACL never enable the tool (and never
 ///     construct this provider).</summary>
-public sealed class BrokerComputerAccessProvider(BrokerRegistry registry) : IComputerAccessProvider
+public sealed class BrokerComputerAccessProvider(BrokerRegistry registry, IVisionAccess vision) : IComputerAccessProvider
 {
   private readonly BrokerRegistry _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+  private readonly IVisionAccess _vision = vision ?? throw new ArgumentNullException(nameof(vision));
   private readonly ConcurrentDictionary<string, BrokerComputerAccess> _accessByRoot = new(StringComparer.OrdinalIgnoreCase);
 
   /// <inheritdoc />
   public IComputerAccess? ForWorkspace(string workspaceRoot)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
-    return _accessByRoot.GetOrAdd(workspaceRoot, root => new BrokerComputerAccess(_registry.GetOrCreate(root)));
+    return _accessByRoot.GetOrAdd(workspaceRoot, root => new BrokerComputerAccess(_registry.GetOrCreate(root), _vision));
   }
 }

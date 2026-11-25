@@ -26,6 +26,7 @@ using eThangAgent.ToolDomain.Lsp;
 using eThangAgent.ToolDomain.Mcp;
 using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
+using eThangAgent.Vision.ACL;
 using eThangAgent.Web.ACL;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -1434,7 +1435,8 @@ public static class AgentComposition
         .AddSingleton(sp => computerAccessProvider ?? new BrokerComputerAccessProvider(
             new BrokerRegistry(
                 () => Path.Combine(AppContext.BaseDirectory, "eThangAgent.ComputerUse.Host.exe"),
-                BrokerRegistry.DefaultPipeNameFor)))
+                BrokerRegistry.DefaultPipeNameFor),
+            new VisionAccess()))
         .AddSingleton<SessionModelPreferences>()
         // The vision fact an image-bearing surface answers from when no turn runs in this
         // container: the app hands every turn to a conversation host, so the root agent here is

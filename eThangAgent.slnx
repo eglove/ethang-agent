@@ -10,6 +10,7 @@
     <Project Path="src/eThangAgent.Mcp.ACL/eThangAgent.Mcp.ACL.csproj" />
     <Project Path="src/eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj" />
     <Project Path="src/eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
+    <Project Path="src/eThangAgent.Vision.ACL/eThangAgent.Vision.ACL.csproj" />
     <Project Path="src/eThangAgent.Web.ACL/eThangAgent.Web.ACL.csproj" />
     <Project Path="src/eThangAgent.PDF.ACL/eThangAgent.PDF.ACL.csproj" />
     <Project Path="src/eThangAgent.ImageComposition.ACL/eThangAgent.ImageComposition.ACL.csproj" />

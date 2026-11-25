@@ -23,6 +23,7 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
   [
     "list_apps", "list_windows", "observe", "click", "drag", "scroll", "type",
     "set_value", "select_text", "key", "paste", "perform_action", "stop",
+    "locate_image", "read_text",
   ];
 
   /// <inheritdoc />
@@ -88,6 +89,12 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
             "Required, perform_action only: the element action to invoke, non-empty; must be one the target element advertises (checked at execution time)."),
         new ToolParameter("reason", ToolParameterType.Text,
             "Optional, stop only: why computer control is being released."),
+        new ToolParameter("template_path", ToolParameterType.Text,
+            "Required, locate_image only: the image file to find inside the window's raster. The template needs visual variation (a shape, icon, or text); a flat patch is refused."),
+        new ToolParameter("min_score", ToolParameterType.WholeNumber,
+            "Optional, locate_image only: the match threshold 0..1 (default 0.8). Never clamped."),
+        new ToolParameter("region", ToolParameterType.ObjectValue,
+            "Optional, read_text only: {x, y, width, height} in raster pixels, restricting the read to that area. Reported bounds stay in the full raster's space."),
         new ToolParameter("foreground", ToolParameterType.Flag,
             "Optional, click/drag/scroll/type/key/paste (default false): bring the target window to the foreground first. " +
             "Input aimed at a window that is not in front is refused with FOREGROUND_REQUIRED, because injection reaches whatever window holds focus."),
@@ -101,7 +108,7 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
   {
     StringBuilder d = new();
     _ = d.Append("Control the desktop: list running apps, list or observe an app's windows,")
-        .Append(" click, drag, scroll, type, set values, select text, press keys, paste, invoke element actions, or stop computer control.")
+        .Append(" click, drag, scroll, type, set values, select text, press keys, paste, invoke element actions, locate an image, read text from a raster, or stop computer control.")
         .Append(" timeoutSeconds is mandatory. action is exactly one of ")
         .Append(string.Join(", ", ActionNames))
         .Append(" (case-sensitive).")
@@ -110,6 +117,11 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         .Append(" it is required for click, scroll, set_value, select_text, and perform_action, optional for type and paste.")
         .Append(" Observe accepts include_screenshot, disable_diffing, force, offset, and limit (force always re-scans and returns the full tree); stop accepts reason; drag takes from_target and to; perform_action takes action_name;")
         .Append(" select_text takes prefix, suffix, and selection_type; key takes repeat and hold_seconds; paste takes format; click takes mouse_button, click_count, and modifiers.")
+        .Append(" locate_image takes template_path (an image file to find inside the window's raster) and min_score (0..1, default 0.8);")
+        .Append(" read_text takes an optional region {x, y, width, height} in raster pixels.")
+        .Append(" These two are the vision path for surfaces that expose pixels instead of an accessibility tree - a remote desktop, a video frame, a drawing:")
+        .Append(" they render one line per finding carrying x, y, width, height, centre, and score (matches) or confidence (words), all in RASTER pixels, so convert with the observe header's factor before using a coordinate target.")
+        .Append(" A template with no visual variation is refused rather than matched everywhere.")
         .Append(" click, drag, scroll, type, key, and paste accept foreground=true to bring the target window forward first.")
         .Append(" Every input action refuses with FOREGROUND_REQUIRED when the target app is not the foreground window, because injection reaches whatever window holds focus.")
         .Append(" Uploading a file through a native Open dialog: observe the dialog, set_value the 'File name:' edit to the absolute path (the receipt is verified against what the element reads back),")
@@ -117,7 +129,8 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         .Append(" Ranges, never clamped: scroll_amount 0..100, click_count >= 1, repeat 1..100, hold_seconds 0..30.")
         .Append(" Membership: mouse_button left|right|middle; modifiers plus-joined ctrl|alt|shift|win; strategy auto|a11y|event;")
         .Append(" return_state compact|full|none; selection_type text|cursor_before|cursor_after; paste format text|md|html; scroll_direction up|down|left|right.")
-        .Append(" Key names are case-insensitive: a-z, 0-9, F1-F24, Return, Enter, Tab, Escape, Esc, Backspace, Delete, Del, Insert, Home, End, PageUp, Prior, PageDown, Next, Up, Down, Left, Right, Space;")
+        .Append(" Key names are case-insensitive: a-z, 0-9, F1-F24, punctuation, Return, Enter, Tab, Escape, Esc, Backspace, Delete, Del, Insert, Home, End, PageUp, Prior, PageDown, Next, Up, Down, Left, Right, Space;")
+        .Append(" punctuation resolves through the active keyboard layout, so '.' is the period key and '!' carries the shift it needs;")
         .Append(" modifiers ctrl|control|alt|shift|win|super|meta join with '+' and come first (ctrl+shift+Tab). One key per call.")
         .Append(" Observe shows one page of the element tree: 400 elements by default, starting at offset. When elements exist beyond the page, the tree text ends with a `paging:` line naming the total and the offset that reaches the next page - so a large tree is walked page by page and never silently cut. A tree deeper than the walk's depth cap says so in that line, and elements below that depth are not reachable by paging.")
         .Append(" Output: observe renders the element tree text as content; with include_screenshot true the screenshot is attached as an image when the model has image input,")
@@ -157,6 +170,7 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
     {
       ComputerOutcome.Observation observation => RenderObservation(v, observation),
       ComputerOutcome.Receipt receipt => RenderReceipt(v, receipt),
+      ComputerOutcome.VisionResult seen => RenderVision(v, seen),
       ComputerOutcome.Failure failure => RenderFailure(failure),
       _ => throw new InvalidOperationException("unreachable: outcome is a validated record family"),
     };
@@ -177,6 +191,48 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
     IReadOnlyList<ToolResultImage>? images =
         observation.Screenshot is ToolResultImage shot && _vision.AcceptsImages ? [shot] : null;
     return new ToolResult(content, false, Images: images);
+  }
+
+  /// <summary>A vision result: one line per finding, each carrying the raster-pixel box
+  ///     the model needs to address it. A locate_image with no match says so explicitly
+  ///     rather than rendering an empty success, because "not found" is the answer.
+  ///     </summary>
+  private static ToolResult RenderVision(ComputerToolInput v, ComputerOutcome.VisionResult result)
+  {
+    StringBuilder sb = new();
+    _ = sb.Append(CultureInfo.InvariantCulture,
+        $"[computer] ok {ActionName(v.Action)} raster={result.RasterWidth}x{result.RasterHeight}");
+    if (v.Action == ComputerAction.LocateImage)
+    {
+      _ = sb.Append(CultureInfo.InvariantCulture, $" matches={result.Matches.Count}");
+      foreach (VisionMatch match in result.Matches)
+      {
+        _ = sb.Append(CultureInfo.InvariantCulture,
+            $"\nmatch x={match.Bounds.X} y={match.Bounds.Y} width={match.Bounds.Width} height={match.Bounds.Height} centre=({match.Bounds.Centre.X},{match.Bounds.Centre.Y}) score={match.Score:0.###}");
+      }
+
+      if (result.Matches.Count == 0)
+      {
+        _ = sb.Append("\n[computer] no match at or above the threshold: the template is not in this raster, or the threshold is too high.");
+      }
+    }
+    else
+    {
+      _ = sb.Append(CultureInfo.InvariantCulture, $" words={result.Words.Count}");
+      foreach (VisionWord word in result.Words)
+      {
+        _ = sb.Append(CultureInfo.InvariantCulture,
+            $"\nword \"{word.Text}\" x={word.Bounds.X} y={word.Bounds.Y} width={word.Bounds.Width} height={word.Bounds.Height} centre=({word.Bounds.Centre.X},{word.Bounds.Centre.Y}) confidence={word.Confidence:0.##}");
+      }
+
+      if (result.Words.Count == 0)
+      {
+        _ = sb.Append("\n[computer] no text was recognised in this raster or region.");
+      }
+    }
+
+    _ = sb.Append("\n[computer] bounds are raster pixels: convert to a screen coordinate with the factor the observe header states.");
+    return new ToolResult(sb.ToString(), false);
   }
 
   /// <summary>A seam failure: the standard error block plus the code's retry hint

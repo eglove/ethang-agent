@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- OpenCvSharp and Tesseract ship native binaries; the ACL is Windows-only
+         like every other desktop-facing ACL in the solution. -->
+    <TargetFramework>net11.0-windows</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
+    <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Template matching and raster geometry. The managed package carries the
+         API; the runtime package carries the native OpenCV binaries. -->
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20261107" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20261107" />
+    <!-- OCR over a raster region: reads text a canvas surface never exposes
+         through accessibility. -->
+    <PackageReference Include="Tesseract" Version="5.2.0" />
+    <!-- The English language data ships as a package asset, so the harness carries no
+         tessdata directory on the user's machine: the database stays the only artifact. -->
+    <PackageReference Include="Tesseract.Data.English" Version="4.0.0" />
+  </ItemGroup>
+</Project>

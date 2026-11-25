@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <!-- Public test classes are the xUnit norm (xUnit1000 demands public test classes),
+         so CA1515's make-internal advice cannot apply here. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Vision.ACL/eThangAgent.Vision.ACL.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Issue #366: the ceiling and the opt-in skip have one source of truth. -->
+    <ProjectReference Include="../eThangAgent.TestSupport/eThangAgent.TestSupport.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,4 +1,5 @@
 using eThangAgent.ToolDomain;
+using eThangAgent.Vision.ACL;
 
 namespace eThangAgent.ComputerUse.ACL.Tests;
 
@@ -12,7 +13,7 @@ public class CaptureParseFailureTests
     BrokerSupervisor supervisor = new("C:\\no\\such\\host.exe", "ethang-parse-test", "t");
     try
     {
-      BrokerComputerAccess access = new(supervisor);
+      BrokerComputerAccess access = new(supervisor, new VisionAccess());
       await using (access.ConfigureAwait(true))
       {
         BrokerReply reply = new(

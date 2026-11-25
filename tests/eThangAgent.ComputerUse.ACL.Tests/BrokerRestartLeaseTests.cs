@@ -1,4 +1,5 @@
 using eThangAgent.ToolDomain;
+using eThangAgent.Vision.ACL;
 
 namespace eThangAgent.ComputerUse.ACL.Tests;
 
@@ -19,7 +20,7 @@ public class BrokerRestartLeaseTests
     BrokerSupervisor supervisor = new(hostPath, pipeName, "restart-ws");
     try
     {
-      BrokerComputerAccess access = new(supervisor);
+      BrokerComputerAccess access = new(supervisor, new VisionAccess());
       await using (access.ConfigureAwait(true))
       {
         // The session is healthy and holds the lease.
@@ -53,7 +54,7 @@ public class BrokerRestartLeaseTests
     BrokerSupervisor supervisor = new(hostPath, pipeName, "restart-stop-ws");
     try
     {
-      BrokerComputerAccess access = new(supervisor);
+      BrokerComputerAccess access = new(supervisor, new VisionAccess());
       await using (access.ConfigureAwait(true))
       {
         _ = await access.ExecuteAsync(

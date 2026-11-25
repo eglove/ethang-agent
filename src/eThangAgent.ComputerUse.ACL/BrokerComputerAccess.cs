@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Text.Json;
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.ACL;
@@ -17,9 +18,10 @@ namespace eThangAgent.ComputerUse.ACL;
 ///     targets resolve through the <see cref="FrameRegistry"/> against the newest
 ///     delivered frame (STALE_STATE on any miss) and travel to the broker as resolved
 ///     global screen points. The CancellationToken flows into the pipe client.</summary>
-public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsSupervisor = false) : IComputerAccess, IAsyncDisposable
+public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, IVisionAccess vision, bool ownsSupervisor = false) : IComputerAccess, IAsyncDisposable
 {
   private readonly BrokerSupervisor _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
+  private readonly IVisionAccess _vision = vision ?? throw new ArgumentNullException(nameof(vision));
   private readonly ObservationLedger _ledger = new();
   private readonly FrameRegistry _frames = new();
   private readonly bool _ownsSupervisor = ownsSupervisor;
@@ -105,9 +107,94 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
           JsonSerializer.SerializeToElement(new { app_ref = AppRef(list.App) }, BrokerWire.Options), ct)
         .ConfigureAwait(false),
       ComputerCommand.Observe observe => await ObserveAsync(observe, ct).ConfigureAwait(false),
+      ComputerCommand.LocateImage locate => await LocateImageAsync(locate, ct).ConfigureAwait(false),
+      ComputerCommand.ReadText read => await ReadTextAsync(read, ct).ConfigureAwait(false),
       ComputerCommand.Stop => await StopAsync(ct).ConfigureAwait(false),
       _ => await ActionAsync(command, ct).ConfigureAwait(false),
     };
+  }
+
+  /// <summary>Captures the window's raster and searches it for the template: the
+  ///     vision path that makes a canvas addressable. The raster is the broker's PNG,
+  ///     not the downscaled delivery copy, so reported bounds are in the same pixel
+  ///     space the observe header's factor converts from.</summary>
+  private async Task<ComputerOutcome> LocateImageAsync(ComputerCommand.LocateImage command, CancellationToken ct)
+  {
+    RasterCapture capture = await CaptureRasterAsync(command.App, ct).ConfigureAwait(false);
+    if (capture.Failure is not null)
+    {
+      return capture.Failure;
+    }
+
+    byte[] template;
+    try
+    {
+      template = await File.ReadAllBytesAsync(command.TemplatePath, ct).ConfigureAwait(false);
+    }
+    catch (IOException ex)
+    {
+      return new ComputerOutcome.Failure(ComputerErrorCodes.InvalidApp, $"the template could not be read: {ex.Message}");
+    }
+    catch (UnauthorizedAccessException ex)
+    {
+      return new ComputerOutcome.Failure(ComputerErrorCodes.InvalidApp, $"the template could not be read: {ex.Message}");
+    }
+
+    Result<IReadOnlyList<VisionMatch>> located = _vision.Locate(capture.Png, template, command.MinScore, ct);
+    return located.IsSuccess
+      ? new ComputerOutcome.VisionResult(located.Value, [], capture.Width, capture.Height)
+      : VisionFailure(located.Error);
+  }
+
+  /// <summary>Captures the window's raster and reads its text, optionally within one
+  ///     region.</summary>
+  private async Task<ComputerOutcome> ReadTextAsync(ComputerCommand.ReadText command, CancellationToken ct)
+  {
+    RasterCapture capture = await CaptureRasterAsync(command.App, ct).ConfigureAwait(false);
+    if (capture.Failure is not null)
+    {
+      return capture.Failure;
+    }
+
+    Result<IReadOnlyList<VisionWord>> read = _vision.ReadText(capture.Png, command.Region, ct);
+    return read.IsSuccess
+      ? new ComputerOutcome.VisionResult([], read.Value, capture.Width, capture.Height)
+      : VisionFailure(read.Error);
+  }
+
+  /// <summary>Maps a vision failure onto the seam's typed failure surface: the code is
+  ///     carried through so the model reads the specific correction, not a generic one.
+  ///     </summary>
+  private static ComputerOutcome.Failure VisionFailure(DomainError error) =>
+      new(error.Code, error.Message);
+
+  /// <summary>One captured raster: the broker's PNG bytes and their pixel size, or the
+  ///     typed failure that prevented the capture.</summary>
+  private sealed record RasterCapture(byte[] Png, int Width, int Height, ComputerOutcome.Failure? Failure);
+
+  /// <summary>Captures the window's raster for a vision request. A blank raster is
+  ///     reported as a failure rather than searched, because there is nothing in it to
+  ///     find.</summary>
+  private async Task<RasterCapture> CaptureRasterAsync(ComputerAppRef app, CancellationToken ct)
+  {
+    ComputerOutcome outcome = await RequestAsync("capture_app",
+        JsonSerializer.SerializeToElement(new { app_ref = AppRef(app), include_screenshot = true }, BrokerWire.Options), ct)
+      .ConfigureAwait(false);
+    if (outcome is ComputerOutcome.Failure failure)
+    {
+      return new RasterCapture([], 0, 0, failure);
+    }
+
+    if (outcome is not ComputerOutcome.Observation { Screenshot: { } shot } observation)
+    {
+      string reason = outcome is ComputerOutcome.Observation { WithheldReason: { } withheld }
+        ? withheld
+        : "the window's raster could not be captured for vision.";
+      return new RasterCapture([], 0, 0, new ComputerOutcome.Failure(ComputerErrorCodes.Internal, reason));
+    }
+
+    byte[] png = Convert.FromBase64String(shot.Base64Data);
+    return new RasterCapture(png, observation.Frame?.Width ?? 0, observation.Frame?.Height ?? 0, null);
   }
 
   private async Task<ComputerOutcome> ObserveAsync(ComputerCommand.Observe command, CancellationToken ct)
@@ -510,9 +597,11 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
         capture.Elements, treeShownToModel: treeShown, screenshotOnly: false);
     _ = stateId;
 
-    RegisterScreenshot(capture, out ToolResultImage? screenshot, out string? withheld, out ComputerFrameRef? frame);
+    RegisterScreenshot(capture, out ToolResultImage? screenshot, out string? withheld, out ComputerFrameRef? frame,
+        out DeliveredScreenshot? delivered);
 
-    string treeText = TreeTextRenderer.Render(capture);
+    string treeText = TreeTextRenderer.Render(capture, deliveredWidth: delivered?.Width,
+        deliveredHeight: delivered?.Height);
     IReadOnlyList<ComputerElement> elements = [.. capture.Elements.Select(e => new ComputerElement(
         e.Index, e.Role, e.Kind, e.Title, e.Value, e.Bounds, e.Enabled, e.Editable, e.Actions,
         e.Focused, e.Selected, e.Pressable, e.HasMenu, e.ChildrenTotal, e.ChildrenShown, e.ChildrenOffset))];
@@ -530,11 +619,12 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
   ///     blank raster is withheld with its reason, a delivered raster re-encodes through
   ///     ScreenshotEncoder and registers as a coordinate frame over the window bounds.</summary>
   private void RegisterScreenshot(CaptureAppResult capture, out ToolResultImage? screenshot,
-      out string? withheld, out ComputerFrameRef? frame)
+      out string? withheld, out ComputerFrameRef? frame, out DeliveredScreenshot? delivered)
   {
     screenshot = null;
     withheld = null;
     frame = null;
+    delivered = null;
     if (capture.Screenshot is not { } shot)
     {
       return;
@@ -547,11 +637,12 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     }
 
     byte[] png = Convert.FromBase64String(shot.Data);
-    DeliveredScreenshot delivered = ScreenshotEncoder.Encode(png);
-    screenshot = new ToolResultImage("image/jpeg", delivered.Base64);
+    DeliveredScreenshot encoded = ScreenshotEncoder.Encode(png);
+    delivered = encoded;
+    screenshot = new ToolResultImage("image/jpeg", encoded.Base64);
     ScreenshotWindowRect rect = new(capture.Window.Bounds[0], capture.Window.Bounds[1],
         capture.Window.Bounds[2], capture.Window.Bounds[3]);
-    frame = _frames.Add(delivered.Width, delivered.Height, rect, actionable: true);
+    frame = _frames.Add(encoded.Width, encoded.Height, rect, actionable: true);
   }
 
   /// <summary>M14: for name/aumid refs the broker resolves the pid; the ledger key derives

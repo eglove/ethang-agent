@@ -1,4 +1,5 @@
 using eThangAgent.ToolDomain;
+using eThangAgent.Vision.ACL;
 
 namespace eThangAgent.ComputerUse.ACL.Tests;
 
@@ -18,7 +19,7 @@ public class StopReceiptLeaseTests
     BrokerSupervisor supervisor = new(hostPath, pipeName, "stop-ws");
     try
     {
-      BrokerComputerAccess access = new(supervisor);
+      BrokerComputerAccess access = new(supervisor, new VisionAccess());
       await using (access.ConfigureAwait(true))
       {
         // Action 1 lazily takes the lease (takeover + key), then Stop releases it.
