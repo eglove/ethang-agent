@@ -233,6 +233,10 @@ public sealed partial class InputDispatch(InputDispatchServices services)
   ///     refusal to surface.</summary>
   private readonly Func<int, BrokerResponse?> _bringForward = services.BringForward ?? NoBringForward;
 
+  /// <summary>True when a bring-forward surface is wired: the production construction
+  ///     path carries the real one, and only a test double leaves it absent.</summary>
+  public bool HasBringForwardSurface => services.BringForward is not null;
+
   /// <summary>No bring-forward surface wired (test doubles): the refusal names it.</summary>
   private static BrokerResponse? NoBringForward(int pid)
   {

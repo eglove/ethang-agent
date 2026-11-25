@@ -77,12 +77,89 @@ public sealed record UiaWalk(IReadOnlyList<object> Rows, IReadOnlyList<Automatio
     }
 
     bool truncated = false;
-    foreach (AutomationElement child in ChildrenOf(element))
+    foreach (AutomationElement child in InWalkOrder(ChildrenOf(element)))
     {
       truncated |= Walk(child, rows, cache, depth + 1);
     }
 
     return truncated;
+  }
+
+  /// <summary>The walk rank of a control type: lower ranks are walked first. A browser
+  ///     window's control-view children lead with the tab strip, toolbar and omnibox, so an
+  ///     unranked walk spends a page-sized slice on chrome while the document - the thing
+  ///     the caller came for - sits far past it. Content-bearing roles therefore rank ahead
+  ///     of window chrome, and an unrecognised role ranks with content because burying it
+  ///     late is the failure that costs the caller the thing it asked for.</summary>
+  internal static int RankFor(ControlType type) =>
+    Ranks.TryGetValue(type, out int rank) ? rank : DefaultRank;
+
+  /// <summary>The rank every role that no table entry names falls into: the container
+  ///     rank, because an unrecognised role is more likely to hold content than to be
+  ///     window chrome.</summary>
+  private const int DefaultRank = 1;
+
+  /// <summary>Role to walk rank. Content first, then containers, then interactive
+  ///     leaves, then navigation chrome, then window chrome.</summary>
+  private static readonly Dictionary<ControlType, int> Ranks = new()
+  {
+    [ControlType.Document] = 0,
+    [ControlType.Custom] = 0,
+    [ControlType.Edit] = 0,
+    [ControlType.Text] = 0,
+    [ControlType.Pane] = 1,
+    [ControlType.Group] = 1,
+    [ControlType.List] = 1,
+    [ControlType.ListItem] = 1,
+    [ControlType.Button] = 2,
+    [ControlType.Hyperlink] = 2,
+    [ControlType.CheckBox] = 2,
+    [ControlType.RadioButton] = 2,
+    [ControlType.Tab] = 3,
+    [ControlType.TabItem] = 3,
+    [ControlType.Tree] = 3,
+    [ControlType.TreeItem] = 3,
+    [ControlType.MenuBar] = 3,
+    [ControlType.Menu] = 3,
+    [ControlType.MenuItem] = 3,
+    [ControlType.ToolBar] = 5,
+    [ControlType.StatusBar] = 5,
+    [ControlType.TitleBar] = 5,
+    [ControlType.ScrollBar] = 5,
+  };
+
+  /// <summary>Orders sibling control types by <see cref="RankFor"/>, keeping the walk's
+  ///     own order within a rank (a stable sort: siblings of equal rank stay as the
+  ///     automation tree presented them).</summary>
+  internal static IReadOnlyList<ControlType> OrderChildren(IReadOnlyList<ControlType> children) =>
+    [.. children.Select((type, position) => (type, position))
+      .OrderBy(entry => RankFor(entry.type))
+      .ThenBy(entry => entry.position)
+      .Select(entry => entry.type)];
+
+  /// <summary>The children in walk order: content-bearing subtrees first, so a page-sized
+  ///     slice of the walk carries what the caller asked for rather than window chrome.
+  ///     Siblings of equal rank keep the automation tree's own order.</summary>
+  private static List<AutomationElement> InWalkOrder(List<AutomationElement> children) =>
+    children.Count < 2
+      ? children
+      : [.. children
+      .Select((element, position) => (element, position, rank: RankFor(RoleOf(element))))
+      .OrderBy(entry => entry.rank)
+      .ThenBy(entry => entry.position)
+      .Select(entry => entry.element)];
+
+  /// <summary>An element's control type, or Custom when it vanished mid-walk.</summary>
+  private static ControlType RoleOf(AutomationElement element)
+  {
+    try
+    {
+      return element.ControlType;
+    }
+    catch (ElementNotAvailableException)
+    {
+      return ControlType.Custom;
+    }
   }
 
   /// <summary>The children to descend into. The control view stops at a frame's document

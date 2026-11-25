@@ -102,7 +102,7 @@ public sealed class PipeServer
         hooks ?? InputDispatch.RealHooks(),
         DoubleBacked: anyHook,
         Targeted: targetedInput,
-        BringForward: bringForward));
+        BringForward: bringForward ?? InputDispatch.BringWindowForward));
     Observer = observer ?? new SkeletonObserver();
     Lease.OwnerLost += Observer.OnOwnerLost;
     Lease.OwnerLost += _ => InputDispatch.CancelActiveInput();
