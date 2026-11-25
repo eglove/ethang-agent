@@ -108,6 +108,8 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         .Append(" select_text takes prefix, suffix, and selection_type; key takes repeat and hold_seconds; paste takes format; click takes mouse_button, click_count, and modifiers.")
         .Append(" click, drag, scroll, type, key, and paste accept foreground=true to bring the target window forward first.")
         .Append(" Every input action refuses with FOREGROUND_REQUIRED when the target app is not the foreground window, because injection reaches whatever window holds focus.")
+        .Append(" Uploading a file through a native Open dialog: observe the dialog, set_value the 'File name:' edit to the absolute path (the receipt is verified against what the element reads back),")
+        .Append(" then click the Open button by element index. Both steps are UIA operations on the dialog itself, so neither depends on which window holds focus; type and Return do, and are the fallback only when the edit exposes no Value pattern.")
         .Append(" Ranges, never clamped: scroll_amount 0..100, click_count >= 1, repeat 1..100, hold_seconds 0..30.")
         .Append(" Membership: mouse_button left|right|middle; modifiers plus-joined ctrl|alt|shift|win; strategy auto|a11y|event;")
         .Append(" return_state compact|full|none; selection_type text|cursor_before|cursor_after; paste format text|md|html; scroll_direction up|down|left|right.")
