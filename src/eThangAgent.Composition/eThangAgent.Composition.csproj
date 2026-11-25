@@ -17,6 +17,7 @@
     <ProjectReference Include="../eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Documents.ACL/eThangAgent.Documents.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.PDF.ACL/eThangAgent.PDF.ACL.csproj" />
+    <ProjectReference Include="../eThangAgent.Presentation.ACL/eThangAgent.Presentation.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.ImageComposition.ACL/eThangAgent.ImageComposition.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Web.ACL/eThangAgent.Web.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />

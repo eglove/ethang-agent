@@ -58,6 +58,7 @@ public class SingleToolSurfaceTests
   [InlineData("read_image")]
   [InlineData("docx")]
   [InlineData("pdf")]
+  [InlineData("pptx")]
   [InlineData("computer")]
   public void Former_Top_Level_Tools_Resolve_On_The_Capability_Surface(string action)
   {

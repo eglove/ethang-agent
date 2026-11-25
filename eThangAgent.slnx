@@ -13,6 +13,7 @@
     <Project Path="src/eThangAgent.Web.ACL/eThangAgent.Web.ACL.csproj" />
     <Project Path="src/eThangAgent.PDF.ACL/eThangAgent.PDF.ACL.csproj" />
     <Project Path="src/eThangAgent.ImageComposition.ACL/eThangAgent.ImageComposition.ACL.csproj" />
+    <Project Path="src/eThangAgent.Presentation.ACL/eThangAgent.Presentation.ACL.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj" />
@@ -25,6 +26,7 @@
     <Project Path="tests/eThangAgent.Web.ACL.Tests/eThangAgent.Web.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.PDF.ACL.Tests/eThangAgent.PDF.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.ImageComposition.ACL.Tests/eThangAgent.ImageComposition.ACL.Tests.csproj" />
+    <Project Path="tests/eThangAgent.Presentation.ACL.Tests/eThangAgent.Presentation.ACL.Tests.csproj" />
   </Folder>
   <Project Path="src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
   <Project Path="src/eThangAgent.Analyzers/eThangAgent.Analyzers.csproj" />

@@ -21,6 +21,7 @@
       "tests/eThangAgent.OpenRouter.ACL.Tests/eThangAgent.OpenRouter.ACL.Tests.csproj",
       "tests/eThangAgent.PDF.ACL.Tests/eThangAgent.PDF.ACL.Tests.csproj",
       "tests/eThangAgent.Plan.Domain.Tests/eThangAgent.Plan.Domain.Tests.csproj",
+      "tests/eThangAgent.Presentation.ACL.Tests/eThangAgent.Presentation.ACL.Tests.csproj",
       "tests/eThangAgent.Provider.Wire.Tests/eThangAgent.Provider.Wire.Tests.csproj",
       "tests/eThangAgent.Roslyn.ACL.Tests/eThangAgent.Roslyn.ACL.Tests.csproj",
       "tests/eThangAgent.SharedKernel.Tests/eThangAgent.SharedKernel.Tests.csproj",

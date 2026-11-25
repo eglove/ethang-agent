@@ -36,7 +36,7 @@ public sealed partial class DoctrineTests
   [GeneratedRegex(@"ListRecentAsync|CountKindForAgentAsync")]
   private static partial Regex AuditReadPattern();
 
-  [GeneratedRegex(@"Assert\.Skip\s*\(")]
+  [GeneratedRegex(@"Assert\.Skip\w*\s*\(")]
   private static partial Regex SkipCallPattern();
 
   [GeneratedRegex(@"Trait\s*\(\s*""Category""\s*,\s*""Process""\s*\)")]
@@ -201,7 +201,7 @@ public sealed partial class DoctrineTests
   public void NoSkippedTests_EveryTestRunsOrIsDeleted()
   {
     // The helper is where the one permitted skip lives; it is not a test file.
-    string[] allowlist = ["tests/eThangAgent.Tests.Shared/OptInTest.cs"];
+    string[] allowlist = ["tests/eThangAgent.TestSupport/OptInTest.cs"];
 
     List<string> violations = [];
     foreach (string file in SourceFiles("tests"))
